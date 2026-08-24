@@ -1,9 +1,9 @@
 {
   "name": "gomoku",
   "type": "app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "label": "五子棋",
-  "description": "原生 DOM 五子棋",
+  "description": "支持房间联机、观战、实时同步与断线恢复的原生 DOM 五子棋",
   "author": "ClassIntra",
   "icon": "./icon.svg",
   "color": "#2563eb",
