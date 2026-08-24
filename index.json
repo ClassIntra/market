@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-24T00:00:00.000Z",
+  "apps": [
+    {
+      "name": "gomoku",
+      "label": "五子棋",
+      "version": "1.0.0",
+      "description": "原生 DOM 五子棋",
+      "author": "ClassIntra",
+      "icon": "./icon.svg",
+      "files": [
+        "apps/gomoku/manifest.json",
+        "apps/gomoku/icon.svg",
+        "apps/gomoku/frontend/entry.js",
+        "apps/gomoku/frontend/style.css",
+        "apps/gomoku/backend/routes.js"
+      ]
+    }
+  ]
+}

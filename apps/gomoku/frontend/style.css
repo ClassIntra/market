@@ -1,0 +1,136 @@
+.gomoku-app {
+  min-height: 100%;
+  padding: 32px;
+  color: var(--ci-color-text, #172033);
+  background: var(--ci-color-surface, #f8fafc);
+  box-sizing: border-box;
+}
+
+.gomoku-header {
+  max-width: 760px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gomoku-header h1 {
+  margin: 0 0 6px;
+  font-size: 30px;
+}
+
+.gomoku-status {
+  margin: 0;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.gomoku-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.gomoku-actions button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #fff;
+  background: #2563eb;
+  cursor: pointer;
+  font: inherit;
+}
+
+.gomoku-actions button[data-action="leave"] {
+  background: #64748b;
+}
+
+.gomoku-board {
+  width: min(760px, 100%);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  grid-template-rows: repeat(15, 1fr);
+  background: #d6a85a;
+  border: 2px solid #9a6c2f;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(30, 41, 59, .16);
+  box-sizing: border-box;
+}
+
+.gomoku-cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.gomoku-cell::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  height: 2px;
+  background: rgba(75, 48, 20, .55);
+  transform: translate(-50%, -50%);
+}
+
+.gomoku-cell::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 100%;
+  background: rgba(75, 48, 20, .55);
+  transform: translate(-50%, -50%);
+}
+
+.gomoku-cell.is-black::marker,
+.gomoku-cell.is-white::marker {
+  content: "";
+}
+
+.gomoku-cell.is-black,
+.gomoku-cell.is-white {
+  z-index: 1;
+}
+
+.gomoku-cell.is-black::after,
+.gomoku-cell.is-white::after {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  background: #111827;
+  box-shadow: inset -4px -5px 8px rgba(0, 0, 0, .3), 0 3px 5px rgba(15, 23, 42, .35);
+}
+
+.gomoku-cell.is-black::before,
+.gomoku-cell.is-white::before {
+  display: none;
+}
+
+.gomoku-cell.is-white::after {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  box-shadow: inset -3px -4px 7px rgba(148, 163, 184, .35), 0 3px 5px rgba(15, 23, 42, .25);
+}
+
+.gomoku-cell:disabled {
+  cursor: default;
+}
+
+@media (max-width: 600px) {
+  .gomoku-app {
+    padding: 20px 12px;
+  }
+
+  .gomoku-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
