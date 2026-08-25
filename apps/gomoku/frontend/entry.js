@@ -15,7 +15,8 @@
   function mount(container, context) {
     if (!container || container.__gomokuUnmount) return;
     var websocket = context.websocket || (window.ClassIntra && window.ClassIntra.websocket);
-    var routeRoom = context.route && context.route.params && context.route.params.roomCode;
+    var route = context.route || {};
+    var routeRoom = (route.params && (route.params.roomCode || route.params.room_code)) || (route.query && (route.query.roomCode || route.query.room_code));
     var roomCode = routeRoom ? String(routeRoom).toUpperCase() : '';
     var state = { size: 15, board: [], turn: 'black', winner: null, status: 'active', members: [] };
     var disposed = false;
@@ -23,7 +24,7 @@
     var subscriptions = [];
     var root = document.createElement('section');
     root.className = 'gomoku-app';
-    root.innerHTML = '<div class="gomoku-shell"><div class="gomoku-header"><div><p class="gomoku-kicker">CLASSINTRA GAME</p><h1>五子棋</h1><p class="gomoku-status"></p></div><div class="gomoku-actions"><button type="button" data-action="copy" class="is-secondary">复制房间码</button><button type="button" data-action="leave" class="is-secondary">离开房间</button></div></div><div class="gomoku-entry"><div class="gomoku-entry-card"><h2>进入棋局</h2><p>创建房间或输入房间码加入，支持 15、19、21 路棋盘。</p><div class="gomoku-entry-row"><label>棋盘规格<select data-field="size" data-size="15"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="21">21 × 21</option></select></label><button type="button" data-action="create">创建房间</button></div><div class="gomoku-entry-row"><label>房间码<input data-field="room" maxlength="6" autocomplete="off" placeholder="输入 6 位房间码"></label><button type="button" data-action="join">加入对局</button><button type="button" data-action="watch" class="is-secondary">观战</button></div><p class="gomoku-error" aria-live="polite"></p></div></div><div class="gomoku-roombar"><strong data-role="room">未进入房间</strong><span data-role="identity"></span><span data-role="connection">未连接</span></div><div class="gomoku-layout"><div class="gomoku-board" role="grid" aria-label="五子棋棋盘"></div><aside class="gomoku-info"><h2>房间成员</h2><ul data-role="members"></ul><div class="gomoku-finished"><p data-role="finished"></p><button type="button" data-action="continue">继续下一局</button><button type="button" data-action="color" class="is-secondary">换色</button></div></aside></div></div>';
+    root.innerHTML = '<div class="gomoku-shell"><div class="gomoku-header"><div><p class="gomoku-kicker">CLASSINTRA GAME</p><h1>五子棋</h1><p class="gomoku-status" aria-live="polite"></p></div><div class="gomoku-actions"><button type="button" data-action="copy" class="is-secondary">复制房间码</button><button type="button" data-action="share-chat" class="is-secondary">发到聊天</button><button type="button" data-action="share-community" class="is-secondary">发到社区</button><button type="button" data-action="leave" class="is-secondary">离开房间</button></div></div>' + '<div class="gomoku-entry"><div class="gomoku-entry-card"><h2>进入棋局</h2><p>创建房间或输入房间码加入，支持 15、19、21 路棋盘。</p><div class="gomoku-entry-row"><label>棋盘规格<select data-field="size" data-size="15"><option value="15">15 × 15</option><option value="19">19 × 19</option><option value="21">21 × 21</option></select></label><button type="button" data-action="create">创建房间</button></div><div class="gomoku-entry-row"><label>房间码<input data-field="room" maxlength="6" autocomplete="off" placeholder="输入 6 位房间码"></label><button type="button" data-action="join">加入对局</button><button type="button" data-action="watch" class="is-secondary">观战</button></div><p class="gomoku-error" aria-live="polite"></p></div></div><div class="gomoku-roombar"><strong data-role="room">未进入房间</strong><span data-role="identity"></span><span data-role="connection">未连接</span></div><div class="gomoku-layout"><div class="gomoku-board" role="grid" aria-label="五子棋棋盘"></div><aside class="gomoku-info"><h2>房间成员</h2><ul data-role="members"></ul><div class="gomoku-finished"><p data-role="finished"></p><button type="button" data-action="continue">继续下一局</button><button type="button" data-action="color" class="is-secondary">换色</button></div></aside></div></div>';
     container.replaceChildren(root);
 
     var statusElement = root.querySelector('.gomoku-status');
@@ -49,6 +50,19 @@
     }
     function setError(message) { errorElement.textContent = message || ''; }
     function send(message) { if (websocket && typeof websocket.send === 'function') websocket.send(message); }
+    function transportReady() { return !!(websocket && typeof websocket.send === 'function' && typeof websocket.on === 'function'); }
+    function shareRoom(target) {
+      if (!roomCode) { setError('请先进入房间'); return; }
+      var message = '来和我一起下五子棋，房间码：' + roomCode;
+      if (target === 'chat') {
+        if (context.eventBus && typeof context.eventBus.emit === 'function') context.eventBus.emit('chat:compose', { content: message });
+        else if (context.router && typeof context.router.push === 'function') context.router.push({ path: '/chat', query: { compose: message } });
+        setError('已打开聊天，房间码可直接发送');
+        return;
+      }
+      if (context.router && typeof context.router.push === 'function') context.router.push({ path: '/community', query: { compose: message } });
+      setError('已打开社区，房间码可直接发布');
+    }
     function onSocket(type, handler) {
       if (!websocket || typeof websocket.on !== 'function') return;
       websocket.on(type, handler);
@@ -124,10 +138,18 @@
     function actionRequest(path, message) {
       return request(context, 'POST', '/gomoku/rooms/' + encodeURIComponent(roomCode) + path, {}).then(applyState).catch(function(error) { setError(error.message || message); });
     }
+    function leaveRoom() {
+      actionRequest('/leave', '离开房间失败').then(function() { send({ type: 'gomoku_unsubscribe', room_code: roomCode }); roomCode = ''; render(); });
+    }
     function leave() {
       if (!roomCode) return navigateHome();
-      if (!window.confirm('离开后需要重新输入房间码才能回来，确定离开吗？')) return;
-      actionRequest('/leave', '离开房间失败').then(function() { send({ type: 'gomoku_unsubscribe', room_code: roomCode }); roomCode = ''; render(); });
+      if (context.modal && typeof context.modal.confirm === 'function') {
+        context.modal.confirm({ title: '离开房间', message: '离开后需要重新输入房间码才能回来，确定离开吗？', confirmText: '离开', cancelText: '取消' }).then(function(confirmed) {
+          if (confirmed) leaveRoom();
+        });
+        return;
+      }
+      leaveRoom();
     }
     function navigateHome() { if (context.router && typeof context.router.push === 'function') context.router.push('/'); }
     function onBoardClick(event) {
@@ -136,7 +158,7 @@
       pending = true;
       render();
       send({ type: 'gomoku_move', room_code: roomCode, row: Number(cell.dataset.row), col: Number(cell.dataset.col) });
-      if (!websocket) actionRequest('/move', '落子失败');
+      if (!transportReady()) actionRequest('/move', '落子失败');
       window.setTimeout(function() { pending = false; render(); }, 1200);
     }
     function onAction(event) {
@@ -145,10 +167,17 @@
       if (action.dataset.action === 'create') create();
       if (action.dataset.action === 'join') enter(root.querySelector('[data-field="room"]').value, 'join');
       if (action.dataset.action === 'watch') enter(root.querySelector('[data-field="room"]').value, 'watch');
-      if (action.dataset.action === 'copy' && roomCode && navigator.clipboard) navigator.clipboard.writeText(roomCode).then(function() { setError('房间码已复制'); });
+      if (action.dataset.action === 'copy' && roomCode) {
+        var copyPromise = navigator.clipboard && navigator.clipboard.writeText
+          ? navigator.clipboard.writeText(roomCode)
+          : Promise.reject(new Error('clipboard-unavailable'));
+        copyPromise.then(function() { setError('房间码已复制'); }).catch(function() { setError('房间码：' + roomCode); });
+      }
+      if (action.dataset.action === 'share-chat') shareRoom('chat');
+      if (action.dataset.action === 'share-community') shareRoom('community');
       if (action.dataset.action === 'leave') leave();
-      if (action.dataset.action === 'continue') { if (websocket) send({ type: 'gomoku_continue', room_code: roomCode }); else actionRequest('/reset', '继续对局失败'); }
-      if (action.dataset.action === 'color') actionRequest('/color', '换色失败');
+      if (action.dataset.action === 'continue') { if (transportReady()) send({ type: 'gomoku_continue', room_code: roomCode }); else actionRequest('/reset', '继续对局失败'); }
+      if (action.dataset.action === 'color' && roomCode) actionRequest('/color', '换色失败');
     }
     onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state); });
     onSocket('gomoku_room_changed', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });

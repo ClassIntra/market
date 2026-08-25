@@ -1,12 +1,13 @@
-.gomoku-app { min-height: 100%; padding: 28px; color: var(--ci-color-text, #172033); background: var(--ci-color-surface, #f8fafc); box-sizing: border-box; }
-.gomoku-shell { max-width: 1160px; margin: 0 auto; }
+.gomoku-app { width: 100%; height: 100%; min-height: 0; padding: 16px 20px 24px; color: var(--ci-color-text, #172033); background: var(--ci-color-surface, #f8fafc); box-sizing: border-box; overflow: auto; }
+.gomoku-shell { width: 100%; max-width: 1160px; margin: 0 auto; box-sizing: border-box; }
 .gomoku-header, .gomoku-roombar, .gomoku-layout, .gomoku-entry-row { display: flex; gap: 16px; }
+.gomoku-actions { flex-wrap: wrap; justify-content: flex-end; }
 .gomoku-header { align-items: center; justify-content: space-between; margin-bottom: 18px; }
-.gomoku-header h1 { margin: 0 0 4px; font-size: 34px; }
+.gomoku-header h1 { margin: 0 0 4px; font-size: clamp(24px, 4vw, 34px); }
 .gomoku-kicker { margin: 0 0 6px; color: #2563eb; font-size: 12px; letter-spacing: .16em; }
 .gomoku-status, .gomoku-entry-card p, .gomoku-error { margin: 0; color: var(--ci-color-text-secondary, #64748b); }
 .gomoku-actions, .gomoku-entry-row { align-items: end; }
-.gomoku-actions button, .gomoku-entry-row button { border: 0; border-radius: 10px; padding: 10px 16px; color: #fff; background: #2563eb; cursor: pointer; font: inherit; }
+.gomoku-actions button, .gomoku-entry-row button { border: 0; border-radius: 10px; padding: 10px 16px; color: #fff; background: #2563eb; cursor: pointer; font: inherit; white-space: nowrap; }
 .gomoku-actions button.is-secondary, .gomoku-entry-row button.is-secondary, .gomoku-finished button.is-secondary { color: #334155; background: #e2e8f0; }
 .gomoku-entry { margin-bottom: 18px; }
 .gomoku-entry-card { padding: 20px; background: #fff; border: 1px solid #dbe3ef; border-radius: 16px; box-shadow: 0 8px 24px rgba(30, 41, 59, .06); }
@@ -33,4 +34,4 @@
 .gomoku-finished p { min-height: 38px; margin: 0 0 10px; color: #64748b; font-size: 13px; }
 .gomoku-finished button { width: 100%; margin-top: 8px; padding: 9px 10px; border: 0; border-radius: 8px; color: #fff; background: #2563eb; cursor: pointer; font: inherit; }
 [hidden] { display: none !important; }
-@media (max-width: 800px) { .gomoku-app { padding: 20px 12px; } .gomoku-header, .gomoku-layout { align-items: stretch; flex-direction: column; } .gomoku-info { width: auto; flex-basis: auto; } .gomoku-actions { align-items: stretch; } }
+@media (max-width: 800px) { .gomoku-app { padding: 12px; } .gomoku-header, .gomoku-layout { align-items: stretch; flex-direction: column; } .gomoku-info { width: auto; flex-basis: auto; } .gomoku-actions { align-items: stretch; justify-content: flex-start; } .gomoku-actions button { flex: 1 1 auto; } .gomoku-board { width: min(100%, calc(100vw - 24px)); padding: 8px; } }
