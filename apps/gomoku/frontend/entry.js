@@ -15,6 +15,8 @@
   function mount(container, context) {
     if (!container || container.__gomokuUnmount) return;
     var websocket = context.websocket || (window.ClassIntra && window.ClassIntra.websocket);
+    var realtime = context.realtime;
+    if (realtime && typeof realtime.connect === 'function') realtime.connect();
     var route = context.route || {};
     var routeRoom = (route.params && (route.params.roomCode || route.params.room_code)) || (route.query && (route.query.roomCode || route.query.room_code));
     var roomCode = routeRoom ? String(routeRoom).toUpperCase() : '';
@@ -49,6 +51,7 @@
       return Array.from({ length: size }, function() { return Array(size).fill(null); });
     }
     function setError(message) { errorElement.textContent = message || ''; }
+    // 旧版 WebSocket 协议保留给兼容客户端；当前默认路径使用 HTTP 房间 API。
     function send(message) { if (websocket && typeof websocket.send === 'function') websocket.send(message); }
     function transportReady() { return !!(websocket && typeof websocket.send === 'function' && typeof websocket.on === 'function'); }
     function shareRoom(target) {
@@ -90,7 +93,7 @@
       var member = currentMember();
       identityElement.textContent = member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '';
       statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
-      connectionElement.textContent = roomCode ? connectionElement.textContent : '未连接';
+      if (!roomCode) connectionElement.textContent = '未进入房间';
       entryElement.hidden = !!roomCode;
       boardElement.replaceChildren();
       (state.board.length ? state.board : emptyBoard(state.size)).forEach(function(row, rowIndex) {
@@ -98,6 +101,7 @@
           var cell = document.createElement('button');
           cell.type = 'button';
           cell.className = 'gomoku-cell' + (color ? ' is-' + color : '');
+          cell.innerHTML = '<span class="gomoku-stone" aria-hidden="true"></span>';
           cell.dataset.row = rowIndex;
           cell.dataset.col = colIndex;
           cell.setAttribute('aria-label', (rowIndex + 1) + '行' + (colIndex + 1) + '列');
@@ -124,7 +128,6 @@
         roomCode = normalized;
         applyState(data);
         setError('');
-        send({ type: 'gomoku_subscribe', room_code: roomCode });
       }).catch(function(error) { setError(error.message || '进入房间失败'); });
     }
     function create() {
@@ -132,14 +135,16 @@
         roomCode = data.roomCode;
         applyState(data);
         setError('');
-        send({ type: 'gomoku_subscribe', room_code: roomCode });
       }).catch(function(error) { setError(error.message || '创建房间失败'); });
     }
-    function actionRequest(path, message) {
-      return request(context, 'POST', '/gomoku/rooms/' + encodeURIComponent(roomCode) + path, {}).then(applyState).catch(function(error) { setError(error.message || message); });
+    function actionRequest(path, message, body) {
+      return request(context, 'POST', '/gomoku/rooms/' + encodeURIComponent(roomCode) + path, body || {}).then(function(data) {
+        applyState(data);
+        return data;
+      }).catch(function(error) { setError(error.message || message); return null; });
     }
     function leaveRoom() {
-      actionRequest('/leave', '离开房间失败').then(function() { send({ type: 'gomoku_unsubscribe', room_code: roomCode }); roomCode = ''; render(); });
+      actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; render(); });
     }
     function leave() {
       if (!roomCode) return navigateHome();
@@ -157,8 +162,7 @@
       if (!cell || !roomCode || pending) return;
       pending = true;
       render();
-      send({ type: 'gomoku_move', room_code: roomCode, row: Number(cell.dataset.row), col: Number(cell.dataset.col) });
-      if (!transportReady()) actionRequest('/move', '落子失败');
+       actionRequest('/move', '落子失败', { row: Number(cell.dataset.row), col: Number(cell.dataset.col) }).then(function() { pending = false; render(); });
       window.setTimeout(function() { pending = false; render(); }, 1200);
     }
     function onAction(event) {
@@ -176,14 +180,31 @@
       if (action.dataset.action === 'share-chat') shareRoom('chat');
       if (action.dataset.action === 'share-community') shareRoom('community');
       if (action.dataset.action === 'leave') leave();
-      if (action.dataset.action === 'continue') { if (transportReady()) send({ type: 'gomoku_continue', room_code: roomCode }); else actionRequest('/reset', '继续对局失败'); }
+       // 兼容旧 WebSocket 客户端仍使用 gomoku_continue；新客户端走 HTTP reset。
+       if (action.dataset.action === 'continue') { actionRequest('/reset', '继续对局失败'); }
       if (action.dataset.action === 'color' && roomCode) actionRequest('/color', '换色失败');
     }
-    onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state); });
-    onSocket('gomoku_room_changed', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
-    onSocket('gomoku_game_continued', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
-    onSocket('gomoku_move_rejected', function(message) { if (message.room_code === roomCode) { pending = false; setError(message.reason || '落子被拒绝'); if (message.state) applyState(message.state); else render(); } });
-    onSocket('_connectionStateChange', function(message) { connectionElement.textContent = message.state === 'connected' ? '实时连接正常' : '连接断开，正在恢复'; if (message.state === 'connected' && roomCode) send({ type: 'gomoku_subscribe', room_code: roomCode }); if (message.state === 'disconnected' && roomCode) loadState(); });
+     if (realtime && typeof realtime.subscribe === 'function') {
+       subscriptions.push(realtime.subscribe('gomoku.room.changed', function(message) {
+         var data = message && message.payload ? message.payload : message;
+         if (data && data.roomCode === roomCode && data.state) applyState(data.state);
+       }));
+     }
+     if (!realtime) {
+       onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state); });
+       onSocket('gomoku_room_changed', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
+       onSocket('gomoku_game_continued', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
+       onSocket('gomoku_move_rejected', function(message) { if (message.room_code === roomCode) { pending = false; setError(message.reason || '落子被拒绝'); if (message.state) applyState(message.state); else render(); } });
+     }
+       if (realtime && typeof realtime.on === 'function') {
+         connectionElement.textContent = realtime.isReady && realtime.isReady() ? 'HTTP 实时连接正常' : '正在连接';
+         realtime.on('connected', function() { connectionElement.textContent = 'HTTP 实时连接正常'; });
+         realtime.on('_connectionStateChange', function(message) {
+           if (message && message.state === 'connected') connectionElement.textContent = 'HTTP 实时连接正常';
+           else if (roomCode) connectionElement.textContent = '连接断开，正在恢复';
+         });
+      }
+     if (realtime && typeof realtime.on === 'function') realtime.on('error', function() { connectionElement.textContent = '连接断开，正在恢复'; if (roomCode) loadState(); });
     boardElement.addEventListener('click', onBoardClick);
     root.addEventListener('click', onAction);
     container.__gomokuUnmount = function() { disposed = true; if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); subscriptions.forEach(function(remove) { remove(); }); boardElement.removeEventListener('click', onBoardClick); root.removeEventListener('click', onAction); container.replaceChildren(); delete container.__gomokuUnmount; };

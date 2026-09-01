@@ -4,6 +4,7 @@ var router = express.Router();
 var db = require(path.resolve(process.cwd(), 'src/utils/db'));
 var requireAuth = require(path.resolve(process.cwd(), 'src/middleware/auth')).requireAuth;
 var crypto = require('crypto');
+var realtimeBus = require(path.resolve(process.cwd(), 'src/utils/realtime-bus'));
 var DEFAULT_SIZE = 15;
 var ALLOWED_SIZES = [15, 19, 21];
 
@@ -39,6 +40,30 @@ function stateFor(roomCode, game) {
   var members = db.prepare('SELECT user_id, role, color, joined_at, last_seen_at FROM gomoku_members WHERE room_code = ? ORDER BY joined_at').all(roomCode);
   return { roomCode: roomCode, size: game.size, board: JSON.parse(game.board), turn: game.turn, winner: game.winner, status: game.status, gameId: game.id, members: members };
 }
+function notifyRoom(roomCode, state) {
+  var members = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ?').all(roomCode);
+  realtimeBus.publishToUsers(members.map(function(member) { return member.user_id; }), {
+    type: 'extension_event',
+    app_name: 'gomoku',
+    event: 'gomoku.room.changed',
+    payload: { roomCode: roomCode, state: state },
+    created_at: new Date().toISOString()
+  });
+}
+function notifySuccessfulRoomChange(req, res, next) {
+  var originalJson = res.json;
+  res.json = function(body) {
+    var pathMatch = req.path.match(/^\/rooms\/([A-Z0-9]{6})\/(join|watch|leave|move|reset|color)$/i);
+    if (pathMatch && body && body.code >= 200 && body.code < 300) {
+      var roomCode = pathMatch[1].toUpperCase();
+      var result = body.data && body.data.members ? body.data : null;
+      if (result) notifyRoom(roomCode, result);
+    }
+    return originalJson.call(this, body);
+  };
+  next();
+}
+router.use(notifySuccessfulRoomChange);
 function requireRoom(req, res, next) {
   var roomCode = req.params.roomCode;
   var room = roomRow(roomCode);
@@ -77,15 +102,17 @@ function createRoom(req, res) {
   db.prepare('INSERT INTO gomoku_rooms (room_code, owner_id, size) VALUES (?, ?, ?)').run(code, userId(req), size);
   db.prepare('INSERT INTO gomoku_members (room_code, user_id, role, color) VALUES (?, ?, ?, ?)').run(code, userId(req), 'owner', 'black');
   db.prepare('UPDATE gomoku_rooms SET updated_at = datetime(\'now\') WHERE room_code = ?').run(code);
-  return res.status(201).json({ code: 201, data: stateFor(code, ensureGame(code, size)) });
+  var createdState = stateFor(code, ensureGame(code, size));
+  notifyRoom(code, createdState);
+  return res.status(201).json({ code: 201, data: createdState });
 }
 router.post('/rooms', requireAuth, createRoom);
 router.get('/rooms/:roomCode', requireRoom, function(req, res) { res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
-router.post('/rooms/:roomCode/join', requireAuth, requireRoom, function(req, res) { join(req.params.roomCode, userId(req)); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
-router.post('/rooms/:roomCode/watch', requireRoom, function(req, res) { var member = join(req.params.roomCode, userId(req)); if (member.color) db.prepare('UPDATE gomoku_members SET role = \'spectator\', color = NULL WHERE room_code = ? AND user_id = ?').run(req.params.roomCode, userId(req)); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
-router.post('/rooms/:roomCode/leave', requireRoom, function(req, res) { var id = userId(req); var member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, id); if (!member) return res.status(404).json({ code: 404, message: '不在房间中' }); db.prepare('DELETE FROM gomoku_members WHERE room_code = ? AND user_id = ?').run(req.params.roomCode, id); if (member.role === 'owner') { var next = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ? ORDER BY joined_at LIMIT 1').get(req.params.roomCode); if (next) db.prepare('UPDATE gomoku_rooms SET owner_id = ? WHERE room_code = ?').run(next.user_id, req.params.roomCode); } res.json({ code: 200, data: { roomCode: req.params.roomCode } }); });
-router.post('/rooms/:roomCode/close', requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以关闭房间' }); db.prepare('UPDATE gomoku_rooms SET status = \'closed\', updated_at = datetime(\'now\') WHERE room_code = ?').run(req.params.roomCode); res.json({ code: 200, data: { roomCode: req.params.roomCode, status: 'closed' } }); });
-router.post('/rooms/:roomCode/reset', requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以重开对局' }); var game = currentGame(req.params.roomCode); db.prepare('UPDATE gomoku_games SET status = \'finished\', ended_at = datetime(\'now\') WHERE id = ?').run(game.id); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
+router.post('/rooms/:roomCode/join', requireAuth, requireRoom, function(req, res) { join(req.params.roomCode, userId(req)); var result = stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)); notifyRoom(req.params.roomCode, result); res.json({ code: 200, data: result }); });
+router.post('/rooms/:roomCode/watch', requireAuth, requireRoom, function(req, res) { var member = join(req.params.roomCode, userId(req)); if (member.color) db.prepare('UPDATE gomoku_members SET role = \'spectator\', color = NULL WHERE room_code = ? AND user_id = ?').run(req.params.roomCode, userId(req)); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
+router.post('/rooms/:roomCode/leave', requireAuth, requireRoom, function(req, res) { var id = userId(req); var member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, id); if (!member) return res.status(404).json({ code: 404, message: '不在房间中' }); db.prepare('DELETE FROM gomoku_members WHERE room_code = ? AND user_id = ?').run(req.params.roomCode, id); if (member.role === 'owner') { var next = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ? ORDER BY joined_at LIMIT 1').get(req.params.roomCode); if (next) db.prepare('UPDATE gomoku_rooms SET owner_id = ? WHERE room_code = ?').run(next.user_id, req.params.roomCode); } res.json({ code: 200, data: { roomCode: req.params.roomCode } }); });
+router.post('/rooms/:roomCode/close', requireAuth, requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以关闭房间' }); db.prepare('UPDATE gomoku_rooms SET status = \'closed\', updated_at = datetime(\'now\') WHERE room_code = ?').run(req.params.roomCode); res.json({ code: 200, data: { roomCode: req.params.roomCode, status: 'closed' } }); });
+router.post('/rooms/:roomCode/reset', requireAuth, requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以重开对局' }); var game = currentGame(req.params.roomCode); db.prepare('UPDATE gomoku_games SET status = \'finished\', ended_at = datetime(\'now\') WHERE id = ?').run(game.id); var result = stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)); notifyRoom(req.params.roomCode, result); res.json({ code: 200, data: result }); });
 router.post('/rooms/:roomCode/color', requireAuth, requireRoom, function(req, res) { var id = userId(req), member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, id), game = currentGame(req.params.roomCode); if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以换色' }); if (game && (game.winner || game.status !== 'active')) return res.status(409).json({ code: 409, message: '对局进行中不能换色' }); var other = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND color = ? AND user_id != ?').get(req.params.roomCode, member.color, id); if (!other) return res.status(409).json({ code: 409, message: '没有可交换的玩家' }); var nextColor = member.color === 'black' ? 'white' : 'black'; db.prepare('UPDATE gomoku_members SET color = ? WHERE room_code = ? AND user_id = ?').run(nextColor, req.params.roomCode, id); db.prepare('UPDATE gomoku_members SET color = ? WHERE room_code = ? AND user_id = ?').run(member.color, req.params.roomCode, other.user_id); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
 router.get('/rooms/:roomCode/history', requireRoom, function(req, res) { var games = db.prepare('SELECT id, size, turn, winner, status, started_at, ended_at FROM gomoku_games WHERE room_code = ? ORDER BY id DESC').all(req.params.roomCode); var moves = db.prepare('SELECT game_id as gameId, user_id as userId, color, row, col, created_at as createdAt FROM gomoku_moves WHERE game_id IN (SELECT id FROM gomoku_games WHERE room_code = ?) ORDER BY id').all(req.params.roomCode); res.json({ code: 200, data: { games: games, moves: moves } }); });
 function move(req, res, roomCode, room) { var id = userId(req), game = ensureGame(roomCode, room.size), row = req.body && req.body.row, col = req.body && req.body.col, state = JSON.parse(game.board), member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id); if (!member) member = join(roomCode, id); if (!member.color) return res.status(403).json({ code: 403, message: '观战者不能落子' }); if (!validCoordinate(row, col, game.size)) return res.status(400).json({ code: 400, message: '坐标不合法' }); if (game.winner || game.status !== 'active') return res.status(409).json({ code: 409, message: '对局已结束', data: stateFor(roomCode, game) }); if (game.turn !== member.color) return res.status(409).json({ code: 409, message: '尚未轮到该棋子' }); if (state[row][col]) return res.status(409).json({ code: 409, message: '该位置已有棋子', data: stateFor(roomCode, game) }); state[row][col] = member.color; var winner = hasWinner(state, row, col, member.color) ? member.color : null; var turn = winner ? member.color : member.color === 'black' ? 'white' : 'black'; db.prepare('UPDATE gomoku_games SET board = ?, turn = ?, winner = ?, status = ?, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?').run(JSON.stringify(state), turn, winner, winner ? 'finished' : 'active', winner, game.id); db.prepare('INSERT INTO gomoku_moves (game_id, user_id, color, row, col) VALUES (?, ?, ?, ?, ?)').run(game.id, id, member.color, row, col); return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM gomoku_games WHERE id = ?').get(game.id)) }); }
