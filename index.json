@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "updated_at": "2026-09-01T00:00:00.000Z",
+  "version": 3,
+  "updated_at": "2026-09-12T00:00:00.000Z",
   "apps": [
     {
       "name": "gomoku",
@@ -15,6 +15,36 @@
         "apps/gomoku/frontend/entry.js",
         "apps/gomoku/frontend/style.css",
         "apps/gomoku/backend/routes.js"
+      ]
+    }
+  ],
+  "plugins": [
+    {
+      "name": "astrbot-relay",
+      "label": "AstrBot 机器人接入",
+      "version": "1.0.0",
+      "description": "将 AstrBot 机器人（独立账号，如\"林晞\"）接入 ClassIntra 私聊与公共聊天室；支持 OneBot 反向 WS 与 HTTP 直调两种管线模式",
+      "author": "ClassIntra",
+      "files": [
+        "plugins/astrbot-relay/manifest.json",
+        "plugins/astrbot-relay/README.md",
+        "plugins/astrbot-relay/backend/bot-user.js",
+        "plugins/astrbot-relay/backend/relay.js",
+        "plugins/astrbot-relay/backend/routes.js"
+      ]
+    },
+    {
+      "name": "campusbili-bridge",
+      "label": "校园 B 站桥接",
+      "version": "1.0.0",
+      "description": "将外部视频站内容以通信契约方式桥接进 ClassIntra（postMessage 协议）",
+      "author": "ClassIntra",
+      "files": [
+        "plugins/campusbili-bridge/manifest.json",
+        "plugins/campusbili-bridge/README.md",
+        "plugins/campusbili-bridge/backend/routes.js",
+        "plugins/campusbili-bridge/frontend/bridge.js",
+        "plugins/campusbili-bridge/shared/contract.js"
       ]
     }
   ]
