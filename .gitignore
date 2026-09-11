@@ -1,0 +1,22 @@
+# 依赖
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 环境变量（示例文件除外）
+**/.env
+!**/.env.example
+
+# 日志与数据库
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

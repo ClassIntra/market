@@ -1,13 +1,28 @@
 # ClassIntra Market
 
-ClassIntra 第三方市场应用仓库，托管应用包及市场目录索引。当前包含五子棋应用 `gomoku`。
+ClassIntra 第三方生态仓库，托管市场应用包、服务端插件源码及市场目录索引。当前包含五子棋应用 `gomoku`，以及 `astrbot-relay`、`campusbili-bridge` 两个服务端插件。
 
 ## 目录
 
 - [市场目录](./index.json)
 - [五子棋应用](./apps/gomoku)
+- [服务端插件源码](./plugins)
 - [Gitee 镜像](https://gitee.com/classintra/market)
 - [GitHub 主仓库](https://github.com/ClassIntra/market)
+
+## 插件（plugins/）
+
+插件是 ClassIntra 班级服务器的**独立扩展模块**：无前端页面、必有后端路由（`manifest.type = "plugin"`），由班级服务器启动时扫描 `plugins/` 目录并挂载路由，不使用市场下载流程。
+
+因此 `index.json` 的 catalog **只索引应用（apps）**，插件不在其中。插件以源码形式托管在本仓库 `plugins/<plugin-name>/`，安装方式为将插件目录复制到班级服务器的 `plugins/` 目录后重启服务。
+
+| 插件 | 说明 |
+|------|------|
+| `astrbot-relay` | 将 AstrBot 机器人（独立账号，如"林晞"）接入 ClassIntra 私聊与公共聊天室；支持 OneBot 反向 WS 与 HTTP 直调两种管线模式 |
+| `campusbili-bridge` | 校园 B 站内容桥接 |
+
+插件自身的版本、入口与能力声明见各目录下的 `manifest.json`。
+
 
 ## 应用发布与安装
 
