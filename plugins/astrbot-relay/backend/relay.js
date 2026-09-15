@@ -38,7 +38,22 @@ var CFG = {
   resourceUrlBase: process.env.AB_RESOURCE_URL_BASE || '/resources/cloud/botmedia/remote/',
   // &&标签&& 兜底映射源：meme_manager 表情包分类目录
   packMemesDir: process.env.ASTRBOT_PACK_MEMES_DIR || 'D:/NetWork/Integration/AstrBot/data/plugin_data/meme_manager/packs/ddzs987-semantic-001/memes',
-  maxDownloadBytes: (parseInt(process.env.AB_MAX_DOWNLOAD_MB, 10) || 200) * 1024 * 1024
+  maxDownloadBytes: (parseInt(process.env.AB_MAX_DOWNLOAD_MB, 10) || 200) * 1024 * 1024,
+  // 跨机媒体回源地址：本机缺失站内媒体时向对端 CI 静态目录拉取。
+  // 默认由 RELAY_SERVERS（ws://host:10011/relay）推导出 http://host:9001，
+  // 也可用 AB_PEER_STATIC_BASE 显式配置（逗号分隔，可多个）。
+  peerStaticBases: (function () {
+    var env = String(process.env.AB_PEER_STATIC_BASE || '').trim();
+    if (env) {
+      return env.split(',').map(function (x) { return x.trim().replace(/\/+$/, ''); }).filter(Boolean);
+    }
+    var out = [];
+    String(process.env.RELAY_SERVERS || '').split(',').forEach(function (u) {
+      var m = String(u).match(/\/\/([^:/]+)/);
+      if (m) out.push('http://' + m[1] + ':9001');
+    });
+    return out;
+  })()
 };
 
 // ===== 运行状态 =====
@@ -362,7 +377,11 @@ function handleCiMessage(data) {
       break;
     case 'new_message':
       // 公共聊天室（room_id=public）为全员广播，仅在被点名/下指令时转给 AstrBot
-      if (data.message) onPublicMessage(data.message);
+      if (data.message) {
+        // 跨机同步来的消息，媒体资源可能未就绪——按需回源
+        try { ensureLocalMedia(data.message.content); } catch (e) {}
+        onPublicMessage(data.message);
+      }
       break;
     case 'private_message_sent':
     case 'group_message_sent':
@@ -562,6 +581,8 @@ function stripWakePrefix(text) {
 
 function directSend(channel, target, text) {
   if (!text) return;
+  // 站内媒体可能在本机缺失（如他班生成），先异步回源，不阻塞发送
+  try { ensureLocalMedia(text); } catch (e) {}
   if (channel === 'public') sendPublicMessage(text);
   else sendPrivate(target, text);
 }
@@ -1130,6 +1151,58 @@ function withTimeout(promise, ms, tag) {
   ]);
 }
 
+// 跨机媒体回源：扫描文本中的站内媒体路径，本地缺失则向对端 CI 拉取。
+// 与 Syncthing 目录同步互补——大文件同步慢或失败时，这里提供按需拉取兜底。
+var _mediaFetching = {};
+async function ensureLocalMedia(content) {
+  try {
+    var text = typeof content === 'string' ? content : JSON.stringify(content || '');
+    var re = /\/resources\/cloud\/botmedia\/remote\/([A-Za-z0-9_.-]{3,80})/g;
+    var m;
+    var tokens = [];
+    while ((m = re.exec(text))) { if (tokens.indexOf(m[1]) === -1) tokens.push(m[1]); }
+    if (!tokens.length) return;
+    var bases = CFG.peerStaticBases || [];
+    if (!bases.length) return;
+    for (var i = 0; i < tokens.length; i++) {
+      var tok = tokens[i];
+      var dest = path.join(CFG.resourceDir, 'remote', tok);
+      if (fs.existsSync(dest)) continue;
+      if (_mediaFetching[tok]) continue;
+      _mediaFetching[tok] = true;
+      // 候选源：① 对端 CI 静态目录（同网段可用）；② 本机 6200（SSH 隧道到 18i 的 AstrBot
+      // 资源代理，8i→18i 静态端口不可达时的可靠通道）
+      var urls = [];
+      for (var b0 = 0; b0 < bases.length; b0++) {
+        urls.push(bases[b0] + '/resources/cloud/botmedia/remote/' + tok);
+      }
+      urls.push('http://127.0.0.1:6200/classintra_res/' + tok);
+      var ok = false;
+      for (var b = 0; b < urls.length && !ok; b++) {
+        var url = urls[b];
+        try {
+          var resp = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 20000,
+            maxContentLength: CFG.maxDownloadBytes
+          });
+          if (resp.data && resp.data.length) {
+            mkdirp(path.dirname(dest));
+            fs.writeFileSync(dest, Buffer.from(resp.data));
+            log('媒体回源成功: ' + tok + ' ← ' + bases[b]);
+            ok = true;
+          }
+        } catch (e) {
+          // 该源不可用，尝试下一个
+        }
+      }
+      if (!ok) log('媒体回源失败: ' + tok);
+      delete _mediaFetching[tok];
+    }
+  } catch (e) {
+    log('媒体回源异常: ' + (e && e.message));
+  }
+}
 async function downloadToLocal(segType, url) {
   try {
     log('开始下载媒体:', url.slice(0, 80));
