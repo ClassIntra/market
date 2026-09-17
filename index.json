@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updated_at": "2026-09-12T00:00:00.000Z",
+  "updated_at": "2026-09-17T00:00:00.000Z",
   "apps": [
     {
       "name": "gomoku",
@@ -45,6 +45,25 @@
         "plugins/campusbili-bridge/backend/routes.js",
         "plugins/campusbili-bridge/frontend/bridge.js",
         "plugins/campusbili-bridge/shared/contract.js"
+      ]
+    },
+    {
+      "name": "netease-music",
+      "label": "网易云音乐",
+      "version": "1.0.0",
+      "description": "让音乐应用接入网易云音乐：扫码登录、搜索、每日推荐、热歌榜、歌单浏览与红心收藏；内置 ncm 协议直连（零第三方依赖）、upstream 转发与磁盘缓存三级网关，所有流量经 ClassIntra 服务器同源中转，内网可用",
+      "author": "ClassIntra",
+      "files": [
+        "plugins/netease-music/manifest.json",
+        "plugins/netease-music/README.md",
+        "plugins/netease-music/backend/routes.js",
+        "plugins/netease-music/backend/gateway.js",
+        "plugins/netease-music/backend/store.js",
+        "plugins/netease-music/backend/stream.js",
+        "plugins/netease-music/backend/ncm/api.js",
+        "plugins/netease-music/backend/ncm/crypto.js",
+        "plugins/netease-music/backend/ncm/engine.js",
+        "plugins/netease-music/backend/ncm/qrcode.js"
       ]
     }
   ]
