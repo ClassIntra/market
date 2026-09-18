@@ -4,6 +4,8 @@
 
 var crypto = require('crypto');
 var engine = require('./engine');
+var streamMod = require('../stream');
+var https = require('https');
 
 function req(uri, data, ctx, cryptoType) {
   ctx = ctx || {};
@@ -13,6 +15,53 @@ function req(uri, data, ctx, cryptoType) {
     proxy: ctx.proxy || '',
     timeout: ctx.timeout || 0,
     domain: ctx.domain || ''
+  });
+}
+
+// 明文老接口 GET（music.163.com/api/*）
+// 背景：v6/playlist/detail、v3/song/detail 等对匿名请求触发 -462 风控（返回 200 但无数据），
+// 明文老接口不经过该风控，且字段兼容（artists/album/fee 齐全）。
+// proxyUrl 提供时 HTTPS 走 CONNECT 隧道（与 fetchRaw 同套代理逻辑）。
+function plainGetJson(pathname, query, ctx) {
+  ctx = ctx || {};
+  return new Promise(function (resolve, reject) {
+    var qs = [];
+    for (var k in query) {
+      if (query[k] !== undefined && query[k] !== null && query[k] !== '') {
+        qs.push(k + '=' + encodeURIComponent(query[k]));
+      }
+    }
+    var url = 'https://music.163.com' + pathname + '?' + qs.join('&');
+    function handleBody(res) {
+      var chunks = [];
+      res.on('data', function (c) { chunks.push(c); });
+      res.on('end', function () {
+        var text = Buffer.concat(chunks).toString('utf8');
+        try {
+          var body = JSON.parse(text);
+          if (body.code === 200) resolve(body);
+          else reject(new Error('明文接口返回 code ' + body.code));
+        } catch (e) { reject(new Error('明文接口响应解析失败')); }
+      });
+    }
+    function requestWithSocket(socket) {
+      var r = https.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0 Safari/537.36',
+          'Referer': 'https://music.163.com/',
+          'Cookie': 'os=pc; appver=2.9.7'
+        },
+        socket: socket,
+        agent: false
+      }, handleBody);
+      r.setTimeout(ctx.timeout || 10000, function () { r.destroy(new Error('明文接口请求超时')); });
+      r.on('error', reject);
+    }
+    if (ctx.proxy) {
+      streamMod.proxyConnect(ctx.proxy, 'music.163.com', 443).then(requestWithSocket, reject);
+      return;
+    }
+    requestWithSocket(undefined);
   });
 }
 
@@ -36,10 +85,16 @@ function searchSuggest(params, ctx) {
 }
 
 // 歌曲详情（批量，最多 1000 首）
+// 明文老接口优先（匿名不触发风控，ids 为数字数组形式），失败回退 v3 weapi（登录用户带 cookie）
 function songDetail(params, ctx) {
   var ids = String(params.ids || '').split(/\s*,\s*/).filter(function (id) { return id; });
+  var plainIds = '[' + ids.join(',') + ']';
   var c = '[' + ids.map(function (id) { return '{"id":' + id + '}'; }).join(',') + ']';
-  return req('/api/v3/song/detail', { c: c }, ctx, 'weapi');
+  return plainGetJson('/api/song/detail', { ids: plainIds, n: 1000 }, ctx).then(function (body) {
+    return { status: 200, body: { code: 200, songs: body.songs || [] }, cookie: [] };
+  }).catch(function () {
+    return req('/api/v3/song/detail', { c: c }, ctx, 'weapi');
+  });
 }
 
 // 播放链接（v1 音质等级：standard / higher / exhigh / lossless / hires）
@@ -109,30 +164,52 @@ function likeCheck(params, ctx) {
   return req('/api/song/like/check', { trackIds: params.ids }, ctx, 'weapi');
 }
 
-// 歌单详情（s=8 时附带 trackIds）
+// 歌单详情：明文老接口优先（匿名可用），result 字段统一归一化为 playlist 供调用方使用
+// （明文接口不传用户 cookie，公开歌单不受影响）；失败回退 v6 weapi（s=8 时附带 trackIds）
 function playlistDetail(params, ctx) {
-  return req('/api/v6/playlist/detail', { id: params.id, n: 100000, s: params.s || 8 }, ctx, 'weapi');
+  return plainGetJson('/api/playlist/detail', { id: params.id, n: params.n || 1000 }, ctx).then(function (body) {
+    var pl = body.result || {};
+    return { status: 200, body: { code: 200, playlist: pl }, cookie: [] };
+  }).catch(function () {
+    return req('/api/v6/playlist/detail', { id: params.id, n: params.n || 100000, s: params.s || 8 }, ctx, 'weapi');
+  });
 }
 
-// 歌单全部歌曲（v6 详情 + 批量歌曲详情，对齐 api-enhanced playlist_track_all）
+// 歌单全部歌曲：明文老接口直接携带 tracks（含 artists/album/fee），按 offset/limit 截取
+// 失败回退原链路（v6 详情取 trackIds + 批量歌曲详情 + 按 trackIds 重排）
 function playlistTrackAll(params, ctx) {
-  return playlistDetail({ id: params.id, s: 8 }, ctx).then(function (res) {
-    var playlist = (res.body && res.body.playlist) || {};
-    var ids = playlist.trackIds || [];
-    var offset = params.offset || 0;
-    var limit = params.limit || ids.length;
-    var slice = ids.slice(offset, offset + limit).map(function (t) { return t.id; });
-    if (!slice.length) return { status: 200, body: { code: 200, songs: [], playlist: playlist }, cookie: [] };
-    return songDetail({ ids: slice.join(',') }, ctx).then(function (detailRes) {
-      var songs = (detailRes.body && detailRes.body.songs) || [];
-      // 按 trackIds 顺序重排（song detail 返回顺序可能与歌单顺序不同）
-      var map = {};
-      for (var i = 0; i < songs.length; i++) map[songs[i].id] = songs[i];
-      var ordered = [];
-      for (var j = 0; j < slice.length; j++) {
-        if (map[slice[j]]) ordered.push(map[slice[j]]);
-      }
-      return { status: 200, body: { code: 200, songs: ordered, playlist: playlist }, cookie: [] };
+  var offset = params.offset || 0;
+  var limit = params.limit || 0;
+  return plainGetJson('/api/playlist/detail', { id: params.id, n: 1000 }, ctx).then(function (body) {
+    var pl = body.result || {};
+    var tracks = pl.tracks || [];
+    var slice = limit ? tracks.slice(offset, offset + limit) : tracks.slice(offset);
+    return {
+      status: 200,
+      body: {
+        code: 200,
+        songs: slice,
+        playlist: { id: pl.id, name: pl.name, coverImgUrl: pl.coverImgUrl, trackCount: pl.trackCount || tracks.length, trackIds: [] }
+      },
+      cookie: []
+    };
+  }).catch(function () {
+    return playlistDetail({ id: params.id, s: 8 }, ctx).then(function (res) {
+      var playlist = (res.body && res.body.playlist) || {};
+      var ids = playlist.trackIds || [];
+      var slice = limit ? ids.slice(offset, offset + limit).map(function (t) { return t.id; }) : ids.slice(offset).map(function (t) { return t.id; });
+      if (!slice.length) return { status: 200, body: { code: 200, songs: playlist.tracks || [], playlist: playlist }, cookie: [] };
+      return songDetail({ ids: slice.join(',') }, ctx).then(function (detailRes) {
+        var songs = (detailRes.body && detailRes.body.songs) || [];
+        // 按 trackIds 顺序重排（song detail 返回顺序可能与歌单顺序不同）
+        var map = {};
+        for (var i = 0; i < songs.length; i++) map[songs[i].id] = songs[i];
+        var ordered = [];
+        for (var j = 0; j < slice.length; j++) {
+          if (map[slice[j]]) ordered.push(map[slice[j]]);
+        }
+        return { status: 200, body: { code: 200, songs: ordered, playlist: playlist }, cookie: [] };
+      });
     });
   });
 }
