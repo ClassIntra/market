@@ -107,6 +107,33 @@ router.get('/login/qr/check', requireAuth, wrap(async function (req, res) {
   ok(res, result); // { code: 800/801/802/803, profile? }
 }));
 
+// 发送登录验证码（手机号登录 - 验证码模式）
+router.post('/login/captcha/send', requireAuth, wrap(async function (req, res) {
+  var phone = String((req.body && req.body.phone) || '').trim();
+  if (!phone) return sendError(res, { code: 400, message: '缺少手机号' });
+  var r = await gateway.call('captchaSent', { phone: phone, ctcode: String((req.body && req.body.countrycode) || '86') }, req.user.user_id, { noCache: true });
+  if (r.data && r.data.code !== 200) {
+    return res.status(400).json({ code: r.data.code, message: (r.data.message || r.data.msg || '验证码发送失败') });
+  }
+  ok(res, {});
+}));
+
+// 手机号登录：body { phone, countrycode?, password? | captcha? }
+router.post('/login/cellphone', requireAuth, wrap(async function (req, res) {
+  var body = req.body || {};
+  var phone = String(body.phone || '').trim();
+  if (!phone) return sendError(res, { code: 400, message: '缺少手机号' });
+  if (!body.password && !body.captcha) return sendError(res, { code: 400, message: '缺少密码或验证码' });
+  var args = {
+    phone: phone,
+    countrycode: String(body.countrycode || '86')
+  };
+  if (body.captcha) args.captcha = String(body.captcha);
+  else args.password = String(body.password);
+  var r = await gateway.loginCellphone(req.user.user_id, args);
+  ok(res, r); // { code: 200, profile }
+}));
+
 // 退出登录
 router.post('/logout', requireAuth, wrap(async function (req, res) {
   try { await gateway.call('logout', {}, req.user.user_id, { noCache: true }); } catch (e) { /* 网易云侧登出失败不阻塞本地清理 */ }

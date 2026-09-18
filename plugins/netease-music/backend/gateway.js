@@ -11,6 +11,7 @@
 var ncmApi = require('./ncm/api');
 var ncmQrcode = require('./ncm/qrcode');
 var store = require('./store');
+var streamMod = require('./stream'); // 复用 CONNECT 隧道（代理支持）
 var http = require('http');
 var https = require('https');
 
@@ -45,7 +46,9 @@ var UPSTREAM_MODULE = {
   toplist: 'toplist',
   loginQrKey: 'login_qr_key',
   loginQrCheck: 'login_qr_check',
-  loginStatus: 'login_status'
+  loginStatus: 'login_status',
+  loginCellphone: 'login_cellphone',
+  captchaSent: 'captcha_sent'
 };
 
 // 判定是否为「网络级失败」（可回退 upstream / 缓存），业务错误（如 VIP 限制）不算
@@ -54,28 +57,52 @@ function isNetworkError(err) {
   return /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|超时|网络|fetch failed|socket hang up/i.test(msg);
 }
 
-// HTTP(S) GET，用于 upstream 转发（零依赖）
-function httpGetJson(url) {
+// HTTP(S) GET，用于 upstream 转发（零依赖；proxyUrl 提供时走代理）
+function httpGetJson(url, proxyUrl) {
   return new Promise(function (resolve, reject) {
     var u = new URL(url);
+    var port = parseInt(u.port, 10) || (u.protocol === 'http:' ? 80 : 443);
     var lib = u.protocol === 'http:' ? http : https;
-    var req = lib.request({
-      hostname: u.hostname,
-      port: u.port || (u.protocol === 'http:' ? 80 : 443),
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: { 'Accept': 'application/json' }
-    }, function (res) {
+
+    function handle(res) {
       var chunks = [];
       res.on('data', function (c) { chunks.push(c); });
       res.on('end', function () {
         var text = Buffer.concat(chunks).toString('utf8');
         try { resolve(JSON.parse(text)); } catch (e) { reject(new Error('上游响应解析失败')); }
       });
-    });
-    req.on('error', reject);
-    req.setTimeout(15000, function () { req.destroy(new Error('上游请求超时')); });
-    req.end();
+    }
+    function bind(r) {
+      r.on('error', reject);
+      r.setTimeout(15000, function () { r.destroy(new Error('上游请求超时')); });
+      r.end();
+    }
+
+    var req;
+    if (proxyUrl && u.protocol === 'https:') {
+      streamMod.proxyConnect(proxyUrl, u.hostname, port).then(function (socket) {
+        req = https.request({
+          hostname: u.hostname, port: port, path: u.pathname + u.search,
+          method: 'GET', headers: { 'Accept': 'application/json' }, socket: socket, agent: false
+        }, handle);
+        bind(req);
+      }, reject);
+      return;
+    }
+    if (proxyUrl && u.protocol === 'http:') {
+      var p = new URL(proxyUrl);
+      req = http.request({
+        hostname: p.hostname, port: parseInt(p.port, 10) || 80, path: url,
+        method: 'GET', headers: { 'Accept': 'application/json', 'Host': u.hostname }
+      }, handle);
+      bind(req);
+      return;
+    }
+    req = lib.request({
+      hostname: u.hostname, port: port, path: u.pathname + u.search,
+      method: 'GET', headers: { 'Accept': 'application/json' }
+    }, handle);
+    bind(req);
   });
 }
 
@@ -91,7 +118,7 @@ async function callUpstream(engine, endpoint, query, cookieStr) {
   if (cookieStr) params.set('cookie', cookieStr);
   params.set('timestamp', String(Date.now())); // 防上游缓存
   var url = base + '/' + moduleName + '?' + params.toString();
-  var body = await httpGetJson(url);
+  var body = await httpGetJson(url, engine.proxy);
   if (body && (body.code === 301 || body.code === 302 || body.status >= 400)) {
     throw new Error('上游返回错误: ' + JSON.stringify(body).slice(0, 200));
   }
@@ -120,6 +147,8 @@ async function callBuiltin(engine, endpoint, args, cookieStr) {
     case 'loginQrCheck': return ncmApi.loginQrCheck({ key: args.key }, opts);
     case 'loginStatus': return ncmApi.loginStatus({}, opts);
     case 'logout': return ncmApi.logout({}, opts);
+    case 'loginCellphone': return ncmApi.loginCellphone({ phone: args.phone, countrycode: args.countrycode, password: args.password, captcha: args.captcha }, opts);
+    case 'captchaSent': return ncmApi.captchaSent({ phone: args.phone, ctcode: args.countrycode }, opts);
     default: throw new Error('未知端点: ' + endpoint);
   }
 }
@@ -206,26 +235,42 @@ function createGateway() {
     return { unikey: unikey, qrurl: qrurl, size: qr.size, rows: ncmQrcode.toRows(qr) };
   }
 
+  // 登录成功后的 cookie 落库（二维码 / 手机号登录共用）
+  // 网易云登录响应体自带 cookie: [Set-Cookie...] 数组，其中含 MUSIC_U / __csrf
+  async function saveLoginCookie(userId, body) {
+    var cookieArr = (body.cookie && Array.isArray(body.cookie)) ? body.cookie : [];
+    var cookieStr = cookieArr.join('; ');
+    var profile = {};
+    if (!cookieStr) return profile;
+    // 先保存 cookie（loginStatus 需要它），再拉取 profile 后回写
+    store.setAccount(userId, cookieStr, { profile: {} });
+    try {
+      var st = await call('loginStatus', {}, userId, { noCache: true });
+      var sb = st.data || {};
+      if (sb.profile) profile = sb.profile;
+    } catch (e) { /* profile 拿不到不阻塞登录 */ }
+    store.setAccount(userId, cookieStr, { profile: profile, csrf: (cookieStr.match(/__csrf=([^;]+)/) || ['', ''])[1] });
+    return profile;
+  }
+
+  // 手机号登录（密码 / 验证码二选一）；成功后保存登录态
+  async function loginCellphone(userId, args) {
+    var res = await call('loginCellphone', args, userId, { noCache: true });
+    var body = res.data || {};
+    if (body.code !== 200) {
+      throw { code: 400, message: (body.message || body.msg || '登录失败，请检查账号信息') };
+    }
+    var profile = await saveLoginCookie(userId, body);
+    return { code: 200, profile: profile };
+  }
+
   // 扫码登录：轮询；code 803 时保存登录态
   async function checkQrLogin(userId, key) {
     var res = await call('loginQrCheck', { key: key }, userId, { noCache: true });
     var body = res.data || {};
     var code = body.code;
     if (code === 803) {
-      // 登录成功：响应 cookie 里带 MUSIC_U / __csrf
-      var cookieArr = (body.cookie && Array.isArray(body.cookie)) ? body.cookie : [];
-      var cookieStr = cookieArr.join('; ');
-      var profile = {};
-      if (cookieStr) {
-        // 先保存 cookie（loginStatus 需要它），再拉取 profile 后回写
-        store.setAccount(userId, cookieStr, { profile: {} });
-        try {
-          var st = await call('loginStatus', {}, userId, { noCache: true });
-          var sb = st.data || {};
-          if (sb.profile) profile = sb.profile;
-        } catch (e) { /* profile 拿不到不阻塞登录 */ }
-        store.setAccount(userId, cookieStr, { profile: profile, csrf: (cookieStr.match(/__csrf=([^;]+)/) || ['', ''])[1] });
-      }
+      var profile = await saveLoginCookie(userId, body);
       return { code: 803, profile: profile };
     }
     return { code: code }; // 800 过期 / 801 等待 / 802 已扫描待确认
@@ -248,6 +293,7 @@ function createGateway() {
     call: call,
     createQrLogin: createQrLogin,
     checkQrLogin: checkQrLogin,
+    loginCellphone: loginCellphone,
     resolveStreamUrl: resolveStreamUrl,
     readEngine: readEngine,
     userCookie: userCookie

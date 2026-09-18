@@ -2,6 +2,7 @@
 // 各接口的加密通道与参数结构对齐 api-enhanced 的 module/* 实现（见文件内注释），
 // 返回统一结构 { status, body, cookie }，由上层做缓存 / 降级处理。
 
+var crypto = require('crypto');
 var engine = require('./engine');
 
 function req(uri, data, ctx, cryptoType) {
@@ -16,8 +17,9 @@ function req(uri, data, ctx, cryptoType) {
 }
 
 // 搜索（单曲 1 / 专辑 10 / 歌手 100 / 歌单 1000 / 用户 1002）
+// 使用 cloudsearch 接口：返回 songs[].al.picUrl 封面稳定，结构与 v3 song detail 一致
 function search(params, ctx) {
-  return req('/api/search/get', {
+  return req('/api/cloudsearch/pc', {
     s: params.keywords,
     type: params.type || 1,
     limit: params.limit || 30,
@@ -154,6 +156,27 @@ function logout(params, ctx) {
   return req('/api/logout', {}, ctx, 'weapi');
 }
 
+// 手机号登录（密码或验证码二选一；password 需 md5 后传输）
+function loginCellphone(params, ctx) {
+  var data = {
+    phone: params.phone,
+    countrycode: params.countrycode || '86',
+    rememberLogin: 'true'
+  };
+  if (params.captcha) {
+    data.captcha = params.captcha;
+  } else {
+    // 网易云协议要求密码先做 md5 再传输
+    data.password = crypto.createHash('md5').update(String(params.password)).digest('hex');
+  }
+  return req('/api/w/login/cellphone', data, ctx, 'weapi');
+}
+
+// 发送登录验证码（ctcode 为国家码，默认 86）
+function captchaSent(params, ctx) {
+  return req('/api/captcha/sent', { phone: params.phone, ctcode: params.ctcode || 86 }, ctx, 'weapi');
+}
+
 module.exports = {
   search: search,
   searchSuggest: searchSuggest,
@@ -172,5 +195,7 @@ module.exports = {
   loginQrKey: loginQrKey,
   loginQrCheck: loginQrCheck,
   loginStatus: loginStatus,
-  logout: logout
+  logout: logout,
+  loginCellphone: loginCellphone,
+  captchaSent: captchaSent
 };

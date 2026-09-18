@@ -49,32 +49,80 @@ function evictCacheIfNeeded(extraBytes) {
   }
 }
 
+// 经 HTTP 代理为 HTTPS 目标建立 CONNECT 隧道（零依赖）
+function proxyConnect(proxyUrl, targetHost, targetPort) {
+  return new Promise(function (resolve, reject) {
+    var p = new URL(proxyUrl);
+    var req = http.request({
+      hostname: p.hostname,
+      port: parseInt(p.port, 10) || 80,
+      method: 'CONNECT',
+      path: targetHost + ':' + targetPort,
+      headers: { 'Host': targetHost + ':' + targetPort }
+    });
+    req.on('connect', function (res, socket) {
+      if (res.statusCode !== 200) { socket.destroy(); return reject(new Error('代理 CONNECT 失败: ' + res.statusCode)); }
+      resolve(socket);
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, function () { req.destroy(new Error('代理连接超时')); });
+    req.end();
+  });
+}
+
 // 通用出站请求（跟随一次 302，返回 { status, headers, stream }）
-function fetchRaw(url, headers) {
+// proxyUrl 提供时：https 目标走 CONNECT 隧道；http 目标向代理发绝对路径请求
+function fetchRaw(url, headers, proxyUrl) {
   return new Promise(function (resolve, reject) {
     var u = new URL(url);
+    var port = parseInt(u.port, 10) || (u.protocol === 'http:' ? 80 : 443);
     var lib = u.protocol === 'http:' ? http : https;
-    var req = lib.request({
-      hostname: u.hostname,
-      port: u.port || (u.protocol === 'http:' ? 80 : 443),
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: Object.assign({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': '*/*'
-      }, headers || {})
-    }, function (res) {
+    var mergedHeaders = Object.assign({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': '*/*'
+    }, headers || {});
+
+    function handle(res) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume(); // 排空后跟随跳转
         var next = new URL(res.headers.location, url).toString();
-        fetchRaw(next, headers).then(resolve, reject);
+        fetchRaw(next, headers, proxyUrl).then(resolve, reject);
         return;
       }
       resolve({ status: res.statusCode, headers: res.headers, stream: res });
-    });
-    req.on('error', reject);
-    req.setTimeout(15000, function () { req.destroy(new Error('媒体请求超时')); });
-    req.end();
+    }
+    function bind(r) {
+      r.on('error', reject);
+      r.setTimeout(15000, function () { r.destroy(new Error('媒体请求超时')); });
+      r.end();
+    }
+
+    var req;
+    if (proxyUrl && u.protocol === 'https:') {
+      proxyConnect(proxyUrl, u.hostname, port).then(function (socket) {
+        req = https.request({
+          hostname: u.hostname, port: port, path: u.pathname + u.search,
+          method: 'GET', headers: mergedHeaders, socket: socket, agent: false
+        }, handle);
+        bind(req);
+      }, reject);
+      return;
+    }
+    if (proxyUrl && u.protocol === 'http:') {
+      var p = new URL(proxyUrl);
+      mergedHeaders['Host'] = u.hostname;
+      req = http.request({
+        hostname: p.hostname, port: parseInt(p.port, 10) || 80,
+        path: url, method: 'GET', headers: mergedHeaders
+      }, handle);
+      bind(req);
+      return;
+    }
+    req = lib.request({
+      hostname: u.hostname, port: port, path: u.pathname + u.search,
+      method: 'GET', headers: mergedHeaders
+    }, handle);
+    bind(req);
   });
 }
 
@@ -147,7 +195,7 @@ async function streamAudio(req, res, gateway, songId, quality, userId) {
   // 3) 带上 Range 请求上游并透传
   var upstreamHeaders = {};
   if (rangeHeader) upstreamHeaders['Range'] = rangeHeader;
-  var upstreamRes = await fetchRaw(urlInfo.url, upstreamHeaders);
+  var upstreamRes = await fetchRaw(urlInfo.url, upstreamHeaders, store.getConfig().proxy || '');
   var headers = {
     'Content-Type': upstreamRes.headers['content-type'] || 'audio/mpeg',
     'Accept-Ranges': 'bytes'
@@ -168,7 +216,7 @@ async function streamImage(req, res, imageUrl) {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') { res.writeHead(400); return res.end('bad protocol'); }
   if (!IMAGE_HOST_RE.test(u.hostname)) { res.writeHead(403); return res.end('host not allowed'); }
   try {
-    var upstreamRes = await fetchRaw(imageUrl, { 'Referer': 'https://music.163.com' });
+    var upstreamRes = await fetchRaw(imageUrl, { 'Referer': 'https://music.163.com' }, store.getConfig().proxy || '');
     if (upstreamRes.status >= 400) { res.writeHead(502); return res.end('upstream error'); }
     res.writeHead(200, {
       'Content-Type': upstreamRes.headers['content-type'] || 'image/jpeg',
@@ -182,5 +230,6 @@ async function streamImage(req, res, imageUrl) {
 
 module.exports = {
   streamAudio: streamAudio,
-  streamImage: streamImage
+  streamImage: streamImage,
+  proxyConnect: proxyConnect
 };

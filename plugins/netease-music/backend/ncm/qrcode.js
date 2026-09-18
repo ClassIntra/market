@@ -493,10 +493,10 @@ function encode(text, level) {
   return { size: matrix.size, version: version, mask: bestMask, modules: matrix.modules };
 }
 
-// 转为紧凑字符串（每行 0/1），便于网络传输
+// 转为 0/1 数字二维数组（前端逐格渲染，1 = 深色格）
 function toRows(qr) {
   var rows = [];
-  for (var i = 0; i < qr.size; i++) rows.push(qr.modules[i].join(''));
+  for (var i = 0; i < qr.size; i++) rows.push(qr.modules[i].slice());
   return rows;
 }
 
