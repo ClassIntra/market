@@ -55,9 +55,39 @@ function songUrl(params, ctx) {
   });
 }
 
-// 歌词（含翻译）
+// 歌词 v1：优先取 yrc 原生逐字歌词（字级时间戳）+ 翻译；部分老歌 v1 无数据时回退旧接口
 function lyric(params, ctx) {
-  return req('/api/song/lyric', { id: params.id, lv: -1, kv: -1, tv: -1 }, ctx, 'weapi');
+  return req('/api/song/lyric/v1', {
+    id: params.id,
+    cv: 160390,
+    lv: -1, kv: -1, tv: -1, rv: -1,
+    yv: 1, ytv: -1, yrv: -1
+  }, ctx, 'weapi').then(function (res) {
+    var body = res.body || {};
+    if (body.code === 200 && ((body.yrc && body.yrc.lyric) || (body.lrc && body.lrc.lyric))) return res;
+    // 回退旧接口（仅 lrc / tlyric）
+    return req('/api/song/lyric', { id: params.id, lv: -1, kv: -1, tv: -1 }, ctx, 'weapi');
+  });
+}
+
+// 歌曲评论（热评 + 最新，cloud 类型 R_SO_4 = 歌曲）
+function commentMusic(params, ctx) {
+  return req('/api/v1/resource/comments/R_SO_4_' + params.id, {
+    rid: params.id,
+    offset: params.offset || 0,
+    limit: params.limit || 20,
+    beforeTime: params.beforeTime || 0
+  }, ctx, 'weapi');
+}
+
+// 歌手主页：信息（头像/别名/简介摘要）+ 热门 50 首
+function artistHome(params, ctx) {
+  return req('/api/artist/' + params.id, { id: params.id }, ctx, 'weapi');
+}
+
+// 歌手详细简介
+function artistDesc(params, ctx) {
+  return req('/api/artist/desc/' + params.id, { id: params.id }, ctx, 'weapi');
 }
 
 // 喜欢 / 取消喜欢
@@ -183,6 +213,9 @@ module.exports = {
   songDetail: songDetail,
   songUrl: songUrl,
   lyric: lyric,
+  commentMusic: commentMusic,
+  artistHome: artistHome,
+  artistDesc: artistDesc,
   like: like,
   likeList: likeList,
   likeCheck: likeCheck,

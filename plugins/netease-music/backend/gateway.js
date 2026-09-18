@@ -22,6 +22,9 @@ var TTL = {
   songDetail: 24 * 3600 * 1000,
   songUrl: 12 * 60 * 1000,
   lyric: 24 * 3600 * 1000,
+  comment: 2 * 60 * 1000,
+  artist: 30 * 60 * 1000,
+  artistDesc: 7 * 24 * 3600 * 1000,
   playlist: 10 * 60 * 1000,
   userPlaylist: 5 * 60 * 1000,
   recommend: 30 * 60 * 1000,
@@ -37,6 +40,9 @@ var UPSTREAM_MODULE = {
   songDetail: 'song_detail',
   songUrl: 'song_url_v1',
   lyric: 'lyric',
+  commentMusic: 'comment_music',
+  artistHome: 'artist',
+  artistDesc: 'artist_desc',
   like: 'like',
   likeList: 'likelist',
   playlistDetail: 'playlist_detail',
@@ -135,6 +141,9 @@ async function callBuiltin(engine, endpoint, args, cookieStr) {
     case 'songDetail': return ncmApi.songDetail({ ids: args.ids }, opts);
     case 'songUrl': return ncmApi.songUrl({ id: args.id, level: args.level || engine.quality }, opts);
     case 'lyric': return ncmApi.lyric({ id: args.id }, opts);
+    case 'commentMusic': return ncmApi.commentMusic({ id: args.id, limit: args.limit || 20, offset: args.offset || 0, beforeTime: args.beforeTime || 0 }, opts);
+    case 'artistHome': return ncmApi.artistHome({ id: args.id }, opts);
+    case 'artistDesc': return ncmApi.artistDesc({ id: args.id }, opts);
     case 'like': return ncmApi.like({ id: args.id, uid: args.userId, like: args.like }, opts);
     case 'likeList': return ncmApi.likeList({ uid: args.uid }, opts);
     case 'likeCheck': return ncmApi.likeCheck({ ids: args.ids }, opts);

@@ -196,7 +196,30 @@ router.get('/stream', wrap(async function (req, res) {
 
 router.get('/lyric', requireAuth, wrap(async function (req, res) {
   var r = await gateway.call('lyric', { id: String(req.query.id || '') }, req.user.user_id);
-  res.json(r.data); // { code, lrc: { lyric }, tlyric: { lyric } }
+  res.json(r.data); // { code, lrc: { lyric }, tlyric: { lyric }, yrc?: { lyric }（原生逐字） }
+}));
+
+// 歌曲评论（热评 + 最新，支持分页；网易云公开数据，未登录网易云同样可读）
+router.get('/comment/music', requireAuth, wrap(async function (req, res) {
+  var r = await gateway.call('commentMusic', {
+    id: String(req.query.id || ''),
+    limit: Math.min(parseInt(req.query.limit, 10) || 20, 100),
+    offset: parseInt(req.query.offset, 10) || 0,
+    beforeTime: parseInt(req.query.beforeTime, 10) || 0
+  }, req.user.user_id);
+  res.json(r.data); // { code, total, more, hotComments: [], comments: [] }
+}));
+
+// 歌手主页：信息（头像/别名/热度）+ 热门 50 首
+router.get('/artist/home', requireAuth, wrap(async function (req, res) {
+  var r = await gateway.call('artistHome', { id: String(req.query.id || '') }, req.user.user_id);
+  res.json(r.data); // { code, artist: {...}, hotSongs: [...] }
+}));
+
+// 歌手详细简介
+router.get('/artist/desc', requireAuth, wrap(async function (req, res) {
+  var r = await gateway.call('artistDesc', { id: String(req.query.id || '') }, req.user.user_id);
+  res.json(r.data); // { code, briefDesc, introduction: [] }
 }));
 
 // ---------- 收藏（红心） ----------
