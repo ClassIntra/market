@@ -65,7 +65,8 @@ var CONFIG_DEFAULTS = {
   audioCache: '1',         // 音频磁盘缓存开关
   cacheDir: path.join(path.dirname(config.dbPath), 'netease-cache'),
   audioCacheMaxMB: '512',  // 音频缓存总上限（MB），超出按最久未使用清理
-  requestTimeout: '8000'   // 上游请求超时（毫秒）
+  requestTimeout: '8000',  // 上游请求超时（毫秒）
+  debug: '0'               // 调试日志开关：'1' 时输出风控触发/引擎回退/缓存命中等详细日志
 };
 
 // 读取全部配置（默认值 + 库内覆盖，值统一为字符串）

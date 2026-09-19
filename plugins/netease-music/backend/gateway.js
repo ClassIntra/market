@@ -15,6 +15,7 @@ var streamMod = require('./stream'); // 复用 CONNECT 隧道（代理支持）
 var errors = require('./errors');
 var PluginError = errors.PluginError;
 var isNetworkError = errors.isNetworkError; // 统一错误类型收编（见 errors.js）
+var log = require('./log');
 var http = require('http');
 var https = require('https');
 
@@ -190,6 +191,7 @@ function createGateway() {
 
   // 执行一次真实调用（多引擎级联 + 缓存写入 + stale 兜底）
   async function execCall(endpoint, args, cookieStr, cacheKey) {
+    var engine = readEngine(); // 引擎配置快照（与 call() 内一致；缺失将导致 engine is not defined）
     var lastErr = null;
     var order = [];
     if (engine.engine === 'builtin') order = ['builtin'];
@@ -210,6 +212,7 @@ function createGateway() {
         // 否则会被当成功结果缓存 5 分钟，风控解除后用户仍看到空结果。
         // QR 登录轮询的 800/801/802/803 为正数业务码，不受影响。
         if (body && typeof body.code === 'number' && body.code < 200) {
+          log.debug('gateway', '风控/异常响应（code ' + body.code + '），endpoint=' + endpoint + ' via=' + mode);
           throw new PluginError(502, '网易云接口异常（code ' + body.code + '），请稍后重试');
         }
         if (cacheKey) store.cacheSetIfOk(cacheKey, body, TTL[endpoint]); // 成功才缓存（写入口自带负数 code 拦截）
@@ -217,6 +220,7 @@ function createGateway() {
       } catch (err) {
         lastErr = err;
         if (!isNetworkError(err)) throw err; // 业务错误直接抛出，不回退
+        log.debug('gateway', '引擎 ' + mode + ' 网络失败（' + err.message + '），endpoint=' + endpoint + (i < order.length - 1 ? '，回退下一引擎' : ''));
       }
     }
 
@@ -249,8 +253,10 @@ function createGateway() {
         // 读取时同样拦截负数码响应：防御历史脏缓存（风控响应曾被旧版本误写入）
         // 在整个 TTL 周期内持续毒害命中结果
         if (hit.payload && typeof hit.payload.code === 'number' && hit.payload.code < 200) {
+          log.debug('gateway', '脏缓存拦截（code ' + hit.payload.code + '）:', cacheKey);
           // 跳过命中，走正常请求流程，成功后覆盖写入
         } else {
+          log.debug('gateway', '缓存命中:', cacheKey);
           return { data: hit.payload, cached: true };
         }
       }
