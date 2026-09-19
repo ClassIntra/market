@@ -21,7 +21,9 @@ function userId(req) {
 function board(size) { return Array.from({ length: size }, function() { return Array(size).fill(null); }); }
 function validSize(size) { return ALLOWED_SIZES.indexOf(Number(size)) !== -1; }
 function validCoordinate(row, col, size) { return Number.isInteger(row) && Number.isInteger(col) && row >= 0 && col >= 0 && row < size && col < size; }
-function makeCode() { return crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6); }
+// 房间码：4 位纯数字（10000 组合），低龄用户念读/转述零负担；
+// 旧 6 位房间码仍可加入（正则放宽为 4-6 位）
+function makeCode() { return String(crypto.randomBytes(2).readUInt16BE(0) % 10000).padStart(4, '0'); }
 function colorForMember(roomCode, id) { var row = db.prepare('SELECT color FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id); return row && row.color; }
 function roomRow(roomCode) { return db.prepare('SELECT * FROM gomoku_rooms WHERE room_code = ?').get(roomCode); }
 function currentGame(roomCode) { return db.prepare('SELECT * FROM gomoku_games WHERE room_code = ? AND status = \'active\' ORDER BY id DESC LIMIT 1').get(roomCode); }
@@ -79,7 +81,7 @@ function notifySuccessfulRoomChange(req, res, next) {
   res.json = function(body) {
     // 代理侧转发请求：家服务器已负责通知全房成员，代理侧不再重复广播
     if (req.gomokuForwarding) return originalJson.call(this, body);
-    var pathMatch = req.path.match(/^\/rooms\/([A-Z0-9]{6})\/(join|watch|leave|move|reset|color)$/i);
+    var pathMatch = req.path.match(/^\/rooms\/([A-Z0-9]{4,6})\/(join|watch|leave|move|reset|color|undo)$/i);
     if (pathMatch && body && body.code >= 200 && body.code < 300) {
       var roomCode = pathMatch[1].toUpperCase();
       var result = body.data && body.data.members ? body.data : null;
@@ -279,6 +281,24 @@ directoryDelete(req.params.roomCode); if (RELAY_ACTIVE) relayBus.relayOnly('gomo
 router.post('/rooms/:roomCode/reset', roomAuth, requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以重开对局' }); var game = currentGame(req.params.roomCode); if (game) db.prepare('UPDATE gomoku_games SET status = \'finished\', ended_at = datetime(\'now\') WHERE id = ?').run(game.id); var result = stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)); notifyRoom(req.params.roomCode, result); res.json({ code: 200, data: result }); });
 router.post('/rooms/:roomCode/color', roomAuth, requireRoom, function(req, res) { var id = userId(req), member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, id), game = currentGame(req.params.roomCode); if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以换色' }); if (game && (game.winner || game.status !== 'active')) return res.status(409).json({ code: 409, message: '对局进行中不能换色' }); var other = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND color = ? AND user_id != ?').get(req.params.roomCode, member.color, id); if (!other) return res.status(409).json({ code: 409, message: '没有可交换的玩家' }); var nextColor = member.color === 'black' ? 'white' : 'black'; db.prepare('UPDATE gomoku_members SET color = ? WHERE room_code = ? AND user_id = ?').run(nextColor, req.params.roomCode, id); db.prepare('UPDATE gomoku_members SET color = ? WHERE room_code = ? AND user_id = ?').run(member.color, req.params.roomCode, other.user_id); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
 router.get('/rooms/:roomCode/history', requireRoom, function(req, res) { var games = db.prepare('SELECT id, size, turn, winner, status, started_at, ended_at FROM gomoku_games WHERE room_code = ? ORDER BY id DESC').all(req.params.roomCode); var moves = db.prepare('SELECT game_id as gameId, user_id as userId, color, row, col, created_at as createdAt FROM gomoku_moves WHERE game_id IN (SELECT id FROM gomoku_games WHERE room_code = ?) ORDER BY id').all(req.params.roomCode); res.json({ code: 200, data: { games: games, moves: moves } }); });
+// 悔棋：撤销本局最后一手。双人对局只能悔「自己刚下的那一手」（即必须轮回自己）；
+// 对手未加入时（单人摆棋）可悔任意最后一手。悔棋后该色重下。
+router.post('/rooms/:roomCode/undo', roomAuth, requireRoom, function(req, res) {
+  var id = userId(req), roomCode = req.params.roomCode;
+  var member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
+  if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以悔棋' });
+  var game = currentGame(roomCode);
+  if (!game || game.winner || game.status !== 'active') return res.status(409).json({ code: 409, message: '对局已结束，不能悔棋' });
+  var last = db.prepare('SELECT * FROM gomoku_moves WHERE game_id = ? ORDER BY id DESC LIMIT 1').get(game.id);
+  if (!last) return res.status(409).json({ code: 409, message: '还没有落子，无法悔棋' });
+  var playerCount = db.prepare('SELECT COUNT(*) AS c FROM gomoku_members WHERE room_code = ? AND color IS NOT NULL').get(roomCode).c;
+  if (playerCount >= 2 && String(last.user_id) !== String(id)) return res.status(409).json({ code: 409, message: '等对方落子后才能悔棋' });
+  var state = JSON.parse(game.board);
+  state[last.row][last.col] = null;
+  db.prepare('UPDATE gomoku_games SET board = ?, turn = ?, winner = NULL WHERE id = ?').run(JSON.stringify(state), last.color, game.id);
+  db.prepare('DELETE FROM gomoku_moves WHERE id = ?').run(last.id);
+  return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM gomoku_games WHERE id = ?').get(game.id)) });
+});
 function move(req, res, roomCode, room) { var id = userId(req), game = ensureGame(roomCode, room.size), row = req.body && req.body.row, col = req.body && req.body.col, state = JSON.parse(game.board), member = db.prepare('SELECT * FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id); if (!member) member = join(roomCode, id); if (!member.color) return res.status(403).json({ code: 403, message: '观战者不能落子' }); if (!validCoordinate(row, col, game.size)) return res.status(400).json({ code: 400, message: '坐标不合法' }); if (game.winner || game.status !== 'active') return res.status(409).json({ code: 409, message: '对局已结束', data: stateFor(roomCode, game) }); // 房间内只有一名玩家时放行轮次校验：对手未加入前可自由摆棋练习，turn 照常翻转，第二人加入后恢复严格轮流
  var playerCount = db.prepare('SELECT COUNT(*) AS c FROM gomoku_members WHERE room_code = ? AND color IS NOT NULL').get(roomCode).c; if (game.turn !== member.color && playerCount >= 2) return res.status(409).json({ code: 409, message: '尚未轮到该棋子' }); if (state[row][col]) return res.status(409).json({ code: 409, message: '该位置已有棋子', data: stateFor(roomCode, game) }); state[row][col] = member.color; var winner = hasWinner(state, row, col, member.color) ? member.color : null; var turn = winner ? member.color : member.color === 'black' ? 'white' : 'black'; db.prepare('UPDATE gomoku_games SET board = ?, turn = ?, winner = ?, status = ?, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?').run(JSON.stringify(state), turn, winner, winner ? 'finished' : 'active', winner, game.id); db.prepare('INSERT INTO gomoku_moves (game_id, user_id, color, row, col) VALUES (?, ?, ?, ?, ?)').run(game.id, id, member.color, row, col); return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM gomoku_games WHERE id = ?').get(game.id)) }); }
 router.post('/rooms/:roomCode/move', roomAuth, requireRoom, function(req, res) { move(req, res, req.params.roomCode, req.gomokuRoom); });

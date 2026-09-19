@@ -468,6 +468,9 @@
 }
 
 .gomoku-cell {
+  /* 已落子的格子即 disabled，宿主全局 button:disabled 常带 opacity 灰化，
+     会把整枚棋子染成半透明 —— 此处显式钉死不透明（棋子虚的根因修复） */
+  opacity: 1;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -499,6 +502,8 @@
 
 .gomoku-cell:disabled {
   cursor: default;
+  /* 同上：钉死不透明，防止宿主 disabled 灰化透过 */
+  opacity: 1;
 }
 
 /* ===== 落点预览（幽灵子） =====
