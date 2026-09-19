@@ -66,22 +66,96 @@ function plainGetJson(pathname, query, ctx) {
 }
 
 // 搜索（单曲 1 / 专辑 10 / 歌手 100 / 歌单 1000 / 用户 1002）
-// 使用 cloudsearch 接口：返回 songs[].al.picUrl 封面稳定，结构与 v3 song detail 一致
+// 背景：网易云搜索接口存在间歇性 -462 风控（HTTP 200 但 code:-462「请完成验证操作」），
+// 风控按接口簇独立计数——同一时刻某簇被风控，其他簇可能正常。
+// 应对：多通道级联，code!==200 或请求失败自动换下一个通道：
+//   1. weapi /api/search/get        网页主搜索（老字段 artists/album，单曲缺封面）
+//   2. 明文 music.163.com search/get 明文老接口（不带加密）
+//   3. eapi  /api/search/pc          PC 客户端搜索
+//   4. weapi /api/cloudsearch/pc    云搜索（新字段 ar/al，封面稳定）
+// 全部失败时返回主通道原始响应（前端显示无结果）。
+// 单曲结果统一用 songDetail（明文 song/detail，字段稳定带 al.picUrl）批量补全封面。
 function search(params, ctx) {
-  return req('/api/cloudsearch/pc', {
+  var type = params.type || 1;
+  var args = {
     s: params.keywords,
-    type: params.type || 1,
+    type: type,
     limit: params.limit || 30,
     offset: params.offset || 0
-  }, ctx, 'weapi');
+  };
+  var channels = [
+    function () { return req('/api/search/get', args, ctx, 'weapi'); },
+    function () { return plainGetJson('/api/search/get', args, ctx).then(function (body) { return { status: 200, body: body, cookie: [] }; }); },
+    function () { return req('/api/search/pc', args, ctx, 'eapi'); },
+    function () { return req('/api/cloudsearch/pc', args, ctx, 'weapi'); }
+  ];
+  function tryAt(i) {
+    if (i >= channels.length) return channels[0]();
+    return channels[i]().then(function (res) {
+      var body = res.body || {};
+      if (body.code && body.code !== 200) return tryAt(i + 1); // 风控/异常 → 换通道
+      return res;
+    }, function () { return tryAt(i + 1); }); // 网络/协议错误 → 换通道
+  }
+  return tryAt(0).then(function (res) {
+    var body = res.body || {};
+    var result = body.result || {};
+    if (type === 1 && body.code === 200 && result.songs && result.songs.length) {
+      var ids = result.songs.map(function (s) { return s.id; }).join(',');
+      return songDetail({ ids: ids }, ctx).then(function (dres) {
+        var detailMap = {};
+        (((dres.body || {}).songs) || []).forEach(function (d) { if (d && d.id) detailMap[d.id] = d; });
+        result.songs = result.songs.map(function (s) {
+          var d = detailMap[s.id];
+          if (!d) return s;
+          // search/get 老结构 album 缺 picUrl：补 al.picUrl 到 album；artists 为空时用 ar 补
+          if (s.album && !s.album.picUrl && d.al && d.al.picUrl) s.album = Object.assign({}, s.album, { picUrl: d.al.picUrl });
+          if (d.ar && d.ar.length && (!s.artists || !s.artists.length)) s.artists = d.ar;
+          return s;
+        });
+        return res;
+      }).catch(function () { return res; }); // 补封面失败不阻塞搜索结果
+    }
+    return res;
+  });
 }
 
 // 搜索建议（关键词联想）
+// 级联：weapi suggest/keyword（allMatch 关键词）→ weapi suggest/web（ songs/artists 实体）
+// 统一归一化为 { code, result: { allMatch: [{ keyword }] } }，前端按下拉关键词展示。
 function searchSuggest(params, ctx) {
-  return req('/api/search/suggest/web', {
-    s: params.keywords,
-    limit: params.limit || 8
-  }, ctx, 'weapi');
+  function fromKeyword(res) {
+    var body = res.body || {};
+    if (body.code !== 200) throw res;
+    var matches = ((body.result || {}).allMatch || []).map(function (m) { return m.keyword || ''; });
+    return matches;
+  }
+  function fromWeb(res) {
+    var body = res.body || {};
+    if (body.code !== 200) throw res;
+    var result = body.result || {};
+    var out = [];
+    (result.order || []).forEach(function (key) {
+      ((result[key]) || []).forEach(function (it) { if (it && it.name) out.push(it.name); });
+    });
+    return out;
+  }
+  function uniqueLimit(list) {
+    var seen = {}, out = [];
+    for (var i = 0; i < list.length && out.length < (params.limit || 8); i++) {
+      var k = String(list[i]);
+      if (k && !seen[k]) { seen[k] = true; out.push(k); }
+    }
+    return out;
+  }
+  return req('/api/search/suggest/keyword', { s: params.keywords }, ctx, 'weapi').then(fromKeyword, function () { return []; })
+    .then(function (list) {
+      if (list.length) return list;
+      return req('/api/search/suggest/web', { s: params.keywords, limit: params.limit || 8 }, ctx, 'weapi').then(fromWeb, function () { return []; });
+    })
+    .then(function (list) {
+      return { status: 200, body: { code: 200, result: { allMatch: uniqueLimit(list).map(function (k) { return { keyword: k, type: 1 }; }) } }, cookie: [] };
+    });
 }
 
 // 歌曲详情（批量，最多 1000 首）
