@@ -88,16 +88,20 @@
 
     var entryCard = t('div', 'gomoku-entry-card', null, [
       t('h2', null, { text: '进入棋局' }),
-      t('p', null, { text: '创建房间邀请同学对战，或直接开始人机练习（无需网络与房间）。' }),
+      t('p', null, { text: '创建房间邀请同学对战，或用单机模式离线对弈。' }),
       t('div', 'gomoku-entry-row', null, [
         sizeLabel,
-        t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' }),
-        t('button', 'is-secondary', { type: 'button', 'data-action': 'solo', text: '人机练习' })
+        t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' })
       ]),
       t('div', 'gomoku-entry-row', null, [
         roomLabel,
         t('button', null, { type: 'button', 'data-action': 'join', text: '加入对局' }),
         t('button', 'is-secondary', { type: 'button', 'data-action': 'watch', text: '观战' })
+      ]),
+      t('div', 'gomoku-entry-row', null, [
+        t('span', 'gomoku-entry-hint', { text: '单机模式' }),
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'local', text: '本地对战' }),
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'solo', text: '人机练习' })
       ])
     ]);
     var entry = t('div', 'gomoku-entry', null, [entryCard]);
@@ -209,14 +213,17 @@
     }
     function renderMembers() {
       clearChildren(membersElement);
-      // 人机练习：固定两行——我执黑、电脑执白，is-turn 跟随当前手色
-      if (mode === 'solo') {
-        [['black', '我', 'is-me'], ['white', '电脑', '']].forEach(function(entry) {
+      // 单机模式：固定两行显示对局双方，is-turn 跟随当前手色
+      if (mode === 'solo' || mode === 'local') {
+        var sides = mode === 'solo'
+          ? [['black', '我', 'is-me', '执黑'], ['white', '电脑', '', '执白']]
+          : [['black', '黑方', '', '先手'], ['white', '白方', '', '后手']];
+        sides.forEach(function(entry) {
           var isTurn = !state.winner && state.status === 'active' && state.turn === entry[0];
           membersElement.appendChild(t('li', 'gomoku-member' + (entry[2] ? ' ' + entry[2] : '') + (isTurn ? ' is-turn' : ''), null, [
             t('span', 'gomoku-member-dot is-' + entry[0], { 'aria-hidden': 'true' }),
             t('span', 'gomoku-member-name', { text: entry[1] }),
-            t('span', 'gomoku-member-role', { text: entry[0] === 'black' ? '执黑' : '执白' })
+            t('span', 'gomoku-member-role', { text: entry[3] })
           ]));
         });
         return;
@@ -325,9 +332,11 @@
       }
       return false;
     }
-    function soloStart() {
+    // ===== 单机模式：'solo' 人机练习（AI 执白）| 'local' 本地双人（同屏轮流，无 AI）=====
+    // 两者共用本地对弈引擎：纯前端，不占房间系统、不发任何请求。
+    function offlineStart(nextMode) {
       if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
-      mode = 'solo';
+      mode = nextMode;
       roomCode = '';
       state = {
         size: Number(root.querySelector('[data-field="size"]').value) || 15,
@@ -338,54 +347,61 @@
       setError('');
       render();
     }
-    function soloExit() {
+    function offlineExit() {
       if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
       mode = '';
       state = { size: state.size, board: emptyBoard(state.size), turn: 'black', winner: null, status: 'active', members: [], lastMove: null };
       lastAnimatedKey = '';
       render();
     }
-    function soloMove(row, col) {
-      if (state.winner || state.status !== 'active' || state.turn !== 'black' || state.board[row][col]) return;
-      state.board[row][col] = 'black';
+    function offlineMove(row, col) {
+      if (state.winner || state.status !== 'active' || state.board[row][col]) return;
+      var color = state.turn;
+      // 人机练习里玩家只能执黑；本地双人黑白双方轮流落子
+      if (mode === 'solo' && color !== 'black') return;
+      state.board[row][col] = color;
       state.lastMove = { row: row, col: col };
-      if (soloHasWin(row, col, 'black')) { state.winner = 'black'; state.status = 'finished'; render(); return; }
-      state.turn = 'white';
+      if (soloHasWin(row, col, color)) { state.winner = color; state.status = 'finished'; render(); return; }
+      state.turn = color === 'black' ? 'white' : 'black';
       render();
-      soloTimer = setTimeout(function() {
-        soloTimer = null;
-        if (disposed || mode !== 'solo') return;
-        var mv = soloAiPick();
-        if (!mv) { state.turn = 'black'; render(); return; }
-        state.board[mv.row][mv.col] = 'white';
-        state.lastMove = mv;
-        if (soloHasWin(mv.row, mv.col, 'white')) { state.winner = 'white'; state.status = 'finished'; }
-        else state.turn = 'black';
-        render();
-      }, 420);
+      // 人机练习：AI 应手。本地双人无 AI，落完即轮转。
+      if (mode === 'solo') {
+        soloTimer = setTimeout(function() {
+          soloTimer = null;
+          if (disposed || mode !== 'solo') return;
+          var mv = soloAiPick();
+          if (!mv) { state.turn = 'black'; render(); return; }
+          state.board[mv.row][mv.col] = 'white';
+          state.lastMove = mv;
+          if (soloHasWin(mv.row, mv.col, 'white')) { state.winner = 'white'; state.status = 'finished'; }
+          else state.turn = 'black';
+          render();
+        }, 420);
+      }
     }
 
     function render() {
       root.style.setProperty('--gomoku-size', state.size);
       var inGame = mode !== '';
+      var isOffline = mode === 'solo' || mode === 'local';
       var member = currentMember();
-      // 单人练习时隐藏分享/复制/离开按钮（离开走侧栏「退出练习」？不——保留离开，仅隐藏分享类）
+      // 单机模式：分享/复制类按钮无意义，隐藏；「离开」按钮作为退出单机对局入口
       var actionButtons = root.querySelectorAll('.gomoku-actions [data-action]');
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
-        actionButtons[a].hidden = mode === 'solo' && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
+        actionButtons[a].hidden = isOffline && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
       }
-      roomElement.textContent = mode === 'solo' ? '人机练习' : (roomCode ? '房间码 ' + roomCode : '未进入房间');
-      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : (member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
+      roomElement.textContent = mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间码 ' + roomCode : '未进入房间');
+      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
       // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
       var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
       statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
       statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '自由练习中，对手加入后恢复轮流' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
-      if (mode === 'solo') setConnection('本地对弈', 'online');
+      if (isOffline) setConnection('本地对弈', 'online');
       else if (!roomCode) setConnection('未进入房间', '');
-      // 棋盘级状态类：幽灵预览需要 is-my-turn + turn-*；胜负弱化需要 has-winner
-      var myTurn = mode === 'solo'
-        ? (state.status === 'active' && !state.winner && state.turn === 'black')
+      // 单机模式直接本地判手；房间模式按成员身份
+      var myTurn = isOffline
+        ? (state.status === 'active' && !state.winner)
         : !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
       boardElement.className = 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black');
       entryElement.hidden = inGame;
@@ -445,8 +461,8 @@
           cell.dataset.row = rowIndex;
           cell.dataset.col = colIndex;
           cell.setAttribute('aria-label', (rowIndex + 1) + '行' + (colIndex + 1) + '列' + (color ? (color === 'black' ? '黑棋' : '白棋') : ''));
-          cell.disabled = mode === 'solo'
-            ? (!!color || !!state.winner || state.status !== 'active' || state.turn !== 'black')
+          cell.disabled = isOffline
+            ? (!!color || !!state.winner || state.status !== 'active')
             : (!roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color);
           stonesElement.appendChild(cell);
         });
@@ -454,15 +470,19 @@
       lastAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
 
       renderMembers();
-      // 侧栏标题随模式切换；「离开房间」按钮在 solo 下语义变为「退出练习」
-      infoTitleElement.textContent = mode === 'solo' ? '对局信息' : '房间成员';
+      // 侧栏标题随模式切换；「离开房间」按钮在单机模式下语义变为「退出练习」
+      infoTitleElement.textContent = isOffline ? '对局信息' : '房间成员';
       var leaveButton = root.querySelector('[data-action="leave"]');
-      if (leaveButton) leaveButton.textContent = mode === 'solo' ? '退出练习' : '离开房间';
+      if (leaveButton) leaveButton.textContent = isOffline ? '退出练习' : '离开房间';
       var owner = member && member.role === 'owner';
       var finished = !!state.winner || state.status !== 'active';
-      if (mode === 'solo') {
-        // 人机练习：文案本地化；继续按钮人人可见（重开一局），换色无意义
-        finishedElement.textContent = state.winner === 'black' ? '恭喜，你赢了！' : state.winner === 'white' ? '电脑获胜，再战一局？' : '';
+      if (isOffline) {
+        // 单机模式：文案本地化；继续按钮人人可见（重开一局），换色无意义
+        finishedElement.textContent = state.winner
+          ? (mode === 'solo'
+            ? (state.winner === 'black' ? '恭喜，你赢了！' : '电脑获胜，再战一局？')
+            : (state.winner === 'black' ? '黑棋获胜！' : '白棋获胜！'))
+          : '';
         continueButton.hidden = !finished;
         colorButton.hidden = true;
       } else {
@@ -505,8 +525,8 @@
       actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; mode = ''; render(); });
     }
     function leave() {
-      // 人机练习无房间状态，直接回入场页
-      if (mode === 'solo') return soloExit();
+      // 单机模式无房间状态，直接回入场页
+      if (mode === 'solo' || mode === 'local') return offlineExit();
       if (!roomCode) return navigateHome();
       if (context.modal && typeof context.modal.confirm === 'function') {
         context.modal.confirm({ title: '离开房间', message: '离开后需要重新输入房间码才能回来，确定离开吗？', confirmText: '离开', cancelText: '取消' }).then(function(confirmed) {
@@ -528,8 +548,8 @@
     function onBoardClick(event) {
       var cell = event.target.closest('.gomoku-cell');
       if (!cell || pending) return;
-      // 人机练习：纯本地落子，不发请求、不占忙碌锁
-      if (mode === 'solo') { soloMove(Number(cell.dataset.row), Number(cell.dataset.col)); return; }
+      // 单机模式（人机练习/本地双人）：纯本地落子，不发请求、不占忙碌锁
+      if (mode === 'solo' || mode === 'local') { offlineMove(Number(cell.dataset.row), Number(cell.dataset.col)); return; }
       if (!roomCode) return;
       setBusy(true);
       render();
@@ -543,8 +563,8 @@
       if (!action) return;
       if (pending) return;
       var kind = action.dataset.action;
-      // 人机练习入口：本地开局，不涉及任何后端请求
-      if (kind === 'solo') { soloStart(); return; }
+      // 单机模式入口（人机练习/本地双人）：本地开局，不涉及任何后端请求
+      if (kind === 'solo' || kind === 'local') { offlineStart(kind); return; }
       // 房间操作统一走忙碌锁：按钮禁用给出即时反馈，
       // 失败信息经 shell 层错误条展示（进入房间后也可见）。
       if (kind === 'create' || kind === 'join' || kind === 'watch') {
@@ -566,7 +586,7 @@
       if (kind === 'share-community') return shareRoom('community');
       if (kind === 'leave') return leave();
       if (kind === 'continue') {
-        if (mode === 'solo') { soloStart(); return; }
+        if (mode === 'solo' || mode === 'local') { offlineStart(mode); return; }
         // 兼容旧 WebSocket 客户端仍使用 gomoku_continue；新客户端走 HTTP reset。
         // 两个操作都要求已进入房间 —— 此前 continue 缺少该检查，未进房时会发出空房间请求。
         if (!roomCode) return;

@@ -242,6 +242,16 @@
   margin-left: 12px;
 }
 
+/* 单机模式行的提示标签：与同行按钮底部对齐的灰色小字 */
+.gomoku-entry-hint {
+  -ms-flex-item-align: end;
+  align-self: flex-end;
+  padding-bottom: 12px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
 .gomoku-entry-row label {
   display: -webkit-box;
   display: -ms-flexbox;
