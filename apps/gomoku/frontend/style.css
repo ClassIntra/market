@@ -1,39 +1,656 @@
-.gomoku-app { width: 100%; height: 100%; min-height: 0; padding: 16px 20px 24px; color: var(--ci-color-text, #172033); background: var(--ci-color-surface, #f8fafc); box-sizing: border-box; overflow: auto; }
-.gomoku-shell { width: 100%; max-width: 1160px; margin: 0 auto; box-sizing: border-box; }
-.gomoku-header, .gomoku-roombar, .gomoku-layout, .gomoku-entry-row { display: flex; gap: 16px; }
-.gomoku-actions { flex-wrap: wrap; justify-content: flex-end; }
-.gomoku-header { align-items: center; justify-content: space-between; margin-bottom: 18px; }
-.gomoku-header h1 { margin: 0 0 4px; font-size: clamp(24px, 4vw, 34px); }
-.gomoku-kicker { margin: 0 0 6px; color: #2563eb; font-size: 12px; letter-spacing: .16em; }
-.gomoku-status, .gomoku-entry-card p, .gomoku-error { margin: 0; color: var(--ci-color-text-secondary, #64748b); }
-.gomoku-actions, .gomoku-entry-row { align-items: end; }
-.gomoku-actions button, .gomoku-entry-row button { border: 0; border-radius: 10px; padding: 10px 16px; color: #fff; background: #2563eb; cursor: pointer; font: inherit; white-space: nowrap; }
-.gomoku-actions button.is-secondary, .gomoku-entry-row button.is-secondary, .gomoku-finished button.is-secondary { color: #334155; background: #e2e8f0; }
-.gomoku-entry { margin-bottom: 18px; }
-.gomoku-entry-card { padding: 20px; background: #fff; border: 1px solid #dbe3ef; border-radius: 16px; box-shadow: 0 8px 24px rgba(30, 41, 59, .06); }
-.gomoku-entry-card h2, .gomoku-info h2 { margin: 0 0 8px; font-size: 18px; }
-.gomoku-entry-row { margin-top: 16px; flex-wrap: wrap; }
-.gomoku-entry-row label { display: flex; min-width: 180px; flex: 1; flex-direction: column; gap: 6px; font-size: 13px; color: #64748b; }
-.gomoku-entry-row input, .gomoku-entry-row select { height: 40px; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; color: #172033; background: #fff; font: inherit; box-sizing: border-box; }
-.gomoku-error { min-height: 20px; margin-top: 14px; color: #dc2626; }
-.gomoku-roombar { align-items: center; flex-wrap: wrap; margin-bottom: 18px; padding: 12px 16px; border: 1px solid #dbe3ef; border-radius: 12px; background: #fff; color: #475569; }
-.gomoku-roombar span { font-size: 13px; }
-.gomoku-layout { align-items: flex-start; }
-.gomoku-board { position: relative; width: min(760px, 100%); aspect-ratio: 1; margin: 0 auto; padding: 14px; display: grid; gap: 0; grid-template-columns: repeat(var(--gomoku-size), minmax(0, 1fr)); grid-template-rows: repeat(var(--gomoku-size), minmax(0, 1fr)); background-color: #d6a85a; border: 2px solid #9a6c2f; border-radius: 14px; box-shadow: 0 18px 40px rgba(30, 41, 59, .16); box-sizing: border-box; }
-.gomoku-cell { position: relative; min-width: 0; min-height: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: linear-gradient(to right, transparent calc(50% - .5px), rgba(75, 48, 20, .62) calc(50% - .5px), rgba(75, 48, 20, .62) calc(50% + .5px), transparent calc(50% + .5px)), linear-gradient(to bottom, transparent calc(50% - .5px), rgba(75, 48, 20, .62) calc(50% - .5px), rgba(75, 48, 20, .62) calc(50% + .5px), transparent calc(50% + .5px)); cursor: pointer; box-sizing: border-box; touch-action: manipulation; }
-.gomoku-cell::before { content: none; }
-.gomoku-cell::after { content: none; }
-.gomoku-stone { position: absolute; left: 50%; top: 50%; display: block; width: 72%; height: 72%; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
-.gomoku-cell.is-black .gomoku-stone { background: #111827; box-shadow: inset -4px -5px 8px rgba(0, 0, 0, .3), 0 3px 5px rgba(15, 23, 42, .35); }
-.gomoku-cell.is-white .gomoku-stone { background: #fff; border: 1px solid #cbd5e1; box-sizing: border-box; box-shadow: inset -3px -4px 7px rgba(148, 163, 184, .35), 0 3px 5px rgba(15, 23, 42, .25); }
-.gomoku-cell { z-index: 1; }
-.gomoku-cell.is-black, .gomoku-cell.is-white { z-index: 1; }
-.gomoku-cell:active:not(:disabled) { background-color: rgba(154, 108, 47, .18); }
-.gomoku-cell:disabled { cursor: default; }
-.gomoku-info { width: 220px; flex: 0 0 220px; padding: 18px; border: 1px solid #dbe3ef; border-radius: 14px; background: #fff; box-sizing: border-box; }
-.gomoku-info ul { margin: 0; padding-left: 20px; color: #475569; line-height: 1.8; }
-.gomoku-finished { margin-top: 20px; }
-.gomoku-finished p { min-height: 38px; margin: 0 0 10px; color: #64748b; font-size: 13px; }
-.gomoku-finished button { width: 100%; margin-top: 8px; padding: 9px 10px; border: 0; border-radius: 8px; color: #fff; background: #2563eb; cursor: pointer; font: inherit; }
-[hidden] { display: none !important; }
-@media (max-width: 800px) { .gomoku-app { padding: 12px; } .gomoku-header, .gomoku-layout { align-items: stretch; flex-direction: column; } .gomoku-info { width: auto; flex-basis: auto; } .gomoku-actions { align-items: stretch; justify-content: flex-start; } .gomoku-actions button { flex: 1 1 auto; } .gomoku-board { width: min(100%, calc(100vw - 24px)); padding: 8px; } }
+/* 五子棋 —— 市场应用样式（2026-09-11 横屏平板适配重做）
+ *
+ * 约束（第三方 entry.js 不过 Vite 构建，拿不到 legacy 与 PostCSS 兜底）：
+ *   - 禁用 flex/grid `gap`（需 Chrome 84+）→ 改用 > * + * 相邻兄弟 margin
+ *   - 禁用 aspect-ratio（需 Chrome 88+）→ 改用 padding-top 撑高
+ *   - 圆角一律走八档令牌 --radius-{xs|sm|md|lg|xl|2xl|3xl|pill}
+ *   - 颜色优先 --ci-* 令牌，硬编码值仅作 var() 兜底或该应用独有材质色
+ *   全部样式锚定 .gomoku-app，避免污染宿主页面。
+ *
+ * 本轮修复：
+ *   - 棋盘尺寸加入 100vh 约束：横屏平板（宽 > 视口高）下棋盘不再超出首屏，
+ *     侧栏与棋盘同高并排，整页免滚动
+ *   - 网格线偏移半格：棋子（格子中心）精确落在交叉点上（此前落在格心，视觉违和）
+ *   - 星位（天元 + 四星/九星）由 entry.js 按 --gomoku-size 渲染
+ *   - [hidden] 规则收敛到 .gomoku-app 作用域（全局选择器曾污染宿主页面）
+ *   - 错误/提示条改为 shell 层常驻可见（配合 entry.js 的反馈修复）
+ */
+
+.gomoku-app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 16px 20px 24px;
+  color: var(--ci-color-text, #172033);
+  background: var(--ci-color-surface, #f8fafc);
+  box-sizing: border-box;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gomoku-shell {
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ===== 布局原语：用相邻兄弟 margin 替代 flex gap ===== */
+.gomoku-header,
+.gomoku-roombar,
+.gomoku-layout,
+.gomoku-entry-row {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+}
+
+.gomoku-header > * + *,
+.gomoku-roombar > * + *,
+.gomoku-layout > * + *,
+.gomoku-entry-row > * + *,
+.gomoku-actions > * + * {
+  margin-left: 16px;
+}
+
+.gomoku-actions {
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-pack: end;
+  -ms-flex-pack: end;
+  justify-content: flex-end;
+}
+
+.gomoku-header {
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  -ms-flex-pack: justify;
+  margin-bottom: 14px;
+}
+
+.gomoku-header h1 {
+  margin: 0 0 4px;
+  font-size: clamp(22px, 3.4vw, 30px);
+}
+
+.gomoku-kicker {
+  margin: 0 0 4px;
+  color: var(--ci-color-accent, #2563eb);
+  font-size: 11px;
+  letter-spacing: .16em;
+}
+
+.gomoku-status,
+.gomoku-entry-card p {
+  margin: 0;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.gomoku-actions,
+.gomoku-entry-row {
+  -webkit-box-align: end;
+  -ms-flex-align: end;
+  align-items: flex-end;
+}
+
+/* ===== 按钮 ===== */
+.gomoku-actions button,
+.gomoku-entry-row button,
+.gomoku-finished button {
+  border: 0;
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 16px;
+  color: #fff;
+  background: var(--ci-color-accent, #2563eb);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+                      opacity var(--duration-fast, 0.15s) var(--ease-standard, ease),
+                      -webkit-transform var(--duration-fast, 0.15s) var(--ease-emphasized, ease-out);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              opacity var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-emphasized, ease-out);
+}
+
+.gomoku-actions button:disabled,
+.gomoku-entry-row button:disabled,
+.gomoku-finished button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.gomoku-actions button:not(:disabled):active,
+.gomoku-entry-row button:not(:disabled):active,
+.gomoku-finished button:not(:disabled):active {
+  -webkit-transform: scale(0.96);
+  transform: scale(0.96);
+}
+
+.gomoku-actions button.is-secondary,
+.gomoku-entry-row button.is-secondary,
+.gomoku-finished button.is-secondary {
+  color: var(--ci-color-text, #334155);
+  background: var(--ci-color-fill, #e2e8f0);
+}
+
+/* ===== 进入棋局卡片 ===== */
+.gomoku-entry {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.gomoku-entry-card {
+  width: 100%;
+  max-width: 520px;
+  padding: 22px 24px;
+  background: var(--ci-color-bg-elevated, #fff);
+  border: 1px solid var(--ci-color-border, #dbe3ef);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--ci-shadow-md, 0 8px 24px rgba(30, 41, 59, .06));
+  box-sizing: border-box;
+}
+
+.gomoku-entry-card h2,
+.gomoku-info h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.gomoku-entry-row {
+  margin-top: 14px;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+
+/* 条目之间的横向间距：用相邻兄弟 margin 替代 gap（Chrome 80 不支持 flex gap） */
+.gomoku-entry-row > * + * {
+  margin-left: 12px;
+}
+
+.gomoku-entry-row label {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  min-width: 160px;
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.gomoku-entry-row label > * + * {
+  margin-top: 6px;
+}
+
+.gomoku-entry-row input,
+.gomoku-entry-row select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--ci-color-text, #172033);
+  background: var(--ci-color-bg-elevated, #fff);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+/* ===== 错误/提示条（shell 层，房间内外都可见） ===== */
+.gomoku-error {
+  margin: 0 0 12px;
+  min-height: 0;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm, 8px);
+  color: var(--ci-color-danger, #dc2626);
+  background: rgba(220, 38, 38, .08);
+  font-size: 13px;
+}
+
+.gomoku-error:empty {
+  display: none;
+}
+
+/* ===== 房间状态条 ===== */
+.gomoku-roombar {
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--ci-color-border, #dbe3ef);
+  border-radius: var(--radius-md, 12px);
+  background: var(--ci-color-bg-elevated, #fff);
+  color: var(--ci-color-text-secondary, #475569);
+}
+
+.gomoku-roombar > * + * {
+  margin-left: 12px;
+}
+
+.gomoku-roombar span {
+  font-size: 13px;
+}
+
+/* ===== 棋盘 ===== */
+.gomoku-layout {
+  -webkit-box-align: stretch;
+  -ms-flex-align: stretch;
+  align-items: stretch;
+}
+
+/**
+ * 棋盘尺寸三重约束（Chrome 80 无 aspect-ratio，用 padding-top 撑正方形）：
+ *   min(780px 上限, 容器宽 100%, 视口高 100vh - 固定区高度)
+ * 固定区实测（error 空时隐藏）：app padding 40 + header ~89 + roombar ~50 ≈ 180px，
+ * 预算取 190px —— 首版 300px 过于保守，把 1280×800 平板的棋盘压到只剩 500px。
+ */
+.gomoku-board {
+  position: relative;
+  width: min(780px, 100%, calc(100vh - 190px));
+  height: 0;
+  padding-top: min(780px, 100%, calc(100vh - 190px));
+  margin: 0 auto;
+  background-color: #dcaf62;
+  background-image: -webkit-linear-gradient(145deg, rgba(255, 244, 214, .5) 0%, rgba(255, 244, 214, 0) 42%, rgba(122, 82, 34, .16) 100%);
+  background-image: linear-gradient(145deg, rgba(255, 244, 214, .5) 0%, rgba(255, 244, 214, 0) 42%, rgba(122, 82, 34, .16) 100%);
+  border: 2px solid #8f6226;
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--ci-shadow-lg, 0 18px 40px rgba(30, 41, 59, .16)), inset 0 0 26px rgba(122, 82, 34, .18);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 棋子层：覆盖在网格线上，脱离 ::after 的网格定位 */
+.gomoku-stones {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: -ms-grid;
+  display: grid;
+  -ms-grid-columns: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
+  -ms-grid-rows: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
+  z-index: 2;
+}
+
+/**
+ * 网格线背景层。
+ * 关键：background-position 偏移半格 —— 平铺的「单线」图像按格子步进重复，
+ * 偏移 (i+0.5)/size 后每条线恰好穿过格子中心，即棋子的落点（交叉点）。
+ * 偏移百分比推导：使平移量 = 半格 = W/(2N)，而 (W - W/N)·P% = W/(2N)
+ *   → P = 100 / (2·(N-1))，N = --gomoku-size。
+ */
+.gomoku-grid {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 1;
+  pointer-events: none;
+  background-image:
+    -webkit-linear-gradient(to right, rgba(75, 48, 20, .55) 0, rgba(75, 48, 20, .55) 1px, transparent 1px),
+    -webkit-linear-gradient(to bottom, rgba(75, 48, 20, .55) 0, rgba(75, 48, 20, .55) 1px, transparent 1px);
+  background-image:
+    linear-gradient(to right, rgba(75, 48, 20, .55) 0, rgba(75, 48, 20, .55) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(75, 48, 20, .55) 0, rgba(75, 48, 20, .55) 1px, transparent 1px);
+  background-size: calc(100% / var(--gomoku-size, 15)) calc(100% / var(--gomoku-size, 15));
+  background-position: calc(100% / (2 * (var(--gomoku-size, 15) - 1))) calc(100% / (2 * (var(--gomoku-size, 15) - 1)));
+}
+
+/* 星位：entry.js 按 --gomoku-size 渲染，定位同为「交叉点百分比」 */
+.gomoku-star {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(75, 48, 20, .8);
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+}
+
+.gomoku-cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 1;
+}
+
+.gomoku-cell::before,
+.gomoku-cell::after {
+  content: none;
+}
+
+.gomoku-cell:not(:disabled):active {
+  background-color: rgba(154, 108, 47, .18);
+  border-radius: 50%;
+}
+
+.gomoku-cell:disabled {
+  cursor: default;
+}
+
+/* ===== 棋子 ===== */
+.gomoku-stone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 78%;
+  height: 78%;
+  border-radius: 50%;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.gomoku-cell.is-black .gomoku-stone {
+  background: radial-gradient(circle at 34% 30%, #556070 0%, #1f2937 42%, #0b1220 100%);
+  box-shadow: inset -4px -5px 8px rgba(0, 0, 0, .35), 0 3px 5px rgba(15, 23, 42, .4);
+}
+
+.gomoku-cell.is-white .gomoku-stone {
+  background: radial-gradient(circle at 34% 30%, #ffffff 0%, #f1f5f9 55%, #cbd5e1 100%);
+  border: 1px solid rgba(148, 163, 184, .7);
+  box-sizing: border-box;
+  box-shadow: inset -3px -4px 7px rgba(148, 163, 184, .4), 0 3px 5px rgba(15, 23, 42, .25);
+}
+
+/* 最后一手标记：外圈脉冲环，帮助移动端识别落点 */
+.gomoku-cell.is-last .gomoku-stone::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 118%;
+  height: 118%;
+  margin: -59% 0 0 -59%;
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, .9);
+  box-sizing: border-box;
+  -webkit-animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+  animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+}
+
+@-webkit-keyframes gomoku-last-pulse {
+  0%, 100% { opacity: .95; -webkit-transform: scale(1); }
+  50% { opacity: .35; -webkit-transform: scale(1.14); }
+}
+
+@keyframes gomoku-last-pulse {
+  0%, 100% { opacity: .95; transform: scale(1); }
+  50% { opacity: .35; transform: scale(1.14); }
+}
+
+/* 胜利连线高亮 */
+.gomoku-cell.is-win .gomoku-stone {
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, .85), 0 3px 8px rgba(15, 23, 42, .4);
+}
+
+/* ===== 侧栏：与棋盘同高（layout 已 align-items: stretch） ===== */
+.gomoku-info {
+  width: 230px;
+  -ms-flex: 0 0 230px;
+  flex: 0 0 230px;
+  padding: 18px;
+  border: 1px solid var(--ci-color-border, #dbe3ef);
+  border-radius: var(--radius-lg, 16px);
+  background: var(--ci-color-bg-elevated, #fff);
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.gomoku-info ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ci-color-text-secondary, #475569);
+  line-height: 1.8;
+}
+
+.gomoku-finished {
+  margin-top: 20px;
+}
+
+.gomoku-finished p {
+  min-height: 0;
+  margin: 0 0 10px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.gomoku-finished button {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  color: #fff;
+  background: var(--ci-color-accent, #2563eb);
+  cursor: pointer;
+  font: inherit;
+}
+
+.gomoku-finished button.is-secondary {
+  color: var(--ci-color-text, #334155);
+  background: var(--ci-color-fill, #e2e8f0);
+}
+
+/* hidden 收敛到应用作用域：全局选择器会覆盖宿主页面的 hidden 行为（样式污染） */
+.gomoku-app [hidden] {
+  display: none !important;
+}
+
+/* ===== 减弱动效 ===== */
+@media (prefers-reduced-motion: reduce) {
+  .gomoku-cell.is-last .gomoku-stone::after {
+    -webkit-animation: none !important;
+    animation: none !important;
+    opacity: .9;
+  }
+  .gomoku-actions button,
+  .gomoku-entry-row button,
+  .gomoku-finished button,
+  .gomoku-cell {
+    -webkit-transition: none !important;
+    transition: none !important;
+  }
+  .gomoku-actions button:not(:disabled):active,
+  .gomoku-entry-row button:not(:disabled):active,
+  .gomoku-finished button:not(:disabled):active {
+    -webkit-transform: none;
+    transform: none;
+    opacity: .7;
+  }
+}
+
+/* ===== 竖屏 / 窄屏：info 移到棋盘下方 ===== */
+@media (max-width: 800px) {
+  .gomoku-app {
+    padding: 12px;
+  }
+  .gomoku-header,
+  .gomoku-layout {
+    -webkit-box-align: stretch;
+    -ms-flex-align: stretch;
+    align-items: stretch;
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
+  }
+  /* 竖排后相邻兄弟间距改为上边距 */
+  .gomoku-header > * + *,
+  .gomoku-layout > * + * {
+    margin-left: 0;
+    margin-top: 12px;
+  }
+  .gomoku-info {
+    width: auto;
+    -ms-flex-preferred-size: auto;
+    flex-basis: auto;
+  }
+  .gomoku-actions {
+    -webkit-box-align: stretch;
+    -ms-flex-align: stretch;
+    align-items: stretch;
+    -webkit-box-pack: start;
+    -ms-flex-pack: start;
+    justify-content: flex-start;
+  }
+  .gomoku-actions button {
+    -webkit-box-flex: 1;
+    -ms-flex: 1 1 auto;
+    flex: 1 1 auto;
+  }
+  .gomoku-board {
+    width: 100%;
+    padding-top: 100%;
+    border-radius: var(--radius-md, 12px);
+  }
+  .gomoku-board::after,
+  .gomoku-stones,
+  .gomoku-grid {
+    left: 8px;
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+}
+
+/* ===== 横屏（棋盘优先，安卓横屏平板主场景） =====
+ * 标题/房间码/身份/连接/状态压成一条紧凑顶栏，棋盘吃掉剩余全部空间。
+ * DOM 不变：header 与 roombar 两个块并排成一行（shell 转 flex-wrap），
+ * entry / error / layout 各自换行占满。 */
+@media (min-width: 801px) and (orientation: landscape) {
+  .gomoku-app {
+    padding: 10px 16px 12px;
+    overflow: hidden;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+  }
+  .gomoku-shell {
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+    -ms-flex-line-pack: start;
+    align-content: flex-start;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+  }
+  /* 顶栏：brand + 状态 + 操作按钮并排 */
+  .gomoku-header {
+    -webkit-box-flex: 1;
+    -ms-flex: 1 1 auto;
+    flex: 1 1 auto;
+    margin: 0;
+    min-width: 0;
+  }
+  .gomoku-header > div:first-child {
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+    min-width: 0;
+  }
+  .gomoku-header > div:first-child > * + * {
+    margin-left: 12px;
+  }
+  .gomoku-header h1 {
+    margin: 0;
+    font-size: 18px;
+    white-space: nowrap;
+  }
+  .gomoku-kicker {
+    display: none;
+  }
+  .gomoku-status {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gomoku-actions button {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  /* 房间元信息并入同一行：去卡片外观，纯文字 */
+  .gomoku-roombar {
+    margin: 0;
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    -ms-flex-wrap: nowrap;
+    flex-wrap: nowrap;
+  }
+  .gomoku-roombar > * + * {
+    margin-left: 10px;
+  }
+  .gomoku-error,
+  .gomoku-entry,
+  .gomoku-layout {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
+  }
+  .gomoku-error {
+    margin: 0 0 6px;
+  }
+  .gomoku-layout {
+    margin-top: 6px;
+    /* 棋盘 + 侧栏作为整体居中：消除「棋盘左贴边、侧栏贴右、中间大空洞」的失衡观感 */
+    -webkit-box-pack: center;
+    -ms-flex-pack: center;
+    justify-content: center;
+  }
+  /* 入场模式（未进房）：隐藏顶栏（复制/分享等操作未进房时无意义，卡片里已有标题），
+     只显示居中的入场卡片 */
+  .gomoku-app.gomoku-entering .gomoku-header {
+    display: none;
+  }
+  .gomoku-app.gomoku-entering .gomoku-shell {
+    -ms-flex-line-pack: center;
+    align-content: center;
+  }
+  /* 棋盘：吃掉视口剩余高度（顶栏 + 内边距实测 ≈ 62px，预算 100px） */
+  .gomoku-board {
+    width: min(900px, 100%, calc(100vh - 100px));
+    padding-top: min(900px, 100%, calc(100vh - 100px));
+    margin: 0;
+  }
+}
