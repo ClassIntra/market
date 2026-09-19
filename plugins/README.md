@@ -2,6 +2,9 @@
 
 插件是 ClassIntra 的**独立扩展模块**，与应用（apps/）和主题（themes/）相互独立。
 
+> 开发**应用 / 桌面小组件 / 主题**请看 [docs/third-party-development.md](../docs/third-party-development.md)；
+> 本文档只讲插件（backend-only 扩展）。三类模块的工具链互相打通，校验统一走 `node scripts/diag.js all`。
+
 ## 与应用的区别
 
 | 维度 | 应用（apps/） | 插件（plugins/） |

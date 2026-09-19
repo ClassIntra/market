@@ -38,7 +38,7 @@ var manifest = {
   type: 'plugin',
   version: '0.1.0',
   label: label || name,
-  category: 'general',
+  category: 'hidden',
   order: 100,
   defaultEnabled: true,
   canDisable: true,

@@ -3,7 +3,7 @@
   "type": "plugin",
   "version": "1.1.0",
   "label": "网易云音乐接入",
-  "category": "music",
+  "category": "hidden",
   "order": 30,
   "defaultEnabled": true,
   "canDisable": true,
