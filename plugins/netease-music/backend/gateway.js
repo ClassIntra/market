@@ -16,8 +16,6 @@ var errors = require('./errors');
 var PluginError = errors.PluginError;
 var isNetworkError = errors.isNetworkError; // 统一错误类型收编（见 errors.js）
 var log = require('./log');
-var http = require('http');
-var https = require('https');
 
 // 各类端点的缓存 TTL（毫秒）。播放地址官方有效期 20 分钟，缓存须短于该值。
 var TTL = {
@@ -61,54 +59,8 @@ var UPSTREAM_MODULE = {
   captchaSent: 'captcha_sent'
 };
 
-// HTTP(S) GET，用于 upstream 转发（零依赖；proxyUrl 提供时走代理）
-function httpGetJson(url, proxyUrl) {
-  return new Promise(function (resolve, reject) {
-    var u = new URL(url);
-    var port = parseInt(u.port, 10) || (u.protocol === 'http:' ? 80 : 443);
-    var lib = u.protocol === 'http:' ? http : https;
-
-    function handle(res) {
-      var chunks = [];
-      res.on('data', function (c) { chunks.push(c); });
-      res.on('end', function () {
-        var text = Buffer.concat(chunks).toString('utf8');
-        try { resolve(JSON.parse(text)); } catch (e) { reject(new Error('上游响应解析失败')); }
-      });
-    }
-    function bind(r) {
-      r.on('error', reject);
-      r.setTimeout(15000, function () { r.destroy(new Error('上游请求超时')); });
-      r.end();
-    }
-
-    var req;
-    if (proxyUrl && u.protocol === 'https:') {
-      streamMod.proxyConnect(proxyUrl, u.hostname, port).then(function (socket) {
-        req = https.request({
-          hostname: u.hostname, port: port, path: u.pathname + u.search,
-          method: 'GET', headers: { 'Accept': 'application/json' }, socket: socket, agent: false
-        }, handle);
-        bind(req);
-      }, reject);
-      return;
-    }
-    if (proxyUrl && u.protocol === 'http:') {
-      var p = new URL(proxyUrl);
-      req = http.request({
-        hostname: p.hostname, port: parseInt(p.port, 10) || 80, path: url,
-        method: 'GET', headers: { 'Accept': 'application/json', 'Host': u.hostname }
-      }, handle);
-      bind(req);
-      return;
-    }
-    req = lib.request({
-      hostname: u.hostname, port: port, path: u.pathname + u.search,
-      method: 'GET', headers: { 'Accept': 'application/json' }
-    }, handle);
-    bind(req);
-  });
-}
+// HTTP(S) GET JSON 已下沉插件 SDK（stream.js 门面 re-export）
+var httpGetJson = streamMod.httpGetJson;
 
 // upstream 调用：GET {upstreamUrl}/{module}?query&cookie=...
 async function callUpstream(engine, endpoint, query, cookieStr) {

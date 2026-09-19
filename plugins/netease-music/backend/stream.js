@@ -28,6 +28,7 @@ module.exports = {
   streamImage: relay.streamImage,
   proxyConnect: sdk.proxyConnect,
   fetchRaw: sdk.fetchRaw,
+  httpGetJson: sdk.httpGetJson,
   createStreamTicket: function (payload) { return tickets.create(payload); },
   verifyStreamTicket: tickets.verify
 };

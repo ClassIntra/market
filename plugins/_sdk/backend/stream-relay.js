@@ -121,6 +121,57 @@ function fetchRaw(url, headers, proxyUrl) {
   });
 }
 
+// HTTP(S) GET 并解析 JSON 响应（供 upstream 转发等场景）
+// proxyUrl 提供时：https 目标走 CONNECT 隧道；http 目标向代理发绝对路径请求
+// 返回解析后的 JSON 对象；解析失败抛 Error('响应解析失败')
+function httpGetJson(url, proxyUrl) {
+  return new Promise(function (resolve, reject) {
+    var u = new URL(url);
+    var port = parseInt(u.port, 10) || (u.protocol === 'http:' ? 80 : 443);
+    var lib = u.protocol === 'http:' ? http : https;
+
+    function handle(res) {
+      var chunks = [];
+      res.on('data', function (c) { chunks.push(c); });
+      res.on('end', function () {
+        var text = Buffer.concat(chunks).toString('utf8');
+        try { resolve(JSON.parse(text)); } catch (e) { reject(new Error('响应解析失败')); }
+      });
+    }
+    function bind(r) {
+      r.on('error', reject);
+      r.setTimeout(15000, function () { r.destroy(new Error('请求超时')); });
+      r.end();
+    }
+
+    var req;
+    if (proxyUrl && u.protocol === 'https:') {
+      proxyConnect(proxyUrl, u.hostname, port).then(function (socket) {
+        req = https.request({
+          hostname: u.hostname, port: port, path: u.pathname + u.search,
+          method: 'GET', headers: { 'Accept': 'application/json' }, socket: socket, agent: false
+        }, handle);
+        bind(req);
+      }, reject);
+      return;
+    }
+    if (proxyUrl && u.protocol === 'http:') {
+      var p = new URL(proxyUrl);
+      req = http.request({
+        hostname: p.hostname, port: parseInt(p.port, 10) || 80, path: url,
+        method: 'GET', headers: { 'Accept': 'application/json', 'Host': u.hostname }
+      }, handle);
+      bind(req);
+      return;
+    }
+    req = lib.request({
+      hostname: u.hostname, port: port, path: u.pathname + u.search,
+      method: 'GET', headers: { 'Accept': 'application/json' }
+    }, handle);
+    bind(req);
+  });
+}
+
 // ---------- 中转器工厂 ----------
 
 // createRelay(options)：
@@ -293,6 +344,7 @@ function createRelay(options) {
 module.exports = {
   proxyConnect: proxyConnect,
   fetchRaw: fetchRaw,
+  httpGetJson: httpGetJson,
   createTicketKit: createTicketKit,
   createRelay: createRelay
 };
