@@ -1,6 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="28" fill="#2563eb"/>
-  <path d="M28 32h72M28 64h72M28 96h72M32 28v72M64 28v72M96 28v72" stroke="#bfdbfe" stroke-width="4" opacity=".8"/>
-  <circle cx="48" cy="48" r="13" fill="#111827"/>
-  <circle cx="80" cy="80" r="13" fill="#fff" stroke="#111827" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- 背景渐变：蓝色系，呼应 manifest color #2563eb -->
+    <linearGradient id="gBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#63A5FF"/>
+      <stop offset="0.5" stop-color="#2F6FEF"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <!-- 棋盘木纹渐变 -->
+    <linearGradient id="gWood" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8E7C4"/>
+      <stop offset="0.55" stop-color="#EFD3A0"/>
+      <stop offset="1" stop-color="#DFB878"/>
+    </linearGradient>
+    <!-- 黑子：左上高光球体感 -->
+    <radialGradient id="gBlack" cx="0.34" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#70757E"/>
+      <stop offset="0.35" stop-color="#2B2E34"/>
+      <stop offset="1" stop-color="#0A0B0E"/>
+    </radialGradient>
+    <!-- 白子：珍珠光泽 -->
+    <radialGradient id="gWhite" cx="0.34" cy="0.28" r="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#F0F3F7"/>
+      <stop offset="1" stop-color="#C4CEDA"/>
+    </radialGradient>
+    <!-- 棋盘投影 -->
+    <filter id="fBoardShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#08245E" flood-opacity="0.38"/>
+    </filter>
+    <!-- 棋子投影 -->
+    <filter id="fStoneShadow" x="-70%" y="-70%" width="240%" height="240%">
+      <feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#59400F" flood-opacity="0.42"/>
+    </filter>
+  </defs>
+
+  <!-- 透明留白 + squircle 底（与其他应用图标可见尺寸一致：约容器 84%） -->
+  <rect x="41" y="41" width="430" height="430" rx="98" fill="url(#gBg)"/>
+  <!-- 顶部柔光提升通透感 -->
+  <ellipse cx="256" cy="96" rx="290" ry="170" fill="#FFFFFF" opacity="0.13"/>
+
+  <!-- 棋盘 -->
+  <g filter="url(#fBoardShadow)">
+    <rect x="106" y="106" width="300" height="300" rx="54" fill="url(#gWood)"/>
+  </g>
+  <!-- 棋盘内描边提亮 -->
+  <rect x="108.5" y="108.5" width="295" height="295" rx="51.5" fill="none" stroke="#FFF7E6" stroke-opacity="0.7" stroke-width="5"/>
+
+  <!-- 5x5 网格 -->
+  <g stroke="#9A7440" stroke-width="5" stroke-linecap="round" opacity="0.72">
+    <path d="M161 161H351M161 208.5H351M161 256H351M161 303.5H351M161 351H351"/>
+    <path d="M161 161V351M208.5 161V351M256 161V351M303.5 161V351M351 161V351"/>
+  </g>
+  <!-- 天元星位 -->
+  <circle cx="256" cy="256" r="7.5" fill="#9A7440" opacity="0.75"/>
+
+  <!-- 黑子（左上） -->
+  <g filter="url(#fStoneShadow)">
+    <circle cx="208.5" cy="208.5" r="33" fill="url(#gBlack)"/>
+  </g>
+  <ellipse cx="197" cy="196" rx="14" ry="9.5" fill="#FFFFFF" opacity="0.42" transform="rotate(-24 197 196)"/>
+
+  <!-- 白子（右下） -->
+  <g filter="url(#fStoneShadow)">
+    <circle cx="303.5" cy="303.5" r="33" fill="url(#gWhite)"/>
+  </g>
+  <circle cx="303.5" cy="303.5" r="33" fill="none" stroke="#9FAEC1" stroke-opacity="0.55" stroke-width="2"/>
+  <ellipse cx="292" cy="291" rx="13" ry="8.5" fill="#FFFFFF" opacity="0.9" transform="rotate(-24 292 291)"/>
 </svg>

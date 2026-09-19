@@ -138,7 +138,10 @@
   border-radius: var(--radius-md, 12px);
   padding: 10px 16px;
   color: #fff;
-  background: var(--ci-color-accent, #2563eb);
+  /* 主按钮：对角渐变 + 柔和投影（纯色兜底在前，不支持渐变时仍有底色） */
+  background-color: var(--ci-color-accent, #2563eb);
+  background-image: linear-gradient(135deg, #4183f7 0%, var(--ci-color-accent, #2563eb) 62%, #1d4ed8 100%);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
   cursor: pointer;
   font: inherit;
   white-space: nowrap;
@@ -182,6 +185,8 @@
 .gomoku-finished button.is-secondary {
   color: var(--ci-color-text, #334155);
   background: var(--ci-color-fill, #e2e8f0);
+  /* 次级按钮回归平面：shorthand 已重置渐变，这里再去掉主按钮的投影 */
+  box-shadow: none;
 }
 
 /* ===== 进入棋局卡片 ===== */
@@ -217,6 +222,35 @@
   right: 0;
   height: 3px;
   background: linear-gradient(90deg, var(--ci-color-accent, #2563eb), rgba(124, 58, 237, .9));
+}
+
+/* 迷你棋盘装饰角标（右上角）：呼应桌面新图标。
+ * 纯 CSS 多层渐变：棋子（径向）+ 网格（18px 平铺细线，线落在 9/27/45px）
+ * + 木纹底；黑白子精确压在交叉点上。 */
+.gomoku-entry-card::after {
+  content: '';
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background-image:
+    radial-gradient(circle 7px at 9px 9px, #6a6f78 0%, #2b2e34 45%, #0a0b0e 100%, rgba(10, 11, 14, 0) 100%),
+    radial-gradient(circle 7px at 45px 45px, #ffffff 0%, #eff2f6 55%, #c6cfdb 88%, #9faec1 98%, rgba(159, 174, 193, 0) 100%),
+    linear-gradient(to right, transparent calc(50% - 0.75px), rgba(168, 127, 66, .55) calc(50% - 0.75px), rgba(168, 127, 66, .55) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(to bottom, transparent calc(50% - 0.75px), rgba(168, 127, 66, .55) calc(50% - 0.75px), rgba(168, 127, 66, .55) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(180deg, #f5e3b8, #dbb273);
+  background-size: 100% 100%, 100% 100%, 18px 18px, 18px 18px, 100% 100%;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, no-repeat;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 244, 220, .75), 0 2px 6px rgba(120, 80, 30, .28);
+}
+
+/* 窄屏隐藏装饰：避免与描述文字换行后重叠 */
+@media (max-width: 420px) {
+  .gomoku-entry-card::after {
+    display: none;
+  }
 }
 
 .gomoku-entry-card h2,
@@ -799,7 +833,9 @@
   border: 0;
   border-radius: var(--radius-sm, 8px);
   color: #fff;
-  background: var(--ci-color-accent, #2563eb);
+  background-color: var(--ci-color-accent, #2563eb);
+  background-image: linear-gradient(135deg, #4183f7 0%, var(--ci-color-accent, #2563eb) 62%, #1d4ed8 100%);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
   cursor: pointer;
   font: inherit;
 }
