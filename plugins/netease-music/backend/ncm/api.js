@@ -7,16 +7,47 @@ var engine = require('./engine');
 var streamMod = require('../stream');
 var https = require('https');
 
+// ---------- 全局请求节流 ----------
+// 前端一次操作会并发触发多个官方接口（suggest + search、lyric + comment + songUrl…），
+// 突发并发是升级风控（全簇拉黑）的主要诱因。所有对外请求串行排队，最小间隔 300ms，
+// 把「并发轰击」变成「匀速排队」，单次请求代价不变，风控触发率显著下降。
+var THROTTLE_GAP = 300;
+var throttleTail = Promise.resolve();
+var lastRequestAt = 0;
+
+function throttled(task) {
+  var run = throttleTail.then(function () {
+    var wait = lastRequestAt + THROTTLE_GAP - Date.now();
+    if (wait > 0) return new Promise(function (r) { setTimeout(r, wait); });
+  }).then(function () {
+    lastRequestAt = Date.now();
+    return task();
+  });
+  throttleTail = run.catch(function () {}); // 队列吞错防断链，错误由调用方 Promise 承接
+  return run;
+}
+
 function req(uri, data, ctx, cryptoType) {
   ctx = ctx || {};
-  return engine.request(uri, data, {
-    crypto: cryptoType || '',
-    cookie: ctx.cookie || {},
-    proxy: ctx.proxy || '',
-    timeout: ctx.timeout || 0,
-    domain: ctx.domain || ''
+  return throttled(function () {
+    return engine.request(uri, data, {
+      crypto: cryptoType || '',
+      cookie: ctx.cookie || {},
+      proxy: ctx.proxy || '',
+      timeout: ctx.timeout || 0,
+      domain: ctx.domain || ''
+    });
   });
 }
+
+// ---------- 簇级 -462 冷却表 ----------
+// 风控按「接口簇」独立计数且间歇性（HTTP 200 但 code:-462）。某通道触发 -462 后
+// 记录 60s 冷却，期间级联直接跳过该通道：既不撞墙加深风控，也避免每次搜索都
+// 白白浪费 1-2 次注定失败的高频请求。
+var COOLDOWN_MS = 60 * 1000;
+var channelCooldown = {};
+function channelBlocked(name) { return (channelCooldown[name] || 0) > Date.now(); }
+function markCooldown(name) { channelCooldown[name] = Date.now() + COOLDOWN_MS; }
 
 // 明文老接口 GET（music.163.com/api/*）
 // 背景：v6/playlist/detail、v3/song/detail 等对匿名请求触发 -462 风控（返回 200 但无数据），
@@ -24,7 +55,7 @@ function req(uri, data, ctx, cryptoType) {
 // proxyUrl 提供时 HTTPS 走 CONNECT 隧道（与 fetchRaw 同套代理逻辑）。
 function plainGetJson(pathname, query, ctx) {
   ctx = ctx || {};
-  return new Promise(function (resolve, reject) {
+  return throttled(function () { return new Promise(function (resolve, reject) {
     var qs = [];
     for (var k in query) {
       if (query[k] !== undefined && query[k] !== null && query[k] !== '') {
@@ -62,19 +93,21 @@ function plainGetJson(pathname, query, ctx) {
       return;
     }
     requestWithSocket(undefined);
-  });
+  }); });
 }
 
 // 搜索（单曲 1 / 专辑 10 / 歌手 100 / 歌单 1000 / 用户 1002）
 // 背景：网易云搜索接口存在间歇性 -462 风控（HTTP 200 但 code:-462「请完成验证操作」），
 // 风控按接口簇独立计数——同一时刻某簇被风控，其他簇可能正常。
-// 应对：多通道级联，code!==200 或请求失败自动换下一个通道：
+// 应对：多通道级联 + 簇级冷却，code!==200 或请求失败自动换下一个通道：
 //   1. weapi /api/search/get        网页主搜索（老字段 artists/album，单曲缺封面）
 //   2. 明文 music.163.com search/get 明文老接口（不带加密）
 //   3. eapi  /api/search/pc          PC 客户端搜索
 //   4. weapi /api/cloudsearch/pc    云搜索（新字段 ar/al，封面稳定）
-// 全部失败时返回主通道原始响应（前端显示无结果）。
-// 单曲结果统一用 songDetail（明文 song/detail，字段稳定带 al.picUrl）批量补全封面。
+// 全部通道失败时抛出风控错误（gateway 不缓存，前端给出明确提示与重试入口），
+// 避免「风控空结果」与「真的无结果」混淆。
+// 单曲结果按需用 songDetail（明文 song/detail，字段稳定带 al.picUrl）批量补全封面
+// ——仅当结果里存在缺 picUrl / 缺歌手的歌才补，cloudsearch 通道原生带封面时零额外请求。
 function search(params, ctx) {
   var type = params.type || 1;
   var args = {
@@ -84,23 +117,33 @@ function search(params, ctx) {
     offset: params.offset || 0
   };
   var channels = [
-    function () { return req('/api/search/get', args, ctx, 'weapi'); },
-    function () { return plainGetJson('/api/search/get', args, ctx).then(function (body) { return { status: 200, body: body, cookie: [] }; }); },
-    function () { return req('/api/search/pc', args, ctx, 'eapi'); },
-    function () { return req('/api/cloudsearch/pc', args, ctx, 'weapi'); }
+    { name: 'search:weapi', fn: function () { return req('/api/search/get', args, ctx, 'weapi'); } },
+    { name: 'search:plain', fn: function () { return plainGetJson('/api/search/get', args, ctx).then(function (body) { return { status: 200, body: body, cookie: [] }; }); } },
+    { name: 'search:eapi', fn: function () { return req('/api/search/pc', args, ctx, 'eapi'); } },
+    { name: 'search:cloud', fn: function () { return req('/api/cloudsearch/pc', args, ctx, 'weapi'); } }
   ];
   function tryAt(i) {
-    if (i >= channels.length) return channels[0]();
-    return channels[i]().then(function (res) {
+    if (i >= channels.length) return null; // 全部通道失败
+    if (channelBlocked(channels[i].name)) return tryAt(i + 1); // 冷却期内跳过
+    return channels[i].fn().then(function (res) {
       var body = res.body || {};
-      if (body.code && body.code !== 200) return tryAt(i + 1); // 风控/异常 → 换通道
+      if (body.code && body.code !== 200) {
+        if (body.code === -462) markCooldown(channels[i].name); // 触发风控 → 该簇冷却 60s
+        return tryAt(i + 1); // 风控/异常 → 换通道
+      }
       return res;
     }, function () { return tryAt(i + 1); }); // 网络/协议错误 → 换通道
   }
   return tryAt(0).then(function (res) {
+    if (!res) throw { code: 503, message: '搜索暂时受限（网易云风控），请稍后重试' };
     var body = res.body || {};
     var result = body.result || {};
     if (type === 1 && body.code === 200 && result.songs && result.songs.length) {
+      // 封面按需补全：全部歌曲都已带 picUrl 和歌手信息时不再发起 songDetail 请求
+      var needDetail = result.songs.some(function (s) {
+        return (s.album && !s.album.picUrl) || (!s.artists || !s.artists.length);
+      });
+      if (!needDetail) return res;
       var ids = result.songs.map(function (s) { return s.id; }).join(',');
       return songDetail({ ids: ids }, ctx).then(function (dres) {
         var detailMap = {};
@@ -148,10 +191,20 @@ function searchSuggest(params, ctx) {
     }
     return out;
   }
-  return req('/api/search/suggest/keyword', { s: params.keywords }, ctx, 'weapi').then(fromKeyword, function () { return []; })
+  // suggest 失败降级为空联想（不阻塞搜索），但 -462 时记录该簇冷却
+  function onChannelFail(name) {
+    return function (err) {
+      if (err && err.body && err.body.code === -462) markCooldown(name);
+      return [];
+    };
+  }
+  var keywordStep = channelBlocked('suggest:keyword')
+    ? Promise.resolve([])
+    : req('/api/search/suggest/keyword', { s: params.keywords }, ctx, 'weapi').then(fromKeyword, onChannelFail('suggest:keyword'));
+  return keywordStep
     .then(function (list) {
       if (list.length) return list;
-      return req('/api/search/suggest/web', { s: params.keywords, limit: params.limit || 8 }, ctx, 'weapi').then(fromWeb, function () { return []; });
+      return req('/api/search/suggest/web', { s: params.keywords, limit: params.limit || 8 }, ctx, 'weapi').then(fromWeb, onChannelFail('suggest:web'));
     })
     .then(function (list) {
       return { status: 200, body: { code: 200, result: { allMatch: uniqueLimit(list).map(function (k) { return { keyword: k, type: 1 }; }) } }, cookie: [] };

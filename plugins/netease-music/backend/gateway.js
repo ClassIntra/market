@@ -183,24 +183,16 @@ function createGateway() {
     return acc ? acc.cookie : '';
   }
 
-  // 统一调用入口
-  // endpoint: 见 UPSTREAM_MODULE；args: 端点参数；userId: 系统用户 ID（可空 = 匿名）
-  // 返回 { data: 上游 body } 或抛错 { code, message }
-  async function call(endpoint, args, userId, options) {
-    options = options || {};
-    var engine = readEngine();
-    var cookieStr = userCookie(userId);
+  // 请求指纹（缓存键 / 并发去重键共用）：区分登录态，避免 A 用户的响应被 B 用户命中
+  function fingerprint(cookieStr) {
+    return cookieStr ? cookieStr.length + ':' + (cookieStr.match(/MUSIC_U=([^;]+)/) || ['', 'anon'])[1].slice(0, 8) : 'anon';
+  }
 
-    // 缓存键：端点 + 参数（不含时间戳类参数）+ 用户登录态指纹
-    var cacheKey = null;
-    if (engine.cacheEnabled && TTL[endpoint] > 0 && !options.noCache) {
-      cacheKey = endpoint + ':' + JSON.stringify(args) + ':' + (cookieStr ? cookieStr.length + ':' + (cookieStr.match(/MUSIC_U=([^;]+)/) || ['', 'anon'])[1].slice(0, 8) : 'anon');
-    }
-    if (cacheKey) {
-      var hit = store.cacheGet(cacheKey);
-      if (hit && hit.fresh) return { data: hit.payload, cached: true };
-    }
+  // 并发去重表：同「端点+参数+登录态」的进行中请求共享同一 Promise
+  var inflight = {};
 
+  // 执行一次真实调用（多引擎级联 + 缓存写入 + stale 兜底）
+  async function execCall(endpoint, args, cookieStr, cacheKey) {
     var lastErr = null;
     var order = [];
     if (engine.engine === 'builtin') order = ['builtin'];
@@ -217,6 +209,12 @@ function createGateway() {
         } else {
           body = await callUpstream(engine, endpoint, args, cookieStr);
         }
+        // 风控/异常响应（负数码，如 -462）不落缓存、直接抛出——
+        // 否则会被当成功结果缓存 5 分钟，风控解除后用户仍看到空结果。
+        // QR 登录轮询的 800/801/802/803 为正数业务码，不受影响。
+        if (body && typeof body.code === 'number' && body.code < 200) {
+          throw { code: 502, message: '网易云接口异常（code ' + body.code + '），请稍后重试' };
+        }
         if (cacheKey) store.cacheSet(cacheKey, body, TTL[endpoint]);
         return { data: body, cached: false, via: mode };
       } catch (err) {
@@ -231,6 +229,38 @@ function createGateway() {
       if (stale) return { data: stale.payload, cached: true, stale: true };
     }
     throw { code: 503, message: '无法连接网易云音乐服务' + (lastErr ? '（' + lastErr.message + '）' : '') };
+  }
+
+  // 统一调用入口
+  // endpoint: 见 UPSTREAM_MODULE；args: 端点参数；userId: 系统用户 ID（可空 = 匿名）
+  // 返回 { data: 上游 body } 或抛错 { code, message }
+  async function call(endpoint, args, userId, options) {
+    options = options || {};
+    var engine = readEngine();
+    var cookieStr = userCookie(userId);
+
+    var fp = fingerprint(cookieStr);
+
+    // 缓存键：端点 + 参数（不含时间戳类参数）+ 用户登录态指纹
+    var cacheKey = null;
+    if (engine.cacheEnabled && TTL[endpoint] > 0 && !options.noCache) {
+      cacheKey = endpoint + ':' + JSON.stringify(args) + ':' + fp;
+    }
+    if (cacheKey) {
+      var hit = store.cacheGet(cacheKey);
+      if (hit && hit.fresh) return { data: hit.payload, cached: true };
+    }
+
+    // 并发去重：同一时刻相同请求只发出一次（搜索联想+列表、快速翻页、
+    // 重复渲染等场景会把相同请求放大数倍，正是触发风控的突发流量来源）
+    var dedupeKey = endpoint + ':' + JSON.stringify(args) + ':' + fp;
+    if (inflight[dedupeKey]) return inflight[dedupeKey];
+
+    var task = execCall(endpoint, args, cookieStr, cacheKey);
+    inflight[dedupeKey] = task;
+    function clearInflight() { delete inflight[dedupeKey]; }
+    task.then(clearInflight, clearInflight);
+    return task;
   }
 
   // 扫码登录：生成 key 与二维码矩阵（内置编码器，离线可用）
