@@ -143,6 +143,15 @@ function cacheSet(key, payload, ttl) {
   `).run(key, JSON.stringify(payload), now + ttl, now);
 }
 
+// 写入缓存（带健康校验：负数 code 的响应——如 -462 风控——不落缓存，
+// 防止风控空结果在整个 TTL 周期内毒害命中结果；返回是否真正写入）
+// 票据等非响应体数据（无 code 字段）不受影响，正常写入。
+function cacheSetIfOk(key, payload, ttl) {
+  if (payload && typeof payload === 'object' && typeof payload.code === 'number' && payload.code < 200) return false;
+  cacheSet(key, payload, ttl);
+  return true;
+}
+
 // 清理过期缓存（供定期调用 / 概率触发）
 function cacheCleanup() {
   try {
@@ -208,6 +217,7 @@ module.exports = {
   clearAccount: clearAccount,
   cacheGet: cacheGet,
   cacheSet: cacheSet,
+  cacheSetIfOk: cacheSetIfOk,
   cacheCleanup: cacheCleanup,
   syncLikes: syncLikes,
   upsertLikeMeta: upsertLikeMeta,

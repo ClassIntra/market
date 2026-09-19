@@ -12,6 +12,9 @@ var ncmApi = require('./ncm/api');
 var ncmQrcode = require('./ncm/qrcode');
 var store = require('./store');
 var streamMod = require('./stream'); // 复用 CONNECT 隧道（代理支持）
+var errors = require('./errors');
+var PluginError = errors.PluginError;
+var isNetworkError = errors.isNetworkError; // 统一错误类型收编（见 errors.js）
 var http = require('http');
 var https = require('https');
 
@@ -56,12 +59,6 @@ var UPSTREAM_MODULE = {
   loginCellphone: 'login_cellphone',
   captchaSent: 'captcha_sent'
 };
-
-// 判定是否为「网络级失败」（可回退 upstream / 缓存），业务错误（如 VIP 限制）不算
-function isNetworkError(err) {
-  var msg = String((err && err.message) || '');
-  return /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|超时|网络|fetch failed|socket hang up/i.test(msg);
-}
 
 // HTTP(S) GET，用于 upstream 转发（零依赖；proxyUrl 提供时走代理）
 function httpGetJson(url, proxyUrl) {
@@ -213,9 +210,9 @@ function createGateway() {
         // 否则会被当成功结果缓存 5 分钟，风控解除后用户仍看到空结果。
         // QR 登录轮询的 800/801/802/803 为正数业务码，不受影响。
         if (body && typeof body.code === 'number' && body.code < 200) {
-          throw { code: 502, message: '网易云接口异常（code ' + body.code + '），请稍后重试' };
+          throw new PluginError(502, '网易云接口异常（code ' + body.code + '），请稍后重试');
         }
-        if (cacheKey) store.cacheSet(cacheKey, body, TTL[endpoint]);
+        if (cacheKey) store.cacheSetIfOk(cacheKey, body, TTL[endpoint]); // 成功才缓存（写入口自带负数 code 拦截）
         return { data: body, cached: false, via: mode };
       } catch (err) {
         lastErr = err;
@@ -228,7 +225,7 @@ function createGateway() {
       var stale = store.cacheGet(cacheKey);
       if (stale) return { data: stale.payload, cached: true, stale: true };
     }
-    throw { code: 503, message: '无法连接网易云音乐服务' + (lastErr ? '（' + lastErr.message + '）' : '') };
+    throw new PluginError(503, '无法连接网易云音乐服务' + (lastErr ? '（' + lastErr.message + '）' : ''), lastErr);
   }
 
   // 统一调用入口
@@ -276,7 +273,7 @@ function createGateway() {
     var res = await call('loginQrKey', {}, userId, { noCache: true });
     var body = res.data || {};
     var unikey = (body.data && body.data.unikey) || body.unikey || (body.result && body.result.unikey);
-    if (!unikey) throw { code: 502, message: '获取登录二维码失败' };
+    if (!unikey) throw new PluginError(502, '获取登录二维码失败');
     var qrurl = 'https://music.163.com/login?codekey=' + unikey;
     var qr = ncmQrcode.encode(qrurl, 'M');
     return { unikey: unikey, qrurl: qrurl, size: qr.size, rows: ncmQrcode.toRows(qr) };
@@ -305,7 +302,7 @@ function createGateway() {
     var res = await call('loginCellphone', args, userId, { noCache: true });
     var body = res.data || {};
     if (body.code !== 200) {
-      throw { code: 400, message: (body.message || body.msg || '登录失败，请检查账号信息') };
+      throw new PluginError(400, (body.message || body.msg || '登录失败，请检查账号信息'));
     }
     var profile = await saveLoginCookie(userId, body);
     return { code: 200, profile: profile };

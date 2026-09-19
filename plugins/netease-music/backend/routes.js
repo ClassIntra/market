@@ -25,7 +25,6 @@
 
 var express = require('express');
 var router = express.Router();
-var crypto = require('crypto');
 var auth = require('../../../server/src/middleware/auth');
 var store = require('./store');
 var gatewayMod = require('./gateway');
@@ -43,10 +42,9 @@ if (Math.random() < 0.05) store.cacheCleanup();
 
 // 创建一次性取流票据（<audio> 标签无法携带 Authorization 头，
 // 用 15 分钟短时票据把「歌曲 + 用户登录态」绑定到 /stream 请求上）
+// 票据生成/校验由插件 SDK 提供（存储复用插件缓存表）
 function createStreamTicket(userId, songId) {
-  var ticket = crypto.randomBytes(16).toString('hex');
-  store.cacheSet('streamticket:' + ticket, { userId: String(userId), songId: String(songId) }, 15 * 60 * 1000);
-  return ticket;
+  return streamMod.createStreamTicket({ userId: String(userId), songId: String(songId) });
 }
 
 // 统一响应
@@ -187,11 +185,16 @@ router.get('/stream', wrap(async function (req, res) {
   var songId = String(req.query.id || '');
   var ticket = String(req.query.ticket || '');
   if (!songId || !ticket) return sendError(res, { code: 400, message: '缺少 id 或 ticket 参数' });
-  var entry = store.cacheGet('streamticket:' + ticket);
-  if (!entry || !entry.fresh) return sendError(res, { code: 403, message: '票据已过期，请重新获取播放地址' });
-  if (entry.payload.songId !== songId) return sendError(res, { code: 403, message: '票据与歌曲不匹配' });
+  var payload = streamMod.verifyStreamTicket(ticket);
+  if (!payload) return sendError(res, { code: 403, message: '票据已过期，请重新获取播放地址' });
+  if (payload.songId !== songId) return sendError(res, { code: 403, message: '票据与歌曲不匹配' });
   // 票据一次播放有效（GET /stream 可能伴随 Range 多次请求，票据在 TTL 内允许多次读）
-  await streamMod.streamAudio(req, res, gateway, songId, String(req.query.quality || ''), entry.payload.userId);
+  await streamMod.streamAudio(req, res, {
+    resolveStreamUrl: gateway.resolveStreamUrl,
+    songId: songId,
+    quality: String(req.query.quality || ''),
+    userId: payload.userId
+  });
 }));
 
 router.get('/lyric', requireAuth, wrap(async function (req, res) {
