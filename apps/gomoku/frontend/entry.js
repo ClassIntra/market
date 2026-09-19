@@ -88,10 +88,11 @@
 
     var entryCard = t('div', 'gomoku-entry-card', null, [
       t('h2', null, { text: '进入棋局' }),
-      t('p', null, { text: '创建房间或把房间码分享给同学，支持 15、19、21 路棋盘。' }),
+      t('p', null, { text: '创建房间邀请同学对战，或直接开始人机练习（无需网络与房间）。' }),
       t('div', 'gomoku-entry-row', null, [
         sizeLabel,
-        t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' })
+        t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' }),
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'solo', text: '人机练习' })
       ]),
       t('div', 'gomoku-entry-row', null, [
         roomLabel,
@@ -114,7 +115,7 @@
 
     var board = t('div', 'gomoku-board', { role: 'grid', 'aria-label': '五子棋棋盘' });
     var info = t('aside', 'gomoku-info', null, [
-      t('h2', null, { text: '房间成员' }),
+      t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
       t('div', 'gomoku-finished', null, [
         t('p', null, { 'data-role': 'finished' }),
@@ -138,10 +139,14 @@
     var routeRoom = (route.params && (route.params.roomCode || route.params.room_code)) || (route.query && (route.query.roomCode || route.query.room_code));
     var roomCode = routeRoom ? String(routeRoom).toUpperCase() : '';
     var state = { size: 15, board: [], turn: 'black', winner: null, status: 'active', members: [], lastMove: null };
+    // 对局模式：'' 未进入 | 'room' 房间对弈 | 'solo' 人机练习（纯本地，不走后端）
+    var mode = roomCode ? 'room' : '';
     var disposed = false;
     var pending = false;
     // 最新一手动画去重键：重渲染（成员变动/断线重连等）不重播落子动画
     var lastAnimatedKey = '';
+    // 人机练习的 AI 落子定时器：卸载/离开时必须清理，防止已卸载组件操作 DOM
+    var soloTimer = null;
     var subscriptions = [];
     var root = buildShell();
     clearChildren(container);
@@ -155,6 +160,7 @@
     var identityElement = root.querySelector('[data-role="identity"]');
     var connectionElement = root.querySelector('[data-role="connection"]');
     var membersElement = root.querySelector('[data-role="members"]');
+    var infoTitleElement = root.querySelector('[data-role="info-title"]');
     var finishedElement = root.querySelector('[data-role="finished"]');
     var continueButton = root.querySelector('[data-action="continue"]');
     var colorButton = root.querySelector('[data-action="color"]');
@@ -203,6 +209,18 @@
     }
     function renderMembers() {
       clearChildren(membersElement);
+      // 人机练习：固定两行——我执黑、电脑执白，is-turn 跟随当前手色
+      if (mode === 'solo') {
+        [['black', '我', 'is-me'], ['white', '电脑', '']].forEach(function(entry) {
+          var isTurn = !state.winner && state.status === 'active' && state.turn === entry[0];
+          membersElement.appendChild(t('li', 'gomoku-member' + (entry[2] ? ' ' + entry[2] : '') + (isTurn ? ' is-turn' : ''), null, [
+            t('span', 'gomoku-member-dot is-' + entry[0], { 'aria-hidden': 'true' }),
+            t('span', 'gomoku-member-name', { text: entry[1] }),
+            t('span', 'gomoku-member-role', { text: entry[0] === 'black' ? '执黑' : '执白' })
+          ]));
+        });
+        return;
+      }
       state.members.forEach(function(member) {
         var isMe = String(member.user_id) === currentUserId();
         var dotClass = 'gomoku-member-dot ' + (member.role === 'spectator' ? 'is-spectator' : (member.color ? 'is-' + member.color : 'is-none'));
@@ -240,27 +258,145 @@
       return [];
     }
 
+    // 提取后端业务错误消息：axios 默认消息是生硬的「Request failed with status code 409」，
+    // 真正的可读提示在 error.response.data.message 里
+    function errMsg(error, fallback) {
+      var data = error && error.response && error.response.data;
+      return (data && data.message) || (error && error.message) || fallback;
+    }
+    // ===== 人机练习（solo）：纯前端本地对弈，不占用房间系统 =====
+    // 启发式评分：沿四方向数「落此点后形成的连子数 + 开放端数」，
+    // 五连 > 活四 > 冲四/活三 > …… AI 执白，进攻分略高于同级的防守分。
+    function soloLineScore(count, open) {
+      if (count >= 5) return 100000;
+      if (count === 4) return open >= 2 ? 50000 : (open === 1 ? 6000 : 0);
+      if (count === 3) return open >= 2 ? 3000 : (open === 1 ? 300 : 0);
+      if (count === 2) return open >= 2 ? 250 : (open === 1 ? 30 : 0);
+      return open >= 2 ? 20 : (open === 1 ? 4 : 0);
+    }
+    function soloEvalPoint(board, size, row, col, color) {
+      var dirs = [[0, 1], [1, 0], [1, 1], [1, -1]], total = 0;
+      for (var d = 0; d < 4; d++) {
+        var count = 1, open = 0;
+        for (var sign = -1; sign <= 1; sign += 2) {
+          var rr = row + dirs[d][0] * sign, cc = col + dirs[d][1] * sign;
+          while (rr >= 0 && cc >= 0 && rr < size && cc < size && board[rr][cc] === color) { count++; rr += dirs[d][0] * sign; cc += dirs[d][1] * sign; }
+          if (rr >= 0 && cc >= 0 && rr < size && cc < size && !board[rr][cc]) open++;
+        }
+        total += soloLineScore(count, open);
+      }
+      return total;
+    }
+    function soloAiPick() {
+      var size = state.size, board = state.board;
+      var hasStone = false, r, c;
+      for (r = 0; r < size && !hasStone; r++) for (c = 0; c < size; c++) { if (board[r][c]) { hasStone = true; break; } }
+      if (!hasStone) return { row: Math.floor(size / 2), col: Math.floor(size / 2) };
+      var best = null, bestScore = -1;
+      for (r = 0; r < size; r++) {
+        for (c = 0; c < size; c++) {
+          if (board[r][c]) continue;
+          // 只考察已有棋子 2 格邻域内的空位，19/21 路也不卡顿
+          var near = false;
+          for (var dr = -2; dr <= 2 && !near; dr++) {
+            for (var dc = -2; dc <= 2; dc++) {
+              var rr = r + dr, cc = c + dc;
+              if (rr >= 0 && cc >= 0 && rr < size && cc < size && board[rr][cc]) { near = true; break; }
+            }
+          }
+          if (!near) continue;
+          // 进攻（AI 自己连白）略优于防守（堵黑），形成「能赢先赢、能堵必堵」
+          var score = soloEvalPoint(board, size, r, c, 'white') * 1.1 + soloEvalPoint(board, size, r, c, 'black');
+          if (score > bestScore) { bestScore = score; best = { row: r, col: c }; }
+        }
+      }
+      return best;
+    }
+    // 本地胜负判定：从落点出发四方向数连子（solo 专用，房间对局由后端判定）
+    function soloHasWin(row, col, color) {
+      var size = state.size, dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+      for (var d = 0; d < 4; d++) {
+        var count = 1;
+        for (var sign = -1; sign <= 1; sign += 2) {
+          var rr = row + dirs[d][0] * sign, cc = col + dirs[d][1] * sign;
+          while (rr >= 0 && cc >= 0 && rr < size && cc < size && state.board[rr][cc] === color) { count++; rr += dirs[d][0] * sign; cc += dirs[d][1] * sign; }
+        }
+        if (count >= 5) return true;
+      }
+      return false;
+    }
+    function soloStart() {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      mode = 'solo';
+      roomCode = '';
+      state = {
+        size: Number(root.querySelector('[data-field="size"]').value) || 15,
+        board: emptyBoard(15), turn: 'black', winner: null, status: 'active', members: [], lastMove: null
+      };
+      state.board = emptyBoard(state.size);
+      lastAnimatedKey = '';
+      setError('');
+      render();
+    }
+    function soloExit() {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      mode = '';
+      state = { size: state.size, board: emptyBoard(state.size), turn: 'black', winner: null, status: 'active', members: [], lastMove: null };
+      lastAnimatedKey = '';
+      render();
+    }
+    function soloMove(row, col) {
+      if (state.winner || state.status !== 'active' || state.turn !== 'black' || state.board[row][col]) return;
+      state.board[row][col] = 'black';
+      state.lastMove = { row: row, col: col };
+      if (soloHasWin(row, col, 'black')) { state.winner = 'black'; state.status = 'finished'; render(); return; }
+      state.turn = 'white';
+      render();
+      soloTimer = setTimeout(function() {
+        soloTimer = null;
+        if (disposed || mode !== 'solo') return;
+        var mv = soloAiPick();
+        if (!mv) { state.turn = 'black'; render(); return; }
+        state.board[mv.row][mv.col] = 'white';
+        state.lastMove = mv;
+        if (soloHasWin(mv.row, mv.col, 'white')) { state.winner = 'white'; state.status = 'finished'; }
+        else state.turn = 'black';
+        render();
+      }, 420);
+    }
+
     function render() {
       root.style.setProperty('--gomoku-size', state.size);
-      roomElement.textContent = roomCode ? '房间码 ' + roomCode : '未进入房间';
+      var inGame = mode !== '';
       var member = currentMember();
-      identityElement.textContent = member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '';
-      // 状态条：获胜金色强调；进行中前置当前手色点
-      statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : (state.status === 'active' ? ' is-turn is-turn-' + state.turn : ''));
-      statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
-      if (!roomCode) setConnection('未进入房间', '');
+      // 单人练习时隐藏分享/复制/离开按钮（离开走侧栏「退出练习」？不——保留离开，仅隐藏分享类）
+      var actionButtons = root.querySelectorAll('.gomoku-actions [data-action]');
+      for (var a = 0; a < actionButtons.length; a++) {
+        var kind = actionButtons[a].dataset.action;
+        actionButtons[a].hidden = mode === 'solo' && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
+      }
+      roomElement.textContent = mode === 'solo' ? '人机练习' : (roomCode ? '房间码 ' + roomCode : '未进入房间');
+      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : (member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
+      // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
+      var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
+      statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
+      statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '自由练习中，对手加入后恢复轮流' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
+      if (mode === 'solo') setConnection('本地对弈', 'online');
+      else if (!roomCode) setConnection('未进入房间', '');
       // 棋盘级状态类：幽灵预览需要 is-my-turn + turn-*；胜负弱化需要 has-winner
-      var myTurn = !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
+      var myTurn = mode === 'solo'
+        ? (state.status === 'active' && !state.winner && state.turn === 'black')
+        : !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
       boardElement.className = 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black');
-      entryElement.hidden = !!roomCode;
+      entryElement.hidden = inGame;
       // 未进房时隐藏房间条（只剩「未进入房间」的重复文案，且在入场卡片下方孤行）；
       // 同时给根节点打 entering 标记，横屏 CSS 据此让入场内容垂直居中。
       var roombarElement = root.querySelector('.gomoku-roombar');
-      if (roombarElement) roombarElement.hidden = !roomCode;
-      root.classList.toggle('gomoku-entering', !roomCode);
+      if (roombarElement) roombarElement.hidden = !inGame;
+      root.classList.toggle('gomoku-entering', !inGame);
       // 未进入房间时隐藏棋盘区：此前空棋盘 + 禁用格子也一直渲染，横屏下与入场卡片挤在一起
       var layoutElement = root.querySelector('.gomoku-layout');
-      if (layoutElement) layoutElement.hidden = !roomCode;
+      if (layoutElement) layoutElement.hidden = !inGame;
       clearChildren(boardElement);
 
       // 网格线层（纯装饰，pointer-events: none）
@@ -309,51 +445,68 @@
           cell.dataset.row = rowIndex;
           cell.dataset.col = colIndex;
           cell.setAttribute('aria-label', (rowIndex + 1) + '行' + (colIndex + 1) + '列' + (color ? (color === 'black' ? '黑棋' : '白棋') : ''));
-          cell.disabled = !roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color;
+          cell.disabled = mode === 'solo'
+            ? (!!color || !!state.winner || state.status !== 'active' || state.turn !== 'black')
+            : (!roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color);
           stonesElement.appendChild(cell);
         });
       });
       lastAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
 
       renderMembers();
+      // 侧栏标题随模式切换；「离开房间」按钮在 solo 下语义变为「退出练习」
+      infoTitleElement.textContent = mode === 'solo' ? '对局信息' : '房间成员';
+      var leaveButton = root.querySelector('[data-action="leave"]');
+      if (leaveButton) leaveButton.textContent = mode === 'solo' ? '退出练习' : '离开房间';
       var owner = member && member.role === 'owner';
       var finished = !!state.winner || state.status !== 'active';
-      finishedElement.textContent = finished ? (state.winner ? '本局结束，房主可以继续或离开。' : '准备下一局。') : '';
-      continueButton.hidden = !finished || !owner;
-      colorButton.hidden = !finished || !member || !member.color;
+      if (mode === 'solo') {
+        // 人机练习：文案本地化；继续按钮人人可见（重开一局），换色无意义
+        finishedElement.textContent = state.winner === 'black' ? '恭喜，你赢了！' : state.winner === 'white' ? '电脑获胜，再战一局？' : '';
+        continueButton.hidden = !finished;
+        colorButton.hidden = true;
+      } else {
+        finishedElement.textContent = finished ? (state.winner ? '本局结束，房主可以继续或离开。' : '准备下一局。') : '';
+        continueButton.hidden = !finished || !owner;
+        colorButton.hidden = !finished || !member || !member.color;
+      }
     }
     function loadState() {
       if (!roomCode) { state.board = emptyBoard(15); render(); return Promise.resolve(); }
-      return request(context, 'GET', '/gomoku/rooms/' + encodeURIComponent(roomCode)).then(applyState).catch(function(error) { setError(error.message || '房间加载失败'); });
+      return request(context, 'GET', '/gomoku/rooms/' + encodeURIComponent(roomCode)).then(applyState).catch(function(error) { setError(errMsg(error, '房间加载失败')); });
     }
-    function enter(code, mode) {
+    function enter(code, enterKind) {
       var normalized = String(code || '').trim().toUpperCase();
       // 校验失败也返回 resolved Promise：onAction 统一在 then 里解除忙碌锁
       if (!/^[A-Z0-9]{6}$/.test(normalized)) { setError('请输入 6 位房间码'); return Promise.resolve(); }
-      var path = '/gomoku/rooms/' + encodeURIComponent(normalized) + '/' + mode;
+      var path = '/gomoku/rooms/' + encodeURIComponent(normalized) + '/' + enterKind;
       return request(context, 'POST', path, {}).then(function(data) {
         roomCode = normalized;
+        mode = 'room';
         applyState(data);
         setError('');
-      }).catch(function(error) { setError(error.message || '进入房间失败'); });
+      }).catch(function(error) { setError(errMsg(error, '进入房间失败')); });
     }
     function create() {
       return request(context, 'POST', '/gomoku/rooms', { size: Number(root.querySelector('[data-field="size"]').value) }).then(function(data) {
         roomCode = data.roomCode;
+        mode = 'room';
         applyState(data);
         setError('');
-      }).catch(function(error) { setError(error.message || '创建房间失败'); });
+      }).catch(function(error) { setError(errMsg(error, '创建房间失败')); });
     }
     function actionRequest(path, message, body) {
       return request(context, 'POST', '/gomoku/rooms/' + encodeURIComponent(roomCode) + path, body || {}).then(function(data) {
         applyState(data);
         return data;
-      }).catch(function(error) { setError(error.message || message); return null; });
+      }).catch(function(error) { setError(errMsg(error, message)); return null; });
     }
     function leaveRoom() {
-      actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; render(); });
+      actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; mode = ''; render(); });
     }
     function leave() {
+      // 人机练习无房间状态，直接回入场页
+      if (mode === 'solo') return soloExit();
       if (!roomCode) return navigateHome();
       if (context.modal && typeof context.modal.confirm === 'function') {
         context.modal.confirm({ title: '离开房间', message: '离开后需要重新输入房间码才能回来，确定离开吗？', confirmText: '离开', cancelText: '取消' }).then(function(confirmed) {
@@ -374,7 +527,10 @@
     }
     function onBoardClick(event) {
       var cell = event.target.closest('.gomoku-cell');
-      if (!cell || !roomCode || pending) return;
+      if (!cell || pending) return;
+      // 人机练习：纯本地落子，不发请求、不占忙碌锁
+      if (mode === 'solo') { soloMove(Number(cell.dataset.row), Number(cell.dataset.col)); return; }
+      if (!roomCode) return;
       setBusy(true);
       render();
       actionRequest('/move', '落子失败', { row: Number(cell.dataset.row), col: Number(cell.dataset.col) }).then(function() {
@@ -387,6 +543,8 @@
       if (!action) return;
       if (pending) return;
       var kind = action.dataset.action;
+      // 人机练习入口：本地开局，不涉及任何后端请求
+      if (kind === 'solo') { soloStart(); return; }
       // 房间操作统一走忙碌锁：按钮禁用给出即时反馈，
       // 失败信息经 shell 层错误条展示（进入房间后也可见）。
       if (kind === 'create' || kind === 'join' || kind === 'watch') {
@@ -407,9 +565,11 @@
       if (kind === 'share-chat') return shareRoom('chat');
       if (kind === 'share-community') return shareRoom('community');
       if (kind === 'leave') return leave();
-      // 兼容旧 WebSocket 客户端仍使用 gomoku_continue；新客户端走 HTTP reset。
-      // 两个操作都要求已进入房间 —— 此前 continue 缺少该检查，未进房时会发出空房间请求。
-      if (kind === 'continue' && roomCode) {
+      if (kind === 'continue') {
+        if (mode === 'solo') { soloStart(); return; }
+        // 兼容旧 WebSocket 客户端仍使用 gomoku_continue；新客户端走 HTTP reset。
+        // 两个操作都要求已进入房间 —— 此前 continue 缺少该检查，未进房时会发出空房间请求。
+        if (!roomCode) return;
         action.disabled = true;
         setBusy(true);
         actionRequest('/reset', '继续下一局失败，只有房主可以重开').then(function() { setBusy(false); });
@@ -454,6 +614,7 @@
     if (context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
         disposed = true;
+        if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
         removeBoardClick();
         removeRootClick();
         subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); });
@@ -461,7 +622,7 @@
         clearChildren(container);
       });
     }
-    container.__gomokuUnmount = function() { disposed = true; if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); removeBoardClick(); removeRootClick(); subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); }); subscriptions = []; clearChildren(container); delete container.__gomokuUnmount; };
+    container.__gomokuUnmount = function() { disposed = true; if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; } if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); removeBoardClick(); removeRootClick(); subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); }); subscriptions = []; clearChildren(container); delete container.__gomokuUnmount; };
     loadState();
   }
 
