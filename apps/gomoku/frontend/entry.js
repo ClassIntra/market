@@ -208,16 +208,27 @@
     function transportReady() { return !!(websocket && typeof websocket.send === 'function' && typeof websocket.on === 'function'); }
     function shareRoom(target) {
       if (!roomCode) { setError('请先进入房间'); return; }
-      var message = '来和我一起下五子棋，房间码：' + roomCode;
-      // 统一走路由跳转：聊天走 ?compose=、社区走 ?prefill=（宿主现成预填通道，自动打开发帖框）。
-      // 不再走 eventBus('chat:compose')——宿主无人监听该事件，点了没反应。
       if (!context.router || typeof context.router.push !== 'function') {
         setError('当前环境不支持跳转，房间码：' + roomCode);
         return;
       }
-      if (target === 'chat') context.router.push({ path: '/chat', query: { compose: message } });
-      else context.router.push({ path: '/community', query: { prefill: encodeURIComponent(message) } });
-      setError('已打开' + (target === 'chat' ? '聊天' : '社区') + '，房间码可直接发送');
+      if (target === 'chat') {
+        // 卡片消息：走聊天页现成的转发通道（?forward=&forwardType=）——
+        // 用户选会话后直接发出邀请卡片，对方点卡片直达对局，不再预填文本手动发送
+        var cardData = {
+          app: 'gomoku',
+          roomCode: roomCode,
+          size: state.size,
+          senderName: (context.user && (context.user.net_name || context.user.user_id)) || ''
+        };
+        context.router.push('/chat?forward=' + encodeURIComponent(JSON.stringify(cardData)) + '&forwardType=gomoku_invite');
+        setError('已打开聊天，选择会话即可发送邀请卡片');
+      } else {
+        // 社区：预填带 [gomoku:房间码] 标记的文本，发布后帖子内自动渲染为可点击邀请卡片
+        var text = '来和我一起下五子棋！\n\n[gomoku:' + roomCode + ']';
+        context.router.push({ path: '/community', query: { prefill: encodeURIComponent(text) } });
+        setError('已打开社区发帖，发布后显示邀请卡片');
+      }
     }
     function onSocket(type, handler) {
       if (!websocket || typeof websocket.on !== 'function') return;
@@ -573,6 +584,12 @@
         mode = 'room';
         applyState(data);
         setError('');
+        // 满员自动观战：join 时黑白棋位已满，后端把新成员分配为 spectator ——
+        // 明确告知降级结果，避免用户误以为进错了房间（点邀请卡片进入的常见场景）
+        var me = currentMember();
+        if (enterKind === 'join' && me && me.role === 'spectator') {
+          setError('房间玩家已满，已为你转为观战');
+        }
       }).catch(function(error) { setError(errMsg(error, '进入房间失败')); });
     }
     function create() {
@@ -735,6 +752,10 @@
       roomCode = String(savedSession.roomCode);
       mode = 'room';
       loadState(true);
+    } else if (roomCode) {
+      // 路由携带房间码（点聊天卡片/社区卡片直达）：自动加入对局——
+      // 满员时后端自动分配观战身份；已是成员则幂等返回现有身份
+      enter(roomCode, 'join');
     } else {
       loadState();
     }
