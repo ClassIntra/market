@@ -26,6 +26,8 @@ node plugins/_sdk/init.js my-plugin --label "我的插件"
 node --check plugins/my-plugin/backend/routes.js
 
 # 3. 重启服务器（cd server; node src/app.js），访问 /api/my-plugin/status 验证挂载
+#    开发机可开热重载免重启：$env:CLASSINTRA_HOT_RELOAD='1'; node src/app.js
+#    （改 backend/ 下代码自动生效；语法错误保留旧代码，服务不中断）
 
 # 4. 同步到 market 仓（主仓 .gitignore 忽略 plugins/，这步必须做）
 .\scripts\sync-market.ps1 -Commit "feat: 新增 my-plugin 插件"
