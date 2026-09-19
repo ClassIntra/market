@@ -225,15 +225,23 @@ function songDetail(params, ctx) {
 }
 
 // 播放链接（v1 音质等级：standard / higher / exhigh / lossless / hires）
+// v1 失败回退旧接口（按码率取流）；播放簇触发 -462 时记录 60s 冷却，
+// 期间直接拒绝新请求——连续点播多首歌会成倍放大请求，加深风控。
 function songUrl(params, ctx) {
+  if (channelBlocked('songurl')) {
+    return Promise.reject({ code: 503, message: '网易云风控限制，请稍后重试' });
+  }
   var level = params.level || 'exhigh';
+  var brMap = { standard: 128000, higher: 192000, exhigh: 320000, lossless: 999000, hires: 1999000 };
   var data = { ids: '[' + params.id + ']', level: level, encodeType: 'flac' };
   return req('/api/song/enhance/player/url/v1', data, ctx, 'weapi').then(function (res) {
     var first = res.body && res.body.data && res.body.data[0];
     if (first && first.url) return res;
     // 回退到旧接口（按码率取流），覆盖部分只支持 br 参数的老接口行为
-    var brMap = { standard: 128000, higher: 192000, exhigh: 320000, lossless: 999000, hires: 1999000 };
     return req('/api/song/enhance/player/url', { ids: '[' + params.id + ']', br: brMap[level] || 320000 }, ctx, 'weapi');
+  }).then(function (res) {
+    if (res.body && res.body.code === -462) markCooldown('songurl');
+    return res;
   });
 }
 
