@@ -235,8 +235,28 @@
       websocket.on(type, handler);
       subscriptions.push(function() { if (typeof websocket.off === 'function') websocket.off(type, handler); });
     }
-    function applyState(next) {
+    // 统计棋盘上的棋子数（用于推送防回退判据）
+    function stoneCount(b) {
+      if (!Array.isArray(b)) return -1;
+      var n = 0;
+      for (var i = 0; i < b.length; i++) {
+        var row = b[i];
+        if (!Array.isArray(row)) continue;
+        for (var j = 0; j < row.length; j++) if (row[j]) n++;
+      }
+      return n;
+    }
+    function applyState(next, opts) {
       if (!next) return;
+      // 推送路径防回退：HTTP 长轮询回退模式会把服务端 5 分钟 TTL 队列里的积压事件整批补发，
+      // 落子成功后可能收到「不含这颗子」的旧房间广播 —— 无条件应用会让棋子闪现后消失。
+      // 判据：同 gameId 且新状态棋子数少于当前 → 视为旧事件重放，直接丢弃。
+      // （悔棋/重开的合法减子走 actionRequest 响应路径，不经此守卫；对手悔棋的广播会被
+      //   丢弃，但下一手落子广播会带完整棋盘自动对齐。）
+      if (opts && opts.fromPush && mode === 'room' && state.gameId && next.gameId === state.gameId) {
+        var incoming = stoneCount(next.board);
+        if (incoming >= 0 && incoming < stoneCount(state.board)) return;
+      }
       state = Object.assign(state, next);
       state.size = Number(state.size) || 15;
       state.board = Array.isArray(state.board) ? state.board : emptyBoard(state.size);
@@ -247,6 +267,16 @@
     function setConnection(text, kind) {
       connectionElement.textContent = text;
       connectionElement.className = 'gomoku-conn' + (kind ? ' is-' + kind : '');
+    }
+    // 棋盘状态签名：size/board/lastMove/winner/status 任一变化才重建棋子层。
+    // 落子链路会连续两次 render（POST 响应 applyState 一次、then 解锁 busy 一次），
+    // 全量重建会销毁刚启动的入场动画节点 —— 视觉上棋子「闪一下」。
+    // 签名未变时只刷新格子可点状态（忙碌锁解锁），棋子层不动、动画继续播放。
+    var lastBoardSignature = '';
+    function boardDisabled(color, isOffline, member) {
+      return isOffline
+        ? (!!color || !!state.winner || state.status !== 'active' || (mode === 'solo' && state.turn !== 'black'))
+        : (!roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color);
     }
     function renderMembers() {
       clearChildren(membersElement);
@@ -481,6 +511,22 @@
       // 未进入房间时隐藏棋盘区：此前空棋盘 + 禁用格子也一直渲染，横屏下与入场卡片挤在一起
       var layoutElement = root.querySelector('.gomoku-layout');
       if (layoutElement) layoutElement.hidden = !inGame;
+      // 棋盘层跳过重建：签名含 mode（房间/单机切换必重建）
+      var boardSignature = JSON.stringify([mode, state.size, state.board, state.lastMove, state.winner, state.status]);
+      var boardUnchanged = boardSignature === lastBoardSignature && boardElement.childElementCount > 0;
+      lastBoardSignature = boardSignature;
+      if (boardUnchanged) {
+        // 仅刷新格子可点状态（忙碌锁解锁/轮次变化），棋子层不动 → 入场动画继续播放
+        var keptStones = boardElement.querySelector('.gomoku-stones');
+        if (keptStones) {
+          var keptCells = keptStones.querySelectorAll('.gomoku-cell');
+          for (var k = 0; k < keptCells.length; k++) {
+            var kc = keptCells[k];
+            var kcColor = kc.classList.contains('is-black') ? 'black' : kc.classList.contains('is-white') ? 'white' : null;
+            kc.disabled = boardDisabled(kcColor, isOffline, member);
+          }
+        }
+      } else {
       clearChildren(boardElement);
 
       // 网格线层（纯装饰，pointer-events: none）
@@ -529,13 +575,12 @@
           cell.dataset.row = rowIndex;
           cell.dataset.col = colIndex;
           cell.setAttribute('aria-label', (rowIndex + 1) + '行' + (colIndex + 1) + '列' + (color ? (color === 'black' ? '黑棋' : '白棋') : ''));
-          cell.disabled = isOffline
-            ? (!!color || !!state.winner || state.status !== 'active' || (mode === 'solo' && state.turn !== 'black'))
-            : (!roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color);
+          cell.disabled = boardDisabled(color, isOffline, member);
           stonesElement.appendChild(cell);
         });
       });
       lastAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
+      } // 棋盘层重建分支结束（签名未变时跳过，保住入场动画）
 
       renderMembers();
       // 侧栏标题随模式切换；「离开房间」按钮在单机模式下语义变为「退出练习」
@@ -699,14 +744,14 @@
      if (realtime && typeof realtime.subscribe === 'function') {
        subscriptions.push(realtime.subscribe('gomoku.room.changed', function(message) {
          var data = message && message.payload ? message.payload : message;
-         if (data && data.roomCode === roomCode && data.state) applyState(data.state);
+         if (data && data.roomCode === roomCode && data.state) applyState(data.state, { fromPush: true });
        }));
      }
      if (!realtime) {
-       onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state); });
-       onSocket('gomoku_room_changed', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
-       onSocket('gomoku_game_continued', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state); } });
-       onSocket('gomoku_move_rejected', function(message) { if (message.room_code === roomCode) { pending = false; setError(message.reason || '落子被拒绝'); if (message.state) applyState(message.state); else render(); } });
+       onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state, { fromPush: true }); });
+       onSocket('gomoku_room_changed', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state, { fromPush: true }); } });
+       onSocket('gomoku_game_continued', function(message) { if (message.room_code === roomCode) { pending = false; applyState(message.state, { fromPush: true }); } });
+       onSocket('gomoku_move_rejected', function(message) { if (message.room_code === roomCode) { pending = false; setError(message.reason || '落子被拒绝'); if (message.state) applyState(message.state, { fromPush: true }); else render(); } });
      }
        // realtime.on 返回的解绑函数必须登记，否则断线重连会重复绑定、卸载后仍收事件。
        if (realtime && typeof realtime.on === 'function') {
