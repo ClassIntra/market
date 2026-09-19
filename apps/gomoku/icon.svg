@@ -34,8 +34,8 @@
     </filter>
   </defs>
 
-  <!-- 满铺 squircle 底（不留白，圆角由容器 CSS 统一裁切） -->
-  <rect width="512" height="512" rx="116" fill="url(#gBg)"/>
+  <!-- 满铺直角底（不留白不烘圆角，圆角由 AppIcon 容器 CSS 统一裁切） -->
+  <rect width="512" height="512" fill="url(#gBg)"/>
   <!-- 顶部柔光提升通透感 -->
   <ellipse cx="256" cy="90" rx="300" ry="170" fill="#FFFFFF" opacity="0.13"/>
 
