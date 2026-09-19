@@ -7,13 +7,16 @@
  *   - 颜色优先 --ci-* 令牌，硬编码值仅作 var() 兜底或该应用独有材质色
  *   全部样式锚定 .gomoku-app，避免污染宿主页面。
  *
- * 本轮修复：
- *   - 棋盘尺寸加入 100vh 约束：横屏平板（宽 > 视口高）下棋盘不再超出首屏，
- *     侧栏与棋盘同高并排，整页免滚动
- *   - 网格线偏移半格：棋子（格子中心）精确落在交叉点上（此前落在格心，视觉违和）
- *   - 星位（天元 + 四星/九星）由 entry.js 按 --gomoku-size 渲染
- *   - [hidden] 规则收敛到 .gomoku-app 作用域（全局选择器曾污染宿主页面）
- *   - 错误/提示条改为 shell 层常驻可见（配合 entry.js 的反馈修复）
+ * 2026-09-19 视觉升级：
+ *   - 棋盘：多层 repeating 渐变木纹 + 顶部高光 + 内阴影暗角，替代单层渐变
+ *   - 棋子：更立体的径向渐变（高光点 + 底部反光 + 双层投影）
+ *   - 新落子：is-new 触发落子动画（JS 只给最新一手加类，重渲染不重播）
+ *   - 落点预览：桌面 hover 幽灵子（仅轮到本机玩家时），触屏改为按压预览
+ *   - 最后一手：脉冲环 + 中心红点双标记
+ *   - 胜利连线：金色光环，其余棋子弱化
+ *   - 侧栏成员：棋子色点 + 身份胶囊 + 轮到谁的红圈脉冲
+ *   - 状态条：当前手色点；连接状态加红绿灯圆点
+ *   - 触屏 (hover: none) 无 hover 预览，只用按压反馈（触摸设备规则）
  */
 
 .gomoku-app {
@@ -22,7 +25,11 @@
   min-height: 0;
   padding: 16px 20px 24px;
   color: var(--ci-color-text, #172033);
-  background: var(--ci-color-surface, #f8fafc);
+  background-color: var(--ci-color-surface, #f8fafc);
+  /* 环境光氛围：右上蓝 / 左下紫的极淡径向光斑（低透明度，不影响主题） */
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(37, 99, 235, .07), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(124, 58, 237, .06), transparent 55%);
   box-sizing: border-box;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -88,6 +95,34 @@
   color: var(--ci-color-text-secondary, #64748b);
 }
 
+/* 状态条：is-turn 时前置一枚当前手色的迷你棋子；获胜时金色强调 */
+.gomoku-status.is-turn::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.gomoku-status.is-turn.is-turn-black::before {
+  background: radial-gradient(circle at 35% 30%, #556070 0%, #1f2937 45%, #0b1220 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .4);
+}
+
+.gomoku-status.is-turn.is-turn-white::before {
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #f1f5f9 55%, #cbd5e1 100%);
+  border: 1px solid rgba(148, 163, 184, .7);
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .25);
+}
+
+.gomoku-status.is-winner {
+  color: #b45309;
+  font-weight: 600;
+}
+
 .gomoku-actions,
 .gomoku-entry-row {
   -webkit-box-align: end;
@@ -123,6 +158,18 @@
   cursor: default;
 }
 
+/* 悬停反馈仅限有指针的设备；触摸设备遵循 press-state 规则不加 hover 效果 */
+@media (hover: hover) {
+  .gomoku-actions button:not(:disabled):hover,
+  .gomoku-entry-row button:not(:disabled):hover,
+  .gomoku-finished button:not(:disabled):hover {
+    -webkit-filter: brightness(1.07);
+    filter: brightness(1.07);
+    -webkit-transform: translateY(-1px);
+    transform: translateY(-1px);
+  }
+}
+
 .gomoku-actions button:not(:disabled):active,
 .gomoku-entry-row button:not(:disabled):active,
 .gomoku-finished button:not(:disabled):active {
@@ -149,6 +196,8 @@
 }
 
 .gomoku-entry-card {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   max-width: 520px;
   padding: 22px 24px;
@@ -159,10 +208,27 @@
   box-sizing: border-box;
 }
 
+/* 顶部渐变强调条：蓝 → 紫，呼应环境光 */
+.gomoku-entry-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--ci-color-accent, #2563eb), rgba(124, 58, 237, .9));
+}
+
 .gomoku-entry-card h2,
 .gomoku-info h2 {
   margin: 0 0 8px;
   font-size: 17px;
+}
+
+/* 侧栏标题：左侧竖条强调 */
+.gomoku-info h2 {
+  padding-left: 10px;
+  border-left: 3px solid var(--ci-color-accent, #2563eb);
 }
 
 .gomoku-entry-row {
@@ -208,6 +274,13 @@
   box-sizing: border-box;
 }
 
+.gomoku-entry-row input:focus,
+.gomoku-entry-row select:focus {
+  outline: none;
+  border-color: var(--ci-color-accent, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+}
+
 /* ===== 错误/提示条（shell 层，房间内外都可见） ===== */
 .gomoku-error {
   margin: 0 0 12px;
@@ -246,6 +319,51 @@
   font-size: 13px;
 }
 
+/* 房间码：等宽胶囊，一眼可辨 */
+.gomoku-roombar strong {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--ci-color-text, #172033);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+
+/* 连接状态红绿灯 */
+.gomoku-conn {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  font-size: 13px;
+}
+
+.gomoku-conn::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.gomoku-conn.is-online::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, .16);
+}
+
+.gomoku-conn.is-connecting::before {
+  background: #f59e0b;
+}
+
+.gomoku-conn.is-offline::before {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, .16);
+}
+
 /* ===== 棋盘 ===== */
 .gomoku-layout {
   -webkit-box-align: stretch;
@@ -258,6 +376,11 @@
  *   min(780px 上限, 容器宽 100%, 视口高 100vh - 固定区高度)
  * 固定区实测（error 空时隐藏）：app padding 40 + header ~89 + roombar ~50 ≈ 180px，
  * 预算取 190px —— 首版 300px 过于保守，把 1280×800 平板的棋盘压到只剩 500px。
+ *
+ * 木纹材质三层叠加：
+ *   1) 近垂直细密纹理（repeating，2px/6px 步进深浅交替）
+ *   2) 宽幅年轮明暗带（repeating，11px 步进高光）
+ *   3) 145° 大范围光照（左上亮 → 右下暗）
  */
 .gomoku-board {
   position: relative;
@@ -265,12 +388,18 @@
   height: 0;
   padding-top: min(780px, 100%, calc(100vh - 190px));
   margin: 0 auto;
-  background-color: #dcaf62;
-  background-image: -webkit-linear-gradient(145deg, rgba(255, 244, 214, .5) 0%, rgba(255, 244, 214, 0) 42%, rgba(122, 82, 34, .16) 100%);
-  background-image: linear-gradient(145deg, rgba(255, 244, 214, .5) 0%, rgba(255, 244, 214, 0) 42%, rgba(122, 82, 34, .16) 100%);
-  border: 2px solid #8f6226;
+  background-color: #d9a55e;
+  background-image:
+    repeating-linear-gradient(92deg, rgba(122, 82, 34, .05) 0px, rgba(122, 82, 34, .05) 2px, transparent 2px, transparent 6px, rgba(122, 82, 34, .03) 6px, rgba(122, 82, 34, .03) 8px, transparent 8px, transparent 17px),
+    repeating-linear-gradient(88deg, rgba(255, 235, 190, .06) 0px, rgba(255, 235, 190, .06) 3px, transparent 3px, transparent 11px),
+    -webkit-linear-gradient(145deg, rgba(255, 244, 214, .55) 0%, rgba(255, 244, 214, 0) 40%, rgba(101, 67, 23, .22) 100%),
+    linear-gradient(145deg, rgba(255, 244, 214, .55) 0%, rgba(255, 244, 214, 0) 40%, rgba(101, 67, 23, .22) 100%);
+  border: 2px solid #7c5420;
   border-radius: var(--radius-lg, 16px);
-  box-shadow: var(--ci-shadow-lg, 0 18px 40px rgba(30, 41, 59, .16)), inset 0 0 26px rgba(122, 82, 34, .18);
+  box-shadow:
+    var(--ci-shadow-lg, 0 18px 40px rgba(30, 41, 59, .16)),
+    inset 0 1px 0 rgba(255, 255, 255, .4),
+    inset 0 0 34px rgba(101, 67, 23, .24);
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -323,6 +452,7 @@
   height: 7px;
   border-radius: 50%;
   background: rgba(75, 48, 20, .8);
+  box-shadow: 0 1px 1px rgba(255, 244, 214, .35);
   -webkit-transform: translate(-50%, -50%);
   transform: translate(-50%, -50%);
 }
@@ -343,6 +473,8 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   z-index: 1;
+  -webkit-transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease;
 }
 
 .gomoku-cell::before,
@@ -357,6 +489,65 @@
 
 .gomoku-cell:disabled {
   cursor: default;
+}
+
+/* ===== 落点预览（幽灵子） =====
+ * 桌面（有指针）：hover 显示半透明当前手色棋子，仅在轮到本机玩家时出现。
+ * 触摸设备（hover: none）：无 hover，改为按压时显示预览（press-state 规则）。
+ * 幽灵子走 .gomoku-cell::before —— 基础规则 content:none 被更高优先级选择器覆盖。
+ */
+@media (hover: hover) and (pointer: fine) {
+  .gomoku-board.is-my-turn.turn-black .gomoku-cell:enabled:not(.is-black):not(.is-white):hover::before,
+  .gomoku-board.is-my-turn.turn-white .gomoku-cell:enabled:not(.is-black):not(.is-white):hover::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 78%;
+    height: 78%;
+    border-radius: 50%;
+    -webkit-transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%);
+    opacity: .4;
+    pointer-events: none;
+  }
+
+  .gomoku-board.is-my-turn.turn-black .gomoku-cell:enabled:not(.is-black):not(.is-white):hover::before {
+    background: radial-gradient(circle at 33% 28%, #6b7686 0%, #1b2432 48%, #090e18 100%);
+  }
+
+  .gomoku-board.is-my-turn.turn-white .gomoku-cell:enabled:not(.is-black):not(.is-white):hover::before {
+    background: radial-gradient(circle at 33% 28%, #ffffff 0%, #edf0f4 58%, #ccd4dd 100%);
+    border: 1px solid rgba(148, 163, 184, .55);
+    box-sizing: border-box;
+  }
+}
+
+@media (hover: none) {
+  .gomoku-board.is-my-turn.turn-black .gomoku-cell:enabled:not(.is-black):not(.is-white):active::before,
+  .gomoku-board.is-my-turn.turn-white .gomoku-cell:enabled:not(.is-black):not(.is-white):active::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 78%;
+    height: 78%;
+    border-radius: 50%;
+    -webkit-transform: translate(-50%, -50%) scale(.94);
+    transform: translate(-50%, -50%) scale(.94);
+    opacity: .5;
+    pointer-events: none;
+  }
+
+  .gomoku-board.is-my-turn.turn-black .gomoku-cell:enabled:not(.is-black):not(.is-white):active::before {
+    background: radial-gradient(circle at 33% 28%, #6b7686 0%, #1b2432 48%, #090e18 100%);
+  }
+
+  .gomoku-board.is-my-turn.turn-white .gomoku-cell:enabled:not(.is-black):not(.is-white):active::before {
+    background: radial-gradient(circle at 33% 28%, #ffffff 0%, #edf0f4 58%, #ccd4dd 100%);
+    border: 1px solid rgba(148, 163, 184, .55);
+    box-sizing: border-box;
+  }
 }
 
 /* ===== 棋子 ===== */
@@ -374,18 +565,55 @@
 }
 
 .gomoku-cell.is-black .gomoku-stone {
-  background: radial-gradient(circle at 34% 30%, #556070 0%, #1f2937 42%, #0b1220 100%);
-  box-shadow: inset -4px -5px 8px rgba(0, 0, 0, .35), 0 3px 5px rgba(15, 23, 42, .4);
+  background: radial-gradient(circle at 33% 28%, #6b7686 0%, #39445a 20%, #1b2432 48%, #090e18 100%);
+  box-shadow:
+    inset 0 -4px 7px rgba(0, 0, 0, .45),
+    inset 0 2px 3px rgba(255, 255, 255, .12),
+    0 3px 6px rgba(15, 23, 42, .42),
+    0 1px 2px rgba(15, 23, 42, .3);
 }
 
 .gomoku-cell.is-white .gomoku-stone {
-  background: radial-gradient(circle at 34% 30%, #ffffff 0%, #f1f5f9 55%, #cbd5e1 100%);
-  border: 1px solid rgba(148, 163, 184, .7);
+  background: radial-gradient(circle at 33% 28%, #ffffff 0%, #fdfefe 32%, #edf0f4 58%, #ccd4dd 100%);
+  border: 1px solid rgba(148, 163, 184, .55);
   box-sizing: border-box;
-  box-shadow: inset -3px -4px 7px rgba(148, 163, 184, .4), 0 3px 5px rgba(15, 23, 42, .25);
+  box-shadow:
+    inset 0 -3px 6px rgba(148, 163, 184, .42),
+    inset 0 2px 3px rgba(255, 255, 255, .85),
+    0 3px 6px rgba(15, 23, 42, .26),
+    0 1px 2px rgba(15, 23, 42, .18);
 }
 
-/* 最后一手标记：外圈脉冲环，帮助移动端识别落点 */
+/* 新落子动画：is-new 由 JS 只加给最新一手（重渲染不重播） */
+.gomoku-cell.is-new .gomoku-stone {
+  -webkit-animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
+  animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+
+@-webkit-keyframes gomoku-drop {
+  0% { opacity: 0; -webkit-transform: translate(-50%, -68%) scale(.55); }
+  100% { opacity: 1; -webkit-transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes gomoku-drop {
+  0% { opacity: 0; transform: translate(-50%, -68%) scale(.55); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* 最后一手标记：中心红点 + 外圈脉冲环，帮助移动端识别落点 */
+.gomoku-cell.is-last .gomoku-stone::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26%;
+  height: 26%;
+  margin: -13% 0 0 -13%;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, .95);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .35);
+}
+
 .gomoku-cell.is-last .gomoku-stone::after {
   content: '';
   position: absolute;
@@ -411,9 +639,16 @@
   50% { opacity: .35; transform: scale(1.14); }
 }
 
-/* 胜利连线高亮 */
+/* 胜利连线：金色光环 + 光晕，其余棋子弱化（has-winner 由 JS 打在棋盘上） */
 .gomoku-cell.is-win .gomoku-stone {
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, .85), 0 3px 8px rgba(15, 23, 42, .4);
+  box-shadow:
+    0 0 0 3px rgba(250, 204, 21, .95),
+    0 0 18px rgba(250, 204, 21, .55),
+    0 3px 8px rgba(15, 23, 42, .35);
+}
+
+.gomoku-board.has-winner .gomoku-cell:not(.is-win) .gomoku-stone {
+  opacity: .8;
 }
 
 /* ===== 侧栏：与棋盘同高（layout 已 align-items: stretch） ===== */
@@ -429,11 +664,104 @@
   overflow: auto;
 }
 
+/* 成员列表：棋子色点 + 网名 + 身份胶囊 */
 .gomoku-info ul {
   margin: 0;
-  padding-left: 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.gomoku-member {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(148, 163, 184, .12);
+}
+
+.gomoku-member:last-child {
+  margin-bottom: 0;
+}
+
+.gomoku-member.is-me {
+  background: rgba(37, 99, 235, .1);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, .18);
+}
+
+.gomoku-member-dot {
+  position: relative;
+  -ms-flex: 0 0 14px;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border-radius: 50%;
+}
+
+.gomoku-member-dot.is-black {
+  background: radial-gradient(circle at 35% 30%, #556070 0%, #1f2937 45%, #0b1220 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .35);
+}
+
+.gomoku-member-dot.is-white {
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #f1f5f9 55%, #cbd5e1 100%);
+  border: 1px solid rgba(148, 163, 184, .7);
+  box-sizing: border-box;
+}
+
+.gomoku-member-dot.is-spectator,
+.gomoku-member-dot.is-none {
+  background: transparent;
+  border: 1.5px dashed rgba(100, 116, 139, .6);
+  box-sizing: border-box;
+}
+
+/* 轮到谁：色点外圈红圈脉冲 */
+.gomoku-member.is-turn .gomoku-member-dot::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  right: -4px;
+  bottom: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, .55);
+  -webkit-animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+  animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+}
+
+.gomoku-member-name {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ci-color-text, #172033);
+}
+
+.gomoku-member-role {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--ci-color-fill, #e2e8f0);
   color: var(--ci-color-text-secondary, #475569);
-  line-height: 1.8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gomoku-member-role.is-owner {
+  background: rgba(37, 99, 235, .12);
+  color: var(--ci-color-accent, #2563eb);
 }
 
 .gomoku-finished {
@@ -473,10 +801,16 @@
 
 /* ===== 减弱动效 ===== */
 @media (prefers-reduced-motion: reduce) {
-  .gomoku-cell.is-last .gomoku-stone::after {
+  .gomoku-cell.is-last .gomoku-stone::after,
+  .gomoku-member.is-turn .gomoku-member-dot::after {
     -webkit-animation: none !important;
     animation: none !important;
     opacity: .9;
+  }
+  .gomoku-cell.is-new .gomoku-stone {
+    -webkit-animation: none !important;
+    animation: none !important;
+    opacity: 1;
   }
   .gomoku-actions button,
   .gomoku-entry-row button,
@@ -491,6 +825,14 @@
     -webkit-transform: none;
     transform: none;
     opacity: .7;
+  }
+  .gomoku-actions button:not(:disabled):hover,
+  .gomoku-entry-row button:not(:disabled):hover,
+  .gomoku-finished button:not(:disabled):hover {
+    -webkit-transform: none;
+    transform: none;
+    -webkit-filter: none;
+    filter: none;
   }
 }
 
@@ -538,7 +880,6 @@
     padding-top: 100%;
     border-radius: var(--radius-md, 12px);
   }
-  .gomoku-board::after,
   .gomoku-stones,
   .gomoku-grid {
     left: 8px;

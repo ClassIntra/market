@@ -140,6 +140,8 @@
     var state = { size: 15, board: [], turn: 'black', winner: null, status: 'active', members: [], lastMove: null };
     var disposed = false;
     var pending = false;
+    // 最新一手动画去重键：重渲染（成员变动/断线重连等）不重播落子动画
+    var lastAnimatedKey = '';
     var subscriptions = [];
     var root = buildShell();
     clearChildren(container);
@@ -194,14 +196,25 @@
       state.board = Array.isArray(state.board) ? state.board : emptyBoard(state.size);
       render();
     }
+    // 连接状态红绿灯：文本 + 状态类（online/connecting/offline）
+    function setConnection(text, kind) {
+      connectionElement.textContent = text;
+      connectionElement.className = 'gomoku-conn' + (kind ? ' is-' + kind : '');
+    }
     function renderMembers() {
       clearChildren(membersElement);
       state.members.forEach(function(member) {
-        var item = document.createElement('li');
-        // 显示网名而非学号账号；跨班成员账号本机也有（relay 同步），缺网名时回退 user_id
-        var name = member.user_id === currentUserId() ? '我' : String(member.net_name || member.user_id);
-        item.textContent = name + ' · ' + (member.role === 'owner' ? '房主' : member.role === 'spectator' ? '观战' : member.color === 'black' ? '黑棋' : '白棋');
-        membersElement.appendChild(item);
+        var isMe = String(member.user_id) === currentUserId();
+        var dotClass = 'gomoku-member-dot ' + (member.role === 'spectator' ? 'is-spectator' : (member.color ? 'is-' + member.color : 'is-none'));
+        var roleText = member.role === 'owner' ? '房主' : member.role === 'spectator' ? '观战' : member.color === 'black' ? '黑棋' : '白棋';
+        var roleClass = 'gomoku-member-role' + (member.role === 'owner' ? ' is-owner' : '');
+        // 轮到谁的成员行：色点加红圈脉冲（观战与已结束状态除外）
+        var isTurn = !state.winner && state.status === 'active' && member.role !== 'spectator' && member.color === state.turn;
+        membersElement.appendChild(t('li', 'gomoku-member' + (isMe ? ' is-me' : '') + (isTurn ? ' is-turn' : ''), null, [
+          t('span', dotClass, { 'aria-hidden': 'true' }),
+          t('span', 'gomoku-member-name', { text: isMe ? '我' : String(member.net_name || member.user_id) }),
+          t('span', roleClass, { text: roleText })
+        ]));
       });
     }
     // 找出获胜的五连（用于棋盘高亮）。无获胜方则返回空数组。
@@ -232,8 +245,13 @@
       roomElement.textContent = roomCode ? '房间码 ' + roomCode : '未进入房间';
       var member = currentMember();
       identityElement.textContent = member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '';
+      // 状态条：获胜金色强调；进行中前置当前手色点
+      statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : (state.status === 'active' ? ' is-turn is-turn-' + state.turn : ''));
       statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
-      if (!roomCode) connectionElement.textContent = '未进入房间';
+      if (!roomCode) setConnection('未进入房间', '');
+      // 棋盘级状态类：幽灵预览需要 is-my-turn + turn-*；胜负弱化需要 has-winner
+      var myTurn = !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
+      boardElement.className = 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black');
       entryElement.hidden = !!roomCode;
       // 未进房时隐藏房间条（只剩「未进入房间」的重复文案，且在入场卡片下方孤行）；
       // 同时给根节点打 entering 标记，横屏 CSS 据此让入场内容垂直居中。
@@ -280,6 +298,8 @@
           }
           var isLast = color && state.lastMove && state.lastMove.row === rowIndex && state.lastMove.col === colIndex;
           cell.className = 'gomoku-cell' + (color ? ' is-' + color : '') + (isWin ? ' is-win' : '') + (isLast ? ' is-last' : '');
+          // 只有最新一手播放入场动画：去重键等于当前 lastMove 时（重渲染）跳过
+          if (isLast && lastAnimatedKey !== rowIndex + '_' + colIndex) cell.classList.add('is-new');
           if (color) {
             var stone = document.createElement('span');
             stone.className = 'gomoku-stone';
@@ -293,6 +313,7 @@
           stonesElement.appendChild(cell);
         });
       });
+      lastAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
 
       renderMembers();
       var owner = member && member.role === 'owner';
@@ -415,13 +436,14 @@
      }
        // realtime.on 返回的解绑函数必须登记，否则断线重连会重复绑定、卸载后仍收事件。
        if (realtime && typeof realtime.on === 'function') {
-         connectionElement.textContent = realtime.isReady && realtime.isReady() ? 'HTTP 实时连接正常' : '正在连接';
-         subscriptions.push(realtime.on('connected', function() { connectionElement.textContent = 'HTTP 实时连接正常'; }));
+         var ready = realtime.isReady && realtime.isReady();
+         setConnection(ready ? 'HTTP 实时连接正常' : '正在连接', ready ? 'online' : 'connecting');
+         subscriptions.push(realtime.on('connected', function() { setConnection('HTTP 实时连接正常', 'online'); }));
          subscriptions.push(realtime.on('_connectionStateChange', function(message) {
-           if (message && message.state === 'connected') connectionElement.textContent = 'HTTP 实时连接正常';
-           else if (roomCode) connectionElement.textContent = '连接断开，正在恢复';
+           if (message && message.state === 'connected') setConnection('HTTP 实时连接正常', 'online');
+           else if (roomCode) setConnection('连接断开，正在恢复', 'offline');
          }));
-         subscriptions.push(realtime.on('error', function() { connectionElement.textContent = '连接断开，正在恢复'; if (roomCode) loadState(); }));
+         subscriptions.push(realtime.on('error', function() { setConnection('连接断开，正在恢复', 'offline'); if (roomCode) loadState(); }));
       }
     boardElement.addEventListener('click', onBoardClick);
     root.addEventListener('click', onAction);
