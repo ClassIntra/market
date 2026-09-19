@@ -248,7 +248,15 @@ function createGateway() {
     }
     if (cacheKey) {
       var hit = store.cacheGet(cacheKey);
-      if (hit && hit.fresh) return { data: hit.payload, cached: true };
+      if (hit && hit.fresh) {
+        // 读取时同样拦截负数码响应：防御历史脏缓存（风控响应曾被旧版本误写入）
+        // 在整个 TTL 周期内持续毒害命中结果
+        if (hit.payload && typeof hit.payload.code === 'number' && hit.payload.code < 200) {
+          // 跳过命中，走正常请求流程，成功后覆盖写入
+        } else {
+          return { data: hit.payload, cached: true };
+        }
+      }
     }
 
     // 并发去重：同一时刻相同请求只发出一次（搜索联想+列表、快速翻页、
