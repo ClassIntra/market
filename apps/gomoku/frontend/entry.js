@@ -339,16 +339,16 @@
       return (data && data.message) || (error && error.message) || fallback;
     }
     // ===== 人机练习（solo）：纯前端本地对弈，不占用房间系统 =====
-    // 强化版 AI（参考经典五子棋博弈算法：棋型识别 + 极小极大 + α-β 剪枝）：
+    // 大师级 AI（棋型识别 + VCF 算杀 + 迭代加深 negamax + Zobrist 置换表）：
     //   1. 棋型模式识别——以落点为中心取 9 格窗口做串匹配，识别连五/活四/冲四/
-    //      活三/眠三/活二（含跳子型），比「连子数+开放端」更贴近真实棋力
-    //   2. 战术层强制手：成五必下 → 堵对方成五 → 活四必下 → 堵对方活四点，
-    //      双威胁杀点（四三杀/双冲四/双活三）强制并入搜索候选前列——
-    //      廉价启发按连子数排序会低估杀点，不并入会被 topN 截断漏掉
-    //   3. negamax 四层搜索 + α-β 剪枝：可看穿 5 手内杀链，配合全局面叶子
-    //      评估（能看到存量活三/活四）主动构筑攻势
-    //   4. 候选启发排序收缩：根 12（19/21 路 8）、内层随深度收缩 8→6，
-    //      15 路实测单手 ≤300ms（V8），低端机留有余量
+    //      活三/眠三/活二（含跳子型）
+    //   2. 战术层强制手：成五必下 → 堵对方成五 → 活四必下 → 堵对方活四点 →
+    //      拆对方双威胁 → 我方 VCF 连四速胜 → 封堵对方 VCF（P1-P7）。
+    //      VCF 是 depth 搜索永远看不穿的连杀链（depth6 只能看 11 手内常规链，
+    //      VCF 用「对手被迫应」的性质把视野指数级延伸）
+    //   3. negamax 迭代加深（2→4→6 层）+ α-β 剪枝 + Zobrist 置换表层间复用，
+    //      时间预算 280ms 内取最深完整层——低端机超时自动降级浅层结果，不卡死
+    //   4. 候选启发排序收缩 + 双威胁杀点强制并入候选前列
     // AI 执白，候选攻防合成防守权重 0.9（进攻略优先）。
     var GOMOKU_SCORE = {
       FIVE: 10000000,      // 连五
@@ -359,6 +359,19 @@
       LIVE_TWO: 1500,      // 活二
       SLEEP_TWO: 100       // 眠二/散子
     };
+    // ---- 大师级参数：时间预算优先于固定深度，低端机超时自动用浅一层结果 ----
+    var GOMOKU_VCF_DEPTH = 8;     // VCF 我方冲四手数预算（最长 4 组冲四连杀）
+    var GOMOKU_VCF_NODES = 8000;  // VCF 节点上限（超限视为无杀，防极端局面卡死）
+    var GOMOKU_MAX_DEPTH = 6;     // negamax 迭代加深最大深度
+    var GOMOKU_BUDGET = 280;      // 搜索时间预算 ms（420ms 拟人延迟内可完成）
+    var gmkZobrist = null;        // [r][c][0=白/1=黑] 32 位随机数表
+    var gmkHash = 0;              // 当前局面 Zobrist 哈希（落子/撤子 XOR 增量维护）
+    var gmkTT = null;             // 置换表：hash*2+行棋色 → {depth, score, flag}
+    var gmkNodes = 0;             // 搜索节点计数（超时抽查用）
+    var gmkDeadline = 0;          // 搜索截止时间戳
+    var gmkTimeout = false;       // 超时标志（逐层上抛，分数不入表）
+    var gmkVcfCount = 0;          // VCF 节点计数（预算保险）
+    var gmkVcfDeadline = 0;       // VCF 截止时间戳（每次调用前设置）
     // 假设 color 落 (row,col)，沿 (dr,dc) 取两侧各 4 格构建长度 9 的窗口串：
     // '1'=己方 '0'=空 '2'=对方或边界，中心恒 '1'（假设落子）。
     // 性质：任何长度 ≥5 的子串必然覆盖中心位，匹配到的棋型一定包含本次落子。
@@ -514,30 +527,226 @@
       if (opL3 >= 2 || (opL3 && opR4) || opR4 >= 2) theirs += 300000;
       return mine - theirs;
     }
+    // ---- 大师级：Zobrist 哈希 + 置换表基础设施 ----
+    function gmkRand32() { return (Math.random() * 4294967296) | 0; }
+    // 哈希表按棋盘规格生成；规格切换/会话恢复后调用 gmkHashRebuild 重建
+    function gmkHashRebuild() {
+      if (!gmkZobrist || gmkZobrist.length !== state.size) {
+        gmkZobrist = [];
+        for (var r = 0; r < state.size; r++) {
+          var row = [];
+          for (var c = 0; c < state.size; c++) row.push([gmkRand32(), gmkRand32()]);
+          gmkZobrist.push(row);
+        }
+      }
+      var board = state.board, size = state.size, h = 0;
+      for (r = 0; r < size; r++) {
+        for (c = 0; c < size; c++) {
+          var v = board[r][c];
+          if (v) h = (h ^ gmkZobrist[r][c][v === 'white' ? 0 : 1]) | 0;
+        }
+      }
+      gmkHash = h;
+    }
+    // 落子/撤子必须经这两个封装，保证哈希与棋盘同步（XOR 自逆）
+    function gmkPlace(r, c, color) {
+      state.board[r][c] = color;
+      gmkHash = (gmkHash ^ gmkZobrist[r][c][color === 'white' ? 0 : 1]) | 0;
+    }
+    function gmkUnplace(r, c) {
+      var v = state.board[r][c];
+      state.board[r][c] = null;
+      if (v) gmkHash = (gmkHash ^ gmkZobrist[r][c][v === 'white' ? 0 : 1]) | 0;
+    }
+    // ---- 大师级：VCF 连续冲四算杀 ----
+    // 有子邻域 2 格内的空点（无排序轻量版，VCF 每层重建——落子会改变邻域）
+    function gmkNearCells() {
+      var size = state.size, board = state.board, out = [], r, c;
+      for (r = 0; r < size; r++) {
+        for (c = 0; c < size; c++) {
+          if (board[r][c]) continue;
+          var near = false;
+          for (var dr = -2; dr <= 2 && !near; dr++) {
+            for (var dc = -2; dc <= 2; dc++) {
+              var rr = r + dr, cc = c + dc;
+              if (rr >= 0 && cc >= 0 && rr < size && cc < size && board[rr][cc]) { near = true; break; }
+            }
+          }
+          if (near) out.push({ row: r, col: c });
+        }
+      }
+      return out;
+    }
+    // color 落子即成五的点集合
+    function gmkFivePoints(cells, color) {
+      var out = [];
+      for (var i = 0; i < cells.length; i++) {
+        if (gmkThreats(cells[i].row, cells[i].col, color).five) out.push(cells[i]);
+      }
+      return out;
+    }
+    // color 落子成四（活四/冲四，不含成五）的点集合
+    function gmkFourPoints(cells, color) {
+      var out = [];
+      for (var i = 0; i < cells.length; i++) {
+        var t = gmkThreats(cells[i].row, cells[i].col, color);
+        if (t.five) continue;
+        if (t.live4 || t.rush4) out.push(cells[i]);
+      }
+      return out;
+    }
+    // defender 堵住 attacker 全部即时成五点的落点：候选取成五点 ±2 邻域空点
+    // （威胁线破坏点基本邻近成五点，±2 覆盖绝大多数；逐个试落并重查过滤——
+    // 不堵净的无效。纯反四点无需枚举：反四不堵五时行棋方入口成五检查直接获胜）
+    function gmkDefensePoints(fives, attacker) {
+      if (!fives.length) return [];
+      var size = state.size, board = state.board;
+      var defender = attacker === 'white' ? 'black' : 'white';
+      var seen = {}, cand = [], i;
+      for (i = 0; i < fives.length; i++) {
+        for (var dr = -2; dr <= 2; dr++) {
+          for (var dc = -2; dc <= 2; dc++) {
+            var r = fives[i].row + dr, c = fives[i].col + dc;
+            if (r < 0 || c < 0 || r >= size || c >= size || board[r][c]) continue;
+            var k = r * size + c;
+            if (seen[k]) continue;
+            seen[k] = 1;
+            cand.push({ row: r, col: c });
+          }
+        }
+      }
+      var out = [];
+      for (i = 0; i < cand.length; i++) {
+        gmkPlace(cand[i].row, cand[i].col, defender);
+        var still = gmkFivePoints(gmkNearCells(), attacker).length > 0;
+        gmkUnplace(cand[i].row, cand[i].col);
+        if (!still) out.push(cand[i]);
+      }
+      return out;
+    }
+    // VCF 主搜索：color 方能否仅靠「冲四/活四」强制取胜（对手每手被迫应，
+    // 视野与搜索深度解耦）。返回制胜首手或 null；后续每手重跑即可沿链走完。
+    // 规则完备性：每层入口先查行棋方即时成五；对手反四不堵五时入口检查即胜，
+    // 故防守应对只需枚举「堵点」；堵防与杀链共用深度预算（防堵防循环）。
+    function gmkVcf(color, depth) {
+      if (depth <= 0 || gmkVcfCount > GOMOKU_VCF_NODES) return null;
+      if ((gmkVcfCount & 127) === 0 && Date.now() > gmkVcfDeadline) return null;
+      gmkVcfCount++;
+      var opp = color === 'white' ? 'black' : 'white';
+      var cells = gmkNearCells();
+      // 我方即时成五 → 胜（VCF 链终点）
+      var myFives = gmkFivePoints(cells, color);
+      if (myFives.length) return myFives[0];
+      // 对手即时成五 → 我必须先堵（堵防消耗 1 手预算，防对手连环反五死循环）
+      var oppFives = gmkFivePoints(cells, opp);
+      if (oppFives.length) {
+        var musts = gmkDefensePoints(oppFives, opp);
+        for (var i = 0; i < musts.length; i++) {
+          gmkPlace(musts[i].row, musts[i].col, color);
+          var r = gmkVcf(color, depth - 1);
+          gmkUnplace(musts[i].row, musts[i].col);
+          if (r) return r;
+        }
+        return null;
+      }
+      if (depth <= 1) return null;
+      // 无紧急威胁：展开我方四（冲四后对手被迫应，递归延续杀链）
+      var fours = gmkFourPoints(cells, color);
+      for (i = 0; i < fours.length; i++) {
+        var f = fours[i];
+        gmkPlace(f.row, f.col, color);
+        var win = null;
+        // 落子后对手无即时成五才有连杀意义（有则对手反先，链断）
+        if (!gmkFivePoints(gmkNearCells(), opp).length) {
+          var myFiveNow = gmkFivePoints(gmkNearCells(), color);
+          var defs = gmkDefensePoints(myFiveNow, color);
+          if (!defs.length) {
+            // 活四/双成五点：对手一手堵不完 → 必胜
+            win = f;
+          } else {
+            var allLose = true;
+            for (var j = 0; j < defs.length; j++) {
+              gmkPlace(defs[j].row, defs[j].col, opp);
+              var rr = gmkVcf(color, depth - 1);
+              gmkUnplace(defs[j].row, defs[j].col);
+              if (!rr) { allLose = false; break; }
+            }
+            if (allLose) win = f;
+          }
+        }
+        gmkUnplace(f.row, f.col);
+        if (win) return win;
+      }
+      return null;
+    }
     // 搜索宽度：根层由 soloAiPick 设定 gmkTopN（15 路 12，19/21 路 8）；
     // 内层按剩余深度收缩（depth≥2 展开 8，最深一层 6），控制全盘叶子评估的总成本
     var gmkTopN = 12;
-    // negamax 搜索：返回「color 行棋方在当前局面下的最优价值」
+    // negamax 搜索：返回「color 行棋方在当前局面下的最优价值」。
+    // 置换表：hash+行棋色作键，depth/flag(EXACT=0/LOWER=1/UPPER=2) 标准存取，
+    // 迭代加深层间复用结果大幅提速；超时上抛分数不入表。
     function gmkNegamax(depth, alpha, beta, color) {
+      if ((++gmkNodes & 127) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
       var opp = color === 'white' ? 'black' : 'white';
+      var key = gmkHash * 2 + (color === 'white' ? 0 : 1);
+      var e = gmkTT.get(key);
+      if (e && e.depth >= depth) {
+        if (e.flag === 0) return e.score;
+        if (e.flag === 1 && e.score >= beta) return e.score;
+        if (e.flag === 2 && e.score <= alpha) return e.score;
+        if (e.flag === 1 && e.score > alpha) alpha = e.score;
+        if (e.flag === 2 && e.score < beta) beta = e.score;
+        if (alpha >= beta) return e.score;
+      }
       var cands = gmkCandidates(color);
       if (!cands.length) return 0;
-      var width = depth >= 2 ? 12 : 8;
-      var best = -Infinity;
+      // 内层宽度随深度收缩：深层少分支保证在预算内到达 depth6（浅层宽是根层的事）
+      var width = depth >= 4 ? 8 : (depth >= 2 ? 10 : 8);
+      var best = -Infinity, flag = 2; // UPPER 默认：best 从未超过 alpha 即上界
       for (var i = 0; i < cands.length && i < width; i++) {
         var p = cands[i];
-        state.board[p.row][p.col] = color;
+        gmkPlace(p.row, p.col, color);
         var v;
         if (soloHasWin(p.row, p.col, color)) {
           // 成五即胜：剩余深度越大（赢越早）分越高，驱动 AI 择快胜
           v = GOMOKU_SCORE.FIVE * 10 + depth * 1000;
         } else if (depth <= 1) {
-          // 叶子：全局面棋型分（color 视角）
-          v = gmkBoardEval(color);
+          // 叶子：静态搜索延伸强制手（防水平线效应），无强制手回落棋型分。
+          // 落子后轮 opp 行棋，返回 opp 视角取负
+          v = -gmkQuiesce(-beta, -alpha, opp, 2);
         } else {
           v = -gmkNegamax(depth - 1, -beta, -alpha, opp);
         }
-        state.board[p.row][p.col] = null;
+        gmkUnplace(p.row, p.col);
+        if (gmkTimeout) return 0; // 超时上抛（棋盘已还原，分数不可信不入表）
+        if (v > best) best = v;
+        if (best > alpha) { alpha = best; flag = 0; }
+        if (alpha >= beta) { flag = 1; break; }
+      }
+      if (!e || e.depth <= depth) gmkTT.set(key, { depth: depth, score: best, flag: flag });
+      return best;
+    }
+    // 静态搜索（quiescence）：叶子处不直接静态评估，先展开强制手——
+    // 行棋方即时成五必胜；有冲四/活四点则只延伸这些点（对手被迫应对），
+    // 消解 depth 边界外的短杀链（水平线效应）。无强制手才回落棋型分。
+    // qdepth 上限 2：延伸链最多 2 手冲四交互，成本约每叶子数千 ops，预算内。
+    function gmkQuiesce(alpha, beta, color, qdepth) {
+      if ((++gmkNodes & 127) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
+      var opp = color === 'white' ? 'black' : 'white';
+      var cands = gmkCandidates(color);
+      var forced = null, best = -Infinity;
+      for (var i = 0; i < cands.length; i++) {
+        var t = gmkThreats(cands[i].row, cands[i].col, color);
+        if (t.five) return GOMOKU_SCORE.FIVE * 10 + qdepth * 1000; // 行棋方即时成五
+        if (t.live4 || t.rush4) { if (!forced) forced = []; forced.push(cands[i]); }
+      }
+      if (!forced || qdepth <= 0) return gmkBoardEval(color);
+      for (i = 0; i < forced.length; i++) {
+        var p = forced[i];
+        gmkPlace(p.row, p.col, color);
+        var v = -gmkQuiesce(-beta, -alpha, opp, qdepth - 1);
+        gmkUnplace(p.row, p.col);
+        if (gmkTimeout) return 0;
         if (v > best) best = v;
         if (best > alpha) alpha = best;
         if (alpha >= beta) break;
@@ -553,6 +762,9 @@
         var mid = Math.floor(size / 2);
         return { row: mid + Math.floor(Math.random() * 3) - 1, col: mid + Math.floor(Math.random() * 3) - 1 };
       }
+      // 哈希必须在 VCF（P6/P7 会经 gmkPlace 落子试探）之前就绪——
+      // offlineStart/会话恢复已重建，这里兜底规格变化与首次调用
+      gmkHashRebuild();
       // ---- 战术层：强制手检测（在候选邻域上做威胁归类，零副作用） ----
       var near = gmkCandidates('white');
       var myFive = [], oppFive = [], myLive4 = [], oppLive4 = [], oppDouble = [], double = [];
@@ -579,7 +791,35 @@
       if (oppLive4.length) return gmkBestOf(oppLive4);
       // P5 对方双威胁点：提前拆杀（黑四三/双活三一旦成型即为必败结构）
       if (oppDouble.length) return gmkBestOf(oppDouble);
-      // ---- 搜索层：negamax depth4（我-敌-我-敌-我，可看穿 5 手内杀链） ----
+      // P6 我方 VCF 连杀：链已验证强制取胜，直接下首手（后续每手重跑沿链走完）
+      gmkVcfCount = 0;
+      gmkVcfDeadline = Date.now() + 60;
+      var myVcf = gmkVcf('white', GOMOKU_VCF_DEPTH);
+      if (myVcf) return { row: myVcf.row, col: myVcf.col };
+      // P7 对方 VCF 连杀链：试占黑首手点 ±1 邻域空点，找到使黑 VCF 消解的破坏点
+      // （无破坏点说明黑必胜已定或超预算，只能进搜索层拖延；只处理「可解」情形）
+      gmkVcfCount = 0;
+      gmkVcfDeadline = Date.now() + 180;
+      var vcfThreat = gmkVcf('black', GOMOKU_VCF_DEPTH);
+      var forced = null;
+      if (vcfThreat) {
+        var seenB = {}, blocks = [];
+        for (var dr = -1; dr <= 1 && blocks.length < 2; dr++) {
+          for (var dc = -1; dc <= 1 && blocks.length < 2; dc++) {
+            var rr = vcfThreat.row + dr, cc = vcfThreat.col + dc;
+            if (rr < 0 || cc < 0 || rr >= size || cc >= size || board[rr][cc]) continue;
+            var k = rr * size + cc;
+            if (seenB[k]) continue;
+            seenB[k] = 1;
+            gmkPlace(rr, cc, 'white');
+            var still = gmkVcf('black', GOMOKU_VCF_DEPTH);
+            gmkUnplace(rr, cc);
+            if (!still) blocks.push({ row: rr, col: cc });
+          }
+        }
+        if (blocks.length) forced = blocks;
+      }
+      // ---- 搜索层：迭代加深 negamax（2→4→6 层，预算内取最深完整层） ----
       gmkTopN = size <= 15 ? 14 : 10;
       var cands = near.slice(0, gmkTopN);
       // 双威胁杀点强制并入候选前列：quick 启发按连子数排序会低估四三杀点，
@@ -591,32 +831,60 @@
         }
         if (!dup) cands.unshift({ row: double[i].row, col: double[i].col });
       }
-      if (!cands.length) return null;
-      var depth = 4;
-      var best = -Infinity, alpha = -Infinity, scored = [];
-      for (i = 0; i < cands.length; i++) {
-        var p = cands[i];
-        board[p.row][p.col] = 'white';
-        var v;
-        if (soloHasWin(p.row, p.col, 'white')) {
-          v = GOMOKU_SCORE.FIVE * 10 + depth * 1000;
-        } else {
-          v = -gmkNegamax(depth - 1, -Infinity, -alpha, 'black');
-        }
-        board[p.row][p.col] = null;
-        scored.push({ row: p.row, col: p.col, score: v });
-        if (v > best) best = v;
-        if (v > alpha) alpha = v;
+      if (forced) {
+        // 黑 VCF 可解：候选锁定为破坏点（黑绕路重建杀链的分支会被破坏点占位改变，
+        // 搜索层在此范围内评估哪个破坏点后续最优）
+        cands = forced;
       }
+      if (!cands.length) return null;
+      gmkTT = new Map();
+      gmkNodes = 0;
+      gmkDeadline = Date.now() + GOMOKU_BUDGET;
+      gmkTimeout = false;
+      var finalScored = null, alpha = -Infinity, depth;
+      for (depth = 2; depth <= GOMOKU_MAX_DEPTH; depth += 2) {
+        // 根层宽度随深度收缩：depth2 全评（广撒网防漏杀点）、depth4 收到 10、
+        // depth6 收到 8（深线聚焦）。PV 点每层提到首位必在前 8，不会被截掉
+        var rootWidth = depth >= 6 ? 8 : (depth >= 4 ? 10 : cands.length);
+        // PV 优先：上一层最优候选提到首位，加速 α-β 剪枝
+        if (finalScored) {
+          var pvR = finalScored[0].row, pvC = finalScored[0].col;
+          for (i = 0; i < cands.length; i++) {
+            if (cands[i].row === pvR && cands[i].col === pvC) { cands.unshift(cands.splice(i, 1)[0]); break; }
+          }
+        }
+        alpha = -Infinity;
+        var scored = [];
+        for (i = 0; i < cands.length && i < rootWidth; i++) {
+          var p = cands[i];
+          gmkPlace(p.row, p.col, 'white');
+          var v;
+          if (soloHasWin(p.row, p.col, 'white')) {
+            v = GOMOKU_SCORE.FIVE * 10 + depth * 1000;
+          } else {
+            v = -gmkNegamax(depth - 1, -Infinity, -alpha, 'black');
+          }
+          gmkUnplace(p.row, p.col);
+          if (gmkTimeout) break;
+          scored.push({ row: p.row, col: p.col, score: v });
+          if (v > alpha) alpha = v;
+        }
+        // 半成品层不可信：沿用上一层完整结果
+        if (gmkTimeout) break;
+        scored.sort(function(a, b) { return b.score - a.score; });
+        finalScored = scored;
+      }
+      if (!finalScored) return null;
       // 最优分容差内的候选随机选（容差封顶 300：远小于棋型等级差与成五深度罚差，
       // 不会把「立即成五」和「拖延取胜」混为一谈，也不会跨级乱选），
       // 兼顾「等分随机不机械」与「稳赢稳防的点绝不放过」
+      var best = finalScored[0].score;
       var eps = Math.min(300, Math.max(20, Math.abs(best) * 0.02));
       var pool = [];
-      for (i = 0; i < scored.length; i++) {
-        if (scored[i].score >= best - eps) pool.push({ row: scored[i].row, col: scored[i].col });
+      for (i = 0; i < finalScored.length; i++) {
+        if (finalScored[i].score >= best - eps) pool.push({ row: finalScored[i].row, col: finalScored[i].col });
       }
-      if (!pool.length) pool = [{ row: scored[0].row, col: scored[0].col }];
+      if (!pool.length) pool = [{ row: finalScored[0].row, col: finalScored[0].col }];
       return pool[Math.floor(Math.random() * pool.length)];
     }
     // 本地胜负判定：从落点出发四方向数连子（solo 专用，房间对局由后端判定）
@@ -644,6 +912,7 @@
         board: emptyBoard(15), turn: 'black', winner: null, status: 'active', members: [], lastMove: null
       };
       state.board = emptyBoard(state.size);
+      gmkHashRebuild(); // AI 哈希表随棋盘规格初始化（15/19/21 各自的随机数表）
       lastAnimatedKey = '';
       setError('');
       render();
@@ -1021,6 +1290,7 @@
       state = Object.assign({ members: [] }, savedSession.offline);
       state.size = Number(state.size) || 15;
       state.board = savedSession.offline.board;
+      gmkHashRebuild(); // 恢复的对局重建 AI 哈希（随机数表与棋盘规格对齐）
       render();
       if (mode === 'solo' && !state.winner && state.status === 'active' && state.turn === 'white') scheduleAi();
     } else if (savedSession && savedSession.mode === 'room' && /^[A-Z0-9]{4,6}$/.test(String(savedSession.roomCode || ''))) {
