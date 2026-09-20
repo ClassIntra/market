@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <!-- 背景渐变：蓝色系，呼应 manifest color #2563eb -->
-    <linearGradient id="gBg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#63A5FF"/>
-      <stop offset="0.5" stop-color="#2F6FEF"/>
-      <stop offset="1" stop-color="#1D4ED8"/>
-    </linearGradient>
     <!-- 棋盘木纹渐变 -->
     <linearGradient id="gWood" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#F8E7C4"/>
@@ -24,46 +18,37 @@
       <stop offset="0.62" stop-color="#F0F3F7"/>
       <stop offset="1" stop-color="#C4CEDA"/>
     </radialGradient>
-    <!-- 棋盘投影 -->
-    <filter id="fBoardShadow" x="-30%" y="-30%" width="160%" height="170%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#08245E" flood-opacity="0.38"/>
-    </filter>
     <!-- 棋子投影 -->
     <filter id="fStoneShadow" x="-70%" y="-70%" width="240%" height="240%">
-      <feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#59400F" flood-opacity="0.42"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#59400F" flood-opacity="0.42"/>
     </filter>
   </defs>
 
-  <!-- 满铺直角底（不留白不烘圆角，圆角由 AppIcon 容器 CSS 统一裁切） -->
-  <rect width="512" height="512" fill="url(#gBg)"/>
+  <!-- 木纹棋盘直角满铺（不留白不烘圆角，圆角由 AppIcon 容器 CSS 统一裁切） -->
+  <rect width="512" height="512" fill="url(#gWood)"/>
   <!-- 顶部柔光提升通透感 -->
-  <ellipse cx="256" cy="90" rx="300" ry="170" fill="#FFFFFF" opacity="0.13"/>
+  <ellipse cx="256" cy="80" rx="320" ry="175" fill="#FFFFFF" opacity="0.13"/>
+  <!-- 边缘内描边提亮 -->
+  <rect x="2" y="2" width="508" height="508" fill="none" stroke="#FFF7E6" stroke-opacity="0.65" stroke-width="4"/>
 
-  <!-- 棋盘（占画布 66%，居中） -->
-  <g filter="url(#fBoardShadow)">
-    <rect x="86" y="86" width="340" height="340" rx="60" fill="url(#gWood)"/>
-  </g>
-  <!-- 棋盘内描边提亮 -->
-  <rect x="89" y="89" width="334" height="334" rx="57" fill="none" stroke="#FFF7E6" stroke-opacity="0.7" stroke-width="5"/>
-
-  <!-- 5x5 网格：线落在 148/202/256/310/364 -->
-  <g stroke="#9A7440" stroke-width="5.5" stroke-linecap="round" opacity="0.72">
-    <path d="M148 148H364M148 202H364M148 256H364M148 310H364M148 364H364"/>
-    <path d="M148 148V364M202 148V364M256 148V364M310 148V364M364 148V364"/>
+  <!-- 5x5 网格：线落在 92/174/256/338/420 -->
+  <g stroke="#9A7440" stroke-width="8" stroke-linecap="round" opacity="0.72">
+    <path d="M92 92H420M92 174H420M92 256H420M92 338H420M92 420H420"/>
+    <path d="M92 92V420M174 92V420M256 92V420M338 92V420M420 92V420"/>
   </g>
   <!-- 天元星位 -->
-  <circle cx="256" cy="256" r="8" fill="#9A7440" opacity="0.75"/>
+  <circle cx="256" cy="256" r="12" fill="#9A7440" opacity="0.75"/>
 
-  <!-- 黑子（左上） -->
+  <!-- 黑子（左上第二线交点） -->
   <g filter="url(#fStoneShadow)">
-    <circle cx="202" cy="202" r="36" fill="url(#gBlack)"/>
+    <circle cx="174" cy="174" r="54" fill="url(#gBlack)"/>
   </g>
-  <ellipse cx="189" cy="189" rx="15" ry="10" fill="#FFFFFF" opacity="0.42" transform="rotate(-24 189 189)"/>
+  <ellipse cx="155" cy="155" rx="23" ry="15" fill="#FFFFFF" opacity="0.42" transform="rotate(-24 155 155)"/>
 
-  <!-- 白子（右下） -->
+  <!-- 白子（右下第二线交点） -->
   <g filter="url(#fStoneShadow)">
-    <circle cx="310" cy="310" r="36" fill="url(#gWhite)"/>
+    <circle cx="338" cy="338" r="54" fill="url(#gWhite)"/>
   </g>
-  <circle cx="310" cy="310" r="36" fill="none" stroke="#9FAEC1" stroke-opacity="0.55" stroke-width="2"/>
-  <ellipse cx="297" cy="297" rx="14" ry="9" fill="#FFFFFF" opacity="0.9" transform="rotate(-24 297 297)"/>
+  <circle cx="338" cy="338" r="54" fill="none" stroke="#9FAEC1" stroke-opacity="0.55" stroke-width="3"/>
+  <ellipse cx="319" cy="319" rx="21" ry="14" fill="#FFFFFF" opacity="0.9" transform="rotate(-24 319 319)"/>
 </svg>
