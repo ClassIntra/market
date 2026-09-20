@@ -339,15 +339,16 @@
       return (data && data.message) || (error && error.message) || fallback;
     }
     // ===== 人机练习（solo）：纯前端本地对弈，不占用房间系统 =====
-    // 大师级 AI（棋型识别 + VCF 算杀 + 迭代加深 negamax + Zobrist 置换表）：
+    // 大师级 AI（棋型识别 + VCF/VCT 算杀 + 迭代加深 negamax + Zobrist 置换表）：
     //   1. 棋型模式识别——以落点为中心取 9 格窗口做串匹配，识别连五/活四/冲四/
     //      活三/眠三/活二（含跳子型）
     //   2. 战术层强制手：成五必下 → 堵对方成五 → 活四必下 → 堵对方活四点 →
-    //      拆对方双威胁 → 我方 VCF 连四速胜 → 封堵对方 VCF（P1-P7）。
-    //      VCF 是 depth 搜索永远看不穿的连杀链（depth6 只能看 11 手内常规链，
-    //      VCF 用「对手被迫应」的性质把视野指数级延伸）
-    //   3. negamax 迭代加深（2→4→6 层）+ α-β 剪枝 + Zobrist 置换表层间复用，
-    //      时间预算 280ms 内取最深完整层——低端机超时自动降级浅层结果，不卡死
+    //      拆对方双威胁 → 我方 VCF/VCT 连杀速胜 → 封堵对方连杀链（P1-P7）。
+    //      VCF（纯冲四链）与 VCT（活三+冲四混合链，应答集=堵点∪反四）用
+    //      「对手被迫应」的性质把视野延伸到 depth 搜索永远看不穿的连杀
+    //   3. negamax 迭代加深（2→4→6 层）+ α-β 剪枝 + Zobrist 置换表层间复用 +
+    //      叶子静态搜索（冲四/活四强制延伸防水平线效应），预算内取最深完整层
+    //      ——低端机超时自动降级浅层结果，不卡死
     //   4. 候选启发排序收缩 + 双威胁杀点强制并入候选前列
     // AI 执白，候选攻防合成防守权重 0.9（进攻略优先）。
     var GOMOKU_SCORE = {
@@ -362,8 +363,11 @@
     // ---- 大师级参数：时间预算优先于固定深度，低端机超时自动用浅一层结果 ----
     var GOMOKU_VCF_DEPTH = 8;     // VCF 我方冲四手数预算（最长 4 组冲四连杀）
     var GOMOKU_VCF_NODES = 8000;  // VCF 节点上限（超限视为无杀，防极端局面卡死）
+    var GOMOKU_VCT_NODES = 3000;  // VCT 节点上限（活三应答集大，独立限额）
+    var GOMOKU_VCT_MAXDEF = 8;    // VCT 应答集上限（超过=威胁不强制，判无杀——保守不误报）
+    var GOMOKU_VCT_DEPTH = 5;     // VCT 攻防手数预算（3 攻 2 防，覆盖活三→活四→五）
     var GOMOKU_MAX_DEPTH = 6;     // negamax 迭代加深最大深度
-    var GOMOKU_BUDGET = 280;      // 搜索时间预算 ms（420ms 拟人延迟内可完成）
+    var GOMOKU_BUDGET = 350;      // 搜索时间预算 ms（420ms 拟人延迟之上，玩家总感知 <1s）
     var gmkZobrist = null;        // [r][c][0=白/1=黑] 32 位随机数表
     var gmkHash = 0;              // 当前局面 Zobrist 哈希（落子/撤子 XOR 增量维护）
     var gmkTT = null;             // 置换表：hash*2+行棋色 → {depth, score, flag}
@@ -371,6 +375,7 @@
     var gmkDeadline = 0;          // 搜索截止时间戳
     var gmkTimeout = false;       // 超时标志（逐层上抛，分数不入表）
     var gmkVcfCount = 0;          // VCF 节点计数（预算保险）
+    var gmkVctCount = 0;          // VCT 节点计数（独立限额，防活三分支爆炸）
     var gmkVcfDeadline = 0;       // VCF 截止时间戳（每次调用前设置）
     // 假设 color 落 (row,col)，沿 (dr,dc) 取两侧各 4 格构建长度 9 的窗口串：
     // '1'=己方 '0'=空 '2'=对方或边界，中心恒 '1'（假设落子）。
@@ -643,7 +648,11 @@
         var musts = gmkDefensePoints(oppFives, opp);
         for (var i = 0; i < musts.length; i++) {
           gmkPlace(musts[i].row, musts[i].col, color);
-          var r = gmkVcf(color, depth - 1);
+          // 堵防后守方获得 1 手自由棋：若其仍有反四资源，自由手可再造四反先，
+          // 而递归会跳过这手自由棋（当作守方弃权）→ 乐观误判。守方有四点资源时
+          // 此防守线不可靠，保守判失败（只漏不误，防 P6/P7 幻影杀链）
+          var risky = gmkFourPoints(gmkNearCells(), opp).length > 0;
+          var r = risky ? null : gmkVcf(color, depth - 1);
           gmkUnplace(musts[i].row, musts[i].col);
           if (r) return r;
         }
@@ -679,8 +688,144 @@
       }
       return null;
     }
-    // 搜索宽度：根层由 soloAiPick 设定 gmkTopN（15 路 12，19/21 路 8）；
-    // 内层按剩余深度收缩（depth≥2 展开 8，最深一层 6），控制全盘叶子评估的总成本
+    // defender 堵住 attacker 全部「活四点」的落点（活三的强制威胁是下一手活四=
+    // 双五点必胜）。候选取活四点 ±2 邻域空点，逐个试落后复查原活四点是否消失
+    // （对手落子对 attacker 只会阻挡不会新增棋型，复查原集合即充分）。
+    // 注意：活四点被防守方占点即消灭——gmkThreats 是「假设落子」语义（中心恒己方），
+    // 对被占点直接复评会误判成 attacker 仍可在此成活四，导致应答集被错误清空
+    function gmkStopLive4(l4pts, attacker) {
+      if (!l4pts.length) return [];
+      var size = state.size, board = state.board;
+      var defender = attacker === 'white' ? 'black' : 'white';
+      var seen = {}, cand = [], i;
+      for (i = 0; i < l4pts.length; i++) {
+        for (var dr = -2; dr <= 2; dr++) {
+          for (var dc = -2; dc <= 2; dc++) {
+            var r = l4pts[i].row + dr, c = l4pts[i].col + dc;
+            if (r < 0 || c < 0 || r >= size || c >= size || board[r][c]) continue;
+            var k = r * size + c;
+            if (seen[k]) continue;
+            seen[k] = 1;
+            cand.push({ row: r, col: c });
+          }
+        }
+      }
+      var out = [];
+      for (i = 0; i < cand.length; i++) {
+        gmkPlace(cand[i].row, cand[i].col, defender);
+        var still4 = false;
+        for (var q = 0; q < l4pts.length; q++) {
+          var lr = l4pts[q].row, lc = l4pts[q].col;
+          // 已被占（防守方占点杀）→ 该活四点已消灭，跳过而非复评
+          if (board[lr][lc]) continue;
+          if (gmkThreats(lr, lc, attacker).live4) { still4 = true; break; }
+        }
+        gmkUnplace(cand[i].row, cand[i].col);
+        if (!still4) out.push(cand[i]);
+      }
+      return out;
+    }
+    // color 落子即成活四的点集合（VCT 活三的强制威胁载体）
+    function gmkLive4Points(cells, color) {
+      var out = [];
+      for (var i = 0; i < cells.length; i++) {
+        if (gmkThreats(cells[i].row, cells[i].col, color).live4) out.push(cells[i]);
+      }
+      return out;
+    }
+    // VCT 威胁空间搜索：color 方用「冲四 + 活三」连续威胁强制取胜。
+    // 与 VCF 的本质差异：活三的对手应答不唯一——
+    // 应答集 = 堵活四点（堵净我方下一手活四=双五点，gmkStopLive4 语义）
+    //          ∪ 对手反四点（反四拖一手或反堵活三线，必须并入否则误报必胜）。
+    // 对手其他任何应答（不堵净不反四）→ 我方活四点仍在，下一手活四必胜。
+    // 应答集超过 GOMOKU_VCT_MAXDEF 判无杀：威胁不够强制（保守，只漏不误）。
+    function gmkVct(color, depth) {
+      if (depth <= 0 || gmkVctCount > GOMOKU_VCT_NODES) return null;
+      if ((gmkVctCount & 63) === 0 && Date.now() > gmkVcfDeadline) return null;
+      gmkVctCount++;
+      var opp = color === 'white' ? 'black' : 'white';
+      var cells = gmkNearCells();
+      // 我方即时成五 → 胜（链终点）
+      var myFives = gmkFivePoints(cells, color);
+      if (myFives.length) return myFives[0];
+      // 对手即时成五 → 堵防（堵不住=对手双五点，败）
+      var oppFives = gmkFivePoints(cells, opp);
+      if (oppFives.length) {
+        var musts = gmkDefensePoints(oppFives, opp);
+        for (var m = 0; m < musts.length; m++) {
+          gmkPlace(musts[m].row, musts[m].col, color);
+          // 堵防后守方获得 1 手自由棋：若其仍有反四资源，自由手可再造四反先，
+          // 而递归会跳过这手自由棋（当作守方弃权）→ 乐观误判。守方有四点资源时
+          // 此防守线不可靠，保守判失败（与 gmkVcf 同构同修，只漏不误）
+          var risky = gmkFourPoints(gmkNearCells(), opp).length > 0;
+          var mr = risky ? null : gmkVct(color, depth - 1);
+          gmkUnplace(musts[m].row, musts[m].col);
+          if (mr) return mr;
+        }
+        return null;
+      }
+      if (depth <= 1) return null;
+      // 威胁手两轮展开：先四（应答单一，堵五点，同 VCF）后活三（应答=堵活四点∪反四）
+      var fours = gmkFourPoints(cells, color);
+      var threes = [];
+      for (var i = 0; i < cells.length; i++) {
+        var t3 = gmkThreats(cells[i].row, cells[i].col, color);
+        if (t3.live3) threes.push(cells[i]);
+      }
+      for (var round = 0; round < 2; round++) {
+        var moves = round === 0 ? fours : threes;
+        for (i = 0; i < moves.length; i++) {
+          var mv = moves[i];
+          gmkPlace(mv.row, mv.col, color);
+          var win = null;
+          // 落子后对手有即时成五 → 对手反先，此手无连杀意义
+          if (!gmkFivePoints(gmkNearCells(), opp).length) {
+            if (round === 0) {
+              // 冲四：我方必有成五点，对手应答仅堵点（反四不堵五时入口检查即胜）
+              var myFiveNow = gmkFivePoints(gmkNearCells(), color);
+              var defs = gmkDefensePoints(myFiveNow, color);
+              if (!defs.length) {
+                // 活四/双成五点：对手一手堵不完 → 必胜
+                win = mv;
+              } else {
+                var allLose = true;
+                for (var j = 0; j < defs.length; j++) {
+                  gmkPlace(defs[j].row, defs[j].col, opp);
+                  var rr = gmkVct(color, depth - 1);
+                  gmkUnplace(defs[j].row, defs[j].col);
+                  if (!rr) { allLose = false; break; }
+                }
+                if (allLose) win = mv;
+              }
+            } else {
+              // 活三：我方无即时成五点（有则在上面 myFives/四手处理），强制威胁是
+              // 下一手活四。应答 = 堵净活四点 ∪ 对手反四点；应答集空 = 对手无解
+              var myL4 = gmkLive4Points(gmkNearCells(), color);
+              var stop4 = gmkStopLive4(myL4, color);
+              var oppFours = gmkFourPoints(gmkNearCells(), opp);
+              var replies = [], seenR = {}, k;
+              for (j = 0; j < stop4.length; j++) { k = stop4[j].row * state.size + stop4[j].col; if (!seenR[k]) { seenR[k] = 1; replies.push(stop4[j]); } }
+              for (j = 0; j < oppFours.length; j++) { k = oppFours[j].row * state.size + oppFours[j].col; if (!seenR[k]) { seenR[k] = 1; replies.push(oppFours[j]); } }
+              if (replies.length <= GOMOKU_VCT_MAXDEF) {
+                var allLose2 = true;
+                for (j = 0; j < replies.length; j++) {
+                  gmkPlace(replies[j].row, replies[j].col, opp);
+                  var rr2 = gmkVct(color, depth - 1);
+                  gmkUnplace(replies[j].row, replies[j].col);
+                  if (!rr2) { allLose2 = false; break; }
+                }
+                if (allLose2) win = mv;
+              }
+            }
+          }
+          gmkUnplace(mv.row, mv.col);
+          if (win) return win;
+        }
+      }
+      return null;
+    }
+    // 搜索宽度：根层随深度收缩（depth2 全评防漏杀点、depth4 收 10、depth6 收 8，
+    // 宽 14 时 depth6 在预算内跑不完会静默退化）；内层 depth≥4 收 8、其余 10
     var gmkTopN = 12;
     // negamax 搜索：返回「color 行棋方在当前局面下的最优价值」。
     // 置换表：hash+行棋色作键，depth/flag(EXACT=0/LOWER=1/UPPER=2) 标准存取，
@@ -791,16 +936,26 @@
       if (oppLive4.length) return gmkBestOf(oppLive4);
       // P5 对方双威胁点：提前拆杀（黑四三/双活三一旦成型即为必败结构）
       if (oppDouble.length) return gmkBestOf(oppDouble);
-      // P6 我方 VCF 连杀：链已验证强制取胜，直接下首手（后续每手重跑沿链走完）
+      // P6 我方连杀：先 VCF（冲四链，应答单一最快）再 VCT（活三+冲四混合链），
+      // 共用 deadline 自动挤占——VCF 命中直接下首手（后续每手重跑沿链走完）
       gmkVcfCount = 0;
-      gmkVcfDeadline = Date.now() + 60;
+      gmkVctCount = 0;
+      gmkVcfDeadline = Date.now() + 150;
       var myVcf = gmkVcf('white', GOMOKU_VCF_DEPTH);
       if (myVcf) return { row: myVcf.row, col: myVcf.col };
-      // P7 对方 VCF 连杀链：试占黑首手点 ±1 邻域空点，找到使黑 VCF 消解的破坏点
-      // （无破坏点说明黑必胜已定或超预算，只能进搜索层拖延；只处理「可解」情形）
+      gmkVctCount = 0;
+      var myVct = gmkVct('white', GOMOKU_VCT_DEPTH);
+      if (myVct) return { row: myVct.row, col: myVct.col };
+      // P7 对方连杀链（VCF+VCT 双检）：试占首手点 ±1 邻域空点，找到使对方
+      // 杀链消解的破坏点。无破坏点说明必败已定或超预算，只能进搜索层拖延
       gmkVcfCount = 0;
-      gmkVcfDeadline = Date.now() + 180;
+      gmkVctCount = 0;
+      gmkVcfDeadline = Date.now() + 220;
       var vcfThreat = gmkVcf('black', GOMOKU_VCF_DEPTH);
+      if (!vcfThreat) {
+        gmkVctCount = 0;
+        vcfThreat = gmkVct('black', GOMOKU_VCT_DEPTH);
+      }
       var forced = null;
       if (vcfThreat) {
         var seenB = {}, blocks = [];
@@ -812,7 +967,7 @@
             if (seenB[k]) continue;
             seenB[k] = 1;
             gmkPlace(rr, cc, 'white');
-            var still = gmkVcf('black', GOMOKU_VCF_DEPTH);
+            var still = gmkVcf('black', GOMOKU_VCF_DEPTH) || gmkVct('black', GOMOKU_VCT_DEPTH);
             gmkUnplace(rr, cc);
             if (!still) blocks.push({ row: rr, col: cc });
           }
