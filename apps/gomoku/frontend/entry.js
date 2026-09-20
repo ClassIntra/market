@@ -342,10 +342,13 @@
     // 强化版 AI（参考经典五子棋博弈算法：棋型识别 + 极小极大 + α-β 剪枝）：
     //   1. 棋型模式识别——以落点为中心取 9 格窗口做串匹配，识别连五/活四/冲四/
     //      活三/眠三/活二（含跳子型），比「连子数+开放端」更贴近真实棋力
-    //   2. negamax 三层搜索（我-敌-我）+ α-β 剪枝：两层内威胁全部可防，
-    //      配合全局面叶子评估（能看到存量活三/活四）主动构筑攻势
-    //   3. 候选启发排序收缩：先用廉价启发分排序，只展开分最高的候选，
-    //      15/19/21 路实测单手 ≤70ms（V8），低端机留有 3 倍以上余量
+    //   2. 战术层强制手：成五必下 → 堵对方成五 → 活四必下 → 堵对方活四点，
+    //      双威胁杀点（四三杀/双冲四/双活三）强制并入搜索候选前列——
+    //      廉价启发按连子数排序会低估杀点，不并入会被 topN 截断漏掉
+    //   3. negamax 四层搜索 + α-β 剪枝：可看穿 5 手内杀链，配合全局面叶子
+    //      评估（能看到存量活三/活四）主动构筑攻势
+    //   4. 候选启发排序收缩：根 12（19/21 路 8）、内层随深度收缩 8→6，
+    //      15 路实测单手 ≤300ms（V8），低端机留有余量
     // AI 执白，候选攻防合成防守权重 0.9（进攻略优先）。
     var GOMOKU_SCORE = {
       FIVE: 10000000,      // 连五
@@ -389,6 +392,43 @@
       if (win.indexOf('001100') >= 0 || win.indexOf('010100') >= 0 ||
           win.indexOf('001010') >= 0 || win.indexOf('010010') >= 0) return GOMOKU_SCORE.LIVE_TWO;
       return GOMOKU_SCORE.SLEEP_TWO;
+    }
+    // 单方向棋型等级（用于威胁计数）：5=连五 4=活四 3=冲四 2=活三 1=眠三 0=其他
+    function gmkDirLevel(win) {
+      if (win.indexOf('11111') >= 0) return 5;
+      if (win.indexOf('011110') >= 0) return 4;
+      if (win.indexOf('211110') >= 0 || win.indexOf('011112') >= 0 ||
+          win.indexOf('10111') >= 0 || win.indexOf('11011') >= 0 || win.indexOf('11101') >= 0) return 3;
+      if (win.indexOf('011100') >= 0 || win.indexOf('001110') >= 0 ||
+          win.indexOf('010110') >= 0 || win.indexOf('011010') >= 0) return 2;
+      if (win.indexOf('211100') >= 0 || win.indexOf('001112') >= 0 ||
+          win.indexOf('211010') >= 0 || win.indexOf('010112') >= 0 ||
+          win.indexOf('210110') >= 0 || win.indexOf('011012') >= 0 ||
+          win.indexOf('10011') >= 0 || win.indexOf('11001') >= 0 || win.indexOf('10101') >= 0) return 1;
+      return 0;
+    }
+    // 假设 color 落 (r,c) 后统计四方向威胁数。gmkLineWindow 本身就是「假设落子」
+    // 语义（中心恒 '1'），因此这里零副作用、无需真的改盘。
+    function gmkThreats(r, c, color) {
+      var dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+      var t = { five: 0, live4: 0, rush4: 0, live3: 0 };
+      for (var d = 0; d < 4; d++) {
+        var lv = gmkDirLevel(gmkLineWindow(state.board, state.size, r, c, dirs[d][0], dirs[d][1], color));
+        if (lv === 5) t.five++;
+        else if (lv === 4) t.live4++;
+        else if (lv === 3) t.rush4++;
+        else if (lv === 2) t.live3++;
+      }
+      return t;
+    }
+    // 多个强制点里挑「落子后我方增益最大」的（用完整棋型分而非廉价启发，防漏选）
+    function gmkBestOf(list) {
+      var best = null, bestScore = -Infinity;
+      for (var i = 0; i < list.length; i++) {
+        var s = gmkEvalPoint(state.board, state.size, list[i].row, list[i].col, 'white');
+        if (s > bestScore) { bestScore = s; best = list[i]; }
+      }
+      return best || list[0];
     }
     // 单点完整棋型分：四方向求和（用于叶子评估与根层排序，每手每点仅算一次量级）
     function gmkEvalPoint(board, size, row, col, color) {
@@ -444,28 +484,47 @@
     // 全局面评估：双方全部已落子棋型总分（对称零和，保证 negamax 负号传递不失真）。
     // 叶子层用它而非单点分，搜索才能看到「存量威胁」——自己的活三/活四还在、
     // 对方的冲四没堵；活四存量高分同时驱动 AI 主动构筑攻势。
+    // 双威胁结构分：任一方同时持有 ≥2 组活三、或活三+冲四组合（四三架势），
+    // 即为「下一手可造双活三/四三杀」的必败级结构，额外重罚/奖励——
+    // 让搜索在成型前一手就开始规避/追逐，弥补固定深度的视野盲区。
     function gmkBoardEval(color) {
       var size = state.size, board = state.board, mine = 0, theirs = 0;
+      var myL3 = 0, myR4 = 0, opL3 = 0, opR4 = 0;
       var opp = color === 'white' ? 'black' : 'white';
       for (var r = 0; r < size; r++) {
         for (var c = 0; c < size; c++) {
           var v = board[r][c];
           if (!v) continue;
-          if (v === color) mine += gmkEvalPoint(board, size, r, c, v);
-          else theirs += gmkEvalPoint(board, size, r, c, v);
+          var dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+          for (var d = 0; d < 4; d++) {
+            var lv = gmkDirLevel(gmkLineWindow(board, size, r, c, dirs[d][0], dirs[d][1], v));
+            if (v === color) {
+              if (lv === 2) { mine += GOMOKU_SCORE.LIVE_THREE; myL3++; }
+              else if (lv === 3) { mine += GOMOKU_SCORE.RUSH_FOUR; myR4++; }
+              else if (lv === 4) mine += GOMOKU_SCORE.LIVE_FOUR;
+            } else {
+              if (lv === 2) { theirs += GOMOKU_SCORE.LIVE_THREE; opL3++; }
+              else if (lv === 3) { theirs += GOMOKU_SCORE.RUSH_FOUR; opR4++; }
+              else if (lv === 4) theirs += GOMOKU_SCORE.LIVE_FOUR;
+            }
+          }
         }
       }
+      if (myL3 >= 2 || (myL3 && myR4) || myR4 >= 2) mine += 300000;
+      if (opL3 >= 2 || (opL3 && opR4) || opR4 >= 2) theirs += 300000;
       return mine - theirs;
     }
-    // 搜索宽度：每层只展开启发分最高的前 N 个候选（15 路 3 层宽 12，19/21 路窄 8）
+    // 搜索宽度：根层由 soloAiPick 设定 gmkTopN（15 路 12，19/21 路 8）；
+    // 内层按剩余深度收缩（depth≥2 展开 8，最深一层 6），控制全盘叶子评估的总成本
     var gmkTopN = 12;
     // negamax 搜索：返回「color 行棋方在当前局面下的最优价值」
     function gmkNegamax(depth, alpha, beta, color) {
       var opp = color === 'white' ? 'black' : 'white';
       var cands = gmkCandidates(color);
       if (!cands.length) return 0;
+      var width = depth >= 2 ? 12 : 8;
       var best = -Infinity;
-      for (var i = 0; i < cands.length && i < gmkTopN; i++) {
+      for (var i = 0; i < cands.length && i < width; i++) {
         var p = cands[i];
         state.board[p.row][p.col] = color;
         var v;
@@ -494,12 +553,48 @@
         var mid = Math.floor(size / 2);
         return { row: mid + Math.floor(Math.random() * 3) - 1, col: mid + Math.floor(Math.random() * 3) - 1 };
       }
-      var depth = 3;
-      gmkTopN = size <= 15 ? 12 : 8;
-      var cands = gmkCandidates('white');
+      // ---- 战术层：强制手检测（在候选邻域上做威胁归类，零副作用） ----
+      var near = gmkCandidates('white');
+      var myFive = [], oppFive = [], myLive4 = [], oppLive4 = [], oppDouble = [], double = [];
+      for (var i = 0; i < near.length; i++) {
+        r = near[i].row; c = near[i].col;
+        var tw = gmkThreats(r, c, 'white');
+        if (tw.five) { myFive.push({ row: r, col: c }); continue; }
+        var th = gmkThreats(r, c, 'black');
+        if (th.five) { oppFive.push({ row: r, col: c }); continue; }
+        if (tw.live4) myLive4.push({ row: r, col: c });
+        if (th.live4) oppLive4.push({ row: r, col: c });
+        // 双威胁杀点：四三杀 / 双冲四 / 双活三（quick 启发识别不了，必须棋型计数）
+        if ((tw.rush4 && tw.live3) || tw.rush4 >= 2 || tw.live3 >= 2) double.push({ row: r, col: c });
+        // 对方的双威胁点：黑下这里即成四三/双活三，两步后活四白堵不完，必须提前拆
+        if ((th.rush4 && th.live3) || th.rush4 >= 2 || th.live3 >= 2) oppDouble.push({ row: r, col: c });
+      }
+      // P1 我方成五：直接取胜（多个任选）
+      if (myFive.length) return myFive[Math.floor(Math.random() * myFive.length)];
+      // P2 对方成五：必堵（多个已难全防，堵我方增益最大的点拖延待变）
+      if (oppFive.length) return gmkBestOf(oppFive);
+      // P3 我方活四：下一手两个成五点，对方堵不完
+      if (myLive4.length) return myLive4[Math.floor(Math.random() * myLive4.length)];
+      // P4 对方活四点：必堵（敌活三不处理即成活四制胜；堵点选我方增益最大）
+      if (oppLive4.length) return gmkBestOf(oppLive4);
+      // P5 对方双威胁点：提前拆杀（黑四三/双活三一旦成型即为必败结构）
+      if (oppDouble.length) return gmkBestOf(oppDouble);
+      // ---- 搜索层：negamax depth4（我-敌-我-敌-我，可看穿 5 手内杀链） ----
+      gmkTopN = size <= 15 ? 14 : 10;
+      var cands = near.slice(0, gmkTopN);
+      // 双威胁杀点强制并入候选前列：quick 启发按连子数排序会低估四三杀点，
+      // 只靠 topN 截断可能根本进不了搜索视野
+      for (i = 0; i < double.length; i++) {
+        var dup = false;
+        for (var j = 0; j < cands.length; j++) {
+          if (cands[j].row === double[i].row && cands[j].col === double[i].col) { dup = true; break; }
+        }
+        if (!dup) cands.unshift({ row: double[i].row, col: double[i].col });
+      }
       if (!cands.length) return null;
+      var depth = 4;
       var best = -Infinity, alpha = -Infinity, scored = [];
-      for (var i = 0; i < cands.length && i < gmkTopN; i++) {
+      for (i = 0; i < cands.length; i++) {
         var p = cands[i];
         board[p.row][p.col] = 'white';
         var v;
