@@ -36,7 +36,7 @@ var TTL = {
   status: 0
 };
 
-// upstream 模式：端点 → api-enhanced 模块名映射
+// upstream 模式：端点 → api-enhanced 模块名映射（默认风格，下划线模块名）
 var UPSTREAM_MODULE = {
   search: 'search',
   songDetail: 'song_detail',
@@ -59,13 +59,48 @@ var UPSTREAM_MODULE = {
   captchaSent: 'captcha_sent'
 };
 
+// upstream 模式：Binaryify NeteaseCloudMusicApi 原版路由映射（斜杠路径，如自建 NCM 服务）
+var UPSTREAM_MODULE_NCM = {
+  search: 'search',
+  songDetail: 'song/detail',
+  songUrl: 'song/url',
+  lyric: 'lyric',
+  commentMusic: 'comment/music',
+  artistHome: 'artist',
+  artistDesc: 'artist/desc',
+  like: 'like',
+  likeList: 'likelist',
+  playlistDetail: 'playlist/detail',
+  userPlaylists: 'user/playlist',
+  recommendSongs: 'recommend/songs',
+  personalized: 'personalized',
+  toplist: 'toplist',
+  loginQrKey: 'login/qr/key',
+  loginQrCheck: 'login/qr/check',
+  loginStatus: 'login/status',
+  loginCellphone: 'login/cellphone',
+  captchaSent: 'captcha/sent'
+};
+
 // HTTP(S) GET JSON 已下沉插件 SDK（stream.js 门面 re-export）
 var httpGetJson = streamMod.httpGetJson;
+
+// 可回退判定：网络级失败或「网易云侧不可用」（风控 -462 负数码、级联受限 503、接口异常 502）
+// 都应尝试 upstream——本机通道被风控 ≠ 业务不可用，upstream（第三方自建 API）可能可用。
+// 真业务错误（400/403 参数/VIP 等）不回退，直接抛给调用方。
+function isFallbackable(err) {
+  if (isNetworkError(err)) return true;
+  var code = err && err.code;
+  if (typeof code === 'number' && (code < 0 || code === 502 || code === 503)) return true;
+  return false;
+}
 
 // upstream 调用：GET {upstreamUrl}/{module}?query&cookie=...
 async function callUpstream(engine, endpoint, query, cookieStr) {
   var base = engine.upstreamUrl.replace(/\/+$/, '');
-  var moduleName = UPSTREAM_MODULE[endpoint];
+  // upstreamStyle=ncm → Binaryify 原版斜杠路由；默认 enhanced → api-enhanced 模块名
+  var moduleMap = engine.upstreamStyle === 'ncm' ? UPSTREAM_MODULE_NCM : UPSTREAM_MODULE;
+  var moduleName = moduleMap[endpoint];
   if (!moduleName) throw new Error('upstream 不支持端点: ' + endpoint);
   var params = new URLSearchParams();
   Object.keys(query || {}).forEach(function (k) {
@@ -120,6 +155,7 @@ function createGateway() {
     return {
       engine: c.engine || 'auto',
       upstreamUrl: c.upstreamUrl || '',
+      upstreamStyle: c.upstreamStyle || 'enhanced',
       proxy: c.proxy || '',
       quality: c.quality || 'standard',
       requestTimeout: parseInt(c.requestTimeout, 10) || 8000,
@@ -171,8 +207,8 @@ function createGateway() {
         return { data: body, cached: false, via: mode };
       } catch (err) {
         lastErr = err;
-        if (!isNetworkError(err)) throw err; // 业务错误直接抛出，不回退
-        log.debug('gateway', '引擎 ' + mode + ' 网络失败（' + err.message + '），endpoint=' + endpoint + (i < order.length - 1 ? '，回退下一引擎' : ''));
+        if (!isFallbackable(err)) throw err; // 业务错误直接抛出，不回退
+        log.debug('gateway', '引擎 ' + mode + ' 失败（' + err.message + '），endpoint=' + endpoint + (i < order.length - 1 ? '，回退下一引擎' : ''));
       }
     }
 

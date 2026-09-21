@@ -59,6 +59,7 @@ ensureTables();
 var CONFIG_DEFAULTS = {
   engine: 'auto',          // builtin：本机直连网易云；upstream：转发到上游 NCM API 服务；auto：builtin 失败回退 upstream
   upstreamUrl: '',         // upstream 模式的上游地址，如 http://127.0.0.1:3000（api-enhanced / NeteaseCloudMusicApi）
+  upstreamStyle: 'enhanced', // upstream 路由风格：enhanced=api-enhanced 模块名（song_url_v1）；ncm=Binaryify 原版斜杠路由（song/url）
   proxy: '',               // 可选出站代理（HTTP/HTTPS），供服务器侧访问网易云
   quality: 'standard',     // 音质：standard/higher/exhigh/lossless/hires
   cacheEnabled: '1',       // 接口响应缓存开关
