@@ -67,14 +67,16 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
     // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
-    // 本头部承担标题栏职责（返回 + 标题 + 状态 + 操作），不再重复渲染大标题
+    // 本头部承担标题栏职责。三区布局镜像 AppShell 导航栏：
+    // 左返回（≥70px）/ 中标题水平居中 / 右状态+操作（≥70px），不再重复渲染大标题
     var head = t('div', 'gomoku-header', null, [
-      t('button', 'gomoku-back', { type: 'button', 'data-action': 'home', text: '返回' }),
-      t('div', 'gomoku-header-title', null, [
-        t('h1', null, { text: '五子棋' }),
-        status
+      t('div', 'gomoku-header-left', null, [
+        t('button', 'gomoku-back', { type: 'button', 'data-action': 'home', text: '返回' })
       ]),
-      actions
+      t('div', 'gomoku-header-center', null, [
+        t('h1', null, { text: '五子棋' })
+      ]),
+      t('div', 'gomoku-header-right', null, [status, actions])
     ]);
 
     var sizeSelect = t('select', null, { 'data-field': 'size', 'data-size': '15' }, [

@@ -56,7 +56,6 @@
   display: flex;
 }
 
-.gomoku-header > * + *,
 .gomoku-roombar > * + *,
 .gomoku-layout > * + *,
 .gomoku-entry-row > * + *,
@@ -136,32 +135,59 @@
 }
 .gomoku-back:active { opacity: .6; }
 
-.gomoku-header-title {
+/* 三区布局镜像 AppShell 导航栏：左返回（≥70px）/ 中标题水平居中 / 右状态+操作（≥70px） */
+.gomoku-header-left {
   display: -webkit-box;
   display: -ms-flexbox;
   display: flex;
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
+  min-width: 70px;
+  margin: 0;
+}
+
+.gomoku-header-center {
   -webkit-box-flex: 1;
   -ms-flex: 1 1 auto;
   flex: 1 1 auto;
   min-width: 0;
+  margin: 0;
+  text-align: center;
+  overflow: hidden;
 }
 
-.gomoku-header-title > * + * { margin-left: 10px; }
+.gomoku-header-right {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: end;
+  -ms-flex-pack: end;
+  justify-content: flex-end;
+  min-width: 70px;
+  margin: 0;
+}
 
 .gomoku-header h1 {
   margin: 0;
-  /* 对齐 AppShell 标题规格：15px / 600 / 主文字色 */
+  /* 对齐 AppShell 标题规格：15px / 600 / 主文字色，单行截断 */
   font-size: var(--font-size-subheadline, 15px);
   font-weight: var(--font-weight-semibold, 600);
   color: var(--text-primary, #000);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 状态文字在标题栏内单行截断，避免挤压操作按钮（次要色，弱于标题） */
+/* 状态文字在右区、按钮左侧（次要色弱化），可收缩截断避免挤压操作按钮 */
 .gomoku-header .gomoku-status {
+  margin: 0 8px 0 0;
+  min-width: 0;
+  -ms-flex-negative: 1;
+  flex-shrink: 1;
   font-size: 13px;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   white-space: nowrap;
@@ -1009,17 +1035,16 @@
   .gomoku-shell {
     padding: 12px;
   }
-  /* 窄屏两行布局：返回+标题一行，操作按钮整行换行在下 */
+  /* 窄屏两行布局：返回+居中标题一行，状态+操作整行换行在下（右对齐与桌面一致） */
   .gomoku-header {
     margin: 0 0 12px;
     -ms-flex-wrap: wrap;
     flex-wrap: wrap;
   }
-  .gomoku-header .gomoku-actions {
+  .gomoku-header-right {
     -ms-flex-preferred-size: 100%;
     flex-basis: 100%;
-    margin-left: 0;
-    margin-top: 8px;
+    margin: 8px 0 0;
   }
   .gomoku-layout {
     -webkit-box-align: stretch;
@@ -1108,9 +1133,6 @@
     flex-shrink: 0;
     margin: 0 0 10px;
     min-width: 0;
-  }
-  .gomoku-header-title > * + * {
-    margin-left: 12px;
   }
   .gomoku-header h1 {
     margin: 0;
