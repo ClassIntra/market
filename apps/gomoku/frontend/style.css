@@ -23,7 +23,9 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 16px 20px 24px;
+  /* 不留内边距：标题栏作为首个子级天然贴视口边缘（sticky 吸顶不被 padding 区截住），
+     内容内边距由 .gomoku-shell 承担 */
+  padding: 0;
   color: var(--ci-color-text, #172033);
   background-color: var(--ci-color-surface, #f8fafc);
   /* 环境光氛围：右上蓝 / 左下紫的极淡径向光斑（低透明度，不影响主题） */
@@ -35,9 +37,11 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽仍 1160） */
 .gomoku-shell {
   width: 100%;
-  max-width: 1160px;
+  max-width: 1200px;
+  padding: 16px 20px 24px;
   margin: 0 auto;
   box-sizing: border-box;
 }
@@ -84,8 +88,8 @@
   -webkit-box-pack: justify;
   -ms-flex-pack: justify;
   justify-content: space-between;
-  /* 负外边距抵消 .gomoku-app 内边距：吸顶全宽贴边，与 AppShell 导航栏同构 */
-  margin: -16px -20px 14px;
+  /* app 无内边距，标题栏天然全宽贴顶贴边；底部留 14px 与内容分隔 */
+  margin: 0 0 14px;
   /* 对齐 AppShell 导航栏规格：44px 高、底部 0.5px 分隔线、同款毛玻璃，无圆角无阴影 */
   min-height: 44px;
   padding: 4px 8px;
@@ -1001,13 +1005,13 @@
 
 /* ===== 竖屏 / 窄屏：info 移到棋盘下方 ===== */
 @media (max-width: 800px) {
-  .gomoku-app {
+  /* 内容内边距移到 shell（app 需无内边距让标题栏贴边） */
+  .gomoku-shell {
     padding: 12px;
   }
-  /* 标题栏负边距随内边距收窄（避免横向溢出滚动） */
+  /* 窄屏两行布局：返回+标题一行，操作按钮整行换行在下 */
   .gomoku-header {
-    margin: -12px -12px 12px;
-    /* 窄屏两行布局：返回+标题一行，操作按钮整行换行在下 */
+    margin: 0 0 12px;
     -ms-flex-wrap: wrap;
     flex-wrap: wrap;
   }
@@ -1064,18 +1068,28 @@
 }
 
 /* ===== 横屏（棋盘优先，安卓横屏平板主场景） =====
- * 标题/房间码/身份/连接/状态压成一条紧凑顶栏，棋盘吃掉剩余全部空间。
- * DOM 不变：header 与 roombar 两个块并排成一行（shell 转 flex-wrap），
- * entry / error / layout 各自换行占满。 */
+ * 标题栏化后与竖屏同构：header 是 app 直接子级独占首行贴顶贴边，
+ * shell（限宽居中）转纵向 flex 吃剩余高度，roombar / layout 在 shell 内换行分配。 */
 @media (min-width: 801px) and (orientation: landscape) {
   .gomoku-app {
-    padding: 10px 16px 12px;
     overflow: hidden;
     display: -webkit-box;
     display: -ms-flexbox;
     display: flex;
+    /* 标题栏移出 shell 后 app 转纵向 flex：header 在上、shell 吃剩余高度 */
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
   }
+  /* shell 承担横屏内容内边距（max-width 含 padding，内容净宽仍 1160） */
   .gomoku-shell {
+    -webkit-box-flex: 1;
+    -ms-flex: 1 1 auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-width: 1192px;
+    padding: 10px 16px 12px;
     display: -webkit-box;
     display: -ms-flexbox;
     display: flex;
@@ -1087,12 +1101,12 @@
     -ms-flex-align: center;
     align-items: center;
   }
-  /* 顶栏：返回 + 标题/状态 + 操作按钮并排（浮动毛玻璃条，随 shell 行内排布） */
+  /* 顶栏：app 纵向 flex 的首个子项，全宽贴顶贴边（app 无内边距） */
   .gomoku-header {
-    -webkit-box-flex: 1;
-    -ms-flex: 1 1 auto;
-    flex: 1 1 auto;
-    margin: 0;
+    -webkit-flex-shrink: 0;
+    -ms-flex-negative: 0;
+    flex-shrink: 0;
+    margin: 0 0 10px;
     min-width: 0;
   }
   .gomoku-header-title > * + * {
@@ -1113,8 +1127,10 @@
     padding: 8px 12px;
     font-size: 13px;
   }
-  /* 房间元信息并入同一行：去卡片外观，纯文字 */
+  /* 房间元信息独立成行（原与 header 并排的设计已被标题栏化取代） */
   .gomoku-roombar {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
     margin: 0;
     padding: 4px 0;
     border: 0;

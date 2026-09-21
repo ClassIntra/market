@@ -132,8 +132,12 @@
     ]);
     var layout = t('div', 'gomoku-layout', null, [board, info]);
 
+    // 标题栏是 .gomoku-app 的直接子级（shell 之外）：
+    // shell 有 max-width 居中限宽，header 留在里面永远贴不到视口边缘，
+    // 吸顶也会被限宽块「架空」；移出后负边距直接抵消 app 内边距，全宽贴顶贴边
     return t('section', 'gomoku-app', null, [
-      t('div', 'gomoku-shell', null, [head, entry, roombar, error, layout])
+      head,
+      t('div', 'gomoku-shell', null, [entry, roombar, error, layout])
     ]);
   }
 
