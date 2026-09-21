@@ -59,6 +59,11 @@
 
   function buildShell() {
     var status = t('p', 'gomoku-status', { 'aria-live': 'polite' });
+    // 模式名与身份描述：挪进标题栏做副标题（room/identity 由渲染逻辑经 data-role 原地更新），
+    // 连接红绿灯进标题栏右区；原 roombar 整行删除，纵向空间让给棋盘
+    var room = t('span', null, { 'data-role': 'room', text: '未进入房间' });
+    var identity = t('span', null, { 'data-role': 'identity' });
+    var connection = t('span', null, { 'data-role': 'connection', text: '未连接' });
     var actions = t('div', 'gomoku-actions', null, [
       t('button', 'is-secondary', { type: 'button', 'data-action': 'undo', text: '悔棋' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'copy', text: '复制房间码' }),
@@ -67,16 +72,16 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
     // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
-    // 本头部承担标题栏职责。三区布局镜像 AppShell 导航栏：
-    // 左返回（≥70px）/ 中标题水平居中 / 右状态+操作（≥70px），不再重复渲染大标题
+    // 本头部承担标题栏职责。布局与其他应用一致：标题靠左紧跟返回按钮，
+    // 对局信息段（轮次/模式/身份）随其后可截断，右区灯+按钮推到最右
     var head = t('div', 'gomoku-header', null, [
       t('div', 'gomoku-header-left', null, [
         t('button', 'gomoku-back', { type: 'button', 'data-action': 'home', text: '返回' })
       ]),
-      t('div', 'gomoku-header-center', null, [
-        t('h1', null, { text: '五子棋' })
-      ]),
-      t('div', 'gomoku-header-right', null, [status, actions])
+      t('h1', 'gomoku-title', { text: '五子棋' }),
+      // 对局信息动态三段（轮次在前，截断只截静态尾部）：status/room/identity 经 data-role 原地更新
+      t('span', 'gomoku-subtitle', null, [status, room, identity]),
+      t('div', 'gomoku-header-right', null, [connection, actions])
     ]);
 
     var sizeSelect = t('select', null, { 'data-field': 'size', 'data-size': '15' }, [
@@ -111,12 +116,6 @@
     ]);
     var entry = t('div', 'gomoku-entry', null, [entryCard]);
 
-    var roombar = t('div', 'gomoku-roombar', null, [
-      t('strong', null, { 'data-role': 'room', text: '未进入房间' }),
-      t('span', null, { 'data-role': 'identity' }),
-      t('span', null, { 'data-role': 'connection', text: '未连接' })
-    ]);
-
     // ⚠️ 错误/提示条必须挂在 shell 层（房间内也可见）。
     // 此前它嵌在进入卡片区里，进入房间后随卡片一起 hidden ——
     // 换色 409、非房主 403 等所有失败反馈都不可见，用户视角就是「按钮没反应」。
@@ -136,10 +135,11 @@
 
     // 标题栏是 .gomoku-app 的直接子级（shell 之外）：
     // shell 有 max-width 居中限宽，header 留在里面永远贴不到视口边缘，
-    // 吸顶也会被限宽块「架空」；移出后负边距直接抵消 app 内边距，全宽贴顶贴边
+    // 吸顶也会被限宽块「架空」；移出后全宽贴顶贴边。
+    // roombar 已并入标题栏（模式/身份做副标题、连接灯进右区），shell 内不再有独立行
     return t('section', 'gomoku-app', null, [
       head,
-      t('div', 'gomoku-shell', null, [entry, roombar, error, layout])
+      t('div', 'gomoku-shell', null, [entry, error, layout])
     ]);
   }
 
@@ -271,9 +271,11 @@
       if (mode === 'room') saveSession();
       render();
     }
-    // 连接状态红绿灯：文本 + 状态类（online/connecting/offline）
+    // 连接状态红绿灯：文本 + 状态类（online/connecting/offline）。
+    // 标题栏内灯体纯化为圆点（CSS font-size:0），原文转存 title 供悬停查看
     function setConnection(text, kind) {
       connectionElement.textContent = text;
+      connectionElement.title = text;
       connectionElement.className = 'gomoku-conn' + (kind ? ' is-' + kind : '');
     }
     // 棋盘状态签名：size/board/lastMove/winner/status 任一变化才重建棋子层。
@@ -1101,7 +1103,9 @@
       }
       state.winner = null;
       state.status = 'active';
-      state.turn = 'black';
+      // solo 玩家固定执黑，撤完轮玩家；local 黑先轮流，按剩余手数推算当前手
+      //（撤掉白棋刚下的 1 手后 N 为奇数 → 仍轮白棋重下，而非错误地跳给黑棋）
+      state.turn = mode === 'solo' ? 'black' : (offlineHistory.length % 2 === 0 ? 'black' : 'white');
       var last = offlineHistory[offlineHistory.length - 1];
       state.lastMove = last ? { row: last.row, col: last.col } : null;
       lastAnimatedKey = '';
@@ -1153,17 +1157,21 @@
         if (mode === '') { actionButtons[a].hidden = true; continue; }
         actionButtons[a].hidden = isOffline && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
       }
-      roomElement.textContent = mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间码 ' + roomCode : '未进入房间');
-      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
+      // 房间模式加标记类：宽视口下右区（信息段+五按钮）更宽，媒体查询按此决定标题栏是否换行
+      root.classList.toggle('gomoku-room-mode', mode === 'room' && !!roomCode);
+      roomElement.textContent = mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间');
+      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
       // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
       var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
-      // 入场态状态条留空（未进入对局无轮次可言），其余态按对局状态渲染
+      // 入场态状态条隐藏（未进入对局无轮次可言；hidden 让它在右区信息段中彻底不占位）
       if (mode === '') {
         statusElement.className = 'gomoku-status';
         statusElement.textContent = '';
+        statusElement.hidden = true;
       } else {
         statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
-        statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '自由练习中，对手加入后恢复轮流' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
+        statusElement.hidden = false;
+        statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '等待对手加入' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
       }
       if (isOffline) setConnection('本地对弈', 'online');
       else if (!roomCode) setConnection('未进入房间', '');
@@ -1173,10 +1181,10 @@
         : !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
       boardElement.className = 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black');
       entryElement.hidden = inGame;
-      // 未进房时隐藏房间条（只剩「未进入房间」的重复文案，且在入场卡片下方孤行）；
+      // 入场态隐藏标题栏副标题（模式/身份信息在入场卡片已有完整说明，避免重复）；
       // 同时给根节点打 entering 标记，横屏 CSS 据此让入场内容垂直居中。
-      var roombarElement = root.querySelector('.gomoku-roombar');
-      if (roombarElement) roombarElement.hidden = !inGame;
+      if (roomElement) roomElement.hidden = !inGame;
+      if (identityElement) identityElement.hidden = !inGame;
       root.classList.toggle('gomoku-entering', !inGame);
       // 未进入房间时隐藏棋盘区：此前空棋盘 + 禁用格子也一直渲染，横屏下与入场卡片挤在一起
       var layoutElement = root.querySelector('.gomoku-layout');

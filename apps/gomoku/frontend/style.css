@@ -48,7 +48,6 @@
 
 /* ===== 布局原语：用相邻兄弟 margin 替代 flex gap ===== */
 .gomoku-header,
-.gomoku-roombar,
 .gomoku-layout,
 .gomoku-entry-row {
   display: -webkit-box;
@@ -56,7 +55,6 @@
   display: flex;
 }
 
-.gomoku-roombar > * + *,
 .gomoku-layout > * + *,
 .gomoku-entry-row > * + *,
 .gomoku-actions > * + * {
@@ -84,9 +82,10 @@
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  -webkit-box-pack: justify;
-  -ms-flex-pack: justify;
-  justify-content: space-between;
+  /* 左对齐流式布局：返回 → 标题 → 对局信息段 →（推最右）连接灯+操作 */
+  -webkit-box-pack: start;
+  -ms-flex-pack: start;
+  justify-content: flex-start;
   /* app 无内边距，标题栏天然全宽贴顶贴边；底部留 14px 与内容分隔 */
   margin: 0 0 14px;
   /* 对齐 AppShell 导航栏规格：44px 高、底部 0.5px 分隔线、同款毛玻璃，无圆角无阴影 */
@@ -147,14 +146,22 @@
   margin: 0;
 }
 
-.gomoku-header-center {
-  -webkit-box-flex: 1;
-  -ms-flex: 1 1 auto;
-  flex: 1 1 auto;
-  min-width: 0;
-  margin: 0;
-  text-align: center;
+/*
+ * 标题与其他应用一致：靠左紧跟返回按钮，不绝对居中。
+ * 对局信息段（.gomoku-subtitle）随其后可截断；连接灯+按钮由 margin-left:auto 推到最右。
+ */
+.gomoku-header h1 {
+  margin: 0 0 0 10px;
+  /* 统一粗体标题（与其他应用一致）：15px / bold / 主文字色，单行不换行 */
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1.2;
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--text-primary, #000);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gomoku-header-right {
@@ -168,36 +175,47 @@
   -ms-flex-pack: end;
   justify-content: flex-end;
   min-width: 70px;
-  margin: 0;
+  margin: 0 0 0 auto; /* margin-left auto 把右区推到最右（中区脱离文档流后 flex 无第三项） */
 }
 
-.gomoku-header h1 {
-  margin: 0;
-  /* 对齐 AppShell 标题规格：15px / 600 / 主文字色，单行截断 */
-  font-size: var(--font-size-subheadline, 15px);
-  font-weight: var(--font-weight-semibold, 600);
-  color: var(--text-primary, #000);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* 右区三类信息（对局信息段/连接灯/操作按钮）统一 10px 间距 */
+.gomoku-header-right > * + * { margin-left: 10px; }
 
-/* 状态文字在右区、按钮左侧（次要色弱化），可收缩截断避免挤压操作按钮 */
-.gomoku-header .gomoku-status {
-  margin: 0 8px 0 0;
+/* 标题栏按钮间距收紧（全局 16px → 12px）：房间模式五按钮总宽压到 ~335px */
+.gomoku-header .gomoku-actions > * + * { margin-left: 12px; }
+
+/* 对局信息段（标题右侧）：轮次 + 模式/房间 + 身份，三段「·」分隔。
+   可收缩截断（flex-shrink + ellipsis），空间不足时优先让位给右区按钮；隐藏段不占位 */
+.gomoku-header .gomoku-subtitle {
+  display: block;
   min-width: 0;
   -ms-flex-negative: 1;
   flex-shrink: 1;
-  font-size: 13px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.3;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影 */
+/* 三段（轮次/模式/身份）之间的间隔点；隐藏段（hidden/:empty）自身的 ::before 一并不渲染 */
+.gomoku-subtitle > * + *::before {
+  content: '·';
+  margin: 0 5px;
+}
+
+.gomoku-subtitle [data-role="identity"]:empty {
+  display: none;
+}
+
+/* 轮次状态已并入副标题（.gomoku-subtitle 内 11px 次要色），右区不再单独排状态文字 */
+
+/* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影；
+   紧凑内边距控制右区总宽（≈390px），保 1010px 断点内标题不与右区重叠 */
 .gomoku-header .gomoku-actions button {
-  padding: 5px 10px;
+  padding: 4px 8px;
   font-size: 13px;
   font-weight: 500;
   border-radius: 999px;
@@ -482,41 +500,7 @@
   display: none;
 }
 
-/* ===== 房间状态条 ===== */
-.gomoku-roombar {
-  -webkit-box-align: center;
-  -ms-flex-align: center;
-  align-items: center;
-  -ms-flex-wrap: wrap;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  padding: 10px 16px;
-  border: 1px solid var(--ci-color-border, #dbe3ef);
-  border-radius: var(--radius-md, 12px);
-  background: var(--ci-color-bg-elevated, #fff);
-  color: var(--ci-color-text-secondary, #475569);
-}
-
-.gomoku-roombar > * + * {
-  margin-left: 12px;
-}
-
-.gomoku-roombar span {
-  font-size: 13px;
-}
-
-/* 房间码：等宽胶囊，一眼可辨 */
-.gomoku-roombar strong {
-  padding: 4px 10px;
-  border-radius: var(--radius-pill, 999px);
-  background: var(--ci-color-fill, #e2e8f0);
-  color: var(--ci-color-text, #172033);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  letter-spacing: .08em;
-}
-
-/* 连接状态红绿灯 */
+/* 连接状态红绿灯（已并入标题栏右区） */
 .gomoku-conn {
   display: -webkit-inline-box;
   display: -ms-inline-flexbox;
@@ -550,6 +534,15 @@
   box-shadow: 0 0 0 3px rgba(239, 68, 68, .16);
 }
 
+/* 标题栏内灯体纯化为圆点：文字转存 title（悬停可查），右区宽度从 ~150px 压到 8px */
+.gomoku-header .gomoku-conn {
+  font-size: 0;
+}
+
+.gomoku-header .gomoku-conn::before {
+  margin-right: 0;
+}
+
 /* ===== 棋盘 ===== */
 .gomoku-layout {
   -webkit-box-align: stretch;
@@ -560,8 +553,8 @@
 /**
  * 棋盘尺寸三重约束（Chrome 80 无 aspect-ratio，用 padding-top 撑正方形）：
  *   min(780px 上限, 容器宽 100%, 视口高 100vh - 固定区高度)
- * 固定区实测（error 空时隐藏）：app padding 40 + header ~89 + roombar ~50 ≈ 180px，
- * 预算取 190px —— 首版 300px 过于保守，把 1280×800 平板的棋盘压到只剩 500px。
+ * 固定区实测（error 空时隐藏）：header 44 + header 下距 14 + shell 上下内边距 40 ≈ 98px，
+ * roombar 整行已并入标题栏（v1.6.6），预算从 190px 收紧到 160px，竖屏棋盘扩大约 30px。
  *
  * 木纹材质三层叠加：
  *   1) 近垂直细密纹理（repeating，2px/6px 步进深浅交替）
@@ -570,9 +563,9 @@
  */
 .gomoku-board {
   position: relative;
-  width: min(780px, 100%, calc(100vh - 190px));
+  width: min(780px, 100%, calc(100vh - 160px));
   height: 0;
-  padding-top: min(780px, 100%, calc(100vh - 190px));
+  padding-top: min(780px, 100%, calc(100vh - 160px));
   margin: 0 auto;
   background-color: #d9a55e;
   background-image:
@@ -1035,7 +1028,7 @@
   .gomoku-shell {
     padding: 12px;
   }
-  /* 窄屏两行布局：返回+居中标题一行，状态+操作整行换行在下（右对齐与桌面一致） */
+  /* 窄屏两行布局：返回+标题+信息一行放不下时右区整行换到下（右对齐与桌面一致） */
   .gomoku-header {
     margin: 0 0 12px;
     -ms-flex-wrap: wrap;
@@ -1094,7 +1087,8 @@
 
 /* ===== 横屏（棋盘优先，安卓横屏平板主场景） =====
  * 标题栏化后与竖屏同构：header 是 app 直接子级独占首行贴顶贴边，
- * shell（限宽居中）转纵向 flex 吃剩余高度，roombar / layout 在 shell 内换行分配。 */
+ * shell（限宽居中）转纵向 flex 吃剩余高度，layout 在 shell 内换行分配。
+ * roombar 已并入标题栏（v1.6.6），shell 内首行直接是 layout。 */
 @media (min-width: 801px) and (orientation: landscape) {
   .gomoku-app {
     overflow: hidden;
@@ -1134,34 +1128,9 @@
     margin: 0 0 10px;
     min-width: 0;
   }
-  .gomoku-header h1 {
-    margin: 0;
-    font-size: var(--font-size-subheadline, 15px);
-    white-space: nowrap;
-  }
-  .gomoku-status {
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .gomoku-actions button {
     padding: 8px 12px;
     font-size: 13px;
-  }
-  /* 房间元信息独立成行（原与 header 并排的设计已被标题栏化取代） */
-  .gomoku-roombar {
-    -ms-flex-preferred-size: 100%;
-    flex-basis: 100%;
-    margin: 0;
-    padding: 4px 0;
-    border: 0;
-    background: transparent;
-    -ms-flex-wrap: nowrap;
-    flex-wrap: nowrap;
-  }
-  .gomoku-roombar > * + * {
-    margin-left: 10px;
   }
   .gomoku-error,
   .gomoku-entry,
@@ -1185,10 +1154,35 @@
     -ms-flex-line-pack: center;
     align-content: center;
   }
-  /* 棋盘：吃掉视口剩余高度（顶栏 + 内边距实测 ≈ 62px，预算 100px） */
+  /* 棋盘：吃掉视口剩余高度（顶栏 44 + 下距 10 + shell 内边距 22 ≈ 76px，预算 80px；
+     roombar 行已并入标题栏，预算从 100px 收紧，横屏棋盘扩大约 20px） */
   .gomoku-board {
-    width: min(900px, 100%, calc(100vh - 100px));
-    padding-top: min(900px, 100%, calc(100vh - 100px));
+    width: min(900px, 100%, calc(100vh - 80px));
+    padding-top: min(900px, 100%, calc(100vh - 80px));
     margin: 0;
+  }
+}
+
+/* ===== 房间模式中窄视口（≤1180px）：右区（信息段+连接灯+五按钮 ≈560px）较宽 =====
+ * 标题已靠左，仅当返回+标题+信息段+右区单行总宽超出时才换行；
+ * 本地/人机模式右区仅 ~350px，800~1180 仍单行（JS 在房间模式才挂 .gomoku-room-mode）。 */
+@media (max-width: 1180px) {
+  .gomoku-room-mode .gomoku-header {
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+  }
+  .gomoku-room-mode .gomoku-header-right {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
+    margin: 8px 0 0;
+  }
+}
+
+/* 房间模式中窄横屏：标题栏两行（44 + 右区行 32 + 下距 10）+ shell 内边距 22 ≈ 108px，
+   棋盘预算从 80px 同步放宽到 110px，避免底部溢出被裁切 */
+@media (min-width: 801px) and (max-width: 1180px) and (orientation: landscape) {
+  .gomoku-room-mode .gomoku-board {
+    width: min(900px, 100%, calc(100vh - 110px));
+    padding-top: min(900px, 100%, calc(100vh - 110px));
   }
 }
