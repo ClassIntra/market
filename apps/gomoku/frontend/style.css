@@ -68,25 +68,137 @@
   justify-content: flex-end;
 }
 
+/*
+ * 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
+ * 本头部吸顶承担标题栏职责（返回 + 标题 + 状态 + 操作），
+ * 与宿主 AppShell 导航栏同款毛玻璃质感。
+ */
 .gomoku-header {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 40;
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
   -webkit-box-pack: justify;
   -ms-flex-pack: justify;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  /* 负外边距抵消 .gomoku-app 内边距：吸顶全宽贴边，与 AppShell 导航栏同构 */
+  margin: -16px -20px 14px;
+  /* 对齐 AppShell 导航栏规格：44px 高、底部 0.5px 分隔线、同款毛玻璃，无圆角无阴影 */
+  min-height: 44px;
+  padding: 4px 8px;
+  background-color: var(--nav-bg, rgba(255, 255, 255, 0.8));
+  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px)); backdrop-filter: var(--glass-blur-container, blur(20px));
+  border-bottom: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
 }
+
+.gomoku-back {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  font: inherit;
+  font-size: var(--font-size-body, 17px);
+  padding: 6px 8px 6px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+/* 纯 CSS 左箭头（不依赖图标字体） */
+.gomoku-back::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+@media (hover: hover) {
+  .gomoku-back:not(:disabled):hover { opacity: .72; }
+}
+.gomoku-back:active { opacity: .6; }
+
+.gomoku-header-title {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gomoku-header-title > * + * { margin-left: 10px; }
 
 .gomoku-header h1 {
-  margin: 0 0 4px;
-  font-size: clamp(22px, 3.4vw, 30px);
+  margin: 0;
+  /* 对齐 AppShell 标题规格：15px / 600 / 主文字色 */
+  font-size: var(--font-size-subheadline, 15px);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--text-primary, #000);
+  white-space: nowrap;
 }
 
-.gomoku-kicker {
-  margin: 0 0 4px;
-  color: var(--ci-color-accent, #2563eb);
-  font-size: 11px;
-  letter-spacing: .16em;
+/* 状态文字在标题栏内单行截断，避免挤压操作按钮（次要色，弱于标题） */
+.gomoku-header .gomoku-status {
+  font-size: 13px;
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影 */
+.gomoku-header .gomoku-actions button {
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 999px;
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+.gomoku-header .gomoku-actions button.is-secondary {
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+  background: transparent;
+  box-shadow: none;
+}
+
+.gomoku-header .gomoku-actions button:disabled { opacity: .35; }
+
+/* 透明背景按钮在标题栏内不适用浮起反馈，改用透明度 */
+@media (hover: hover) {
+  .gomoku-header .gomoku-actions button:not(:disabled):hover {
+    -webkit-filter: none;
+    filter: none;
+    -webkit-transform: none;
+    transform: none;
+    opacity: .7;
+  }
+}
+.gomoku-header .gomoku-actions button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .5;
 }
 
 .gomoku-status,
@@ -892,7 +1004,19 @@
   .gomoku-app {
     padding: 12px;
   }
-  .gomoku-header,
+  /* 标题栏负边距随内边距收窄（避免横向溢出滚动） */
+  .gomoku-header {
+    margin: -12px -12px 12px;
+    /* 窄屏两行布局：返回+标题一行，操作按钮整行换行在下 */
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+  }
+  .gomoku-header .gomoku-actions {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
+    margin-left: 0;
+    margin-top: 8px;
+  }
   .gomoku-layout {
     -webkit-box-align: stretch;
     -ms-flex-align: stretch;
@@ -903,7 +1027,6 @@
     flex-direction: column;
   }
   /* 竖排后相邻兄弟间距改为上边距 */
-  .gomoku-header > * + *,
   .gomoku-layout > * + * {
     margin-left: 0;
     margin-top: 12px;
@@ -964,7 +1087,7 @@
     -ms-flex-align: center;
     align-items: center;
   }
-  /* 顶栏：brand + 状态 + 操作按钮并排 */
+  /* 顶栏：返回 + 标题/状态 + 操作按钮并排（浮动毛玻璃条，随 shell 行内排布） */
   .gomoku-header {
     -webkit-box-flex: 1;
     -ms-flex: 1 1 auto;
@@ -972,25 +1095,13 @@
     margin: 0;
     min-width: 0;
   }
-  .gomoku-header > div:first-child {
-    display: -webkit-box;
-    display: -ms-flexbox;
-    display: flex;
-    -webkit-box-align: center;
-    -ms-flex-align: center;
-    align-items: center;
-    min-width: 0;
-  }
-  .gomoku-header > div:first-child > * + * {
+  .gomoku-header-title > * + * {
     margin-left: 12px;
   }
   .gomoku-header h1 {
     margin: 0;
-    font-size: 18px;
+    font-size: var(--font-size-subheadline, 15px);
     white-space: nowrap;
-  }
-  .gomoku-kicker {
-    display: none;
   }
   .gomoku-status {
     font-size: 13px;
@@ -1030,11 +1141,8 @@
     -ms-flex-pack: center;
     justify-content: center;
   }
-  /* 入场模式（未进房）：隐藏顶栏（复制/分享等操作未进房时无意义，卡片里已有标题），
-     只显示居中的入场卡片 */
-  .gomoku-app.gomoku-entering .gomoku-header {
-    display: none;
-  }
+  /* 入场模式：标题栏保留（返回按钮是系统导航栏隐藏后的唯一出口），
+     操作按钮由 JS 隐藏，入场卡片垂直居中 */
   .gomoku-app.gomoku-entering .gomoku-shell {
     -ms-flex-line-pack: center;
     align-content: center;

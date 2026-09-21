@@ -66,9 +66,11 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'share-community', text: '发到社区' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
+    // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
+    // 本头部承担标题栏职责（返回 + 标题 + 状态 + 操作），不再重复渲染大标题
     var head = t('div', 'gomoku-header', null, [
-      t('div', null, null, [
-        t('p', 'gomoku-kicker', { text: 'CLASSINTRA GAME' }),
+      t('button', 'gomoku-back', { type: 'button', 'data-action': 'home', text: '返回' }),
+      t('div', 'gomoku-header-title', null, [
         t('h1', null, { text: '五子棋' }),
         status
       ]),
@@ -1141,14 +1143,22 @@
       var actionButtons = root.querySelectorAll('.gomoku-actions [data-action]');
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
+        // 未进入对局：标题栏不显示对局操作（创建/加入入口在入场卡片，返回在左侧）
+        if (mode === '') { actionButtons[a].hidden = true; continue; }
         actionButtons[a].hidden = isOffline && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
       }
       roomElement.textContent = mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间码 ' + roomCode : '未进入房间');
       identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? '我的身份：' + (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
       // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
       var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
-      statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
-      statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '自由练习中，对手加入后恢复轮流' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
+      // 入场态状态条留空（未进入对局无轮次可言），其余态按对局状态渲染
+      if (mode === '') {
+        statusElement.className = 'gomoku-status';
+        statusElement.textContent = '';
+      } else {
+        statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
+        statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '自由练习中，对手加入后恢复轮流' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
+      }
       if (isOffline) setConnection('本地对弈', 'online');
       else if (!roomCode) setConnection('未进入房间', '');
       // 单机模式直接本地判手；房间模式按成员身份
@@ -1326,7 +1336,8 @@
     // 不再需要此前的 1200ms setTimeout 兜底（它会在慢请求未返回时提前解锁）。
     function setBusy(flag) {
       pending = flag;
-      var buttons = root.querySelectorAll('[data-action]');
+      // 返回按钮豁免忙碌锁：请求卡住时用户仍能退出应用
+      var buttons = root.querySelectorAll('[data-action]:not([data-action="home"])');
       for (var i = 0; i < buttons.length; i++) buttons[i].disabled = flag;
     }
     function onBoardClick(event) {
@@ -1345,8 +1356,10 @@
     function onAction(event) {
       var action = event.target.closest('[data-action]');
       if (!action) return;
-      if (pending) return;
       var kind = action.dataset.action;
+      // 返回桌面：标题栏常驻出口，不受忙碌锁限制（onBoardClick 的落子锁只锁棋盘）
+      if (kind === 'home') return navigateHome();
+      if (pending) return;
       // 单机模式入口（人机练习/本地双人）：本地开局，不涉及任何后端请求
       if (kind === 'solo' || kind === 'local') { offlineStart(kind); return; }
       // 房间操作统一走忙碌锁：按钮禁用给出即时反馈，
