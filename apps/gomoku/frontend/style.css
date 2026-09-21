@@ -185,13 +185,14 @@
 .gomoku-header .gomoku-actions > * + * { margin-left: 12px; }
 
 /* 对局信息段（标题右侧）：轮次 + 模式/房间 + 身份，三段「·」分隔。
-   可收缩截断（flex-shrink + ellipsis），空间不足时优先让位给右区按钮；隐藏段不占位 */
+   可收缩截断（flex-shrink + ellipsis），空间不足时优先让位给右区按钮；隐藏段不占位。
+   margin-left 12px 与标题拉开距离：15px 粗体紧贴 11px 小字会视觉粘连 */
 .gomoku-header .gomoku-subtitle {
   display: block;
   min-width: 0;
   -ms-flex-negative: 1;
   flex-shrink: 1;
-  margin: 0;
+  margin: 0 0 0 12px;
   font-size: 11px;
   line-height: 1.3;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
@@ -200,14 +201,21 @@
   text-overflow: ellipsis;
 }
 
-/* 三段（轮次/模式/身份）之间的间隔点；隐藏段（hidden/:empty）自身的 ::before 一并不渲染 */
+/* 三段（轮次/模式/身份）之间的间隔点；隐藏段（hidden/:empty）自身的 ::before 一并不渲染。
+   间距 9px：11px 小字下 5px 会让信息段挤成一团 */
 .gomoku-subtitle > * + *::before {
   content: '·';
-  margin: 0 5px;
+  margin: 0 9px;
 }
 
 .gomoku-subtitle [data-role="identity"]:empty {
   display: none;
+}
+
+/* 轮次状态在标题栏信息段内必须 inline：<p> 默认块级会独占一行，
+   把信息段撑成两行并溢出 44px 标题栏，与标题文字重叠（v1.6.9 实测截图踩坑） */
+.gomoku-header .gomoku-status {
+  display: inline;
 }
 
 /* 轮次状态已并入副标题（.gomoku-subtitle 内 11px 次要色），右区不再单独排状态文字 */
@@ -276,6 +284,11 @@
   border: 1px solid rgba(148, 163, 184, .7);
   box-sizing: border-box;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .25);
+}
+
+.gomoku-status.is-waiting {
+  color: var(--ci-color-accent, #2563eb);
+  font-weight: 600;
 }
 
 .gomoku-status.is-winner {

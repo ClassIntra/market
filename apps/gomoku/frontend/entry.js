@@ -1169,7 +1169,7 @@
         statusElement.textContent = '';
         statusElement.hidden = true;
       } else {
-        statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : ((state.status === 'active' && !soloRoom) ? ' is-turn is-turn-' + state.turn : ''));
+        statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : soloRoom ? ' is-waiting' : (state.status === 'active' ? ' is-turn is-turn-' + state.turn : ''));
         statusElement.hidden = false;
         statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '等待对手加入' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
       }
