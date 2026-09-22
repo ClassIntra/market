@@ -151,9 +151,12 @@ function search(params, ctx) {
         result.songs = result.songs.map(function (s) {
           var d = detailMap[s.id];
           if (!d) return s;
-          // search/get 老结构 album 缺 picUrl：补 al.picUrl 到 album；artists 为空时用 ar 补
-          if (s.album && !s.album.picUrl && d.al && d.al.picUrl) s.album = Object.assign({}, s.album, { picUrl: d.al.picUrl });
-          if (d.ar && d.ar.length && (!s.artists || !s.artists.length)) s.artists = d.ar;
+          // 明文 song/detail 返回老结构（album/artists），v3 weapi 返回新结构（al/ar），两者都要认——
+          // 此前只读 d.al.picUrl，明文通道补的封面全部落空（搜索无封面根因）
+          var dpic = (d.al && d.al.picUrl) || (d.album && d.album.picUrl) || '';
+          if (s.album && !s.album.picUrl && dpic) s.album = Object.assign({}, s.album, { picUrl: dpic });
+          var dArtists = (d.ar && d.ar.length) ? d.ar : (d.artists || []);
+          if (dArtists.length && (!s.artists || !s.artists.length)) s.artists = dArtists;
           return s;
         });
         return res;
@@ -213,12 +216,31 @@ function searchSuggest(params, ctx) {
 
 // 歌曲详情（批量，最多 1000 首）
 // 明文老接口优先（匿名不触发风控，ids 为数字数组形式），失败回退 v3 weapi（登录用户带 cookie）
+// 明文接口可能「静默丢歌」——部分歌曲（无版权/下架等）不在返回里但 HTTP 200，
+// 此时对缺失的 id 再走 v3 weapi 补齐（搜索补封面依赖此处的完整性）
 function songDetail(params, ctx) {
   var ids = String(params.ids || '').split(/\s*,\s*/).filter(function (id) { return id; });
   var plainIds = '[' + ids.join(',') + ']';
   var c = '[' + ids.map(function (id) { return '{"id":' + id + '}'; }).join(',') + ']';
   return plainGetJson('/api/song/detail', { ids: plainIds, n: 1000 }, ctx).then(function (body) {
-    return { status: 200, body: { code: 200, songs: body.songs || [] }, cookie: [] };
+    var got = body.songs || [];
+    if (got.length >= ids.length) {
+      return { status: 200, body: { code: 200, songs: got }, cookie: [] };
+    }
+    // 明文通道静默丢歌：对缺失 id 走 v3 weapi 补齐（失败不阻塞，已有的照常返回）
+    var have = {};
+    got.forEach(function (d) { if (d && d.id) have[String(d.id)] = true; });
+    var missing = ids.filter(function (id) { return !have[String(id)]; });
+    if (!missing.length) {
+      return { status: 200, body: { code: 200, songs: got }, cookie: [] };
+    }
+    var missingC = '[' + missing.map(function (id) { return '{"id":' + id + '}'; }).join(',') + ']';
+    return req('/api/v3/song/detail', { c: missingC }, ctx, 'weapi').then(function (res2) {
+      var extra = ((res2.body || {}).songs) || [];
+      return { status: 200, body: { code: 200, songs: got.concat(extra) }, cookie: [] };
+    }, function () {
+      return { status: 200, body: { code: 200, songs: got }, cookie: [] };
+    });
   }).catch(function () {
     return req('/api/v3/song/detail', { c: c }, ctx, 'weapi');
   });

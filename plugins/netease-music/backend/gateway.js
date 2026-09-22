@@ -85,6 +85,43 @@ var UPSTREAM_MODULE_NCM = {
 // HTTP(S) GET JSON 已下沉插件 SDK（stream.js 门面 re-export）
 var httpGetJson = streamMod.httpGetJson;
 
+// 搜索结果封面统一补全（builtin 与 upstream 共用的网关层后处理）
+// 背景：封面补全原本只写在 builtin ncmApi.search 内部——风控期间 builtin search 失败
+// 回退 upstream（第三方 NCM API），其搜索结果是老结构（album 无 picUrl）且无补全逻辑，
+// 用户看到「搜索结果全无封面」。此处在网关层统一兜底：凡单曲缺 picUrl 就用
+// songDetail 明文通道批量补齐（明文 song/detail 不属于 search 簇，不受其风控影响）。
+// builtin 正常路径补全后全部带封面，这里 need 为空直接跳过，零额外请求。
+function ensureSearchCovers(body, engine) {
+  var result = (body && body.result) || {};
+  var songs = result.songs;
+  if (!Array.isArray(songs) || !songs.length) return Promise.resolve(body);
+  var need = songs.filter(function (s) {
+    return s && s.id && !((s.album && s.album.picUrl) || (s.al && s.al.picUrl));
+  });
+  if (!need.length) return Promise.resolve(body);
+  var ids = need.map(function (s) { return s.id; }).join(',');
+  var opts = { cookie: {}, timeout: engine.requestTimeout || 8000 };
+  if (engine.proxy) opts.proxy = engine.proxy;
+  return ncmApi.songDetail({ ids: ids }, opts).then(function (dres) {
+    var map = {};
+    (((dres.body || {}).songs) || []).forEach(function (d) { if (d && d.id) map[d.id] = d; });
+    songs.forEach(function (s) {
+      var d = map[s.id];
+      if (!d) return;
+      // 双结构兼容：老结构 album/artists，新结构 al/ar，两边都要能落封面
+      var dpic = (d.album && d.album.picUrl) || (d.al && d.al.picUrl) || '';
+      if (dpic) {
+        if (s.album) s.album = Object.assign({}, s.album, { picUrl: dpic });
+        else if (s.al) s.al = Object.assign({}, s.al, { picUrl: dpic });
+        else s.album = { picUrl: dpic };
+      }
+      var dArtists = (d.artists && d.artists.length) ? d.artists : (d.ar || []);
+      if (dArtists.length && (!s.artists || !s.artists.length)) s.artists = dArtists;
+    });
+    return body;
+  }).catch(function () { return body; }); // 补全失败不阻塞搜索结果
+}
+
 // 可回退判定：网络级失败或「网易云侧不可用」（风控 -462 负数码、级联受限 503、接口异常 502）
 // 都应尝试 upstream——本机通道被风控 ≠ 业务不可用，upstream（第三方自建 API）可能可用。
 // 真业务错误（400/403 参数/VIP 等）不回退，直接抛给调用方。
@@ -203,6 +240,7 @@ function createGateway() {
           log.debug('gateway', '风控/异常响应（code ' + body.code + '），endpoint=' + endpoint + ' via=' + mode);
           throw new PluginError(502, '网易云接口异常（code ' + body.code + '），请稍后重试');
         }
+        if (endpoint === 'search') body = await ensureSearchCovers(body, engine); // 搜索封面统一补全（upstream 路径裸奔根因）
         if (cacheKey) store.cacheSetIfOk(cacheKey, body, TTL[endpoint]); // 成功才缓存（写入口自带负数 code 拦截）
         return { data: body, cached: false, via: mode };
       } catch (err) {
