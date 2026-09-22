@@ -285,9 +285,15 @@
 
   // ===== 人机练习 AI =====
   // 算法移植自 Resources/ChineseChess/static/js/chess/AI.js（极大极小 + a-b 剪枝 + 位置分表），
+  // 三档棋力对齐 Resources/ChinessChess（Easy/Normal/HardSearch：简单浅搜、普通迭代加深、困难加深加预算）。
   // 棋子/坐标系对齐本应用：board[row][col]、黑上红下、r_*/b_* 命名。
   // 分表按「黑方底线在行 0」朝向书写；红方取分时用 9-row 翻转（与参考实现的 player0 朝向一致）。
-  var AI_MOVE_BUDGET = 380; // 整步硬预算 ms（平板 Chrome 80 上 4 层全展开会掉帧）
+  var AI_LEVELS = {
+    easy: { minDepth: 1, maxDepth: 2, budget: 100, blunderRate: 0.2 },
+    normal: { minDepth: 2, maxDepth: 4, budget: 380, blunderRate: 0 },
+    hard: { minDepth: 3, maxDepth: 5, budget: 520, blunderRate: 0 }
+  };
+  var AI_LEVEL_LABELS = { easy: '简单', normal: '普通', hard: '困难' };
   var AI_INF = 100000;
   var AI_SCORE = {
     king: [
@@ -482,14 +488,23 @@
     }
     return { score: bestScore, move: best };
   }
-  // 迭代加深入口：在预算内尽量搜深，超时保留上一层结果
-  function aiBestMove(board, aiColor) {
+  // 迭代加深入口：按难度配置预算/深度；超时保留上一层结果。
+  // 简单档含失误率（参考 Easy 的浅层棋力，避免只会走「唯一最优」）
+  function aiBestMove(board, aiColor, level) {
+    var cfg = AI_LEVELS[level] || AI_LEVELS.normal;
     var moves = aiGenerateMoves(board, aiColor);
     if (!moves.length) return null;
     if (moves.length === 1) return moves[0];
-    var deadline = Date.now() + AI_MOVE_BUDGET;
+    if (cfg.blunderRate > 0 && Math.random() < cfg.blunderRate) {
+      var safe = [];
+      for (var i = 0; i < moves.length; i++) {
+        if (moves[i].captured !== 'r_king' && moves[i].captured !== 'b_king') safe.push(moves[i]);
+      }
+      if (safe.length) return safe[Math.floor(Math.random() * safe.length)];
+    }
+    var deadline = Date.now() + cfg.budget;
     var best = moves[0];
-    for (var depth = 2; depth <= 4; depth++) {
+    for (var depth = cfg.minDepth; depth <= cfg.maxDepth; depth++) {
       var result = aiSearch(board, aiColor, depth, -AI_INF, AI_INF, aiColor, deadline);
       if (result.move) best = result.move;
       if (Date.now() > deadline) break;
@@ -586,6 +601,15 @@
     var roomLabel = t('label', null, { text: '房间码' });
     roomLabel.appendChild(roomInput);
 
+    // 电脑棋力：对齐 ChinessChess 的简单/普通/困难三档（仅人机入口读取）
+    var levelSelect = t('select', null, { 'data-field': 'level' }, [
+      t('option', null, { value: 'easy', text: '简单' }),
+      t('option', null, { value: 'normal', text: '普通' }),
+      t('option', null, { value: 'hard', text: '困难' })
+    ]);
+    var levelLabel = t('label', null, { text: '电脑棋力' });
+    levelLabel.appendChild(levelSelect);
+
     var entryCard = t('div', 'chess-entry-card', null, [
       t('h2', null, { text: '进入棋局' }),
       t('p', null, { text: '创建房间邀请同学对战，或用本地/人机模式离线对弈。红方先行。' }),
@@ -600,6 +624,7 @@
       t('div', 'chess-entry-row', null, [
         t('span', 'chess-entry-hint', { text: '单机模式' }),
         t('button', 'is-secondary', { type: 'button', 'data-action': 'local', text: '本地对战' }),
+        levelLabel,
         t('button', 'is-secondary', { type: 'button', 'data-action': 'solo', text: '人机练习' })
       ])
     ]);
@@ -696,6 +721,8 @@
     // 人机练习的 AI 落子定时器：卸载/离开时必须清理，防止已卸载组件操作 DOM
     var soloTimer = null;
     var soloColor = 'red';        // 人机练习玩家执色（红方先手，玩家默认执红）
+    var soloLevel = 'normal';     // 电脑棋力 easy/normal/hard（入场卡选择，会话恢复保留）
+    var levelElement = null;      // 入场卡棋力下拉（root 挂载后缓存）
     var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
     // 会话持久化：切去聊天/社区再返回时恢复本地对局与房间（sessionStorage，关页即清）
     var SESSION_KEY = 'chess_session';
@@ -707,6 +734,7 @@
           sessionStorage.setItem(SESSION_KEY, JSON.stringify({
             mode: mode,
             soloColor: mode === 'solo' ? soloColor : null,
+            soloLevel: mode === 'solo' ? soloLevel : null,
             offline: { board: state.board, turn: state.turn, winner: state.winner, result: state.result, status: state.status, lastMove: state.lastMove, history: localHistory }
           }));
         } else if (mode === 'local' || mode === 'solo') {
@@ -728,6 +756,7 @@
     var boardElement = root.querySelector('.chess-board');
     var entryElement = root.querySelector('.chess-entry');
     var errorElement = root.querySelector('.chess-error');
+    levelElement = root.querySelector('[data-field="level"]');
     var roomElement = root.querySelector('[data-role="room"]');
     var identityElement = root.querySelector('[data-role="identity"]');
     var connectionElement = root.querySelector('[data-role="connection"]');
@@ -1155,7 +1184,7 @@
       root.classList.toggle('chess-room-mode', mode === 'room' && !!roomCode);
       setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
       setText(identityElement, mode === 'solo'
-        ? ('我执' + (soloColor === 'red' ? '红' : '黑') + ' · 电脑执' + (soloColor === 'red' ? '黑' : '红'))
+        ? ('我执' + (soloColor === 'red' ? '红' : '黑') + ' · 电脑执' + (soloColor === 'red' ? '黑' : '红') + ' · ' + (AI_LEVEL_LABELS[soloLevel] || '普通'))
         : mode === 'local' ? '双人同屏 · 红方先手'
         : (member ? (member.role === 'spectator' ? '观战者' : (member.color === 'red' ? '红方' : member.color === 'black' ? '黑方' : '等待分配'))
           : ''));
@@ -1366,7 +1395,7 @@
         if (state.turn === soloColor) return;
         var aiSide = soloColor === 'red' ? 'black' : 'red';
         if (state.turn !== aiSide) return;
-        var mv = aiBestMove(state.board, aiSide);
+        var mv = aiBestMove(state.board, aiSide, soloLevel);
         if (!mv) {
           // AI 无着法（理论上级 applyLocalMove 已判将死/困毙），兜底把回合交回玩家
           render();
@@ -1382,8 +1411,11 @@
       mode = nextMode;
       roomCode = '';
       localHistory = [];
-      // 人机练习玩家固定执红（红方先手，与本地双人一致的观感）
-      if (nextMode === 'solo') soloColor = 'red';
+      // 人机练习玩家固定执红（红方先手，与本地双人一致的观感）；棋力取入场卡当前选择
+      if (nextMode === 'solo') {
+        soloColor = 'red';
+        if (levelElement && AI_LEVELS[levelElement.value]) soloLevel = levelElement.value;
+      }
       state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
       selected = null; legal = [];
       lastAnimatedKey = '';
@@ -1805,7 +1837,11 @@
     var savedSession = routeRoom ? null : readSession();
     if (savedSession && (savedSession.mode === 'local' || savedSession.mode === 'solo') && savedSession.offline && Array.isArray(savedSession.offline.board)) {
       mode = savedSession.mode;
-      if (mode === 'solo') soloColor = savedSession.soloColor === 'black' ? 'black' : 'red';
+      if (mode === 'solo') {
+        soloColor = savedSession.soloColor === 'black' ? 'black' : 'red';
+        soloLevel = AI_LEVELS[savedSession.soloLevel] ? savedSession.soloLevel : 'normal';
+        if (levelElement) levelElement.value = soloLevel;
+      }
       localHistory = Array.isArray(savedSession.offline.history) ? savedSession.offline.history : [];
       state = Object.assign({ members: [], check: false }, savedSession.offline);
       render();
