@@ -283,6 +283,220 @@
     ];
   }
 
+  // ===== 人机练习 AI =====
+  // 算法移植自 Resources/ChineseChess/static/js/chess/AI.js（极大极小 + a-b 剪枝 + 位置分表），
+  // 棋子/坐标系对齐本应用：board[row][col]、黑上红下、r_*/b_* 命名。
+  // 分表按「黑方底线在行 0」朝向书写；红方取分时用 9-row 翻转（与参考实现的 player0 朝向一致）。
+  var AI_MOVE_BUDGET = 380; // 整步硬预算 ms（平板 Chrome 80 上 4 层全展开会掉帧）
+  var AI_INF = 100000;
+  var AI_SCORE = {
+    king: [
+      [9980, 9990, 9980, 9970, 9970, 9970, 9980, 9990, 9980],
+      [9970, 9970, 9950, 9950, 9950, 9950, 9970, 9970, 9970],
+      [9950, 9950, 9930, 9930, 9930, 9930, 9950, 9950, 9950],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    guard: [
+      [200, 0, 200, 0, 240, 0, 200, 0, 200],
+      [0, 220, 0, 200, 0, 200, 0, 220, 0],
+      [200, 0, 200, 0, 240, 0, 200, 0, 200],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    elephant: [
+      [0, 0, 210, 0, 0, 0, 210, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [200, 0, 0, 0, 250, 0, 0, 0, 200],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 200, 0, 0, 0, 200, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    pawn: [
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [150, 0, 150, 0, 230, 0, 150, 0, 150],
+      [140, 0, 170, 0, 200, 0, 170, 0, 140],
+      [180, 190, 200, 200, 210, 200, 200, 190, 180],
+      [180, 190, 200, 210, 210, 210, 200, 190, 180],
+      [190, 190, 200, 220, 220, 220, 210, 190, 190],
+      [170, 180, 200, 230, 230, 230, 200, 180, 170],
+      [160, 160, 190, 200, 200, 200, 190, 160, 160]
+    ],
+    rook: [
+      [1190, 1240, 1200, 1200, 1200, 1200, 1200, 1240, 1190],
+      [1200, 1220, 1200, 1210, 1200, 1210, 1200, 1220, 1200],
+      [1190, 1220, 1200, 1200, 1200, 1200, 1200, 1220, 1190],
+      [1210, 1220, 1200, 1200, 1200, 1200, 1200, 1220, 1210],
+      [1220, 1250, 1220, 1260, 1200, 1260, 1220, 1250, 1220],
+      [1230, 1240, 1230, 1240, 1230, 1240, 1230, 1240, 1230],
+      [1230, 1230, 1240, 1230, 1230, 1230, 1240, 1230, 1230],
+      [1230, 1230, 1230, 1230, 1240, 1230, 1230, 1230, 1230],
+      [1230, 1240, 1230, 1230, 1240, 1230, 1230, 1240, 1230],
+      [1250, 1250, 1230, 1250, 1240, 1250, 1230, 1250, 1250]
+    ],
+    knight: [
+      [450, 500, 500, 480, 470, 480, 500, 500, 450],
+      [450, 510, 510, 470, 480, 470, 510, 510, 450],
+      [500, 500, 540, 510, 500, 510, 540, 500, 500],
+      [500, 520, 520, 510, 500, 510, 520, 520, 500],
+      [500, 530, 540, 530, 520, 530, 540, 530, 500],
+      [530, 540, 540, 540, 540, 530, 540, 540, 530],
+      [530, 530, 540, 530, 530, 530, 540, 530, 530],
+      [530, 530, 540, 550, 530, 550, 540, 530, 530],
+      [520, 530, 550, 530, 530, 530, 550, 530, 520],
+      [510, 530, 540, 530, 530, 530, 540, 530, 510]
+    ],
+    cannon: [
+      [500, 500, 510, 500, 500, 500, 510, 500, 500],
+      [500, 500, 500, 500, 500, 500, 500, 500, 500],
+      [510, 500, 510, 520, 540, 520, 510, 500, 510],
+      [500, 500, 500, 500, 550, 500, 500, 500, 500],
+      [500, 500, 500, 500, 550, 500, 500, 500, 500],
+      [510, 510, 510, 510, 550, 510, 510, 510, 510],
+      [510, 510, 510, 500, 550, 500, 510, 510, 510],
+      [510, 500, 510, 500, 500, 500, 510, 500, 510],
+      [510, 500, 510, 500, 500, 500, 510, 500, 510],
+      [550, 540, 500, 500, 500, 500, 500, 540, 550]
+    ]
+  };
+  function aiPieceTable(piece) {
+    var type = pieceType(piece);
+    return AI_SCORE[type] || null;
+  }
+  // 局面评估：以 aiColor 视角返回分值（己方分 ×1.1、对方 ×0.9，防无脑对子）
+  function aiEvaluate(board, aiColor) {
+    var score = 0;
+    for (var r = 0; r < 10; r++) {
+      for (var c = 0; c < 9; c++) {
+        var piece = board[r][c];
+        if (!piece) continue;
+        var table = aiPieceTable(piece);
+        if (!table) continue;
+        var color = pieceColor(piece);
+        var tr = color === 'black' ? r : 9 - r;
+        var val = table[tr][c];
+        if (color === aiColor) score += val * 1.1;
+        else score -= val * 0.9;
+      }
+    }
+    return score;
+  }
+  // 生成某方全部合法着法（canReach 快筛 + 走后自检不送将/不对面）
+  function aiGenerateMoves(board, color) {
+    var moves = [];
+    for (var r = 0; r < 10; r++) {
+      for (var c = 0; c < 9; c++) {
+        var piece = board[r][c];
+        if (!piece || pieceColor(piece) !== color) continue;
+        for (var tr = 0; tr < 10; tr++) {
+          for (var tc = 0; tc < 9; tc++) {
+            if (tr === r && tc === c) continue;
+            if (!canReach(board, r, c, tr, tc).ok) continue;
+            var captured = board[tr][tc];
+            board[tr][tc] = piece;
+            board[r][c] = null;
+            var legal = !isInCheck(board, color);
+            board[r][c] = piece;
+            board[tr][tc] = captured;
+            if (legal) moves.push({ fr: r, fc: c, tr: tr, tc: tc, piece: piece, captured: captured });
+          }
+        }
+      }
+    }
+    // 吃子优先排序：提升 a-b 剪枝效率
+    moves.sort(function(a, b) { return (b.captured ? 1 : 0) - (a.captured ? 1 : 0); });
+    return moves;
+  }
+  function aiMake(board, mv) {
+    board[mv.tr][mv.tc] = mv.piece;
+    board[mv.fr][mv.fc] = null;
+  }
+  function aiUnmake(board, mv) {
+    board[mv.fr][mv.fc] = mv.piece;
+    board[mv.tr][mv.tc] = mv.captured || null;
+  }
+  // 极大极小 + a-b；返回 { score, move }。side 为待走方，aiColor 为评估基准
+  function aiSearch(board, side, depth, alpha, beta, aiColor, deadline) {
+    if (Date.now() > deadline) return { score: aiEvaluate(board, aiColor), move: null };
+    var moves = aiGenerateMoves(board, side);
+    if (!moves.length) {
+      // 无着法：被将死判负，未被将困毙判和
+      return { score: isInCheck(board, side) ? -AI_INF : 0, move: null };
+    }
+    if (depth <= 1) {
+      var leaf = aiEvaluate(board, aiColor);
+      if (leaf > AI_INF / 2 || leaf < -AI_INF / 2) return { score: leaf, move: null };
+      // 叶子再看一层吃子收益（浅层裁剪，补 depth=1 的盲区）
+      var bestLeaf = null;
+      var bestLeafScore = side === aiColor ? -AI_INF : AI_INF;
+      for (var i = 0; i < moves.length; i++) {
+        var mv = moves[i];
+        aiMake(board, mv);
+        var sc = mv.captured && (mv.captured === 'r_king' || mv.captured === 'b_king')
+          ? (side === aiColor ? AI_INF : -AI_INF)
+          : aiEvaluate(board, aiColor);
+        aiUnmake(board, mv);
+        if (side === aiColor ? sc > bestLeafScore : sc < bestLeafScore) {
+          bestLeafScore = sc;
+          bestLeaf = mv;
+        }
+      }
+      return { score: bestLeafScore, move: bestLeaf };
+    }
+    var best = null;
+    var bestScore = side === aiColor ? -AI_INF : AI_INF;
+    for (var j = 0; j < moves.length; j++) {
+      var move = moves[j];
+      aiMake(board, move);
+      var score;
+      if (move.captured === 'r_king' || move.captured === 'b_king') {
+        score = side === aiColor ? AI_INF : -AI_INF;
+      } else {
+        score = aiSearch(board, side === 'red' ? 'black' : 'red', depth - 1, alpha, beta, aiColor, deadline).score;
+      }
+      aiUnmake(board, move);
+      if (side === aiColor) {
+        if (score > bestScore) { bestScore = score; best = move; }
+        if (score > alpha) alpha = score;
+      } else {
+        if (score < bestScore) { bestScore = score; best = move; }
+        if (score < beta) beta = score;
+      }
+      if (alpha >= beta || Date.now() > deadline) break;
+    }
+    return { score: bestScore, move: best };
+  }
+  // 迭代加深入口：在预算内尽量搜深，超时保留上一层结果
+  function aiBestMove(board, aiColor) {
+    var moves = aiGenerateMoves(board, aiColor);
+    if (!moves.length) return null;
+    if (moves.length === 1) return moves[0];
+    var deadline = Date.now() + AI_MOVE_BUDGET;
+    var best = moves[0];
+    for (var depth = 2; depth <= 4; depth++) {
+      var result = aiSearch(board, aiColor, depth, -AI_INF, AI_INF, aiColor, deadline);
+      if (result.move) best = result.move;
+      if (Date.now() > deadline) break;
+    }
+    return best;
+  }
+
   // ===== 棋盘线层 SVG（静态装饰）=====
   // viewBox 540×600：PADDING=30、格距 60、8 列 9 行格。棋子交点定位：
   // left = (30 + col*60)/540、top = (30 + row*60)/600（百分比对齐线层）。
@@ -374,7 +588,7 @@
 
     var entryCard = t('div', 'chess-entry-card', null, [
       t('h2', null, { text: '进入棋局' }),
-      t('p', null, { text: '创建房间邀请同学对战，或用本地模式同屏对弈。红方先行。' }),
+      t('p', null, { text: '创建房间邀请同学对战，或用本地/人机模式离线对弈。红方先行。' }),
       t('div', 'chess-entry-row', null, [
         t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' })
       ]),
@@ -385,7 +599,8 @@
       ]),
       t('div', 'chess-entry-row', null, [
         t('span', 'chess-entry-hint', { text: '单机模式' }),
-        t('button', 'is-secondary', { type: 'button', 'data-action': 'local', text: '本地对战' })
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'local', text: '本地对战' }),
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'solo', text: '人机练习' })
       ])
     ]);
     var entry = t('div', 'chess-entry', null, [entryCard]);
@@ -468,7 +683,7 @@
     var route = context.route || {};
     var routeRoom = (route.params && (route.params.roomCode || route.params.room_code)) || (route.query && (route.query.roomCode || route.query.room_code));
     var roomCode = routeRoom ? String(routeRoom).toUpperCase() : '';
-    // 对局模式：'' 未进入 | 'room' 房间联机 | 'local' 本地双人（纯本地，不走后端）
+    // 对局模式：'' 未进入 | 'room' 房间联机 | 'local' 本地双人 | 'solo' 人机练习（纯本地，不走后端）
     var mode = roomCode ? 'room' : '';
     var disposed = false;
     var pending = false;
@@ -478,6 +693,9 @@
     var labelsPrimed = false;     // 无障碍标签首轮是否已补齐
     // 本地对弈走子历史（悔棋依据）：{ fr, fc, tr, tc, piece, captured }
     var localHistory = [];
+    // 人机练习的 AI 落子定时器：卸载/离开时必须清理，防止已卸载组件操作 DOM
+    var soloTimer = null;
+    var soloColor = 'red';        // 人机练习玩家执色（红方先手，玩家默认执红）
     var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
     // 会话持久化：切去聊天/社区再返回时恢复本地对局与房间（sessionStorage，关页即清）
     var SESSION_KEY = 'chess_session';
@@ -485,12 +703,13 @@
       try {
         if (mode === 'room' && roomCode) {
           sessionStorage.setItem(SESSION_KEY, JSON.stringify({ mode: 'room', roomCode: roomCode }));
-        } else if (mode === 'local' && (localHistory.length || state.winner)) {
+        } else if ((mode === 'local' || mode === 'solo') && (localHistory.length || state.winner)) {
           sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-            mode: 'local',
+            mode: mode,
+            soloColor: mode === 'solo' ? soloColor : null,
             offline: { board: state.board, turn: state.turn, winner: state.winner, result: state.result, status: state.status, lastMove: state.lastMove, history: localHistory }
           }));
-        } else if (mode === 'local') {
+        } else if (mode === 'local' || mode === 'solo') {
           clearSession();
         }
       } catch (e) {}
@@ -776,9 +995,13 @@
     }
     function canSelectPiece(piece) {
       if (!piece || state.winner || state.status !== 'active' || pending) return false;
+      // AI 思考中禁止选子（防连点导致状态错乱）
+      if (mode === 'solo' && soloTimer) return false;
       // 本地双人：只许选中当前手一方的棋子（否则点击敌子会命中「改选」分支，
       // 永远走不到吃子判定——2026-09-21 实测发现的真 bug）
       if (mode === 'local') return pieceColor(piece) === state.turn;
+      // 人机练习：只许选玩家执色的棋子，且必须轮到玩家
+      if (mode === 'solo') return pieceColor(piece) === soloColor && state.turn === soloColor;
       var member = currentMember();
       if (!member || !member.color) return false; // 观战者
       // 单人房间自由摆棋：允许选中任色；满员后只许自己的棋
@@ -799,9 +1022,12 @@
       if (sig === lastMembersSignature) return;
       lastMembersSignature = sig;
       clearChildren(membersElement);
-      if (mode === 'local') {
-        var sides = [['red', '红方', '先手'], ['black', '黑方', '后手']];
-        sides.forEach(function(entry) {
+      if (mode === 'local' || mode === 'solo') {
+        var soloSides = mode === 'solo'
+          ? [[soloColor, '我（' + (soloColor === 'red' ? '红方' : '黑方') + '）', soloColor === 'red' ? '先手' : '后手'],
+             [soloColor === 'red' ? 'black' : 'red', '电脑', soloColor === 'red' ? '后手' : '先手']]
+          : [['red', '红方', '先手'], ['black', '黑方', '后手']];
+        soloSides.forEach(function(entry) {
           var isTurn = !state.winner && state.status === 'active' && state.turn === entry[0];
           membersElement.appendChild(t('li', 'chess-member' + (isTurn ? ' is-turn' : ''), null, [
             t('span', 'chess-member-dot is-' + entry[0], { 'aria-hidden': 'true' }),
@@ -913,7 +1139,7 @@
     }
     function render() {
       var inGame = mode !== '';
-      var isLocal = mode === 'local';
+      var isLocal = mode === 'local' || mode === 'solo';
       var member = currentMember();
       // 视角同步：我执黑则棋盘翻转（换色/入房后颜色变化在这里被检测到）
       syncOrientation(member);
@@ -923,11 +1149,14 @@
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
         if (mode === '') { actionButtons[a].hidden = true; continue; }
+        // 人机/本地隐藏分享类；人机额外隐藏换方（色已固定）与认输（可直接退出）
         actionButtons[a].hidden = isLocal && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community' || kind === 'color' || kind === 'resign');
       }
       root.classList.toggle('chess-room-mode', mode === 'room' && !!roomCode);
-      setText(roomElement, isLocal ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
-      setText(identityElement, isLocal ? '双人同屏 · 红方先手'
+      setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
+      setText(identityElement, mode === 'solo'
+        ? ('我执' + (soloColor === 'red' ? '红' : '黑') + ' · 电脑执' + (soloColor === 'red' ? '黑' : '红'))
+        : mode === 'local' ? '双人同屏 · 红方先手'
         : (member ? (member.role === 'spectator' ? '观战者' : (member.color === 'red' ? '红方' : member.color === 'black' ? '黑方' : '等待分配'))
           : ''));
       // 房间内对手未加入：状态条给出等待提示
@@ -941,6 +1170,7 @@
         statusElement.hidden = false;
         setText(statusElement, state.winner
           ? resultText(state)
+          : mode === 'solo' && soloTimer ? '电脑思考中…'
           : state.check ? (state.turn === 'red' ? '轮到红方 · 将军！' : '轮到黑方 · 将军！')
           : soloRoom ? '等待对手加入'
           : state.status !== 'active' ? '等待下一局'
@@ -961,6 +1191,9 @@
         } else if (soloRoom) {
           bannerClass += ' is-waiting';
           bannerText = '等待对手加入';
+        } else if (mode === 'solo' && soloTimer) {
+          bannerClass += ' is-waiting';
+          bannerText = '电脑思考中…';
         } else {
           bannerClass += ' is-turn-' + state.turn + (state.check ? ' is-check' : '');
           bannerText = (state.check ? '将军！' : '') + (state.turn === 'red' ? '轮到红方' : '轮到黑方');
@@ -968,7 +1201,7 @@
         setClass(bannerElement, bannerClass);
         setText(bannerElement, bannerText);
       }
-      if (isLocal) setConnection('本地对弈', 'online');
+      if (isLocal) setConnection(mode === 'solo' && soloTimer ? '电脑思考中' : '本地对弈', 'online');
       else if (!roomCode) setConnection('未进入房间', '');
       // 入场态：隐藏副标题与棋盘区
       if (roomElement) roomElement.hidden = !inGame;
@@ -1056,7 +1289,7 @@
       renderMembers();
       renderCaptured();
       setText(infoTitleElement, isLocal ? '对局信息' : '房间成员');
-      setText(leaveButton, isLocal ? '退出练习' : '离开房间');
+      setText(leaveButton, isLocal ? (mode === 'solo' ? '退出人机' : '退出练习') : '离开房间');
       // 房间操作区仅房间模式显示（低频按钮的常驻地）
       if (roomToolsElement) roomToolsElement.hidden = mode !== 'room';
       // 侧栏双页：聊天页仅在房间模式且被选中时显示（本地双人同屏共用一块屏，没有聊天的意义）
@@ -1081,7 +1314,11 @@
         colorButton.disabled = !roomCode || !!state.lastMove || !!state.winner || state.status !== 'active' || pending || !member || !member.color;
       }
       if (isLocal) {
-        setText(finishedElement, state.winner ? resultText(state) : '');
+        setText(finishedElement, state.winner
+          ? (mode === 'solo'
+            ? (state.winner === 'draw' ? '困毙，和棋' : state.winner === soloColor ? '恭喜，你赢了！' : '电脑获胜，再战一局？')
+            : resultText(state))
+          : '');
         continueButton.hidden = !finished;
         continueButton.textContent = '重开一局';
       } else {
@@ -1115,6 +1352,67 @@
       legal = [];
       saveSession();
       render();
+      // 人机练习：轮到电脑则调度 AI 应手
+      if (mode === 'solo' && !state.winner && state.status === 'active' && state.turn !== soloColor) scheduleAi();
+    }
+
+    // ===== 人机 AI 应手：延时调度，避免渲染与搜索挤在同一帧 =====
+    function scheduleAi() {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      render(); // 先让「电脑思考中…」上屏
+      soloTimer = setTimeout(function() {
+        soloTimer = null;
+        if (disposed || mode !== 'solo' || state.winner || state.status !== 'active') return;
+        if (state.turn === soloColor) return;
+        var aiSide = soloColor === 'red' ? 'black' : 'red';
+        if (state.turn !== aiSide) return;
+        var mv = aiBestMove(state.board, aiSide);
+        if (!mv) {
+          // AI 无着法（理论上级 applyLocalMove 已判将死/困毙），兜底把回合交回玩家
+          render();
+          return;
+        }
+        applyLocalMove(mv.fr, mv.fc, mv.tr, mv.tc);
+      }, 180);
+    }
+
+    // ===== 单机开局：local 双人同屏 | solo 人机练习 =====
+    function offlineStart(nextMode) {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      mode = nextMode;
+      roomCode = '';
+      localHistory = [];
+      // 人机练习玩家固定执红（红方先手，与本地双人一致的观感）
+      if (nextMode === 'solo') soloColor = 'red';
+      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
+      selected = null; legal = [];
+      lastAnimatedKey = '';
+      setError('');
+      saveSession();
+      render();
+      syncMetrics();
+    }
+
+    function offlineExit() {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      mode = '';
+      localHistory = [];
+      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
+      selected = null; legal = [];
+      lastAnimatedKey = '';
+      clearSession();
+      render();
+    }
+
+    // 单机悔棋：local 撤 1 手；solo 撤到「玩家待走」——AI 已应手撤 2 手，AI 思考中撤 1 手
+    function offlineUndo() {
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      if (!localHistory.length) return;
+      var steps = 1;
+      if (mode === 'solo' && state.turn === soloColor && localHistory.length >= 2) steps = 2;
+      while (steps-- && localHistory.length) localUndo();
+      // localUndo 内部会 saveSession/render；AI 思考被打断后若仍轮电脑则重新调度
+      if (mode === 'solo' && !state.winner && state.status === 'active' && state.turn !== soloColor) scheduleAi();
     }
 
     // ===== 本地悔棋：撤最后一手 =====
@@ -1173,7 +1471,7 @@
         var verdict = validateMove(state.board, fr, fc, row, col, mover);
         if (!verdict.ok) { setError('不能这样走'); render(); return; }
         buzz(15); // 触摸反馈：合法落子重震（本地/联机统一在成功判定后）
-        if (mode === 'local') {
+        if (mode === 'local' || mode === 'solo') {
           setError('');
           applyLocalMove(fr, fc, row, col);
           return;
@@ -1253,14 +1551,9 @@
     }
     function navigateHome() { if (context.router && typeof context.router.push === 'function') context.router.push('/'); }
     function leave() {
-      // 本地模式无房间状态，直接回入场页
-      if (mode === 'local') {
-        mode = '';
-        localHistory = [];
-        state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
-        selected = null; legal = [];
-        clearSession();
-        render();
+      // 单机模式无房间状态，直接回入场页
+      if (mode === 'local' || mode === 'solo') {
+        offlineExit();
         return;
       }
       if (!roomCode) return navigateHome();
@@ -1287,18 +1580,8 @@
       // 侧栏双页切换：纯前端状态，不受忙碌锁限制（对局请求在途也要能切页看聊天）
       if (kind === 'tab-info' || kind === 'tab-chat') return setTab(kind === 'tab-chat' ? 'chat' : 'info');
       if (pending) return;
-      if (kind === 'local') {
-        mode = 'local';
-        roomCode = '';
-        localHistory = [];
-        state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
-        selected = null; legal = [];
-        lastAnimatedKey = '';
-        setError('');
-        render();
-        syncMetrics();
-        return;
-      }
+      // 单机模式入口（人机练习/本地双人）：本地开局，不涉及任何后端请求
+      if (kind === 'solo' || kind === 'local') { offlineStart(kind); return; }
       if (kind === 'create' || kind === 'join' || kind === 'watch') {
         action.disabled = true;
         setBusy(true);
@@ -1307,7 +1590,7 @@
         else enter(root.querySelector('[data-field="room"]').value, kind).then(done, done);
         return;
       }
-      if (kind === 'undo' && mode === 'local') { localUndo(); return; }
+      if (kind === 'undo' && (mode === 'local' || mode === 'solo')) { offlineUndo(); return; }
       if (kind === 'undo' && roomCode && !pending) {
         action.disabled = true;
         setBusy(true);
@@ -1348,15 +1631,7 @@
       if (kind === 'chat-send') return sendChat();
       if (kind === 'leave') return leave();
       if (kind === 'continue') {
-        if (mode === 'local') {
-          localHistory = [];
-          state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
-          selected = null; legal = [];
-          lastAnimatedKey = '';
-          saveSession();
-          render();
-          return;
-        }
+        if (mode === 'local' || mode === 'solo') { offlineStart(mode); return; }
         if (!roomCode) return;
         action.disabled = true;
         setBusy(true);
@@ -1499,6 +1774,7 @@
     if (context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
         disposed = true;
+        if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
         removeBoardEvents();
         removeRootClick();
         removeChatInput();
@@ -1511,6 +1787,7 @@
     }
     container.__chessUnmount = function() {
       disposed = true;
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
       removeBoardEvents();
       removeRootClick();
       removeChatInput();
@@ -1524,14 +1801,17 @@
     };
 
     // 会话恢复：路由未带房间码时，恢复上次对局——
-    // 本地局直接还原棋盘；房间码经 loadState 校验存活，房间已关则自然回入场页
+    // 单机局直接还原棋盘（AI 思考中被打断则续上）；房间码经 loadState 校验存活，房间已关则自然回入场页
     var savedSession = routeRoom ? null : readSession();
-    if (savedSession && savedSession.mode === 'local' && savedSession.offline && Array.isArray(savedSession.offline.board)) {
-      mode = 'local';
+    if (savedSession && (savedSession.mode === 'local' || savedSession.mode === 'solo') && savedSession.offline && Array.isArray(savedSession.offline.board)) {
+      mode = savedSession.mode;
+      if (mode === 'solo') soloColor = savedSession.soloColor === 'black' ? 'black' : 'red';
       localHistory = Array.isArray(savedSession.offline.history) ? savedSession.offline.history : [];
       state = Object.assign({ members: [], check: false }, savedSession.offline);
       render();
       syncMetrics();
+      // 会话恢复时若正轮电脑（AI 思考被打断），续上应手
+      if (mode === 'solo' && !state.winner && state.status === 'active' && state.turn !== soloColor) scheduleAi();
     } else if (savedSession && savedSession.mode === 'room' && /^[A-Z0-9]{4,6}$/.test(String(savedSession.roomCode || ''))) {
       roomCode = String(savedSession.roomCode);
       mode = 'room';
