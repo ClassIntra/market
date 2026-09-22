@@ -1,0 +1,1761 @@
+/* 中国象棋 —— 市场应用样式（2026-09-21）
+ *
+ * 约束（第三方 entry.js 不过 Vite 构建，拿不到 legacy 与 PostCSS 兜底）：
+ *   - 禁用 flex/grid `gap`（需 Chrome 84+）→ 改用 > * + * 相邻兄弟 margin
+ *   - 禁用 aspect-ratio（需 Chrome 88+）→ 改用 padding-top 撑高
+ *   - 圆角一律走八档令牌 --radius-{xs|sm|md|lg|xl|2xl|3xl|pill}
+ *   - 颜色优先 --ci-* 令牌，硬编码值仅作 var() 兜底或该应用独有材质色
+ *   全部样式锚定 .chess-app，避免污染宿主页面。
+ *
+ * 视觉语言（2026-09-21 二次升级）：
+ *   - 棋盘：540:600 比例（10 行 × 9 列），沉稳木色多层渐变 + 暗角纵深
+ *   - 棋子：仿真实木（微凸顶面 + 圆柱侧壁 + 单层接触影），红朱砂/黑墨刻字
+ *   - 棋子零 transform 动效（hover/按压/落子均不动，用户反感「动一下」），
+ *     新落子仅 0.16s 无位移淡入；状态由金环/落点标记/将军脉冲表达
+ *   - 卡片：iPadOS 毛玻璃（半透明白 + blur + 发丝边）
+ *   - 标题栏：对齐 AppShell 导航栏毛玻璃规格，副标题并入信息段
+ *
+ * 平板性能约束（2026-09-22 卡顿复盘，低端安卓平板优先）：
+ *   热点路径是「点一枚棋子」——选中态金环 + 最多 17 个落点提示在同一帧出现。
+ *   凡是要为「重新光栅化」买单的绘制，都在这一帧里被放大 20 倍，因此：
+ *   - 标记类一律用零模糊描边（border / inset 0 0 0 Npx）表达立体感，
+ *     不再使用 0 0 14px 一类的柔光晕（离屏模糊是这里最贵的一笔）。
+ *   - 每个 .chess-point 加 contain: layout style paint，自成绘制边界：点击只
+ *     重绘「选中格 + 落点格」几块小区域，同层 90 枚棋子与棋盘木纹都不参与。
+ *     代价是所有标记尺寸必须收敛在格内（本文件已按此校准，勿再放大外溢）。
+ *   - 不给棋盘层设 will-change / 不提合成层：本层含 90 枚多层阴影棋子，
+ *     提层后脏 tile 会连同棋子一起重光栅化，比按脏矩形增量重绘更慢。
+ *   - 持续动画只允许改 opacity（将军脉冲、成员轮次脉冲）；transform 缩放
+ *     每帧都要重采样纹理，低端平板上不划算。
+ *   - 别给 .chess-point 加 transform / 整体透明度反馈：宿主 button:active 的
+ *     scale(.97) 与 opacity .85 已在本文件内被显式压制，避免整个交点
+ *     （棋子 + 金环）按下即缩放重采样、变半透明。
+ */
+
+.chess-app {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  /* 交点尺寸默认值：JS syncMetrics() 按棋盘实际宽度换算后覆盖此值。
+     ⚠️ 默认值必须声明在 .chess-app（所有交点/棋子的共同祖先），
+     不能声明在 .chess-board —— 元素自有声明会压过祖先继承值，
+     导致 JS 的动态值永远不生效（按钮恒 48px、棋子互相重叠的根因） */
+  --chess-cell: 48px;
+  /* 棋盘宽度预算的「基准」值（不含百分比项）。真正生效的宽度仍在 .chess-board 上声明，
+     这里提到根上只是为了下面 --chess-room-h 能推算出棋盘的真实渲染高度。
+     ⚠️ 不能把带 100% 的表达式放进来：百分比在 max-height 上下文里会退化成 none。 */
+  --chess-board-w: min(560px, calc((100vh - 200px) / 1.1112));
+  /* 房间内容高度预算 = 棋盘渲染高度（宽 × 1.1112 + 上下各 2px 边框）。
+     侧栏以它为 max-height 在卡片内部滚动，绝不再把 .chess-layout 撑高——
+     横屏平板下 .chess-app 是 overflow:hidden，撑出去的部分既看不见也滑不动
+     （2026-09-22 实测：聊天 8 条时侧栏 811px / 棋盘 609px，侧栏底部越出视口 270px）。 */
+  --chess-room-h: calc(var(--chess-board-w) * 1.1112 + 4px);
+  /* 不留内边距：标题栏作为首个子级天然贴视口边缘（sticky 吸顶不被 padding 区截住），
+     内容内边距由 .chess-shell 承担 */
+  padding: 0;
+  color: var(--ci-color-text, #172033);
+  background-color: var(--ci-color-surface, #f8fafc);
+  /* 环境光氛围：右上朱红 / 左下墨青 / 底部琥珀的极淡径向光斑
+     （毛玻璃卡片需要环境色彩层次，透出高级感） */
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(185, 28, 28, .07), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(31, 41, 55, .08), transparent 55%),
+    radial-gradient(760px 460px at 55% 120%, rgba(180, 122, 40, .08), transparent 62%);
+  box-sizing: border-box;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 触摸优化（安卓平板主场景）：长按不选中文字、不呼出选择手柄。
+     输入框单独恢复 text（见 .chess-entry-row input） */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽约 1120） */
+.chess-shell {
+  width: 100%;
+  max-width: 1200px;
+  padding: 16px 20px 24px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+/* ===== 布局原语：用相邻兄弟 margin 替代 flex gap ===== */
+.chess-header,
+.chess-layout,
+.chess-entry-row {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+}
+
+.chess-layout > * + *,
+.chess-entry-row > * + *,
+.chess-actions > * + * {
+  margin-left: 16px;
+}
+
+.chess-actions {
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-pack: end;
+  -ms-flex-pack: end;
+  justify-content: flex-end;
+}
+
+/*
+ * 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
+ * 本头部吸顶承担标题栏职责（返回 + 标题 + 状态 + 操作），
+ * 与宿主 AppShell 导航栏同款毛玻璃质感。
+ */
+.chess-header {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  /* 左对齐流式布局：返回 → 标题 → 对局信息段 →（推最右）连接灯+操作 */
+  -webkit-box-pack: start;
+  -ms-flex-pack: start;
+  justify-content: flex-start;
+  margin: 0 0 14px;
+  min-height: 44px;
+  padding: 4px 8px;
+  background-color: var(--nav-bg, rgba(255, 255, 255, 0.8));
+  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px)); backdrop-filter: var(--glass-blur-container, blur(20px));
+  border-bottom: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
+}
+
+.chess-back {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  font: inherit;
+  font-size: var(--font-size-body, 17px);
+  padding: 6px 8px 6px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+/* 纯 CSS 左箭头（不依赖图标字体） */
+.chess-back::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+
+@media (hover: hover) {
+  .chess-back:not(:disabled):hover { opacity: .72; }
+}
+.chess-back:active { opacity: .6; }
+
+/* 三区布局镜像 AppShell 导航栏：左返回 / 中标题 / 右状态+操作 */
+.chess-header-left {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  min-width: 70px;
+  margin: 0;
+}
+
+.chess-header h1.chess-title {
+  margin: 0 0 0 10px;
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1.2;
+  font-weight: var(--font-weight-bold, 700);
+  color: var(--text-primary, #000);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chess-header-right {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: end;
+  -ms-flex-pack: end;
+  justify-content: flex-end;
+  min-width: 70px;
+  margin: 0 0 0 auto;
+}
+
+/* 右区三类信息（对局信息段/连接灯/操作按钮）统一 10px 间距 */
+.chess-header-right > * + * { margin-left: 10px; }
+
+/* 标题栏按钮间距收紧：房间模式五按钮总宽压到 ~335px */
+.chess-header .chess-actions > * + * { margin-left: 12px; }
+
+/* 对局信息段（标题右侧）：轮次 + 模式/房间 + 身份，三段「·」分隔 */
+.chess-header .chess-subtitle {
+  display: block;
+  min-width: 0;
+  -ms-flex-negative: 1;
+  flex-shrink: 1;
+  margin: 0 0 0 12px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 三段之间的间隔点；空段自身的 ::before 一并不渲染 */
+.chess-subtitle > * + *::before {
+  content: '·';
+  margin: 0 9px;
+}
+
+.chess-subtitle [data-role="identity"]:empty {
+  display: none;
+}
+
+/* 状态在副标题段内必须 inline：<p> 默认块级会独占一行撑破 44px 标题栏 */
+.chess-header .chess-status {
+  display: inline;
+  margin: 0;
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+}
+
+/* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影 */
+.chess-header .chess-actions button {
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 0;
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+.chess-header .chess-actions button.is-secondary {
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+  background: transparent;
+  box-shadow: none;
+}
+
+.chess-header .chess-actions button:disabled { opacity: .35; }
+
+@media (hover: hover) {
+  .chess-header .chess-actions button:not(:disabled):hover {
+    -webkit-filter: none;
+    filter: none;
+    -webkit-transform: none;
+    transform: none;
+    opacity: .7;
+  }
+}
+.chess-header .chess-actions button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .5;
+}
+
+/* ===== 状态条 =====
+ * is-turn：前置一枚当前手色的迷你棋子；is-check：将军红色脉冲
+ * is-waiting：等待对手；is-winner：金色强调
+ */
+.chess-status.is-turn::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.chess-status.is-turn.is-turn-red::before {
+  background: radial-gradient(circle at 35% 30%, #f4c9b3 0%, #c0392b 50%, #7a2018 100%);
+  box-shadow: 0 1px 2px rgba(122, 32, 24, .45);
+}
+
+.chess-status.is-turn.is-turn-black::before {
+  background: radial-gradient(circle at 35% 30%, #4b5563 0%, #111827 50%, #030712 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .5);
+}
+
+.chess-status.is-waiting {
+  color: var(--ci-color-accent, #b91c1c);
+  font-weight: 600;
+}
+
+.chess-status.is-check {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.chess-status.is-winner {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.chess-actions,
+.chess-entry-row {
+  -webkit-box-align: end;
+  -ms-flex-align: end;
+  align-items: flex-end;
+}
+
+/* ===== 按钮 ===== */
+.chess-actions button,
+.chess-entry-row button,
+.chess-finished button {
+  border: 0;
+  border-radius: var(--radius-md, 12px);
+  padding: 10px 16px;
+  color: #fff;
+  /* 主按钮：对角渐变 + 柔和投影（象棋主色：朱红） */
+  background-color: #b91c1c;
+  background-image: linear-gradient(135deg, #dc2626 0%, #b91c1c 62%, #7f1d1d 100%);
+  box-shadow: 0 2px 8px rgba(185, 28, 28, .3);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+                      opacity var(--duration-fast, 0.15s) var(--ease-standard, ease),
+                      -webkit-transform var(--duration-fast, 0.15s) var(--ease-emphasized, ease-out);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              opacity var(--duration-fast, 0.15s) var(--ease-standard, ease),
+              transform var(--duration-fast, 0.15s) var(--ease-emphasized, ease-out);
+}
+
+.chess-actions button:disabled,
+.chess-entry-row button:disabled,
+.chess-finished button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+/* 悬停反馈仅限有指针的设备；触摸设备遵循 press-state 规则不加 hover 效果 */
+@media (hover: hover) {
+  .chess-actions button:not(:disabled):hover,
+  .chess-entry-row button:not(:disabled):hover,
+  .chess-finished button:not(:disabled):hover {
+    -webkit-filter: brightness(1.07);
+    filter: brightness(1.07);
+    -webkit-transform: translateY(-1px);
+    transform: translateY(-1px);
+  }
+}
+
+.chess-actions button:not(:disabled):active,
+.chess-entry-row button:not(:disabled):active,
+.chess-finished button:not(:disabled):active {
+  -webkit-transform: scale(0.96);
+  transform: scale(0.96);
+}
+
+.chess-actions button.is-secondary,
+.chess-entry-row button.is-secondary,
+.chess-finished button.is-secondary {
+  color: var(--ci-color-text, #334155);
+  background: var(--ci-color-fill, #e2e8f0);
+  background-image: none;
+  box-shadow: none;
+}
+
+/* ===== 进入棋局卡片 ===== */
+.chess-entry {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.chess-entry-card {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 520px;
+  padding: 22px 24px;
+  /* 毛玻璃卡片：半透明白 + 背景模糊 + 发丝边（对齐宿主 AppShell 材质） */
+  background-color: var(--glass-bg, rgba(255, 255, 255, .72));
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 8px 28px rgba(30, 41, 59, .1);
+  box-sizing: border-box;
+}
+
+/* 顶部渐变强调条：朱红 → 墨黑 */
+.chess-entry-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #b91c1c, rgba(17, 24, 39, .85));
+}
+
+/* 迷你棋盘装饰角标（右上角）：呼应桌面新图标。
+ * 纯 CSS 多层渐变：红帅 + 黑将 + 9 宫格线 + 木纹底 */
+.chess-entry-card::after {
+  content: '';
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  width: 54px;
+  height: 60px;
+  border-radius: 12px;
+  background-image:
+    radial-gradient(circle 8px at 16px 16px, #c0392b 0%, #7a2018 60%, rgba(122, 32, 24, 0) 100%),
+    radial-gradient(circle 8px at 38px 44px, #1f2937 0%, #030712 60%, rgba(3, 7, 18, 0) 100%),
+    linear-gradient(to right, transparent calc(50% - 0.75px), rgba(122, 82, 34, .55) calc(50% - 0.75px), rgba(122, 82, 34, .55) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(to bottom, transparent calc(50% - 0.75px), rgba(122, 82, 34, .55) calc(50% - 0.75px), rgba(122, 82, 34, .55) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+    linear-gradient(180deg, #f5e3b8, #dbb273);
+  background-size: 100% 100%, 100% 100%, 18px 20px, 18px 20px, 100% 100%;
+  background-repeat: no-repeat, no-repeat, repeat, repeat, no-repeat;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 244, 220, .75), 0 2px 6px rgba(120, 80, 30, .28);
+}
+
+/* 窄屏隐藏装饰 */
+@media (max-width: 420px) {
+  .chess-entry-card::after { display: none; }
+}
+
+.chess-entry-card h2,
+.chess-info h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+/* 侧栏标题：左侧竖条强调（朱红色，呼应主色） */
+.chess-info h2 {
+  padding-left: 10px;
+  border-left: 3px solid #b91c1c;
+}
+
+.chess-entry-card p {
+  margin: 0 0 6px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chess-entry-row {
+  margin-top: 14px;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+
+.chess-entry-row > * + * {
+  margin-left: 12px;
+}
+
+.chess-entry-hint {
+  -ms-flex-item-align: end;
+  align-self: flex-end;
+  padding-bottom: 12px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 12px;
+  letter-spacing: .08em;
+}
+
+.chess-entry-row label {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  min-width: 160px;
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-entry-row label > * + * {
+  margin-top: 6px;
+}
+
+.chess-entry-row input,
+.chess-entry-row select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--ci-color-text, #172033);
+  background: var(--ci-color-bg-elevated, #fff);
+  font: inherit;
+  box-sizing: border-box;
+  /* 输入框恢复文本选择（app 根上禁了 user-select） */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.chess-entry-row input:focus,
+.chess-entry-row select:focus {
+  outline: none;
+  border-color: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, .15);
+}
+
+/* ===== 错误/提示条（shell 层，房间内外都可见） ===== */
+.chess-error {
+  margin: 0 0 12px;
+  min-height: 0;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm, 8px);
+  color: var(--ci-color-danger, #dc2626);
+  background: rgba(220, 38, 38, .08);
+  font-size: 13px;
+}
+
+.chess-error:empty {
+  display: none;
+}
+
+/* 提示条挂在侧栏内时（对局中）：侧栏内容宽只有 214px，收紧内边距与下距，
+ * 免得一条观战提示就吃掉两行侧栏高度。对局中的提示条不再占据棋盘上方的高度，
+ * 因此它的出现/消失不会顶动棋盘（旧行为实测位移 41px）。 */
+.chess-info > .chess-error {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+/* ===== 连接状态红绿灯 ===== */
+.chess-conn {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+}
+
+.chess-conn::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.chess-conn.is-online::before {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, .16);
+}
+
+.chess-conn.is-connecting::before {
+  background: #f59e0b;
+}
+
+.chess-conn.is-offline::before {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, .16);
+}
+
+/* 标题栏内灯体纯化为圆点：文字转存 title，右区宽度从 ~150px 压到 8px */
+.chess-header .chess-conn {
+  font-size: 0;
+}
+
+.chess-header .chess-conn::before {
+  margin-right: 0;
+}
+
+/* ===== 棋盘 ===== */
+.chess-layout {
+  -webkit-box-align: stretch;
+  -ms-flex-align: stretch;
+  align-items: stretch;
+}
+
+/**
+ * 棋盘尺寸三重约束（Chrome 80 无 aspect-ratio，用 padding-top 撑高）：
+ *   棋盘比例 540:600 ≈ 1.1111（10 行 × 9 列含 30 边距），
+ *   高度 = 宽度 × 1.1112，所以宽度上限用「可用高度 ÷ 1.1112」反推。
+ *   固定区实测（横屏）：header 44 + 下距 10 + shell 内边距 22 + layout 上距 6 ≈ 82px，
+ *   预算 120px 留呼吸空间 —— 旧值 230px 严重过大，是「棋盘太小」的直接原因。
+ */
+.chess-board {
+  position: relative;
+  /* 禁止 flex 收缩：padding-top 由 --chess-board-w 变量撑高，若容器放不下被 flex
+     压窄宽度，高度却仍按未收缩变量计算——棋盘变成瘦高变形格（棋子错位的
+     另一根因，820px 窄横屏实测复现）。宽度预算改由 --chess-board-w 的
+     calc(100% - 262px) 兜底（262 = 侧栏 246 + 间距 16）。 */
+  -webkit-flex-shrink: 0;
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+  /* 注意：--chess-cell 的默认值在 .chess-app 上声明（勿在此处声明，
+     否则会覆盖 JS 设置在根上的动态值） */
+  --chess-board-w: min(560px, 100%, calc((100vh - 200px) / 1.1112));
+  width: var(--chess-board-w);
+  height: 0;
+  padding-top: calc(var(--chess-board-w) * 1.1112);
+  margin: 0 auto;
+  background-color: #c28a4d;
+  background-image:
+    repeating-linear-gradient(92deg, rgba(96, 62, 22, .05) 0px, rgba(96, 62, 22, .05) 2px, transparent 2px, transparent 6px, rgba(96, 62, 22, .04) 6px, rgba(96, 62, 22, .04) 8px, transparent 8px, transparent 17px),
+    repeating-linear-gradient(88deg, rgba(255, 232, 180, .07) 0px, rgba(255, 232, 180, .07) 3px, transparent 3px, transparent 11px),
+    -webkit-linear-gradient(145deg, rgba(255, 242, 205, .5) 0%, rgba(255, 242, 205, 0) 40%, rgba(88, 56, 18, .26) 100%),
+    linear-gradient(145deg, rgba(255, 242, 205, .5) 0%, rgba(255, 242, 205, 0) 40%, rgba(88, 56, 18, .26) 100%);
+  border: 2px solid rgba(94, 64, 24, .75);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow:
+    var(--ci-shadow-lg, 0 18px 40px rgba(30, 41, 59, .16)),
+    inset 0 1px 0 rgba(255, 255, 255, .35),
+    inset 0 0 42px rgba(88, 56, 18, .26);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* SVG 线层：铺满整个棋盘（viewBox preserveAspectRatio=none） */
+.chess-board > svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 楚河汉界文字（SVG 内 text，字号按 viewBox 540 宽的坐标单位） */
+.chess-river-text {
+  fill: #6b4a1e;
+  font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'SimSun', serif;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-anchor: middle;
+  opacity: 0.75;
+}
+
+/* 交点按钮层：覆盖在 SVG 线层之上，每个交点一个 absolute 定位按钮 */
+.chess-points {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  /* 刻意不提为合成层、不设 will-change（2026-09-22 平板卡顿复盘）：
+     本层内有全部 90 枚棋子，每枚含 4 层内阴影 + 径向渐变顶面。提层后一次点击
+     造成的脏 tile 会连同层内棋子一起重新光栅化，比原来的「木纹整片重绘」更贵。
+     改为把绘制边界下沉到 .chess-point（contain: paint），
+     由浏览器按脏矩形只重绘「选中格 + 落点格」，棋子与木纹不参与。 */
+}
+
+/**
+ * 交点按钮：用 var(--chess-cell) 作为正方形大小，按 pointLeft/pointTop 百分比定位。
+ * ⚠️ 中心对齐必须用负 margin，绝不能用 transform: translate(-50%,-50%)：
+ *   宿主 global.scss 的 button:active { transform: scale(.97) } 与
+ *   button:disabled { transform: none } 特异度 (0,1,1) 高于本类 (0,1,0)，
+ *   会在按下/禁用态把 translate 整个覆盖掉——全体棋子瞬间偏移半格
+ *   （真机表现即「棋子跑到棋盘中央」+ 按下抽搐）。margin 不受宿主 button 规则影响。
+ */
+.chess-point {
+  position: absolute;
+  width: var(--chess-cell);
+  height: var(--chess-cell);
+  padding: 0;
+  /* 中心对齐线层交点（负 margin 方案，免疫宿主 transform 覆盖） */
+  margin-left: calc(var(--chess-cell) * -0.5);
+  margin-top: calc(var(--chess-cell) * -0.5);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* 显示居中元素（棋子/落点提示） */
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  /* 只过渡底色：transform/opacity 过渡会在按压瞬间把节点推进需要重采样的通道，
+     是低端平板「点一下顿一下」的次要来源。时长走动效令牌，与全站节奏一致。 */
+  -webkit-transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  /* 每个交点自成绘制边界（Chrome 52+ 支持 contain）：
+     点击时只有「选中格 + 最多 17 个落点格」这几块小区域重绘，同层棋子与
+     棋盘木纹完全不动。本文件所有标记（金环/金点/红环）尺寸都已收敛到格内，
+     contain 的裁剪不会切到任何绘制（改动前外溢的光晕已同步去掉）。 */
+  contain: layout style paint;
+}
+
+/* 钉死宿主按钮态：宿主 global.scss 的 button:active { transform: scale(.97) }
+   特异度高于 .chess-point，会让整个交点（棋子 + 金环）在按下瞬间缩放重采样——
+   缩放是纹理重采样里最贵的一类，也是「点击卡」的次要来源。
+   本应用的全部状态反馈都走颜色与描边，交点按钮恒不做 transform。 */
+.chess-point:not(:disabled):hover,
+.chess-point:not(:disabled):active {
+  -webkit-transform: none !important;
+  transform: none !important;
+  /* 宿主 button:active 还会压 opacity: .85——整个交点（棋子 + 金环 + 落点提示）
+     会在按下瞬间整体变半透明，视觉上是「棋子闪一下」，同时多付一次整格重绘。
+     本应用的按压反馈全部由底色与内描边承担，故把宿主这两条一并钉死。 */
+  opacity: 1 !important;
+}
+
+.chess-point::before,
+.chess-point::after {
+  content: none;
+}
+
+.chess-point:not(:disabled):active {
+  background-color: rgba(154, 108, 47, .18);
+  border-radius: 50%;
+}
+
+/* JS 按压态：pointerdown preventDefault 后 :active 在部分触屏设备不生效，
+   改用 onBoardDown 加的 .is-pressed 类驱动同款反馈（防焦点滚动带来的副作用） */
+.chess-point.is-pressed {
+  background-color: rgba(245, 158, 11, .3);
+  /* 格内零模糊内描边替代原 6px 外光晕：外光晕超出交点边界（会被 contain 裁掉），
+     且模糊阴影每次按压都要重新光栅化 */
+  -webkit-box-shadow: inset 0 0 0 2px rgba(245, 158, 11, .6);
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, .6);
+}
+
+/* 焦点轮廓钉死：交点按钮绝不自带 outline/宿主 focus 光晕，
+   否则按下后弹一圈高亮叠加在棋盘上像是又一次「抽搐」。
+   ⚠️ 必须拆成三条独立规则：:focus-visible 需 Chrome 86，放进逗号列表
+   会让 Chrome 80 把整条规则判定无效而全部丢弃 */
+.chess-point:focus {
+  outline: none !important;
+  box-shadow: none;
+}
+
+.chess-point:focus-within {
+  outline: none !important;
+  box-shadow: none;
+}
+
+.chess-point:focus-visible {
+  outline: none !important;
+  box-shadow: none;
+}
+
+/* disabled 钉死不透明：宿主全局 button:disabled 会带 opacity 灰化，棋子会被染半透明 */
+.chess-point:disabled {
+  cursor: default;
+  opacity: 1;
+  background-color: transparent;
+}
+
+/* ===== 选中态：金色圆盘 + 金环（棋子直径 0.82，环 0.92 留出呼吸感） =====
+ * 立体感改由「内侧白色高光 + 外圈深色描边」两层零模糊描边表达，
+ * 取代原来的 14px 外发光：发光要离屏模糊，是点击时最贵的一笔绘制，
+ * 且在 contain: paint 下会被裁掉（环本身已在格内，光晕在外）。
+ * box-sizing: border-box 让 border 向内收，总尺寸恒等于 0.92 格——
+ * 无论棋盘多小都不会越出交点边界（content-box 下边框会向外撑，窄屏被裁）。
+ */
+.chess-point.is-selected::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--chess-cell) * 0.92);
+  height: calc(var(--chess-cell) * 0.92);
+  margin-left: calc(var(--chess-cell) * -0.46);
+  margin-top: calc(var(--chess-cell) * -0.46);
+  border-radius: 50%;
+  /* 极淡金色底盘：纯色填充零成本，却把「选中」从「描了条金边」提升为
+     「棋子坐在一块金色圆盘上」，触屏远视距下也一眼可辨 */
+  background-color: rgba(245, 158, 11, .2);
+  border: 2px solid #f59e0b;
+  -webkit-box-shadow: inset 0 0 0 1px rgba(255, 250, 235, .8);
+  box-shadow: inset 0 0 0 1px rgba(255, 250, 235, .8);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ===== 最后一手标记：被点 is-last 加金色细环（区分选中态） =====
+ * 走最外圈 0.98 格的细环，与 0.92 的选中金盘形成「外细内粗」的层次，
+ * 两者叠在同一格上也互不干扰。 */
+.chess-point.is-last::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--chess-cell) * 0.98);
+  height: calc(var(--chess-cell) * 0.98);
+  margin-left: calc(var(--chess-cell) * -0.49);
+  margin-top: calc(var(--chess-cell) * -0.49);
+  border-radius: 50%;
+  border: 1.5px solid rgba(245, 158, 11, .65);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ===== 将军：被将军一方的帅/将红色脉冲 ===== */
+.chess-point.is-check::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 0.98 格（border-box）：外缘恰好落在格内，contain 裁不到 */
+  width: calc(var(--chess-cell) * 0.98);
+  height: calc(var(--chess-cell) * 0.98);
+  margin-left: calc(var(--chess-cell) * -0.49);
+  margin-top: calc(var(--chess-cell) * -0.49);
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, .9);
+  box-sizing: border-box;
+  -webkit-animation: chess-check-pulse 1.6s var(--ease-standard, ease-in-out) infinite;
+  animation: chess-check-pulse 1.6s var(--ease-standard, ease-in-out) infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* 纯透明度脉冲：原实现叠了 transform: scale(1→1.16)，每帧都要对红环做纹理
+   重采样（低端平板最贵的一类合成操作），视觉上也只是「呼吸」强一点，
+   收益不抵代价。只留透明度变化，观感一致而几乎零成本。
+   最低值从 .3 提到 .45：环是唯一提示「帅正在被将」的信号，
+   任何一帧都要看得清（原值在最淡的 0.7s 里几乎消失）。 */
+@-webkit-keyframes chess-check-pulse {
+  0%, 100% { opacity: .95; }
+  50% { opacity: .45; }
+}
+
+@keyframes chess-check-pulse {
+  0%, 100% { opacity: .95; }
+  50% { opacity: .45; }
+}
+
+/* ===== 落点提示：选中棋子后的合法落点 =====
+ * is-hint：空交点中心一个小金点（不透明实色 + 高光渐变，触屏远视距也清楚）
+ * is-hint-capture：被吃子外圈一个红色环
+ * 两者都不再用模糊阴影：落点最多 17 个同时出现，每个带 3px 柔光都是一次
+ * 离屏模糊；改用零模糊内描边定边界，观感更「实」也更便宜。
+ */
+.chess-point.is-hint::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 随格子等比缩放：球形高光金斑，静态不闪烁 */
+  width: calc(var(--chess-cell) * 0.3);
+  height: calc(var(--chess-cell) * 0.3);
+  margin-left: calc(var(--chess-cell) * -0.15);
+  margin-top: calc(var(--chess-cell) * -0.15);
+  border-radius: 50%;
+  background-color: #e8a01e;
+  background-image: radial-gradient(circle at 34% 28%, #fde68a 0%, #eda42a 58%, #b9791a 100%);
+  -webkit-box-shadow: inset 0 0 0 1px rgba(110, 58, 6, .38);
+  box-shadow: inset 0 0 0 1px rgba(110, 58, 6, .38);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chess-point.is-hint-capture::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--chess-cell) * 0.92);
+  height: calc(var(--chess-cell) * 0.92);
+  margin-left: calc(var(--chess-cell) * -0.46);
+  margin-top: calc(var(--chess-cell) * -0.46);
+  border-radius: 50%;
+  border: 2.5px solid rgba(220, 38, 38, .82);
+  -webkit-box-shadow: inset 0 0 0 1px rgba(255, 246, 246, .55);
+  box-shadow: inset 0 0 0 1px rgba(255, 246, 246, .55);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ===== 棋子 =====
+ * 仿真实木棋子：微凸顶面（强高光点 + 边缘下沉）+ 圆柱侧壁（内阴影）+
+ * 近/远双层接触阴影。直径 0.82 格，留出呼吸感不显拥挤。
+ * 字号随 --chess-cell 自动缩放（calc 取 cell 的 0.45 倍）。
+ */
+.chess-piece {
+  position: relative;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  width: calc(var(--chess-cell) * 0.82);
+  height: calc(var(--chess-cell) * 0.82);
+  border-radius: 50%;
+  /* 微凸顶面：左上高光点 → 米白盘面 → 边缘木色下沉（模拟球面受光） */
+  background: radial-gradient(circle at 32% 26%, #fffef9 0%, #fdf6e2 26%, #f4e5c0 58%, #e2ca96 84%, #c9a76d 100%);
+  font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'SimSun', 'PingFang SC', serif;
+  font-size: calc(var(--chess-cell) * 0.45);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+  /* 阴影分层（2026-09-22 精简：5 层 → 4 层，去掉 14px 大模糊的环境影）：
+     原 0 7px 14px 那层是 90 枚棋子都要付的大面积离屏模糊，占点击重绘成本的大头，
+     视觉贡献却只是极淡的一圈灰。改为「内顶高光 / 内底圆柱暗部 / 盘面细边 /
+     单层接触影」，立体感保留，单枚棋子的光栅化成本降到约一半。
+     接触影收敛到 0 2px 3px：保证不越出交点边界（contain: paint 的裁剪线）。 */
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, .9),
+    inset 0 -3px 5px rgba(122, 86, 34, .4),
+    inset 0 0 1px rgba(122, 86, 34, .55),
+    0 2px 3px rgba(59, 42, 14, .32);
+}
+
+/* 内圈刻线：真实象棋盘面都有一圈凹刻圆环 */
+.chess-piece::after {
+  content: '';
+  position: absolute;
+  left: 8%;
+  top: 8%;
+  right: 8%;
+  bottom: 8%;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  opacity: .55;
+  pointer-events: none;
+}
+
+/* 红方：朱砂刻字 */
+.chess-piece.is-red {
+  color: #b02318;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .6);
+}
+
+/* 黑方：墨石刻字 */
+.chess-piece.is-black {
+  color: #262626;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
+}
+
+/* 棋子不做任何 transform 反馈：
+   hover 放大 / 按压缩放在「点击选中、走子重建 DOM」的瞬间都会让棋子弹跳一下，
+   用户明确反感（2026-09-21 反馈「点击棋子都会动一下」），选中/落点状态由
+   金环与落点标记表达，棋子本身保持静止。 */
+
+/* 新落子：is-new 由 JS 只给最新一手加（重渲染不重播）。
+   只做无位移的快速淡入——不再用掉落+回弹动画（同上，用户反感移动感） */
+.chess-point.is-new .chess-piece,
+.chess-piece.is-new {
+  -webkit-animation: chess-fade-in .16s ease-out both;
+  animation: chess-fade-in .16s ease-out both;
+}
+
+@-webkit-keyframes chess-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes chess-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ===== 回合横幅（侧栏顶部）：当前手/将军/胜负，纯静态换色无动效 ===== */
+.chess-turn-banner {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  margin: 0 0 14px;
+  padding: 11px 10px;
+  border-radius: var(--radius-md, 12px);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--ci-color-text-secondary, #64748b);
+  background: rgba(148, 163, 184, .14);
+  box-sizing: border-box;
+}
+
+.chess-turn-banner::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--ci-color-text-secondary, #94a3b8);
+  -ms-flex-negative: 0;
+  flex-shrink: 0;
+}
+
+.chess-turn-banner.is-turn-red {
+  color: #b02318;
+  background: rgba(185, 28, 28, .1);
+  box-shadow: inset 0 0 0 1px rgba(185, 28, 28, .22);
+}
+.chess-turn-banner.is-turn-red::before {
+  background: radial-gradient(circle at 35% 30%, #f4c9b3 0%, #c0392b 50%, #7a2018 100%);
+}
+
+.chess-turn-banner.is-turn-black {
+  color: #1f2937;
+  background: rgba(15, 23, 42, .08);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .18);
+}
+.chess-turn-banner.is-turn-black::before {
+  background: radial-gradient(circle at 35% 30%, #4b5563 0%, #111827 50%, #030712 100%);
+}
+
+.chess-turn-banner.is-check {
+  color: #dc2626;
+  background: rgba(220, 38, 38, .12);
+  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, .3);
+}
+.chess-turn-banner.is-check::before {
+  background: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, .18);
+}
+
+.chess-turn-banner.is-winner {
+  color: #b45309;
+  background: rgba(245, 158, 11, .14);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, .35);
+}
+.chess-turn-banner.is-winner::before {
+  background: radial-gradient(circle at 35% 30%, #fde68a 0%, #f59e0b 60%, #d97706 100%);
+}
+
+.chess-turn-banner.is-waiting {
+  color: var(--ci-color-accent, #b91c1c);
+  font-weight: 600;
+}
+
+/* ===== 被吃子展示：小圆片一排，随格子无关固定尺寸 ===== */
+.chess-captured {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, .28);
+}
+
+.chess-captured-row {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+}
+
+.chess-captured-row + .chess-captured-row {
+  margin-top: 8px;
+}
+
+.chess-captured-label {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  width: 34px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-cap-piece {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 5px 4px 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #fffdf5 0%, #f4e5c0 60%, #d9bf8d 100%);
+  box-shadow: inset 0 -1px 2px rgba(122, 86, 34, .35), 0 1px 2px rgba(59, 42, 14, .25);
+  font-family: 'STKaiti', 'KaiTi', 'Songti SC', 'SimSun', serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chess-cap-piece.is-red { color: #b02318; }
+.chess-cap-piece.is-black { color: #262626; }
+
+.chess-captured-empty {
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #94a3b8);
+}
+
+/* ===== 侧栏：与棋盘同高（layout 已 align-items: stretch） ===== */
+.chess-info {
+  width: 246px;
+  -ms-flex: 0 0 246px;
+  flex: 0 0 246px;
+  padding: 16px;
+  /* 毛玻璃卡片（与入场卡同材质） */
+  background-color: var(--glass-bg, rgba(255, 255, 255, .72));
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, .65);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 8px 28px rgba(30, 41, 59, .1);
+  box-sizing: border-box;
+  /* 与棋盘等高：内容超出时在卡片内部滚动，而不是把整行撑高、把底部推出视口
+     （高度预算见 .chess-app 的 --chess-room-h，两者同源） */
+  max-height: var(--chess-room-h);
+  overflow: auto;
+}
+
+.chess-info ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ===== 房间操作区（侧栏）：复制房间码/发到聊天/发到社区/换方 =====
+ * 低频操作从标题栏移入（标题栏单行化的配套）。负 margin 技巧：
+ * 按钮自带左右 4px 间距、容器 -4px 抵消行尾——flex-wrap 换行后
+ * 行首不会残留 margin-left 缩进（侧栏 246px 内宽最多放 2 个 96px 按钮，
+ * 4 个按钮必然换成两行）。
+ * 因此按钮用四周统一 margin 而非只留左右：Chrome 80 无 flex gap，
+ * 只留左右时换行后的两行会上下贴合。统一 4px ⇒ 行间 8px（与五子棋一致），
+ * 容器上距相应减到 8px，首行视觉间距仍是 12px。 */
+.chess-room-tools {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 8px -4px 0;
+}
+
+.chess-room-tools button {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 96px;
+  flex: 1 1 96px;
+  margin: 4px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  background: rgba(148, 163, 184, .14);
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+/* 与全局「零 transform 动效」反馈原则一致：按压用透明度而非缩放 */
+.chess-room-tools button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .6;
+}
+
+/* ===== 侧栏双页切换（信息 / 聊天） =====
+ * 聊天页常驻会把房间成员与房间操作一路顶下去，侧栏高度随消息增长；横屏平板下
+ * .chess-app 是 overflow:hidden，撑出去的部分既看不见也滑不动。改为两页互斥显示。
+ * 兼容红线：不能用 flex gap（相邻兄弟补 margin）；宿主 button 的 :active 缩放与
+ * :disabled 半透明必须在按下态显式压制。 */
+.chess-info-tabs {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  margin: 0 0 10px;
+  padding: 3px;
+  background-color: rgba(148, 163, 184, .16);
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
+.chess-info-tabs > * + * {
+  margin-left: 3px;
+}
+
+.chess-tab {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 0;
+  flex: 1 1 0;
+  /* flex 子项默认 min-width:auto：长文案会把另一页挤到换行/溢出 */
+  min-width: 0;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background-color var(--duration-fast, .15s) var(--ease-standard, ease), color var(--duration-fast, .15s) var(--ease-standard, ease);
+  transition: background-color var(--duration-fast, .15s) var(--ease-standard, ease), color var(--duration-fast, .15s) var(--ease-standard, ease);
+}
+
+.chess-tab.is-active {
+  background-color: var(--glass-bg, #ffffff);
+  color: var(--ci-color-text, #172033);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+
+/* 标签是纯切换控件：不要宿主的按下缩放/半透明反馈（否则整条标签带一起抖） */
+.chess-tab:not(:disabled):hover,
+.chess-tab:not(:disabled):active {
+  -webkit-transform: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+.chess-tab:disabled {
+  opacity: 1;
+}
+
+.chess-tab-badge {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill, 999px);
+  background-color: #b91c1c;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+/* ===== 房间快捷聊天（侧栏「聊天」页）：玩家与观战者都能发言，消息随房间销毁 =====
+ * 列表固定 max-height + 内部滚动：即便侧栏已有高度上限，消息也不该把输入框挤出可视区。
+ * ⚠️ 选择器必须写成 .chess-chat .chess-chat-list 而不能只写 .chess-chat-list：
+ * 上面的 .chess-info ul（0,1,1）优先级高于单类（0,1,0），只写类名时
+ * margin/padding/list-style 会被它覆盖，内边距直接失效。 */
+.chess-chat {
+  /* 紧接双页标签下方，间距由标签的 margin-bottom 提供 */
+  margin-top: 0;
+}
+
+.chess-chat .chess-chat-list {
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  /* 高度从侧栏同一条预算（--chess-room-h）派生，不再硬编码 320px：
+     固定值时只要「侧栏预算 < 320 + 固定开销(标签/轮次条/输入行/内边距 ≈217px)」就溢出——
+     视口扫描实测 vh=625 溢 26px、vh=545 溢 106px、vh=505 溢 146px，
+     「发送」按钮最多被顶到可视区外 111px（用户视角：聊天区有一点会溢出）。
+     -240px 给固定开销留余量；下限 140px 保证任何尺寸下都还能看到几行。
+     高侧栏下反而比原来的 320px 更高（vh=705 → 369px，vh=805 → 469px）。 */
+  max-height: max(140px, calc(var(--chess-room-h) - 240px));
+  overflow-y: auto;
+  /* ⚠️ 不要加 overscroll-behavior: contain：它会把滚动限制在列表内，
+     手指停在列表上时整页/侧栏就完全滑不动（校园平板上正是「整个滑动不了」的体感来源） */
+  -webkit-overflow-scrolling: touch;
+  background: rgba(148, 163, 184, .08);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.chess-chat-item {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  /* 长串（连续英文/数字）必须能断行，否则撑破侧栏宽度 */
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.chess-chat-item:last-child {
+  margin-bottom: 0;
+}
+
+.chess-chat-name {
+  margin-right: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-chat-text {
+  color: var(--ci-color-text, #1e293b);
+}
+
+/* 自己的发言用主色区分，便于在多人对话里定位 */
+.chess-chat-item.is-me .chess-chat-name,
+.chess-chat-item.is-me .chess-chat-text {
+  color: #b91c1c;
+}
+
+.chess-chat-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.chess-chat-form {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
+.chess-chat-form > * + * {
+  margin-left: 8px;
+}
+
+.chess-chat-input {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  /* flex 子项里的 input 默认 min-width:auto 会拒绝收缩，长 placeholder 直接撑破侧栏 */
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(148, 163, 184, .45);
+  border-radius: var(--radius-sm, 8px);
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.chess-chat-input:focus {
+  outline: none;
+  border-color: rgba(185, 28, 28, .55);
+  background: #fff;
+}
+
+.chess-chat-send {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #b91c1c;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+.chess-chat-send:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .75;
+}
+
+.chess-chat-send:disabled {
+  opacity: .5;
+}
+
+.chess-member {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 8px);
+  background: rgba(148, 163, 184, .12);
+}
+
+.chess-member:last-child {
+  margin-bottom: 0;
+}
+
+.chess-member.is-me {
+  background: rgba(185, 28, 28, .08);
+  box-shadow: inset 0 0 0 1px rgba(185, 28, 28, .18);
+}
+
+.chess-member-dot {
+  position: relative;
+  -ms-flex: 0 0 14px;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border-radius: 50%;
+}
+
+.chess-member-dot.is-red {
+  background: radial-gradient(circle at 35% 30%, #f4c9b3 0%, #c0392b 50%, #7a2018 100%);
+  box-shadow: 0 1px 2px rgba(122, 32, 24, .4);
+}
+
+.chess-member-dot.is-black {
+  background: radial-gradient(circle at 35% 30%, #4b5563 0%, #111827 50%, #030712 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .5);
+}
+
+.chess-member-dot.is-spectator,
+.chess-member-dot.is-none {
+  background: transparent;
+  border: 1.5px dashed rgba(100, 116, 139, .6);
+  box-sizing: border-box;
+}
+
+/* 轮到谁：色点外圈红圈脉冲（复用 check-pulse 节奏） */
+.chess-member.is-turn .chess-member-dot::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  right: -4px;
+  bottom: -4px;
+  border-radius: 50%;
+  border: 2px solid rgba(239, 68, 68, .55);
+  -webkit-animation: chess-check-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+  animation: chess-check-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+}
+
+.chess-member-name {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ci-color-text, #172033);
+}
+
+.chess-member-role {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--ci-color-text-secondary, #475569);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chess-finished {
+  margin-top: 20px;
+}
+
+.chess-finished p {
+  min-height: 0;
+  margin: 0 0 10px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chess-finished p:empty {
+  display: none;
+}
+
+.chess-finished button {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  color: #fff;
+  background-color: #b91c1c;
+  background-image: linear-gradient(135deg, #dc2626 0%, #b91c1c 62%, #7f1d1d 100%);
+  box-shadow: 0 2px 8px rgba(185, 28, 28, .3);
+  cursor: pointer;
+  font: inherit;
+}
+
+.chess-finished button.is-secondary {
+  color: var(--ci-color-text, #334155);
+  background: var(--ci-color-fill, #e2e8f0);
+  background-image: none;
+}
+
+/* hidden 收敛到应用作用域：全局选择器会覆盖宿主页面的 hidden 行为（样式污染） */
+.chess-app [hidden] {
+  display: none !important;
+}
+
+/* ===== 减弱动效 ===== */
+@media (prefers-reduced-motion: reduce) {
+  .chess-point.is-check::after,
+  .chess-member.is-turn .chess-member-dot::after {
+    -webkit-animation: none !important;
+    animation: none !important;
+    opacity: .9;
+  }
+  .chess-point.is-new .chess-piece,
+  .chess-piece.is-new {
+    -webkit-animation: none !important;
+    animation: none !important;
+    opacity: 1;
+  }
+  .chess-actions button,
+  .chess-entry-row button,
+  .chess-finished button,
+  .chess-point {
+    -webkit-transition: none !important;
+    transition: none !important;
+  }
+  .chess-actions button:not(:disabled):active,
+  .chess-entry-row button:not(:disabled):active,
+  .chess-finished button:not(:disabled):active {
+    -webkit-transform: none;
+    transform: none;
+    opacity: .7;
+  }
+  .chess-actions button:not(:disabled):hover,
+  .chess-entry-row button:not(:disabled):hover,
+  .chess-finished button:not(:disabled):hover {
+    -webkit-transform: none;
+    transform: none;
+    -webkit-filter: none;
+    filter: none;
+  }
+}
+
+/* ===== 竖屏 / 窄屏：info 移到棋盘下方 ===== */
+@media (max-width: 800px) {
+  .chess-shell {
+    padding: 12px;
+  }
+  /* 窄屏两行布局：返回+标题+信息段+右区单行放不下时右区整行换到下 */
+  .chess-header {
+    margin: 0 0 12px;
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+  }
+  .chess-header-right {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
+    margin: 8px 0 0;
+  }
+  .chess-layout {
+    -webkit-box-align: stretch;
+    -ms-flex-align: stretch;
+    align-items: stretch;
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
+  }
+  /* 竖排后相邻兄弟间距改为上边距 */
+  .chess-layout > * + * {
+    margin-left: 0;
+    margin-top: 12px;
+  }
+  .chess-info {
+    width: auto;
+    -ms-flex-preferred-size: auto;
+    flex-basis: auto;
+    /* 竖排布局里侧栏在棋盘下方、整页本来就能滚：解除高度上限，
+       避免在窄屏上又套一层内部滚动 */
+    max-height: none;
+  }
+  /* 竖屏/窄屏时侧栏整块移到棋盘下方，纵向空间宽裕：聊天列表给更高，
+     避免只看得到两三条就要滚 */
+  .chess-info .chess-chat-list {
+    max-height: 240px;
+  }
+  .chess-actions {
+    -webkit-box-align: stretch;
+    -ms-flex-align: stretch;
+    align-items: stretch;
+    -webkit-box-pack: start;
+    -ms-flex-pack: start;
+    justify-content: flex-start;
+  }
+  .chess-actions button {
+    -webkit-box-flex: 1;
+    -ms-flex: 1 1 auto;
+    flex: 1 1 auto;
+  }
+  .chess-board {
+    --chess-board-w: min(100%, calc(100vw - 24px), calc((100vh - 250px) / 1.1112));
+    border-radius: var(--radius-md, 12px);
+  }
+}
+
+/* ===== 横屏（棋盘优先，安卓横屏平板主场景） =====
+ * 标题栏化后与竖屏同构：header 是 app 直接子级独占首行贴顶贴边，
+ * shell（限宽居中）转纵向 flex 吃剩余高度，layout 在 shell 内换行分配。
+ */
+@media (min-width: 801px) and (orientation: landscape) {
+  .chess-app {
+    /* 侧栏高度预算必须跟随本断点的棋盘宽度预算（下面 .chess-board 的 760px 那套），
+       否则横屏大平板下棋盘能到 849px，而侧栏还按 626px 封顶，两者不等高。
+       同样只取不含百分比的两项——百分比做 max-height 会退化成 none。 */
+    --chess-room-h: calc(min(760px, calc((100vh - 100px) / 1.1112)) * 1.1112 + 4px);
+    overflow: hidden;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-orient: vertical;
+    -webkit-box-direction: normal;
+    -ms-flex-direction: column;
+    flex-direction: column;
+  }
+  .chess-shell {
+    -webkit-box-flex: 1;
+    -ms-flex: 1 1 auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-width: 1192px;
+    padding: 10px 16px 12px;
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-wrap: wrap;
+    flex-wrap: wrap;
+    -ms-flex-line-pack: start;
+    align-content: flex-start;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+  }
+  .chess-header {
+    -webkit-flex-shrink: 0;
+    -ms-flex-negative: 0;
+    flex-shrink: 0;
+    margin: 0 0 10px;
+    min-width: 0;
+  }
+  .chess-actions button {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  .chess-error,
+  .chess-entry,
+  .chess-layout {
+    -ms-flex-preferred-size: 100%;
+    flex-basis: 100%;
+  }
+  .chess-error {
+    margin: 0 0 6px;
+  }
+  .chess-layout {
+    margin-top: 6px;
+    -webkit-box-pack: center;
+    -ms-flex-pack: center;
+    justify-content: center;
+  }
+  /* 入场模式：标题栏保留（返回按钮是系统导航栏隐藏后的唯一出口），
+     操作按钮由 JS 隐藏，入场卡片垂直居中 */
+  .chess-app.chess-entering .chess-shell {
+    -ms-flex-line-pack: center;
+    align-content: center;
+  }
+  /* 棋盘：吃掉视口剩余高度。固定区 ≈ 82px（横幅在侧栏内不占高度），预算 100px；
+     高度比宽度大 11.12%，以高度反算宽度（÷1.1112）。
+     100% 改为 calc(100% - 262px)：262 = 侧栏 246 + 间距 16——棋盘 flex-shrink:0
+     后必须自己保证与侧栏同行放得下，否则溢出被 .chess-app 裁掉 */
+  .chess-board {
+    --chess-board-w: min(760px, calc(100% - 262px), calc((100vh - 100px) / 1.1112));
+    margin: 0;
+  }
+}
+
+/* 房间模式标题栏单行化（2026-09-21）：低频按钮（复制房间码/发到聊天）已移入
+ * 侧栏房间操作区，标题栏右区从五按钮 ~450px 缩到三按钮 ~240px——
+ * 801px+ 横屏单行放得下，原 ≤1180px 房间模式换行规则与 130px 棋盘预算删除。
+ * 极窄竖屏（≤800px）的两行布局由上方通用规则兜底，不受影响。 */
+
+/* ===== 触摸设备（hover: none）规则 =====
+ * 安卓平板主场景：按压反馈要明显（无 hover 态补偿），落点提示加大易读。
+ */
+@media (hover: none) {
+  /* 触屏下选中态用更粗的金环（远视距下更清晰）。border-box 下加粗不改变
+     环的外径，仍恒在交点边界内。
+     只加粗，不加外发光——外发光会被交点的绘制边界裁掉，且每次点选都要
+     重新模糊一次，是本次平板卡顿的主要嫌疑 */
+  .chess-point.is-selected::before {
+    border-width: 3px;
+  }
+  /* 按压反馈：交点整体金色晕染（含棋子底下），手指按下即时可见 */
+  .chess-point:not(:disabled):active {
+    background-color: rgba(245, 158, 11, .3);
+  }
+  /* 落点提示加大一号（触屏视线离屏远，小金点不易看见） */
+  .chess-point.is-hint::before {
+    width: calc(var(--chess-cell) * 0.34);
+    height: calc(var(--chess-cell) * 0.34);
+    margin-left: calc(var(--chess-cell) * -0.17);
+    margin-top: calc(var(--chess-cell) * -0.17);
+  }
+  /* 吃子环同步加粗，红色在小屏上更易辨识 */
+  .chess-point.is-hint-capture::after {
+    border-width: 3px;
+  }
+  /* 触屏标题栏按钮加高到 ~36px：44px 标准放不下横屏，取可用上限 */
+  .chess-header .chess-actions button {
+    padding: 9px 14px;
+  }
+}
