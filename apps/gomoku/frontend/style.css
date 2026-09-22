@@ -37,8 +37,10 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽仍 1160） */
+/* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽仍 1160）；
+   relative 作为错误浮条的定位锚 */
 .gomoku-shell {
+  position: relative;
   width: 100%;
   max-width: 1200px;
   padding: 16px 20px 24px;
@@ -499,14 +501,28 @@
 }
 
 /* ===== 错误/提示条（shell 层，房间内外都可见） ===== */
+/*
+ * 错误/提示浮条：absolute 挂在 shell 右上，脱离文档流。
+ * 此前是流内块级，显示时把 layout（棋盘 100vh 预算）整体下推出视口，
+ * 棋盘底部交叉点点不到——浮条化后不再挤占棋盘空间。
+ */
 .gomoku-error {
-  margin: 0 0 12px;
+  position: absolute;
+  top: 6px;
+  right: 0;
+  z-index: 60;
+  max-width: min(440px, 90%);
+  margin: 0;
   min-height: 0;
   padding: 9px 14px;
   border-radius: var(--radius-sm, 8px);
   color: var(--ci-color-danger, #dc2626);
-  background: rgba(220, 38, 38, .08);
+  background-color: rgba(254, 242, 242, .96);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid rgba(220, 38, 38, .25);
+  box-shadow: 0 8px 24px rgba(220, 38, 38, .18);
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .gomoku-error:empty {
@@ -603,6 +619,8 @@
   top: 14px;
   right: 14px;
   bottom: 14px;
+  /* 独立合成层：落子/按压反馈的重绘不牵动底层 SVG 木纹棋盘（与 chess-points 同理） */
+  will-change: transform;
   display: -ms-grid;
   display: grid;
   -ms-grid-columns: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
@@ -680,6 +698,9 @@
 .gomoku-cell:not(:disabled):active {
   background-color: rgba(154, 108, 47, .18);
   border-radius: 50%;
+  /* 钉死宿主全局 button:active{transform:scale(.97)}：按下时整格缩放会触发
+     含渐变棋子的格子重绘，与落子入场动画同帧叠加造成低端平板掉帧 */
+  transform: none;
 }
 
 .gomoku-cell:disabled {
@@ -785,6 +806,10 @@
 .gomoku-cell.is-new .gomoku-stone {
   -webkit-animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
   animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
+  /* 动画期间提升独立合成层：棋子是多层径向渐变 + 4 层阴影的重绘热点，
+     不提层的话动画每帧都重光栅化脏区（低端平板落子动画掉帧的根因）。
+     is-new 全盘同时只有一个节点、下一手落子即移除，无层风暴风险 */
+  will-change: transform, opacity;
 }
 
 @-webkit-keyframes gomoku-drop {
@@ -1151,9 +1176,6 @@
     -ms-flex-preferred-size: 100%;
     flex-basis: 100%;
   }
-  .gomoku-error {
-    margin: 0 0 6px;
-  }
   .gomoku-layout {
     margin-top: 6px;
     /* 棋盘 + 侧栏作为整体居中：消除「棋盘左贴边、侧栏贴右、中间大空洞」的失衡观感 */
@@ -1176,26 +1198,47 @@
   }
 }
 
-/* ===== 房间模式中窄视口（≤1180px）：右区（信息段+连接灯+五按钮 ≈560px）较宽 =====
- * 标题已靠左，仅当返回+标题+信息段+右区单行总宽超出时才换行；
- * 本地/人机模式右区仅 ~350px，800~1180 仍单行（JS 在房间模式才挂 .gomoku-room-mode）。 */
-@media (max-width: 1180px) {
-  .gomoku-room-mode .gomoku-header {
-    -ms-flex-wrap: wrap;
-    flex-wrap: wrap;
-  }
-  .gomoku-room-mode .gomoku-header-right {
-    -ms-flex-preferred-size: 100%;
-    flex-basis: 100%;
-    margin: 8px 0 0;
-  }
+/* 房间模式标题栏单行化（2026-09-21）：低频按钮（复制房间码/发到聊天/发到社区）
+ * 已移入侧栏房间操作区，标题栏右区从五按钮 ~560px 缩到两按钮 ~180px——
+ * 801px+ 横屏单行放得下，原 ≤1180px 房间模式换行规则与 110px 棋盘预算删除。
+ * 极窄竖屏（≤800px）的两行布局由上方通用规则兜底，不受影响。 */
+
+/* ===== 房间操作区（侧栏）：复制房间码/发到聊天/发到社区 =====
+ * 低频操作从标题栏移入（标题栏单行化的配套）。侧栏内宽 194px
+ * 放不下两个 96px+ 按钮，竖排全宽更整齐、点击目标更大（触屏友好） */
+.gomoku-room-tools {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  -ms-flex-direction: column;
+  flex-direction: column;
+  margin: 12px 0 0;
 }
 
-/* 房间模式中窄横屏：标题栏两行（44 + 右区行 32 + 下距 10）+ shell 内边距 22 ≈ 108px，
-   棋盘预算从 80px 同步放宽到 110px，避免底部溢出被裁切 */
-@media (min-width: 801px) and (max-width: 1180px) and (orientation: landscape) {
-  .gomoku-room-mode .gomoku-board {
-    width: min(900px, 100%, calc(100vh - 110px));
-    padding-top: min(900px, 100%, calc(100vh - 110px));
-  }
+.gomoku-room-tools > * + * { margin-top: 8px; }
+
+.gomoku-room-tools button {
+  padding: 8px 10px;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  background: rgba(148, 163, 184, .14);
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+/* 按压用透明度而非缩放（与其他应用反馈一致，避免宿主 scale 覆盖抽搐） */
+.gomoku-room-tools button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .6;
 }

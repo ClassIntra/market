@@ -64,11 +64,11 @@
     var room = t('span', null, { 'data-role': 'room', text: '未进入房间' });
     var identity = t('span', null, { 'data-role': 'identity' });
     var connection = t('span', null, { 'data-role': 'connection', text: '未连接' });
+    // 标题栏只留高频按钮：悔棋/离开房间。低频的复制房间码/发到聊天/发到社区
+    // 移入侧栏「房间操作」区——五按钮全挤标题栏时右区 ~560px 宽，
+    // 触发 ≤1180px 换行规则，联机对局标题栏变成两行（用户实测反馈）
     var actions = t('div', 'gomoku-actions', null, [
       t('button', 'is-secondary', { type: 'button', 'data-action': 'undo', text: '悔棋' }),
-      t('button', 'is-secondary', { type: 'button', 'data-action': 'copy', text: '复制房间码' }),
-      t('button', 'is-secondary', { type: 'button', 'data-action': 'share-chat', text: '发到聊天' }),
-      t('button', 'is-secondary', { type: 'button', 'data-action': 'share-community', text: '发到社区' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
     // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
@@ -122,9 +122,17 @@
     var error = t('p', 'gomoku-error', { 'data-role': 'error', 'aria-live': 'polite' });
 
     var board = t('div', 'gomoku-board', { role: 'grid', 'aria-label': '五子棋棋盘' });
+    // 房间操作区（侧栏）：从标题栏移入的低频按钮，仅房间模式显示
+    var roomTools = t('div', 'gomoku-room-tools', { 'data-role': 'room-tools' }, [
+      t('button', 'is-secondary', { type: 'button', 'data-action': 'copy', text: '复制房间码' }),
+      t('button', 'is-secondary', { type: 'button', 'data-action': 'share-chat', text: '发到聊天' }),
+      t('button', 'is-secondary', { type: 'button', 'data-action': 'share-community', text: '发到社区' })
+    ]);
+    roomTools.hidden = true;
     var info = t('aside', 'gomoku-info', null, [
       t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
+      roomTools,
       t('div', 'gomoku-finished', null, [
         t('p', null, { 'data-role': 'finished' }),
         t('button', null, { type: 'button', 'data-action': 'continue', text: '继续下一局' }),
@@ -198,6 +206,12 @@
     var membersElement = root.querySelector('[data-role="members"]');
     var infoTitleElement = root.querySelector('[data-role="info-title"]');
     var finishedElement = root.querySelector('[data-role="finished"]');
+    var roomToolsElement = root.querySelector('[data-role="room-tools"]');
+    // 渲染热路径复用的节点引用：render 每次点击/推送都会跑，
+    // querySelector 全家桶挪到 mount 时一次性缓存
+    var headerActionButtons = root.querySelectorAll('.gomoku-actions [data-action], .gomoku-room-tools [data-action]');
+    var leaveButton = root.querySelector('[data-action="leave"]');
+    var undoButton = root.querySelector('[data-action="undo"]');
     var continueButton = root.querySelector('[data-action="continue"]');
     var colorButton = root.querySelector('[data-action="color"]');
 
@@ -271,24 +285,35 @@
       if (mode === 'room') saveSession();
       render();
     }
+    // 渲染 diff 辅助：热路径（render 每次点击/推送都跑）的同值写入会触发
+    // DOM mutation → 样式失效/回流。文本与类名经此写入，值没变就不碰 DOM
+    function setText(el, text) { if (el && el.textContent !== text) el.textContent = text; }
+    function setClass(el, cls) { if (el && el.className !== cls) el.className = cls; }
     // 连接状态红绿灯：文本 + 状态类（online/connecting/offline）。
     // 标题栏内灯体纯化为圆点（CSS font-size:0），原文转存 title 供悬停查看
     function setConnection(text, kind) {
-      connectionElement.textContent = text;
-      connectionElement.title = text;
-      connectionElement.className = 'gomoku-conn' + (kind ? ' is-' + kind : '');
+      setText(connectionElement, text);
+      if (connectionElement.title !== text) connectionElement.title = text;
+      setClass(connectionElement, 'gomoku-conn' + (kind ? ' is-' + kind : ''));
     }
-    // 棋盘状态签名：size/board/lastMove/winner/status 任一变化才重建棋子层。
     // 落子链路会连续两次 render（POST 响应 applyState 一次、then 解锁 busy 一次），
-    // 全量重建会销毁刚启动的入场动画节点 —— 视觉上棋子「闪一下」。
-    // 签名未变时只刷新格子可点状态（忙碌锁解锁），棋子层不动、动画继续播放。
-    var lastBoardSignature = '';
+    // 棋盘层逐格 diff 保证第二次 render 不碰任何已渲染节点 —— 动画继续播放不「闪一下」。
     function boardDisabled(color, isOffline, member) {
       return isOffline
         ? (!!color || !!state.winner || state.status !== 'active' || (mode === 'solo' && state.turn !== 'black'))
         : (!roomCode || !!color || !!state.winner || state.status !== 'active' || pending || !member || !member.color);
     }
+    // 成员名单签名缓存：render 每次点击都跑，名单/轮次/胜负没变就不重建
+    // （clearChildren + 重建 li 会打断 is-turn 脉冲动画并造成无谓回流）
+    var lastMembersSignature = '';
     function renderMembers() {
+      var sig = mode + '|' + state.turn + '|' + (state.winner || '') + '|' + (state.status || '') + '|';
+      for (var i = 0; i < state.members.length; i++) {
+        var m = state.members[i];
+        sig += m.user_id + ':' + (m.net_name || '') + ':' + m.role + ':' + (m.color || '') + ';';
+      }
+      if (sig === lastMembersSignature) return;
+      lastMembersSignature = sig;
       clearChildren(membersElement);
       // 单机模式：固定两行显示对局双方，is-turn 跟随当前手色
       if (mode === 'solo' || mode === 'local') {
@@ -1144,34 +1169,40 @@
       saveSession();
     }
 
+    var lastGomokuSize = '';
     function render() {
-      root.style.setProperty('--gomoku-size', state.size);
+      // CSS 变量同值写入也会标脏整棵样式树，diff 一下（render 是每次点击/推送的热路径）
+      if (String(state.size) !== lastGomokuSize) {
+        lastGomokuSize = String(state.size);
+        root.style.setProperty('--gomoku-size', state.size);
+      }
       var inGame = mode !== '';
       var isOffline = mode === 'solo' || mode === 'local';
       var member = currentMember();
-      // 单机模式：分享/复制类按钮无意义，隐藏；「离开」按钮作为退出单机对局入口
-      var actionButtons = root.querySelectorAll('.gomoku-actions [data-action]');
+      // 标题栏/侧栏按钮可见性：单机隐藏分享类，未进入对局隐藏全部
+      // （headerActionButtons 在 mount 时缓存，含侧栏 room-tools 的低频按钮）
+      var actionButtons = headerActionButtons;
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
         // 未进入对局：标题栏不显示对局操作（创建/加入入口在入场卡片，返回在左侧）
         if (mode === '') { actionButtons[a].hidden = true; continue; }
         actionButtons[a].hidden = isOffline && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community');
       }
-      // 房间模式加标记类：宽视口下右区（信息段+五按钮）更宽，媒体查询按此决定标题栏是否换行
+      // 房间模式加标记类：本地/单机模式右区更窄，竖屏窄屏媒体查询据此调整
       root.classList.toggle('gomoku-room-mode', mode === 'room' && !!roomCode);
-      roomElement.textContent = mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间');
-      identityElement.textContent = mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : '');
+      setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
+      setText(identityElement, mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : ''));
       // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
       var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
       // 入场态状态条隐藏（未进入对局无轮次可言；hidden 让它在右区信息段中彻底不占位）
       if (mode === '') {
-        statusElement.className = 'gomoku-status';
-        statusElement.textContent = '';
+        setClass(statusElement, 'gomoku-status');
+        setText(statusElement, '');
         statusElement.hidden = true;
       } else {
-        statusElement.className = 'gomoku-status' + (state.winner ? ' is-winner' : soloRoom ? ' is-waiting' : (state.status === 'active' ? ' is-turn is-turn-' + state.turn : ''));
+        setClass(statusElement, 'gomoku-status' + (state.winner ? ' is-winner' : soloRoom ? ' is-waiting' : (state.status === 'active' ? ' is-turn is-turn-' + state.turn : '')));
         statusElement.hidden = false;
-        statusElement.textContent = state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '等待对手加入' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋');
+        setText(statusElement, state.winner ? (state.winner === 'black' ? '黑棋获胜' : '白棋获胜') : soloRoom ? '等待对手加入' : state.status !== 'active' ? '等待下一局' : '轮到' + (state.turn === 'black' ? '黑棋' : '白棋'));
       }
       if (isOffline) setConnection('本地对弈', 'online');
       else if (!roomCode) setConnection('未进入房间', '');
@@ -1179,7 +1210,7 @@
       var myTurn = isOffline
         ? (state.status === 'active' && !state.winner)
         : !!(member && member.color && !state.winner && state.status === 'active' && member.color === state.turn);
-      boardElement.className = 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black');
+      setClass(boardElement, 'gomoku-board' + (state.winner ? ' has-winner' : '') + (myTurn ? ' is-my-turn' : '') + (state.turn === 'white' ? ' turn-white' : ' turn-black'));
       entryElement.hidden = inGame;
       // 入场态隐藏标题栏副标题（模式/身份信息在入场卡片已有完整说明，避免重复）；
       // 同时给根节点打 entering 标记，横屏 CSS 据此让入场内容垂直居中。
@@ -1189,86 +1220,97 @@
       // 未进入房间时隐藏棋盘区：此前空棋盘 + 禁用格子也一直渲染，横屏下与入场卡片挤在一起
       var layoutElement = root.querySelector('.gomoku-layout');
       if (layoutElement) layoutElement.hidden = !inGame;
-      // 棋盘层跳过重建：签名含 mode（房间/单机切换必重建）
-      var boardSignature = JSON.stringify([mode, state.size, state.board, state.lastMove, state.winner, state.status]);
-      var boardUnchanged = boardSignature === lastBoardSignature && boardElement.childElementCount > 0;
-      lastBoardSignature = boardSignature;
-      if (boardUnchanged) {
-        // 仅刷新格子可点状态（忙碌锁解锁/轮次变化），棋子层不动 → 入场动画继续播放
-        var keptStones = boardElement.querySelector('.gomoku-stones');
-        if (keptStones) {
-          var keptCells = keptStones.querySelectorAll('.gomoku-cell');
-          for (var k = 0; k < keptCells.length; k++) {
-            var kc = keptCells[k];
-            var kcColor = kc.classList.contains('is-black') ? 'black' : kc.classList.contains('is-white') ? 'white' : null;
-            kc.disabled = boardDisabled(kcColor, isOffline, member);
+      // 棋盘层增量渲染：按钮壳常驻（仅棋盘规格变化时重建），每次 render 逐格 diff。
+      // 旧实现按 JSON 签名跳过「无关重渲染」，但落子必改签名 → 每次落子仍全量
+      // clearChildren + 重建 225 个按钮 + 225 个棋子节点（15 路盘），低端安卓平板
+      // 上感知为「落子卡一下」——本地双人与联机对局都卡（2026-09-22 用户实测）。
+      var stonesLayer = boardElement.querySelector('.gomoku-stones');
+      var needRebuild = !stonesLayer || Number(stonesLayer.dataset.size) !== state.size;
+      if (needRebuild) {
+        clearChildren(boardElement);
+        // 网格线层（纯装饰，pointer-events: none）
+        var gridElement = document.createElement('div');
+        gridElement.className = 'gomoku-grid';
+        gridElement.setAttribute('aria-hidden', 'true');
+        // 星位：天元 + 四星/九星。定位按「交叉点 = (idx+0.5)/size」，
+        // 与网格线的半格偏移对齐（棋子落在线的交叉点上，而非格子中心）。
+        var size = state.size;
+        var stars = starPoints(size);
+        for (var s = 0; s < stars.length; s++) {
+          var star = document.createElement('span');
+          star.className = 'gomoku-star';
+          star.style.left = ((stars[s][1] + 0.5) / size * 100) + '%';
+          star.style.top = ((stars[s][0] + 0.5) / size * 100) + '%';
+          gridElement.appendChild(star);
+        }
+        boardElement.appendChild(gridElement);
+
+        // 棋子层：承载可点击格子。独立成层是为了让按钮脱离网格线背景，
+        // 同时保留 CSS Grid 定位（棋子需逐个可点，无法用背景图替代）。
+        stonesLayer = document.createElement('div');
+        stonesLayer.className = 'gomoku-stones';
+        stonesLayer.dataset.size = String(size);
+        for (var br = 0; br < size; br++) {
+          for (var bc = 0; bc < size; bc++) {
+            var shell = document.createElement('button');
+            shell.type = 'button';
+            shell.className = 'gomoku-cell';
+            shell.dataset.row = String(br);
+            shell.dataset.col = String(bc);
+            stonesLayer.appendChild(shell);
           }
         }
-      } else {
-      clearChildren(boardElement);
-
-      // 网格线层（纯装饰，pointer-events: none）
-      var gridElement = document.createElement('div');
-      gridElement.className = 'gomoku-grid';
-      gridElement.setAttribute('aria-hidden', 'true');
-      // 星位：天元 + 四星/九星。定位按「交叉点 = (idx+0.5)/size」，
-      // 与网格线的半格偏移对齐（棋子落在线的交叉点上，而非格子中心）。
-      var size = state.size;
-      var stars = starPoints(size);
-      for (var s = 0; s < stars.length; s++) {
-        var star = document.createElement('span');
-        star.className = 'gomoku-star';
-        star.style.left = ((stars[s][1] + 0.5) / size * 100) + '%';
-        star.style.top = ((stars[s][0] + 0.5) / size * 100) + '%';
-        gridElement.appendChild(star);
+        boardElement.appendChild(stonesLayer);
       }
-      boardElement.appendChild(gridElement);
 
-      // 棋子层：承载可点击格子。独立成层是为了让按钮脱离网格线背景，
-      // 同时保留 CSS Grid 定位（棋子需逐个可点，无法用背景图替代）。
-      var stonesElement = document.createElement('div');
-      stonesElement.className = 'gomoku-stones';
-      boardElement.appendChild(stonesElement);
-
+      // 逐格 diff：类名/棋子/可点态/无障碍标签，值未变不碰 DOM（对齐 chess 的做法）。
+      // 胜利连线预建键表，避免 225 格 × 连线长度逐格扫描。
+      var winCells = stonesLayer.children;
       var winLine = findWinLine();
-
-      (state.board.length ? state.board : emptyBoard(state.size)).forEach(function(row, rowIndex) {
-        row.forEach(function(color, colIndex) {
-          var cell = document.createElement('button');
-          cell.type = 'button';
-          var isWin = false;
-          for (var w = 0; w < winLine.length; w++) {
-            if (winLine[w][0] === rowIndex && winLine[w][1] === colIndex) { isWin = true; break; }
+      var winKeys = {};
+      for (var wi = 0; wi < winLine.length; wi++) winKeys[winLine[wi][0] + '_' + winLine[wi][1]] = true;
+      var newAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
+      var animateLast = newAnimatedKey !== lastAnimatedKey;
+      var index = 0;
+      for (var rowIndex = 0; rowIndex < state.size; rowIndex++) {
+        var boardRow = state.board[rowIndex];
+        for (var colIndex = 0; colIndex < state.size; colIndex++) {
+          var cell = winCells[index];
+          index++;
+          var color = boardRow ? boardRow[colIndex] : null;
+          var isLast = !!(color && state.lastMove && state.lastMove.row === rowIndex && state.lastMove.col === colIndex);
+          // 只有最新一手播放入场动画：重渲染（lastAnimatedKey 相同）不重播
+          var cls = 'gomoku-cell' + (color ? ' is-' + color : '') + (winKeys[rowIndex + '_' + colIndex] ? ' is-win' : '') + (isLast ? ' is-last' : '');
+          if (isLast && animateLast) cls += ' is-new';
+          if (cell.className !== cls) cell.className = cls;
+          var label = (rowIndex + 1) + '行' + (colIndex + 1) + '列' + (color ? (color === 'black' ? '黑棋' : '白棋') : '');
+          if (cell.getAttribute('aria-label') !== label) cell.setAttribute('aria-label', label);
+          // 棋子 span：有子补挂 / 无子摘除
+          var stone = cell.firstChild;
+          if (color && !stone) {
+            var node = document.createElement('span');
+            node.className = 'gomoku-stone';
+            node.setAttribute('aria-hidden', 'true');
+            cell.appendChild(node);
+          } else if (!color && stone) {
+            cell.removeChild(stone);
           }
-          var isLast = color && state.lastMove && state.lastMove.row === rowIndex && state.lastMove.col === colIndex;
-          cell.className = 'gomoku-cell' + (color ? ' is-' + color : '') + (isWin ? ' is-win' : '') + (isLast ? ' is-last' : '');
-          // 只有最新一手播放入场动画：去重键等于当前 lastMove 时（重渲染）跳过
-          if (isLast && lastAnimatedKey !== rowIndex + '_' + colIndex) cell.classList.add('is-new');
-          if (color) {
-            var stone = document.createElement('span');
-            stone.className = 'gomoku-stone';
-            stone.setAttribute('aria-hidden', 'true');
-            cell.appendChild(stone);
-          }
-          cell.dataset.row = rowIndex;
-          cell.dataset.col = colIndex;
-          cell.setAttribute('aria-label', (rowIndex + 1) + '行' + (colIndex + 1) + '列' + (color ? (color === 'black' ? '黑棋' : '白棋') : ''));
-          cell.disabled = boardDisabled(color, isOffline, member);
-          stonesElement.appendChild(cell);
-        });
-      });
-      lastAnimatedKey = state.lastMove ? state.lastMove.row + '_' + state.lastMove.col : '';
-      } // 棋盘层重建分支结束（签名未变时跳过，保住入场动画）
+          // 可点状态：轮次/胜负/忙碌锁变化时才写
+          var wantDisabled = boardDisabled(color, isOffline, member);
+          if (cell.disabled !== wantDisabled) cell.disabled = wantDisabled;
+        }
+      }
+      lastAnimatedKey = newAnimatedKey;
 
       renderMembers();
       // 侧栏标题随模式切换；「离开房间」按钮在单机模式下语义变为「退出练习」
-      infoTitleElement.textContent = isOffline ? '对局信息' : '房间成员';
-      var leaveButton = root.querySelector('[data-action="leave"]');
-      if (leaveButton) leaveButton.textContent = isOffline ? '退出练习' : '离开房间';
+      setText(infoTitleElement, isOffline ? '对局信息' : '房间成员');
+      setText(leaveButton, isOffline ? '退出练习' : '离开房间');
+      // 房间操作区仅房间模式显示（低频按钮的常驻地）
+      if (roomToolsElement) roomToolsElement.hidden = mode !== 'room';
       var owner = member && member.role === 'owner';
       var finished = !!state.winner || state.status !== 'active';
       // 悔棋按钮可用性：单机看历史栈；房间看「最后一手是否本人所下」（后端二次校验）
-      var undoButton = root.querySelector('[data-action="undo"]');
       if (undoButton) {
         undoButton.disabled = isOffline
           ? !offlineHistory.length
@@ -1276,15 +1318,15 @@
       }
       if (isOffline) {
         // 单机模式：文案本地化；继续按钮人人可见（重开一局），换色无意义
-        finishedElement.textContent = state.winner
+        setText(finishedElement, state.winner
           ? (mode === 'solo'
             ? (state.winner === 'black' ? '恭喜，你赢了！' : '电脑获胜，再战一局？')
             : (state.winner === 'black' ? '黑棋获胜！' : '白棋获胜！'))
-          : '';
+          : '');
         continueButton.hidden = !finished;
         colorButton.hidden = true;
       } else {
-        finishedElement.textContent = finished ? (state.winner ? '本局结束，房主可以继续或离开。' : '准备下一局。') : '';
+        setText(finishedElement, finished ? (state.winner ? '本局结束，房主可以继续或离开。' : '准备下一局。') : '');
         continueButton.hidden = !finished || !owner;
         colorButton.hidden = !finished || !member || !member.color;
       }
@@ -1360,10 +1402,32 @@
       // 单机模式（人机练习/本地双人）：纯本地落子，不发请求、不占忙碌锁
       if (mode === 'solo' || mode === 'local') { offlineMove(Number(cell.dataset.row), Number(cell.dataset.col)); return; }
       if (!roomCode) return;
+      var row = Number(cell.dataset.row);
+      var col = Number(cell.dataset.col);
+      // 乐观落子：本地先出子立即渲染（点击 → 棋子出现零等待），后端确认后以
+      // 服务端状态纠偏，被拒绝则回滚快照。旧实现等 POST 往返才渲染，网络 +
+      // 落库延迟全压在点击与棋子出现之间，联机下「点子卡」即此。
+      var member = currentMember();
+      var color = member && member.color;
+      if (!color || state.winner || state.status !== 'active' || state.turn !== color || state.board[row][col]) return;
+      var snapshot = {
+        board: state.board.map(function(r) { return r.slice(); }),
+        turn: state.turn,
+        lastMove: state.lastMove
+      };
+      state.board[row][col] = color;
+      state.lastMove = { row: row, col: col, userId: currentUserId(), color: color };
+      state.turn = color === 'black' ? 'white' : 'black';
       setBusy(true);
       render();
-      actionRequest('/move', '落子失败', { row: Number(cell.dataset.row), col: Number(cell.dataset.col) }).then(function() {
+      actionRequest('/move', '落子失败', { row: row, col: col }).then(function(data) {
         setBusy(false);
+        if (!data) {
+          // 后端拒绝（轮次不对/位置被占/对局已结束）：回滚乐观落子再渲染
+          state.board = snapshot.board;
+          state.turn = snapshot.turn;
+          state.lastMove = snapshot.lastMove;
+        }
         render();
       });
     }
