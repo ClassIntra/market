@@ -129,7 +129,28 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'share-community', text: '发到社区' })
     ]);
     roomTools.hidden = true;
-    var info = t('aside', 'gomoku-info', null, [
+    // 房间快捷聊天（侧栏「聊天」页）：玩家与观战者都能发言，消息随房间销毁（关房/空置）。
+    // 消息一律 textContent 渲染（绝不 innerHTML）—— 内容来自其他学生。
+    var chatList = t('ul', 'gomoku-chat-list', { 'data-role': 'chat-list' }, [
+      t('li', 'gomoku-chat-empty', { text: '还没有人发言' })
+    ]);
+    var chatInput = t('input', 'gomoku-chat-input', {
+      'data-field': 'chat', type: 'text', maxlength: '200',
+      autocomplete: 'off', enterkeyhint: 'send', placeholder: '说点什么…'
+    });
+    var chat = t('div', 'gomoku-chat', { 'data-role': 'chat', role: 'tabpanel', 'aria-labelledby': 'gomoku-tab-chat' }, [
+      chatList,
+      t('div', 'gomoku-chat-form', null, [
+        chatInput,
+        t('button', 'gomoku-chat-send', { type: 'button', 'data-action': 'chat-send', text: '发送' })
+      ])
+    ]);
+    chat.hidden = true;
+    // 侧栏双页（信息 / 聊天）互斥显示：聊天页若常驻，会把房间成员与房间操作一路顶下去，
+    // 侧栏高度随消息条数增长；横屏平板下 .gomoku-app 是 overflow:hidden，
+    // 撑出去的部分既看不到也滑不动（chess 1.5.0 实测：聊天 8 条时侧栏 811px、棋盘 609px，
+    // 底部越出视口 270px 且 maxScroll 恒为 0）。分页让信息页高度与聊天条数彻底解耦。
+    var infoPanel = t('div', 'gomoku-info-panel', { 'data-role': 'info-panel', role: 'tabpanel', 'aria-labelledby': 'gomoku-tab-info' }, [
       t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
       roomTools,
@@ -139,6 +160,18 @@
         t('button', 'is-secondary', { type: 'button', 'data-action': 'color', text: '换色' })
       ])
     ]);
+    // 未读徽标：不打断对局，但也不能漏掉对手发言
+    var chatTabBadge = t('span', 'gomoku-tab-badge', { text: '' });
+    chatTabBadge.hidden = true;
+    var chatTabButton = t('button', 'gomoku-tab', {
+      type: 'button', 'data-action': 'tab-chat', role: 'tab', id: 'gomoku-tab-chat', 'aria-selected': 'false'
+    }, [t('span', 'gomoku-tab-label', { text: '聊天' }), chatTabBadge]);
+    var infoTabButton = t('button', 'gomoku-tab is-active', {
+      type: 'button', 'data-action': 'tab-info', role: 'tab', id: 'gomoku-tab-info', 'aria-selected': 'true', text: '房间信息'
+    });
+    var tabs = t('div', 'gomoku-info-tabs', { role: 'tablist', 'aria-label': '侧栏切换' }, [infoTabButton, chatTabButton]);
+    tabs.hidden = true;
+    var info = t('aside', 'gomoku-info', null, [tabs, infoPanel, chat]);
     var layout = t('div', 'gomoku-layout', null, [board, info]);
 
     // 标题栏是 .gomoku-app 的直接子级（shell 之外）：
@@ -214,6 +247,17 @@
     var undoButton = root.querySelector('[data-action="undo"]');
     var continueButton = root.querySelector('[data-action="continue"]');
     var colorButton = root.querySelector('[data-action="color"]');
+    // 侧栏双页 + 聊天节点引用：render 是热路径（每次点击/推送都跑），
+    // querySelector 全家桶一律在 mount 时缓存，不在渲染路径里查 DOM
+    var tabsElement = root.querySelector('.gomoku-info-tabs');
+    var infoPanelElement = root.querySelector('[data-role="info-panel"]');
+    var chatElement = root.querySelector('[data-role="chat"]');
+    var chatListElement = root.querySelector('[data-role="chat-list"]');
+    var chatInputElement = root.querySelector('[data-field="chat"]');
+    var chatSendButton = root.querySelector('[data-action="chat-send"]');
+    var chatTabButtonElement = root.querySelector('[data-action="tab-chat"]');
+    var infoTabButtonElement = root.querySelector('[data-action="tab-info"]');
+    var chatTabBadgeElement = root.querySelector('.gomoku-tab-badge');
 
     function currentUserId() {
       return String(context.user && (context.user.user_id || context.user.id) || '');
@@ -289,6 +333,147 @@
     // DOM mutation → 样式失效/回流。文本与类名经此写入，值没变就不碰 DOM
     function setText(el, text) { if (el && el.textContent !== text) el.textContent = text; }
     function setClass(el, cls) { if (el && el.className !== cls) el.className = cls; }
+
+    // ===== 房间快捷聊天（侧栏「聊天」页）=====
+    // 消息以 textContent 渲染（绝不 innerHTML）：内容来自其他学生，按纯文本处理。
+    var CHAT_MAX_NODES = 80;   // DOM 节点上限：超出丢最旧，长会话不拖慢合成
+    var chatIds = {};          // id 去重表：自己的发言会经「POST 响应」和「实时广播」各到一次
+    var chatSending = false;
+    // 会话代次：离房/换房/恢复时 +1。异步回调回来时若代次已变，说明这条数据属于
+    // 「上一个房间」，必须丢弃——否则会把旧房间的发言渲染进新房间的列表
+    var chatEpoch = 0;
+    // 历史是否已加载完：加载完成前的实时广播一律不追加，该区间的消息由随后的 GET 全量补齐
+    var chatReady = false;
+    // 侧栏双页状态：'info' | 'chat'。未读数只在「不在聊天页」时累积，进聊天页即清零
+    var activeTab = 'info';
+    var chatUnread = 0;
+    // 历史回填期间不计未读，否则每次进房都会看到一串未读
+    var chatHistoryRendering = false;
+
+    function renderTabs() {
+      var inRoom = mode === 'room' && !!roomCode;
+      if (tabsElement) tabsElement.hidden = !inRoom;
+      if (chatElement) chatElement.hidden = !inRoom || activeTab !== 'chat';
+      // 信息页：非房间态（入场/单机）恒显示；房间态下与聊天页互斥
+      if (infoPanelElement) infoPanelElement.hidden = inRoom && activeTab !== 'info';
+      var infoActive = !inRoom || activeTab === 'info';
+      if (infoTabButtonElement) {
+        setClass(infoTabButtonElement, 'gomoku-tab' + (infoActive ? ' is-active' : ''));
+        infoTabButtonElement.setAttribute('aria-selected', infoActive ? 'true' : 'false');
+      }
+      var chatActive = inRoom && activeTab === 'chat';
+      var showBadge = inRoom && !chatActive && chatUnread > 0;
+      if (chatTabButtonElement) {
+        setClass(chatTabButtonElement, 'gomoku-tab' + (chatActive ? ' is-active' : '') + (showBadge ? ' is-unread' : ''));
+        chatTabButtonElement.setAttribute('aria-selected', chatActive ? 'true' : 'false');
+      }
+      if (chatTabBadgeElement) {
+        var badge = showBadge ? (chatUnread > 99 ? '99+' : String(chatUnread)) : '';
+        if (chatTabBadgeElement.textContent !== badge) chatTabBadgeElement.textContent = badge;
+        chatTabBadgeElement.hidden = !badge;
+      }
+    }
+    function setTab(tab) {
+      var next = tab === 'chat' ? 'chat' : 'info';
+      if (next === activeTab) return;
+      activeTab = next;
+      if (activeTab === 'chat') chatUnread = 0;
+      renderTabs();
+    }
+
+    function chatAtBottom() {
+      return chatListElement.scrollHeight - chatListElement.scrollTop - chatListElement.clientHeight < 28;
+    }
+    function chatClear() {
+      chatEpoch++;             // 一切清空动作都视为进入新一代，作废此前所有在途回调
+      chatReady = false;
+      chatUnread = 0;          // 列表清空即无未读
+      chatIds = {};
+      clearChildren(chatListElement);
+      chatListElement.appendChild(t('li', 'gomoku-chat-empty', { text: '还没有人发言' }));
+      renderTabs();
+    }
+    // 调用方（loadChatMessages / sendChat / 实时广播）必须先用 chatEpoch 校验再调用：
+    // 本函数只负责渲染，不做代次判断
+    function appendChatMessage(message) {
+      if (!message || message.id === undefined || message.id === null) return;
+      var key = String(message.id);
+      if (chatIds[key]) return;   // 同一条消息到两次（响应 + 广播）只渲染一次
+      chatIds[key] = true;
+      var mine = String(message.userId) === currentUserId();
+      var stick = chatAtBottom();
+      var empty = chatListElement.querySelector('.gomoku-chat-empty');
+      if (empty) chatListElement.removeChild(empty);
+      chatListElement.appendChild(t('li', 'gomoku-chat-item' + (mine ? ' is-me' : ''), { 'data-id': key }, [
+        t('span', 'gomoku-chat-name', { text: mine ? '我' : String(message.netName || message.userId || '同学') }),
+        t('span', 'gomoku-chat-text', { text: message.content })
+      ]));
+      while (chatListElement.childNodes.length > CHAT_MAX_NODES) {
+        var first = chatListElement.firstChild;
+        if (first.className && first.className.indexOf('gomoku-chat-item') !== -1) {
+          delete chatIds[String(first.getAttribute('data-id'))];
+        }
+        chatListElement.removeChild(first);
+      }
+      // 未读计数：只有「别人发言 + 我不在聊天页 + 不是历史回填」才累加，
+      // 徽标挂在聊天页标签上（进聊天页即清零）
+      if (!mine && !chatHistoryRendering && mode === 'room' && activeTab !== 'chat') {
+        chatUnread++;
+        renderTabs();
+      }
+      // 自己刚发的必须可见；别人发的只在用户本来就贴着底部时跟随（往上翻历史时不打断）
+      if (stick || mine) chatListElement.scrollTop = chatListElement.scrollHeight;
+    }
+    function loadChatMessages() {
+      if (!roomCode) { chatClear(); return; }
+      // 快照：请求发出后用户可能已离房或换房，回调回来时靠这对值识别并丢弃
+      var reqCode = roomCode;
+      var reqEpoch = chatEpoch;
+      request(context, 'GET', '/gomoku/rooms/' + encodeURIComponent(reqCode) + '/messages').then(function(data) {
+        if (reqEpoch !== chatEpoch || reqCode !== roomCode) return;   // 房间已切换，这批消息作废
+        var messages = (data && data.messages) || [];
+        chatClear();
+        chatHistoryRendering = true;   // 历史回填不计未读
+        for (var i = 0; i < messages.length; i++) appendChatMessage(messages[i]);
+        chatHistoryRendering = false;
+        chatListElement.scrollTop = chatListElement.scrollHeight;
+        chatReady = true;
+      }).catch(function() {
+        // 聊天是辅助能力：拉取失败（如成员行尚未落库的瞬时 403）静默留空即可，
+        // 不占用错误条——错误条要留给落子/房间操作这类关键失败
+        if (reqEpoch !== chatEpoch || reqCode !== roomCode) return;
+        chatClear();
+      });
+    }
+    function sendChat() {
+      if (!roomCode || chatSending) return;
+      var text = String(chatInputElement.value || '').trim();
+      if (!text) return;
+      var reqCode = roomCode;
+      var reqEpoch = chatEpoch;
+      chatSending = true;
+      // 只禁发送按钮、不禁输入框：在平板上禁用输入框会收起软键盘，连续发言要重新点一次
+      if (chatSendButton) chatSendButton.disabled = true;
+      request(context, 'POST', '/gomoku/rooms/' + encodeURIComponent(reqCode) + '/messages', { content: text }).then(function(message) {
+        if (reqEpoch !== chatEpoch || reqCode !== roomCode) return;   // 发送期间已离房/换房
+        appendChatMessage(message);
+        chatInputElement.value = '';
+        setError('');
+      }).catch(function(error) {
+        if (reqEpoch !== chatEpoch || reqCode !== roomCode) return;
+        setError(errMsg(error, '发送失败'));
+      }).then(function() {
+        chatSending = false;
+        if (chatSendButton) chatSendButton.disabled = false;
+      });
+    }
+    function onChatKeydown(event) {
+      // 中文输入法组合态下 Enter 是「确认候选字」而非「发送」——不挡会连同候选字一起误发一条
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      event.preventDefault();
+      sendChat();
+    }
     // 连接状态红绿灯：文本 + 状态类（online/connecting/offline）。
     // 标题栏内灯体纯化为圆点（CSS font-size:0），原文转存 title 供悬停查看
     function setConnection(text, kind) {
@@ -402,7 +587,18 @@
     var GOMOKU_VCT_MAXDEF = 8;    // VCT 应答集上限（超过=威胁不强制，判无杀——保守不误报）
     var GOMOKU_VCT_DEPTH = 5;     // VCT 攻防手数预算（3 攻 2 防，覆盖活三→活四→五）
     var GOMOKU_MAX_DEPTH = 6;     // negamax 迭代加深最大深度
-    var GOMOKU_BUDGET = 350;      // 搜索时间预算 ms（420ms 拟人延迟之上，玩家总感知 <1s）
+    var GOMOKU_BUDGET = 220;      // negamax 搜索预算 ms（2026-09-22 由 350 下调：实测中后盘必然用满预算，
+                                  // 每手落子后主线程冻结 200~550ms；降到 220 让最坏等待明显缩短，
+                                  // 深度 4 + VCF/VCT 战术层对学生对局仍绰绰有余）
+    // 整步硬上限（2026-09-22）：VCF(90) / 对手杀链(130) / negamax(220) 原本是「各自独立」
+    // 的预算，三项相加才是最坏等待 —— 中后盘棋子变多、威胁变密时三层同时跑满，
+    // 玩家感知就是「越下越慢」。改为开局一次性划出整步预算并按阶段切分，
+    // 使最坏等待变成与棋子数无关的确定值。
+    var GOMOKU_MOVE_BUDGET = 300; // 整步总预算 ms（战术层 + 搜索层合计，硬上限）
+    var GOMOKU_KEEP_SEARCH = 120; // 预留给 negamax 的底线时间：战术层最多吃到
+                                  // 300-120=180ms，保证搜索层总能跑完至少一轮完整
+                                  // depth-2 层（否则 soloAiPick 会返回 null，
+                                  // scheduleAi 里表现为人机模式卡住不出手）
     var gmkZobrist = null;        // [r][c][0=白/1=黑] 32 位随机数表
     var gmkHash = 0;              // 当前局面 Zobrist 哈希（落子/撤子 XOR 增量维护）
     var gmkTT = null;             // 置换表：hash*2+行棋色 → {depth, score, flag}
@@ -412,6 +608,7 @@
     var gmkVcfCount = 0;          // VCF 节点计数（预算保险）
     var gmkVctCount = 0;          // VCT 节点计数（独立限额，防活三分支爆炸）
     var gmkVcfDeadline = 0;       // VCF 截止时间戳（每次调用前设置）
+    var gmkMoveDeadline = 0;      // 整步硬截止时间戳（soloAiPick 开头设置，含全部阶段）
     // 假设 color 落 (row,col)，沿 (dr,dc) 取两侧各 4 格构建长度 9 的窗口串：
     // '1'=己方 '0'=空 '2'=对方或边界，中心恒 '1'（假设落子）。
     // 性质：任何长度 ≥5 的子串必然覆盖中心位，匹配到的棋型一定包含本次落子。
@@ -670,7 +867,7 @@
     // 故防守应对只需枚举「堵点」；堵防与杀链共用深度预算（防堵防循环）。
     function gmkVcf(color, depth) {
       if (depth <= 0 || gmkVcfCount > GOMOKU_VCF_NODES) return null;
-      if ((gmkVcfCount & 127) === 0 && Date.now() > gmkVcfDeadline) return null;
+      if ((gmkVcfCount & 31) === 0 && Date.now() > gmkVcfDeadline) return null;
       gmkVcfCount++;
       var opp = color === 'white' ? 'black' : 'white';
       var cells = gmkNearCells();
@@ -776,7 +973,7 @@
     // 应答集超过 GOMOKU_VCT_MAXDEF 判无杀：威胁不够强制（保守，只漏不误）。
     function gmkVct(color, depth) {
       if (depth <= 0 || gmkVctCount > GOMOKU_VCT_NODES) return null;
-      if ((gmkVctCount & 63) === 0 && Date.now() > gmkVcfDeadline) return null;
+      if ((gmkVctCount & 31) === 0 && Date.now() > gmkVcfDeadline) return null;
       gmkVctCount++;
       var opp = color === 'white' ? 'black' : 'white';
       var cells = gmkNearCells();
@@ -866,7 +1063,7 @@
     // 置换表：hash+行棋色作键，depth/flag(EXACT=0/LOWER=1/UPPER=2) 标准存取，
     // 迭代加深层间复用结果大幅提速；超时上抛分数不入表。
     function gmkNegamax(depth, alpha, beta, color) {
-      if ((++gmkNodes & 127) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
+      if ((++gmkNodes & 31) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
       var opp = color === 'white' ? 'black' : 'white';
       var key = gmkHash * 2 + (color === 'white' ? 0 : 1);
       var e = gmkTT.get(key);
@@ -911,7 +1108,7 @@
     // 消解 depth 边界外的短杀链（水平线效应）。无强制手才回落棋型分。
     // qdepth 上限 2：延伸链最多 2 手冲四交互，成本约每叶子数千 ops，预算内。
     function gmkQuiesce(alpha, beta, color, qdepth) {
-      if ((++gmkNodes & 127) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
+      if ((++gmkNodes & 31) === 0 && Date.now() > gmkDeadline) { gmkTimeout = true; return 0; }
       var opp = color === 'white' ? 'black' : 'white';
       var cands = gmkCandidates(color);
       var forced = null, best = -Infinity;
@@ -945,6 +1142,10 @@
       // 哈希必须在 VCF（P6/P7 会经 gmkPlace 落子试探）之前就绪——
       // offlineStart/会话恢复已重建，这里兜底规格变化与首次调用
       gmkHashRebuild();
+      // 整步预算起点：其后的战术层（我方杀链）→ 战术层（对手杀链）→ negamax
+      // 三个阶段共用这一条硬截止，任何阶段都不会把它推后，
+      // 所以最坏等待时间与棋盘上已有棋子数无关（这是「越下越慢」的根治点）
+      gmkMoveDeadline = Date.now() + GOMOKU_MOVE_BUDGET;
       // ---- 战术层：强制手检测（在候选邻域上做威胁归类，零副作用） ----
       var near = gmkCandidates('white');
       var myFive = [], oppFive = [], myLive4 = [], oppLive4 = [], oppDouble = [], double = [];
@@ -975,7 +1176,7 @@
       // 共用 deadline 自动挤占——VCF 命中直接下首手（后续每手重跑沿链走完）
       gmkVcfCount = 0;
       gmkVctCount = 0;
-      gmkVcfDeadline = Date.now() + 150;
+      gmkVcfDeadline = Math.min(Date.now() + 90, gmkMoveDeadline - GOMOKU_KEEP_SEARCH);
       var myVcf = gmkVcf('white', GOMOKU_VCF_DEPTH);
       if (myVcf) return { row: myVcf.row, col: myVcf.col };
       gmkVctCount = 0;
@@ -985,7 +1186,7 @@
       // 杀链消解的破坏点。无破坏点说明必败已定或超预算，只能进搜索层拖延
       gmkVcfCount = 0;
       gmkVctCount = 0;
-      gmkVcfDeadline = Date.now() + 220;
+      gmkVcfDeadline = Math.min(Date.now() + 130, gmkMoveDeadline - GOMOKU_KEEP_SEARCH);
       var vcfThreat = gmkVcf('black', GOMOKU_VCF_DEPTH);
       if (!vcfThreat) {
         gmkVctCount = 0;
@@ -1029,7 +1230,7 @@
       if (!cands.length) return null;
       gmkTT = new Map();
       gmkNodes = 0;
-      gmkDeadline = Date.now() + GOMOKU_BUDGET;
+      gmkDeadline = Math.min(Date.now() + GOMOKU_BUDGET, gmkMoveDeadline);
       gmkTimeout = false;
       var finalScored = null, alpha = -Infinity, depth;
       for (depth = 2; depth <= GOMOKU_MAX_DEPTH; depth += 2) {
@@ -1064,7 +1265,15 @@
         scored.sort(function(a, b) { return b.score - a.score; });
         finalScored = scored;
       }
-      if (!finalScored) return null;
+      if (!finalScored) {
+        // 兜底：整步硬预算被战术层吃满时，可能连 depth-2 第一层都没跑完
+        // （gmkTimeout 在首个候选上就置位 → finalScored 仍为 null）。
+        // 原实现直接 return null，scheduleAi 收到 null 会跳过白方回合
+        // （表现为「AI 不出手、玩家连走两手」）。这里退化为启发式选点，
+        // 保证任何情况下 AI 都有一手可下。cands 由 gmkCandidates 按
+        // quick 分降序产出，cands[0] 已是启发式最优。
+        return { row: cands[0].row, col: cands[0].col };
+      }
       // 最优分容差内的候选随机选（容差封顶 300：远小于棋型等级差与成五深度罚差，
       // 不会把「立即成五」和「拖延取胜」混为一谈，也不会跨级乱选），
       // 兼顾「等分随机不机械」与「稳赢稳防的点绝不放过」
@@ -1137,7 +1346,11 @@
       saveSession();
       render();
     }
-    // AI 应手（人机练习专用）：420ms 延迟模拟思考；恢复对局时也用它续上被打断的回合
+    // AI 应手（人机练习专用）：延时模拟思考。原 420ms 叠在 AI 计算时间上，
+    // 中后盘单手等待可到 700ms+；整步预算已压到 GOMOKU_MOVE_BUDGET，这里同步收到 160ms。
+    // 160ms < 落子动画 220ms：玩家自己那颗子的 gomoku-drop 只动 transform/opacity
+    // 且带 will-change，由合成器线程继续播完，不会被随后的主线程计算卡住，
+    // 所以缩短这一段不会让入场动画「抖一下」。
     function scheduleAi() {
       soloTimer = setTimeout(function() {
         soloTimer = null;
@@ -1151,7 +1364,7 @@
         else state.turn = 'black';
         saveSession();
         render();
-      }, 420);
+      }, 160);
     }
     function offlineMove(row, col) {
       if (state.winner || state.status !== 'active' || state.board[row][col]) return;
@@ -1308,6 +1521,8 @@
       setText(leaveButton, isOffline ? '退出练习' : '离开房间');
       // 房间操作区仅房间模式显示（低频按钮的常驻地）
       if (roomToolsElement) roomToolsElement.hidden = mode !== 'room';
+      // 侧栏双页可见性：与成员/操作同为渲染派生态，每次 render 对齐一次
+      renderTabs();
       var owner = member && member.role === 'owner';
       var finished = !!state.winner || state.status !== 'active';
       // 悔棋按钮可用性：单机看历史栈；房间看「最后一手是否本人所下」（后端二次校验）
@@ -1336,7 +1551,7 @@
       return request(context, 'GET', '/gomoku/rooms/' + encodeURIComponent(roomCode)).then(applyState).catch(function(error) {
         setError(errMsg(error, '房间加载失败'));
         // 仅会话恢复路径：房间已失效就清会话回入场页；断线重连的刷新不清（保留房间码等重连）
-        if (isRecovery) { roomCode = ''; mode = ''; clearSession(); render(); }
+        if (isRecovery) { roomCode = ''; mode = ''; activeTab = 'info'; clearSession(); chatClear(); render(); }
       });
     }
     function enter(code, enterKind) {
@@ -1345,10 +1560,14 @@
       if (!/^[A-Z0-9]{4,6}$/.test(normalized)) { setError('请输入 4-6 位房间码'); return Promise.resolve(); }
       var path = '/gomoku/rooms/' + encodeURIComponent(normalized) + '/' + enterKind;
       return request(context, 'POST', path, {}).then(function(data) {
+        // 换房：先清空列表并作废上一房间的在途回调，再赋新房间码
+        // （只比房间码拦不住「离开后重新进入同一房间码」，见 chatEpoch 注释）
+        if (roomCode !== normalized) { activeTab = 'info'; chatClear(); }
         roomCode = normalized;
         mode = 'room';
         applyState(data);
         setError('');
+        loadChatMessages();
         // 满员自动观战：join 时黑白棋位已满，后端把新成员分配为 spectator ——
         // 明确告知降级结果，避免用户误以为进错了房间（点邀请卡片进入的常见场景）
         var me = currentMember();
@@ -1359,10 +1578,12 @@
     }
     function create() {
       return request(context, 'POST', '/gomoku/rooms', { size: Number(root.querySelector('[data-field="size"]').value) }).then(function(data) {
+        if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); }
         roomCode = data.roomCode;
         mode = 'room';
         applyState(data);
         setError('');
+        loadChatMessages();
       }).catch(function(error) { setError(errMsg(error, '创建房间失败')); });
     }
     function actionRequest(path, message, body) {
@@ -1372,7 +1593,7 @@
       }).catch(function(error) { setError(errMsg(error, message)); return null; });
     }
     function leaveRoom() {
-      actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; mode = ''; clearSession(); render(); });
+      actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; mode = ''; activeTab = 'info'; clearSession(); chatClear(); render(); });
     }
     function leave() {
       // 单机模式无房间状态，直接回入场页
@@ -1393,7 +1614,9 @@
     function setBusy(flag) {
       pending = flag;
       // 返回按钮豁免忙碌锁：请求卡住时用户仍能退出应用
-      var buttons = root.querySelectorAll('[data-action]:not([data-action="home"])');
+      // 侧栏两个分页标签同样豁免：它们是纯视图切换，不触发任何请求。
+      // 一起禁用会造成「网络慢时聊天页打不开」——用户视角是按钮坏了
+      var buttons = root.querySelectorAll('[data-action]:not([data-action="home"]):not([data-action="tab-info"]):not([data-action="tab-chat"])');
       for (var i = 0; i < buttons.length; i++) buttons[i].disabled = flag;
     }
     function onBoardClick(event) {
@@ -1437,6 +1660,9 @@
       var kind = action.dataset.action;
       // 返回桌面：标题栏常驻出口，不受忙碌锁限制（onBoardClick 的落子锁只锁棋盘）
       if (kind === 'home') return navigateHome();
+      // 侧栏分页切换：纯视图操作，同样不受忙碌锁限制（与 setBusy 的豁免保持一致，
+      // 否则按钮没被禁用但点击被 pending 拦掉 —— 表现为「点了没反应」）
+      if (kind === 'tab-info' || kind === 'tab-chat') return setTab(kind === 'tab-chat' ? 'chat' : 'info');
       if (pending) return;
       // 单机模式入口（人机练习/本地双人）：本地开局，不涉及任何后端请求
       if (kind === 'solo' || kind === 'local') { offlineStart(kind); return; }
@@ -1468,6 +1694,7 @@
       }
       if (kind === 'share-chat') return shareRoom('chat');
       if (kind === 'share-community') return shareRoom('community');
+      if (kind === 'chat-send') return sendChat();
       if (kind === 'leave') return leave();
       if (kind === 'continue') {
         if (mode === 'solo' || mode === 'local') { offlineStart(mode); return; }
@@ -1491,6 +1718,14 @@
          var data = message && message.payload ? message.payload : message;
          if (data && data.roomCode === roomCode && data.state) applyState(data.state, { fromPush: true });
        }));
+       // 房间聊天：独立事件，载荷只带一条消息（不复用 room.changed 把整盘状态重传一遍）
+       subscriptions.push(realtime.subscribe('gomoku.room.message', function(message) {
+         var data = message && message.payload ? message.payload : message;
+         // chatReady：本房间历史尚未加载完时，迟到的广播一律丢弃 ——
+         // 该区间的消息由随后的 GET 全量补齐；若先追加，紧接着的 chatClear 会把它抹掉
+         if (!chatReady || mode !== 'room') return;
+         if (data && data.roomCode === roomCode && data.message) appendChatMessage(data.message);
+       }));
      }
      if (!realtime) {
        onSocket('gomoku_room_state', function(message) { if (message.room_code === roomCode) applyState(message.state, { fromPush: true }); });
@@ -1511,8 +1746,12 @@
       }
     boardElement.addEventListener('click', onBoardClick);
     root.addEventListener('click', onAction);
+    if (chatInputElement) chatInputElement.addEventListener('keydown', onChatKeydown);
     var removeBoardClick = function() { boardElement.removeEventListener('click', onBoardClick); };
     var removeRootClick = function() { root.removeEventListener('click', onAction); };
+    var removeChatInput = function() {
+      if (chatInputElement) chatInputElement.removeEventListener('keydown', onChatKeydown);
+    };
     // 契约：资源回收必须在 context.app.onDestroy 中登记（market-registry 卸载时会先调它）。
     // 逆序执行 —— 先解绑事件与订阅，最后清 DOM。
     if (context.app && typeof context.app.onDestroy === 'function') {
@@ -1521,12 +1760,13 @@
         if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
         removeBoardClick();
         removeRootClick();
+        removeChatInput();
         subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); });
         subscriptions = [];
         clearChildren(container);
       });
     }
-    container.__gomokuUnmount = function() { disposed = true; if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; } if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); removeBoardClick(); removeRootClick(); subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); }); subscriptions = []; clearChildren(container); delete container.__gomokuUnmount; };
+    container.__gomokuUnmount = function() { disposed = true; if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; } if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); removeBoardClick(); removeRootClick(); removeChatInput(); subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); }); subscriptions = []; clearChildren(container); delete container.__gomokuUnmount; };
     // 会话恢复：路由未带房间码时，恢复上次对局——
     // 单机局直接还原棋盘（AI 思考中被打断则续上）；房间码经 loadState 校验存活，房间已关则自然回入场页
     var savedSession = routeRoom ? null : readSession();

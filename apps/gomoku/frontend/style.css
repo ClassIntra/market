@@ -17,12 +17,34 @@
  *   - 侧栏成员：棋子色点 + 身份胶囊 + 轮到谁的红圈脉冲
  *   - 状态条：当前手色点；连接状态加红绿灯圆点
  *   - 触屏 (hover: none) 无 hover 预览，只用按压反馈（触摸设备规则）
+ *
+ * 2026-09-22 平板性能约束（与象棋同一轮复盘，低端安卓平板优先）：
+ *   热点路径是「点一个交点落子」——落子 + 最后一手脉冲环 + 胜利光环可能同帧出现。
+ *   225 个交点比象棋的 90 个更密，任何模糊阴影都会被放大 2.5 倍，因此：
+ *   - 标记类一律用零模糊描边（border / inset 0 0 0 Npx）表达，不用柔光晕。
+ *   - 每个 .gomoku-cell 加 contain: layout style paint 自成绘制边界，点击只重绘
+ *     被点的那一格（及其内容），棋盘木纹与其余 224 个交点不参与。
+ *     代价：所有标记必须收敛在格内（is-last 的环已从 118% 收到 96%）。
+ *   - 不给 .gomoku-stones 设 will-change / 不提合成层：该层含全部棋子
+ *     （每枚多层径向渐变 + 阴影），提层后脏 tile 会连同棋子一起重光栅化。
+ *   - 持续动画只允许改 opacity（最后一手脉冲、成员轮次脉冲）。
+ *   - 别让 .gomoku-cell 参与宿主的 button:active transform / opacity 反馈
+ *     （整格缩放会让含渐变的棋子每帧重采样）。
  */
 
 .gomoku-app {
   width: 100%;
   height: 100%;
   min-height: 0;
+  /* 棋盘宽度预算：与 .gomoku-board 的 width 表达式同源，提到根上只是为了
+     下面 --gomoku-room-h 能推算出棋盘的真实渲染高度。
+     ⚠️ 不能把带 100% 的表达式放进来：百分比在 max-height 上下文里会退化成 none，
+     等于侧栏没有上限（竖屏本来就覆盖成 none，横屏下 100% 也不是限制项）。 */
+  --gomoku-room-w: min(780px, calc(100vh - 160px));
+  /* 房间内容高度预算 = 棋盘渲染高度（棋盘是正方形：宽 + 上下各 2px 边框）。
+     侧栏以它为 max-height 在卡片内部滚动，绝不再把 .gomoku-layout 撑高 ——
+     横屏平板下 .gomoku-app 是 overflow:hidden，撑出去的部分既看不见也滑不动。 */
+  --gomoku-room-h: calc(var(--gomoku-room-w) + 4px);
   /* 不留内边距：标题栏作为首个子级天然贴视口边缘（sticky 吸顶不被 padding 区截住），
      内容内边距由 .gomoku-shell 承担 */
   padding: 0;
@@ -619,8 +641,10 @@
   top: 14px;
   right: 14px;
   bottom: 14px;
-  /* 独立合成层：落子/按压反馈的重绘不牵动底层 SVG 木纹棋盘（与 chess-points 同理） */
-  will-change: transform;
+  /* 刻意不提为合成层、不设 will-change（2026-09-22 平板卡顿复盘）：
+     本层有 225 个交点、最多 225 枚多层径向渐变棋子。提层后一次落子造成的脏 tile
+     会连同层内棋子一起重新光栅化，比按脏矩形增量重绘更贵。
+     绘制边界下沉到 .gomoku-cell（contain: paint），落子只重绘被点的那一格。 */
   display: -ms-grid;
   display: grid;
   -ms-grid-columns: repeat(var(--gomoku-size, 15), minmax(0, 1fr));
@@ -686,8 +710,12 @@
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   z-index: 1;
-  -webkit-transition: background-color 0.12s ease;
-  transition: background-color 0.12s ease;
+  -webkit-transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: background-color var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  /* 每格自成绘制边界（Chrome 52+ 支持 contain）：落子/按压只重绘这一格，
+     棋盘木纹与其余 224 个交点完全不动。格内所有绘制（棋子 78%、
+     最后一手环 96%、胜利金环）都已收敛在边界内。 */
+  contain: layout style paint;
 }
 
 .gomoku-cell::before,
@@ -701,6 +729,9 @@
   /* 钉死宿主全局 button:active{transform:scale(.97)}：按下时整格缩放会触发
      含渐变棋子的格子重绘，与落子入场动画同帧叠加造成低端平板掉帧 */
   transform: none;
+  /* 宿主 button:active 还有 opacity:.85 —— 会让整格（含棋子）按下即变半透明，
+     视觉上「棋子闪一下」并多付一次重绘。按压反馈由底色承担，禁用宿主的透明度。 */
+  opacity: 1 !important;
 }
 
 .gomoku-cell:disabled {
@@ -783,42 +814,49 @@
 }
 
 .gomoku-cell.is-black .gomoku-stone {
-  background: radial-gradient(circle at 33% 28%, #6b7686 0%, #39445a 20%, #1b2432 48%, #090e18 100%);
+  /* 黑子质感：左上镜面高光 → 冷灰过渡 → 墨青暗部 → 近黑收边（四段，与原来一致）。
+     阴影四层不变，但把「边缘细亮线」换成零模糊的 inset 描边，并把双层投影合并为
+     单层 —— 立体的观感保留，单枚棋子的光栅化成本下降（225 枚棋子的棋盘上放大 2.5 倍）。 */
+  background: radial-gradient(circle at 33% 27%, #7d8798 0%, #3b4759 20%, #1c2536 50%, #080c14 100%);
   box-shadow:
     inset 0 -4px 7px rgba(0, 0, 0, .45),
-    inset 0 2px 3px rgba(255, 255, 255, .12),
-    0 3px 6px rgba(15, 23, 42, .42),
-    0 1px 2px rgba(15, 23, 42, .3);
+    inset 0 2px 3px rgba(255, 255, 255, .14),
+    inset 0 0 0 1px rgba(160, 186, 226, .13),
+    0 2px 4px rgba(15, 23, 42, .42);
 }
 
 .gomoku-cell.is-white .gomoku-stone {
-  background: radial-gradient(circle at 33% 28%, #ffffff 0%, #fdfefe 32%, #edf0f4 58%, #ccd4dd 100%);
-  border: 1px solid rgba(148, 163, 184, .55);
+  /* 白子质感：瓷面高光更亮、边缘更实，底部暗部略收 —— 与黑子同一套光影逻辑，
+     靠内描边而非模糊阴影表达「釉面反光」 */
+  background: radial-gradient(circle at 33% 27%, #ffffff 0%, #fdfeff 30%, #eff3f7 58%, #c9d4e0 100%);
+  border: 1px solid rgba(148, 163, 184, .5);
   box-sizing: border-box;
   box-shadow:
-    inset 0 -3px 6px rgba(148, 163, 184, .42),
-    inset 0 2px 3px rgba(255, 255, 255, .85),
-    0 3px 6px rgba(15, 23, 42, .26),
-    0 1px 2px rgba(15, 23, 42, .18);
+    inset 0 -3px 6px rgba(148, 163, 184, .4),
+    inset 0 2px 3px rgba(255, 255, 255, .9),
+    inset 0 0 0 1px rgba(255, 255, 255, .6),
+    0 2px 4px rgba(15, 23, 42, .26);
 }
 
-/* 新落子动画：is-new 由 JS 只加给最新一手（重渲染不重播） */
+/* 新落子动画：is-new 由 JS 只加给最新一手（重渲染不重播）
+   位移与缩放幅度收窄（-68%/.55 → -60%/.8）：重采样区域更小，落子依然是
+   清晰的「落下」动作，但不再需要为大幅缩放逐帧重新光栅化整枚棋子。 */
 .gomoku-cell.is-new .gomoku-stone {
-  -webkit-animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
-  animation: gomoku-drop .24s cubic-bezier(.34, 1.4, .64, 1) both;
-  /* 动画期间提升独立合成层：棋子是多层径向渐变 + 4 层阴影的重绘热点，
+  -webkit-animation: gomoku-drop .22s cubic-bezier(.34, 1.4, .64, 1) both;
+  animation: gomoku-drop .22s cubic-bezier(.34, 1.4, .64, 1) both;
+  /* 动画期间提升独立合成层：棋子是多层径向渐变 + 阴影的重绘热点，
      不提层的话动画每帧都重光栅化脏区（低端平板落子动画掉帧的根因）。
      is-new 全盘同时只有一个节点、下一手落子即移除，无层风暴风险 */
   will-change: transform, opacity;
 }
 
 @-webkit-keyframes gomoku-drop {
-  0% { opacity: 0; -webkit-transform: translate(-50%, -68%) scale(.55); }
+  0% { opacity: 0; -webkit-transform: translate(-50%, -60%) scale(.8); }
   100% { opacity: 1; -webkit-transform: translate(-50%, -50%) scale(1); }
 }
 
 @keyframes gomoku-drop {
-  0% { opacity: 0; transform: translate(-50%, -68%) scale(.55); }
+  0% { opacity: 0; transform: translate(-50%, -60%) scale(.8); }
   100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
@@ -841,32 +879,39 @@
   position: absolute;
   left: 50%;
   top: 50%;
+  /* 118% 是相对棋子（棋子的 78% 格）→ 实际 92% 格宽，静置时恰好在格内 */
   width: 118%;
   height: 118%;
   margin: -59% 0 0 -59%;
   border-radius: 50%;
   border: 2px solid rgba(239, 68, 68, .9);
   box-sizing: border-box;
-  -webkit-animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
-  animation: gomoku-last-pulse 1.4s var(--ease-standard, ease-in-out) infinite;
+  -webkit-animation: gomoku-last-pulse 1.6s var(--ease-standard, ease-in-out) infinite;
+  animation: gomoku-last-pulse 1.6s var(--ease-standard, ease-in-out) infinite;
 }
 
+/* 纯透明度脉冲：原实现叠了 transform: scale(1→1.14)，环会涨到 105% 格宽（越出
+   交点绘制边界被裁），且每帧都要对红环做纹理重采样。只留透明度，观感一致、
+   零模糊零重采样，且任何一帧都停留在格内。 */
 @-webkit-keyframes gomoku-last-pulse {
-  0%, 100% { opacity: .95; -webkit-transform: scale(1); }
-  50% { opacity: .35; -webkit-transform: scale(1.14); }
+  0%, 100% { opacity: .95; }
+  50% { opacity: .4; }
 }
 
 @keyframes gomoku-last-pulse {
-  0%, 100% { opacity: .95; transform: scale(1); }
-  50% { opacity: .35; transform: scale(1.14); }
+  0%, 100% { opacity: .95; }
+  50% { opacity: .4; }
 }
 
-/* 胜利连线：金色光环 + 光晕，其余棋子弱化（has-winner 由 JS 打在棋盘上） */
+/* 胜利连线：双层金色硬环 + 投影，其余棋子弱化（has-winner 由 JS 打在棋盘上）。
+   原第三层是 0 0 18px 柔光晕——从棋子半径再外扩 18px 会越出交点绘制边界被 contain
+   裁掉，且要离屏模糊。改为「实金环 + 外圈淡金环」的零模糊双层描边：落在格内、
+   胜利时刻同样醒目，成本几乎为零。 */
 .gomoku-cell.is-win .gomoku-stone {
   box-shadow:
     0 0 0 3px rgba(250, 204, 21, .95),
-    0 0 18px rgba(250, 204, 21, .55),
-    0 3px 8px rgba(15, 23, 42, .35);
+    0 0 0 4px rgba(250, 204, 21, .38),
+    0 2px 4px rgba(15, 23, 42, .35);
 }
 
 .gomoku-board.has-winner .gomoku-cell:not(.is-win) .gomoku-stone {
@@ -883,6 +928,10 @@
   border-radius: var(--radius-lg, 16px);
   background: var(--ci-color-bg-elevated, #fff);
   box-sizing: border-box;
+  /* 与棋盘等高：内容（成员列表 / 房间操作 / 聊天列表）超出时在卡片内部滚动，
+     而不是把整行撑高、把输入框和操作按钮推出视口。
+     高度预算与棋盘同源，见 .gomoku-app 的 --gomoku-room-h。 */
+  max-height: var(--gomoku-room-h);
   overflow: auto;
 }
 
@@ -1095,6 +1144,8 @@
     width: auto;
     -ms-flex-preferred-size: auto;
     flex-basis: auto;
+    /* 竖屏是纵向堆叠 + 整页滚动，再给高度上限会把内容困在一个矮框里 */
+    max-height: none;
   }
   .gomoku-actions {
     -webkit-box-align: stretch;
@@ -1138,6 +1189,9 @@
     -webkit-box-direction: normal;
     -ms-flex-direction: column;
     flex-direction: column;
+    /* 横屏棋盘宽度换成 min(900px, 100%, calc(100vh - 80px))，
+       高度预算必须跟着改，否则侧栏上限与棋盘对不上（预算偏大 → 侧栏底部被裁） */
+    --gomoku-room-w: min(900px, calc(100vh - 80px));
   }
   /* shell 承担横屏内容内边距（max-width 含 padding，内容净宽仍 1160） */
   .gomoku-shell {
@@ -1241,4 +1295,211 @@
   -webkit-transform: none;
   transform: none;
   opacity: .6;
+}
+
+/* ===== 侧栏双页切换（信息 / 聊天） =====
+ * 聊天页若常驻，会把房间成员与房间操作一路顶下去，侧栏高度随消息条数增长；
+ * 横屏平板下 .gomoku-app 是 overflow:hidden，撑出去的部分既看不见也滑不动。
+ * 改为两页互斥显示后信息页高度与聊天条数彻底解耦。
+ * 兼容红线：不能用 flex gap（相邻兄弟补 margin）；宿主 button 的 :active 缩放
+ * 与 :disabled 半透明必须在按下态显式压制。 */
+.gomoku-info-tabs {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  margin: 0 0 10px;
+  padding: 3px;
+  background-color: rgba(148, 163, 184, .16);
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
+.gomoku-info-tabs > * + * {
+  margin-left: 3px;
+}
+
+.gomoku-tab {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 0;
+  flex: 1 1 0;
+  /* flex 子项默认 min-width:auto：长文案会把另一页挤到换行/溢出 */
+  min-width: 0;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -ms-flex-pack: center;
+  justify-content: center;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: background-color var(--duration-fast, .15s) var(--ease-standard, ease), color var(--duration-fast, .15s) var(--ease-standard, ease);
+  transition: background-color var(--duration-fast, .15s) var(--ease-standard, ease), color var(--duration-fast, .15s) var(--ease-standard, ease);
+}
+
+.gomoku-tab.is-active {
+  background-color: var(--ci-color-bg-elevated, #fff);
+  color: var(--ci-color-text, #172033);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+
+/* 标签是纯切换控件：不要宿主的按下缩放/半透明反馈（否则整条标签带一起抖） */
+.gomoku-tab:not(:disabled):hover,
+.gomoku-tab:not(:disabled):active {
+  -webkit-transform: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+.gomoku-tab-badge {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill, 999px);
+  background-color: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+/* ===== 房间快捷聊天（侧栏「聊天」页）：玩家与观战者都能发言，消息随房间销毁 =====
+ * 列表固定 max-height + 内部滚动：即便侧栏已有高度上限，消息也不该把输入框挤出可视区。
+ * ⚠️ 选择器必须写成 .gomoku-chat .gomoku-chat-list 而不能只写 .gomoku-chat-list：
+ * 上面的 .gomoku-info ul（0,1,1）优先级高于单类（0,1,0），只写类名时
+ * margin/padding/list-style 会被它覆盖，内边距直接失效。 */
+.gomoku-chat {
+  /* 紧接双页标签下方，间距由标签的 margin-bottom 提供 */
+  margin-top: 0;
+}
+
+.gomoku-chat .gomoku-chat-list {
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  /* 高度从侧栏同一条预算（--gomoku-room-h）派生，不硬编码像素：
+     固定值时只要「侧栏预算 < 固定值 + 固定开销(标签/成员区/输入行 ≈220px)」就溢出，
+     发送按钮会被顶到可视区外（chess 1.5.0 视口扫描实测过这一组数）。
+     -240px 给固定开销留余量；下限 140px 保证任何尺寸下都还能看到几行。 */
+  max-height: max(140px, calc(var(--gomoku-room-h) - 240px));
+  overflow-y: auto;
+  /* ⚠️ 不要加 overscroll-behavior: contain：它会把滚动限制在列表内，
+     手指停在列表上时整页/侧栏就完全滑不动（校园平板上正是「整个滑动不了」的体感来源） */
+  -webkit-overflow-scrolling: touch;
+  background: rgba(148, 163, 184, .08);
+  border-radius: var(--radius-sm, 8px);
+}
+
+.gomoku-chat-item {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  /* 长串（连续英文/数字）必须能断行，否则撑破侧栏宽度 */
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.gomoku-chat-item:last-child {
+  margin-bottom: 0;
+}
+
+.gomoku-chat-name {
+  margin-right: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.gomoku-chat-text {
+  color: var(--ci-color-text, #1e293b);
+}
+
+/* 自己的发言用主色区分，便于在多人对话里定位 */
+.gomoku-chat-item.is-me .gomoku-chat-name,
+.gomoku-chat-item.is-me .gomoku-chat-text {
+  color: #2563eb;
+}
+
+.gomoku-chat-empty {
+  padding: 6px 0;
+  font-size: 12px;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.gomoku-chat-form {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
+.gomoku-chat-form > * + * {
+  margin-left: 8px;
+}
+
+.gomoku-chat-input {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  /* flex 子项里的 input 默认 min-width:auto 会拒绝收缩，长 placeholder 直接撑破侧栏
+     （chess 实测溢出 18px） */
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(148, 163, 184, .45);
+  border-radius: var(--radius-sm, 8px);
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.gomoku-chat-input:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, .55);
+  background: #fff;
+}
+
+.gomoku-chat-send {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #2563eb;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
+}
+
+.gomoku-chat-send:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .75;
+}
+
+.gomoku-chat-send:disabled {
+  opacity: .5;
 }

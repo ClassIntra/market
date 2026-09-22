@@ -1,10 +1,10 @@
 {
   "name": "gomoku",
   "type": "app",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "sdk": "1",
   "label": "五子棋",
-  "description": "支持房间联机、跨班对局、本地双人对战、人机练习、观战与断线恢复的原生 DOM 五子棋",
+  "description": "支持房间联机、跨班对局、房间快捷聊天、本地双人对战、人机练习、观战与断线恢复的原生 DOM 五子棋",
   "author": "ClassIntra",
   "icon": "./icon.svg",
   "color": "#2563eb",

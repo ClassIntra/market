@@ -76,6 +76,39 @@ function notifyRoom(roomCode, state) {
   // 跨班：把状态变化中继给成员所在的其他服务器，由对方投递给本机在线成员
   if (RELAY_ACTIVE) relayBus.relayOnly('gomoku_room_event', { room_code: roomCode, member_ids: memberIds, state: state });
 }
+// ===== 房间快捷聊天 =====
+// 自包含实现，不依赖 chat 应用的消息表/已读状态/通知体系：房间级短消息，随房间销毁。
+// 玩家与观战者都能发言（观战者不能落子，聊天是其唯一参与方式）。与 chess 1.5.0 同构。
+var CHAT_FETCH_LIMIT = 80;    // 单次拉取上限：只取最近一段，长会话不整体回传
+var CHAT_MAX_LENGTH = 200;
+
+function chatMessageView(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    netName: row.net_name || null,
+    content: row.content
+  };
+}
+function notifyRoomMessage(roomCode, message) {
+  var memberIds = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ?').all(roomCode).map(function(member) { return member.user_id; });
+  if (!memberIds.length) return;
+  realtimeBus.publishToUsers(memberIds, {
+    type: 'extension_event',
+    app_name: 'gomoku',
+    event: 'gomoku.room.message',
+    payload: { roomCode: roomCode, message: message },
+    created_at: new Date().toISOString()
+  });
+  // 跨班房间的成员可能分布在不同服务器上，聊天同样要经中继送到对端本机在线成员手里。
+  // 与 gomoku.room.changed 同构；漏掉这条则跨班对局的聊天单向可见（本机能看到对端发言，
+  // 对端看不到本机发言），排查成本很高 —— 现象是「他明明说我说话了，我这边没显示」。
+  if (RELAY_ACTIVE) relayBus.relayOnly('gomoku_room_message', { room_code: roomCode, member_ids: memberIds, message: message });
+}
+// 房间销毁（关房 / 空置）时清空消息。调用方保证时机，这里只做删除。
+function purgeRoomMessages(roomCode) {
+  db.prepare('DELETE FROM gomoku_messages WHERE room_code = ?').run(roomCode);
+}
 function notifySuccessfulRoomChange(req, res, next) {
   var originalJson = res.json;
   res.json = function(body) {
@@ -97,6 +130,13 @@ router.use(notifySuccessfulRoomChange);
 // 房间数据只存在于创建它的「家服务器」上；其他服务器的学生凭房间码加入时，
 // 通过中继同步的目录找到家服务器，把请求原样转发过去（单写者，避免双机状态冲突）。
 db.exec("CREATE TABLE IF NOT EXISTS gomoku_room_directory (room_code TEXT PRIMARY KEY, server_id TEXT NOT NULL, size INTEGER, updated_at TEXT DEFAULT (datetime('now')))");
+// 房间快捷聊天表：消息挂在房间上，随房间生命周期销毁（关房 / 房间空置即清空），不做跨房投递。
+// created_at 沿用 SQLite datetime('now')（UTC，与 gomoku_moves 一致）；界面不展示时间，
+// 避免与中继/其他表的 ISO 格式混用（见项目「created_at 两格式」约定）。
+// 不加 FK 到 gomoku_rooms：基础表由 migration 004 建，跨班房间在本机可能只有目录行没有房间行，
+// 加 FK 会让「转发到家的服务器的发言」在本机误判失败；生命周期由 purgeRoomMessages 负责。
+db.exec("CREATE TABLE IF NOT EXISTS gomoku_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, room_code TEXT NOT NULL, user_id TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))");
+db.exec('CREATE INDEX IF NOT EXISTS idx_gomoku_messages_room ON gomoku_messages(room_code, id)');
 function directoryGet(roomCode) { return db.prepare('SELECT room_code, server_id, size FROM gomoku_room_directory WHERE room_code = ?').get(roomCode); }
 function directorySet(roomCode, serverId, size) { db.prepare("INSERT OR REPLACE INTO gomoku_room_directory (room_code, server_id, size, updated_at) VALUES (?, ?, ?, datetime('now'))").run(roomCode, serverId, size || null); }
 function directoryDelete(roomCode) { db.prepare('DELETE FROM gomoku_room_directory WHERE room_code = ?').run(roomCode); }
@@ -119,6 +159,21 @@ relayBus.register('gomoku_room_event', function(payload) {
     app_name: 'gomoku',
     event: 'gomoku.room.changed',
     payload: { roomCode: payload.room_code, state: payload.state },
+    created_at: new Date().toISOString()
+  });
+});
+// 聊天消息的跨机投递：只推给本机在线成员，避免向全机广播无关流量
+relayBus.register('gomoku_room_message', function(payload) {
+  if (!payload || !payload.room_code || !payload.message) return;
+  var ids = Array.isArray(payload.member_ids) ? payload.member_ids : [];
+  var targets = [];
+  for (var i = 0; i < ids.length; i++) { if (realtimeBus.isRegistered(ids[i])) targets.push(ids[i]); }
+  if (!targets.length) return;
+  realtimeBus.publishToUsers(targets, {
+    type: 'extension_event',
+    app_name: 'gomoku',
+    event: 'gomoku.room.message',
+    payload: { roomCode: payload.room_code, message: payload.message },
     created_at: new Date().toISOString()
   });
 });
@@ -271,6 +326,38 @@ function createRoom(req, res) {
 }
 router.post('/rooms', requireAuth, createRoom);
 router.get('/rooms/:roomCode', requireRoom, function(req, res) { res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
+// ===== 房间快捷聊天接口 =====
+// 聊天记录：只对房间成员开放（房间码只有 4 位，不校验成员等于把聊天内容暴露给猜码者）。
+// 倒序取最近 N 条再反转 —— 长会话下要拿的是最新一段而不是最早一段。
+// 挂 roomAuth 而非 requireAuth：跨班房间的请求会被 requireRoom 转发回家服务器，
+// 转发请求凭 X-Relay-Secret 直通，用 requireAuth 会被判未登录。
+router.get('/rooms/:roomCode/messages', roomAuth, requireRoom, function(req, res) {
+  var id = userId(req), roomCode = req.params.roomCode;
+  var member = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
+  if (!member) return res.status(403).json({ code: 403, message: '不在房间中' });
+  var rows = db.prepare('SELECT m.id, m.user_id, m.content, m.created_at, u.net_name FROM gomoku_messages m LEFT JOIN users u ON u.user_id = m.user_id WHERE m.room_code = ? ORDER BY m.id DESC LIMIT ?').all(roomCode, CHAT_FETCH_LIMIT);
+  rows.reverse();
+  res.json({ code: 200, data: { messages: rows.map(chatMessageView) } });
+});
+// 发言：玩家与观战者都可发（观战者不能落子，聊天是其唯一参与方式）。
+// 内容以 textContent 在前端渲染，不做 HTML 解析；这里仍做长度与空值约束。
+router.post('/rooms/:roomCode/messages', roomAuth, requireRoom, function(req, res) {
+  var id = userId(req), roomCode = req.params.roomCode;
+  var member = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
+  if (!member) return res.status(403).json({ code: 403, message: '请先进入房间再发言' });
+  var content = String((req.body && req.body.content) || '').trim();
+  if (!content) return res.status(400).json({ code: 400, message: '请输入内容' });
+  if (content.length > CHAT_MAX_LENGTH) {
+    content = content.slice(0, CHAT_MAX_LENGTH);
+    // 截断落在代理对中间会得到半个 emoji（渲染成替换字符），退一个码元
+    if (/[\uD800-\uDBFF]$/.test(content)) content = content.slice(0, -1);
+  }
+  var result = db.prepare('INSERT INTO gomoku_messages (room_code, user_id, content) VALUES (?, ?, ?)').run(roomCode, id, content);
+  var row = db.prepare('SELECT m.id, m.user_id, m.content, m.created_at, u.net_name FROM gomoku_messages m LEFT JOIN users u ON u.user_id = m.user_id WHERE m.id = ?').get(result.lastInsertRowid);
+  var message = chatMessageView(row);
+  notifyRoomMessage(roomCode, message);
+  res.status(201).json({ code: 201, data: message });
+});
 router.post('/rooms/:roomCode/join', roomAuth, requireRoom, function(req, res) { join(req.params.roomCode, userId(req)); var result = stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)); notifyRoom(req.params.roomCode, result); res.json({ code: 200, data: result }); });
 router.post('/rooms/:roomCode/watch', roomAuth, requireRoom, function(req, res) { var member = join(req.params.roomCode, userId(req)); if (member.color) db.prepare('UPDATE gomoku_members SET role = \'spectator\', color = NULL WHERE room_code = ? AND user_id = ?').run(req.params.roomCode, userId(req)); res.json({ code: 200, data: stateFor(req.params.roomCode, ensureGame(req.params.roomCode, req.gomokuRoom.size)) }); });
 // 观战递补：退出的玩家（有色）空出的颜色按加入顺序补位给最早的观战者，再广播，
@@ -290,11 +377,15 @@ router.post('/rooms/:roomCode/leave', roomAuth, requireRoom, function(req, res) 
     var promoted = db.prepare('SELECT user_id FROM gomoku_members WHERE room_code = ? AND color IS NULL AND role = \'spectator\' ORDER BY joined_at LIMIT 1').get(roomCode);
     if (promoted) db.prepare('UPDATE gomoku_members SET color = ?, role = \'player\' WHERE room_code = ? AND user_id = ?').run(member.color, roomCode, promoted.user_id);
   }
+  // 房间空置（最后一人离开）即清空聊天记录：成员都走光了，记录再留着既无人可读，
+  // 又会在同一房间码被重新加入时把上一批人的对话铺出来。关房路径见 /close。
+  var remaining = db.prepare('SELECT COUNT(*) AS c FROM gomoku_members WHERE room_code = ?').get(roomCode).c;
+  if (!remaining) purgeRoomMessages(roomCode);
   var room = db.prepare('SELECT * FROM gomoku_rooms WHERE room_code = ?').get(roomCode);
   if (room) notifyRoom(roomCode, stateFor(roomCode, ensureGame(roomCode, room.size)));
   res.json({ code: 200, data: { roomCode: roomCode } });
 });
-router.post('/rooms/:roomCode/close', roomAuth, requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以关闭房间' }); db.prepare('UPDATE gomoku_rooms SET status = \'closed\', updated_at = datetime(\'now\') WHERE room_code = ?').run(req.params.roomCode); // 跨班：目录下线
+router.post('/rooms/:roomCode/close', roomAuth, requireRoom, function(req, res) { if (req.gomokuRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以关闭房间' }); db.prepare('UPDATE gomoku_rooms SET status = \'closed\', updated_at = datetime(\'now\') WHERE room_code = ?').run(req.params.roomCode); purgeRoomMessages(req.params.roomCode); // 关房即销毁聊天记录；跨班：目录下线
 directoryDelete(req.params.roomCode); if (RELAY_ACTIVE) relayBus.relayOnly('gomoku_room_directory_remove', { room_code: req.params.roomCode }); res.json({ code: 200, data: { roomCode: req.params.roomCode, status: 'closed' } }); });
 // 对局结束后（有胜者或已 finished）currentGame() 返回 undefined，
 // 直接取 game.id 会抛 TypeError 导致 500 —— 必须判空：无进行中对局时直接开新局。
