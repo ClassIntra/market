@@ -285,14 +285,16 @@
 
   // ===== 人机练习 AI =====
   // 算法移植自 Resources/ChineseChess/static/js/chess/AI.js（极大极小 + a-b 剪枝 + 位置分表），
-  // 三档棋力对齐 Resources/ChinessChess：
-  //   简单 = 浅层极大极小 + 失误率；普通 = a-b 迭代加深；困难 = 更深 + 吃子静态搜索 + 历史启发。
+  // 三档棋力：
+  //   简单 = 浅层极大极小 + 失误率（刻意放水，学生可赢）；
+  //   普通 = a-b 迭代加深 + 吃子静态搜索（默认档，不许白送子）；
+  //   困难 = 更深 + 历史启发（走法生成改为伪合法 + 搜索内懒合法化后同预算搜得更深）。
   // 棋子/坐标系对齐本应用：board[row][col]、黑上红下、r_*/b_* 命名。
   // 分表按「黑方底线在行 0」朝向书写；红方取分时用 9-row 翻转（与参考实现的 player0 朝向一致）。
   var AI_LEVELS = {
     easy: { minDepth: 1, maxDepth: 2, budget: 150, blunderRate: 0.2, quiesce: false, history: false },
-    normal: { minDepth: 1, maxDepth: 3, budget: 320, blunderRate: 0, quiesce: false, history: false },
-    hard: { minDepth: 1, maxDepth: 6, budget: 900, blunderRate: 0, quiesce: true, history: true, nullMove: true }
+    normal: { minDepth: 1, maxDepth: 4, budget: 500, blunderRate: 0, quiesce: true, history: true },
+    hard: { minDepth: 1, maxDepth: 8, budget: 900, blunderRate: 0, quiesce: true, history: true }
   };
   var AI_LEVEL_LABELS = { easy: '简单', normal: '普通', hard: '困难' };
   var AI_INF = 100000;
@@ -411,17 +413,15 @@
   var AI_PIECE_BASE = { king: 10000, rook: 600, cannon: 350, knight: 300, elephant: 120, guard: 120, pawn: 60 };
   function aiPieceValue(piece) { return AI_PIECE_BASE[pieceType(piece)] || 0; }
   // 按棋子类型只枚举候选落点（避免每子扫全盘 90 格）——这是原实现搜不深的根因
-  function aiPushIfLegal(board, color, moves, fr, fc, tr, tc) {
+  // 伪合法走法入列：只查边界与己方子占位，**不查送将**。
+  // 老实现在这里对每个候选做 make/unmake + 全盘 isInCheck，而 a-b 剪枝下内部节点
+  // 平均只访问个位数走法就被截断，九成合法性检查纯属白做——这是搜不深的根因。
+  // 合法性改在搜索/选根处落子后懒判定（aiMoveLeavesSelfCheck）。
+  function aiPushPseudo(board, color, moves, fr, fc, tr, tc) {
     if (tr < 0 || tr > 9 || tc < 0 || tc > 8) return;
-    var piece = board[fr][fc];
     var target = board[tr][tc];
     if (target && pieceColor(target) === color) return;
-    board[tr][tc] = piece;
-    board[fr][fc] = null;
-    var legal = !isInCheck(board, color);
-    board[fr][fc] = piece;
-    board[tr][tc] = target;
-    if (legal) moves.push({ fr: fr, fc: fc, tr: tr, tc: tc, piece: piece, captured: target || null });
+    moves.push({ fr: fr, fc: fc, tr: tr, tc: tc, piece: board[fr][fc], captured: target || null });
   }
   function aiRay(board, color, moves, fr, fc, dr, dc, cannon, capturesOnly) {
     var tr = fr + dr, tc = fc + dc;
@@ -430,18 +430,18 @@
       var target = board[tr][tc];
       if (!cannon) {
         if (!target) {
-          if (!capturesOnly) aiPushIfLegal(board, color, moves, fr, fc, tr, tc);
+          if (!capturesOnly) aiPushPseudo(board, color, moves, fr, fc, tr, tc);
         } else {
-          if (pieceColor(target) !== color) aiPushIfLegal(board, color, moves, fr, fc, tr, tc);
+          if (pieceColor(target) !== color) aiPushPseudo(board, color, moves, fr, fc, tr, tc);
           break;
         }
       } else if (!screened) {
         if (!target) {
-          if (!capturesOnly) aiPushIfLegal(board, color, moves, fr, fc, tr, tc);
+          if (!capturesOnly) aiPushPseudo(board, color, moves, fr, fc, tr, tc);
         } else screened = true;
       } else {
         if (target) {
-          if (pieceColor(target) !== color) aiPushIfLegal(board, color, moves, fr, fc, tr, tc);
+          if (pieceColor(target) !== color) aiPushPseudo(board, color, moves, fr, fc, tr, tc);
           break;
         }
       }
@@ -457,18 +457,15 @@
         if (!piece || pieceColor(piece) !== color) continue;
         var type = pieceType(piece);
         if (type === 'king' || type === 'guard') {
+          // 帅走正交一步、士走斜线一步。旧版两类共用 dirs4 正交方向、士又要求
+          // dr===1&&dc===1 对角步——条件永假，AI 的士整局从不动（九宫防守瘫痪）。
+          var step = type === 'guard' ? [[-1, -1], [-1, 1], [1, -1], [1, 1]] : dirs4;
           for (var d = 0; d < 4; d++) {
-            var tr = r + dirs4[d][0], tc = c + dirs4[d][1];
+            var tr = r + step[d][0], tc = c + step[d][1];
             if (tr < 0 || tr > 9 || tc < 0 || tc > 8) continue;
             if (capturesOnly && !board[tr][tc]) continue;
-            if (type === 'king') {
-              if (!inPalace(color, tr, tc)) continue;
-              aiPushIfLegal(board, color, moves, r, c, tr, tc);
-            } else {
-              var dr = Math.abs(tr - r), dc = Math.abs(tc - c);
-              if (dr !== 1 || dc !== 1 || !inPalace(color, tr, tc)) continue;
-              aiPushIfLegal(board, color, moves, r, c, tr, tc);
-            }
+            if (!inPalace(color, tr, tc)) continue;
+            aiPushPseudo(board, color, moves, r, c, tr, tc);
           }
         } else if (type === 'elephant') {
           var eyes = [[-2, -2], [-2, 2], [2, -2], [2, 2]];
@@ -479,7 +476,7 @@
             if (color === 'red' && er < 5) continue;
             if (color === 'black' && er > 4) continue;
             if (board[r + eyes[e][0] / 2][c + eyes[e][1] / 2]) continue;
-            aiPushIfLegal(board, color, moves, r, c, er, ec);
+            aiPushPseudo(board, color, moves, r, c, er, ec);
           }
         } else if (type === 'knight') {
           var jumps = [[-2, -1], [-2, 1], [2, -1], [2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2]];
@@ -490,18 +487,18 @@
             var legR = Math.abs(jumps[j][0]) === 2 ? r + (jumps[j][0] > 0 ? 1 : -1) : r;
             var legC = Math.abs(jumps[j][0]) === 2 ? c : c + (jumps[j][1] > 0 ? 1 : -1);
             if (board[legR][legC]) continue;
-            aiPushIfLegal(board, color, moves, r, c, jr, jc);
+            aiPushPseudo(board, color, moves, r, c, jr, jc);
           }
         } else if (type === 'pawn') {
           var forward = color === 'red' ? -1 : 1;
           var fr2 = r + forward;
           if (!(capturesOnly && !board[fr2][c]) && fr2 >= 0 && fr2 <= 9) {
-            aiPushIfLegal(board, color, moves, r, c, fr2, c);
+            aiPushPseudo(board, color, moves, r, c, fr2, c);
           }
           var crossed = color === 'red' ? r <= 4 : r >= 5;
           if (crossed) {
-            if (!(capturesOnly && !board[r][c - 1]) && c - 1 >= 0) aiPushIfLegal(board, color, moves, r, c, r, c - 1);
-            if (!(capturesOnly && !board[r][c + 1]) && c + 1 <= 8) aiPushIfLegal(board, color, moves, r, c, r, c + 1);
+            if (!(capturesOnly && !board[r][c - 1]) && c - 1 >= 0) aiPushPseudo(board, color, moves, r, c, r, c - 1);
+            if (!(capturesOnly && !board[r][c + 1]) && c + 1 <= 8) aiPushPseudo(board, color, moves, r, c, r, c + 1);
           }
         } else if (type === 'rook') {
           for (var s = 0; s < 4; s++) aiRay(board, color, moves, r, c, dirs4[s][0], dirs4[s][1], false, capturesOnly);
@@ -533,49 +530,64 @@
     board[mv.tr][mv.tc] = mv.captured || null;
   }
   function aiHistoryIndex(mv) { return (mv.fr * 9 + mv.fc) * 100 + mv.tr * 10 + mv.tc; }
-  // 吃子静态搜索（仅困难档）：叶子沿吃子延伸，缓解视野效应（对应 HardSearch.searchQuiesc）。
-  // 必须限深：无上限时吃链会吃光预算，导致整层作废、棋力与普通档无异。
-  function aiQuiesce(board, side, alpha, beta, aiColor, deadline, history, qdepth) {
+  // 吃子静态搜索：叶子沿吃子延伸，缓解视野效应（depth 边界外的连吃/反吃不再失明）。
+  // 约定必须与 aiSearch 完全一致：返回值恒为 aiColor 视角、递归不取负、窗口原样下传。
+  // （旧版递归处写了 -递归(-beta,-alpha) 的 negamax 取负，而本函数 stand-pat 又是
+  //   min/max 写法，两种约定混用后两段以上的吃子链评估直接失真——困难档棋力劣化主因。）
+  // 吃子序保持生成器的 MVV-LVA，不再按历史表重排（历史值统计的是闲着，会打乱吃子序）。
+  // 必须限深：无上限时吃链会吃光预算，导致整层作废。
+  function aiQuiesce(board, side, alpha, beta, aiColor, deadline, qdepth) {
     if (Date.now() > deadline) return aiEvaluate(board, aiColor);
     var stand = aiEvaluate(board, aiColor);
-    if (side !== aiColor) {
-      if (stand <= alpha) return alpha;
-      if (stand < beta) beta = stand;
-    } else {
+    var best = stand;
+    if (side === aiColor) {
       if (stand >= beta) return beta;
       if (stand > alpha) alpha = stand;
+    } else {
+      if (stand <= alpha) return alpha;
+      if (stand < beta) beta = stand;
     }
-    if (qdepth <= 0) return stand;
+    if (qdepth <= 0) return best;
     var moves = aiGenerateMoves(board, side, true);
-    if (history) {
-      moves.sort(function(a, b) { return (history[aiHistoryIndex(b)] || 0) - (history[aiHistoryIndex(a)] || 0); });
-    }
-    var best = stand;
     for (var i = 0; i < moves.length; i++) {
       var mv = moves[i];
       if (mv.captured === 'r_king' || mv.captured === 'b_king') return side === aiColor ? AI_MATE : -AI_MATE;
       aiMake(board, mv);
-      var sc = -aiQuiesce(board, side === 'red' ? 'black' : 'red', -beta, -alpha, aiColor, deadline, history, qdepth - 1);
+      // 懒合法化：伪合法吃子走完若己方被将军（含将帅对脸），弃用
+      if (isInCheck(board, side)) { aiUnmake(board, mv); continue; }
+      var sc = aiQuiesce(board, side === 'red' ? 'black' : 'red', alpha, beta, aiColor, deadline, qdepth - 1);
       aiUnmake(board, mv);
-      if (sc > best) best = sc;
-      if (side === aiColor) { if (sc > alpha) alpha = sc; } else { if (sc < beta) beta = sc; }
+      if (side === aiColor) {
+        if (sc > best) best = sc;
+        if (sc > alpha) alpha = sc;
+      } else {
+        if (sc < best) best = sc;
+        if (sc < beta) beta = sc;
+      }
       if (alpha >= beta || Date.now() > deadline) break;
     }
     return best;
   }
-  // 极大极小 + a-b；返回 { score, move, done }。side 为待走方，aiColor 为评估基准。
-  // done=false 表示本层未搜完（超时），调用方不得采纳半截结果。
-  // isRoot：根节点不做空步裁剪（否则可能丢掉 best move）
-  function aiSearch(board, side, depth, alpha, beta, aiColor, deadline, cfg, history, isRoot) {
-    if (Date.now() > deadline) return { score: aiEvaluate(board, aiColor), move: null, done: false };
-    // 空步裁剪（对齐 HardSearch）：优势明显时让对手连走两手，剪掉必败分支。
-    // 空步子搜未完成只放弃裁剪、继续正常搜索，禁止整节点标失败（否则根层永远到不了 d4+）
-    if (!isRoot && cfg.nullMove && depth >= 3 && !isInCheck(board, side)) {
-      var nullScore = -aiSearch(board, side === 'red' ? 'black' : 'red', depth - 3, -beta, -beta + 1, aiColor, deadline, cfg, history, false);
-      if (nullScore.done && nullScore.score >= beta) {
-        return { score: beta, move: null, done: true };
-      }
+  // 叶子级「是否还有着可走」：仅在待走方被将军时调用（无子可走=将死）。
+  // 走法生成改伪合法后，被完全牵制的棋子也会产生伪走法，将死判定必须逐个懒验证。
+  function aiHasLegalMove(board, side) {
+    var moves = aiGenerateMoves(board, side);
+    for (var i = 0; i < moves.length; i++) {
+      var mv = moves[i];
+      aiMake(board, mv);
+      var ok = !isInCheck(board, side);
+      aiUnmake(board, mv);
+      if (ok) return true;
     }
+    return false;
+  }
+  // 极大极小 + a-b；返回 { score, move, done }。side 为待走方，aiColor 为评估基准。
+  // 分值恒为 aiColor 视角、窗口原样下传（不用 negamax 取负约定）。
+  // done=false 表示本层未搜完（超时），调用方不得采纳半截结果。
+  // isRoot：根节点支持 rootBest（上轮迭代最佳着法）置首，提高同预算下的剪枝率。
+  // 空步裁剪已移除：旧实现按 negamax 翻转窗口，与本 min/max 约定不符，会产生错误截断。
+  function aiSearch(board, side, depth, alpha, beta, aiColor, deadline, cfg, history, isRoot, rootBest) {
+    if (Date.now() > deadline) return { score: aiEvaluate(board, aiColor), move: null, done: false };
     var moves = aiGenerateMoves(board, side);
     if (!moves.length) {
       return { score: isInCheck(board, side) ? -AI_MATE : 0, move: null, done: true };
@@ -590,9 +602,23 @@
       quiets.sort(function(a, b) { return (history[aiHistoryIndex(b)] || 0) - (history[aiHistoryIndex(a)] || 0); });
       moves = captures.concat(quiets);
     }
+    if (isRoot && rootBest) {
+      // 着法对象每轮重新生成，按坐标匹配上轮最佳
+      for (var rb = 0; rb < moves.length; rb++) {
+        var rm = moves[rb];
+        if (rm.fr === rootBest.fr && rm.fc === rootBest.fc && rm.tr === rootBest.tr && rm.tc === rootBest.tc) {
+          if (rb > 0) { moves.splice(rb, 1); moves.unshift(rm); }
+          break;
+        }
+      }
+    }
     if (depth <= 0) {
+      // 叶子被将军时必须验证将死：伪合法走法存在不代表有着可走（全被牵制）
+      if (isInCheck(board, side) && !aiHasLegalMove(board, side)) {
+        return { score: -AI_MATE, move: null, done: true };
+      }
       if (cfg.quiesce) {
-        return { score: aiQuiesce(board, side, alpha, beta, aiColor, deadline, history, 4), move: null, done: Date.now() <= deadline };
+        return { score: aiQuiesce(board, side, alpha, beta, aiColor, deadline, 4), move: null, done: Date.now() <= deadline };
       }
       var leaf = aiEvaluate(board, aiColor);
       return { score: leaf, move: null, done: true };
@@ -600,10 +626,14 @@
     var best = null;
     var bestScore = side === aiColor ? -AI_INF : AI_INF;
     var completed = true;
+    var anyLegal = false;
     for (var j = 0; j < moves.length; j++) {
       if (Date.now() > deadline) { completed = false; break; }
       var move = moves[j];
       aiMake(board, move);
+      // 懒合法化：伪合法走完若己方被将军（含将帅对脸），弃用该着
+      if (isInCheck(board, side)) { aiUnmake(board, move); continue; }
+      anyLegal = true;
       var score;
       if (move.captured === 'r_king' || move.captured === 'b_king') {
         score = side === aiColor ? AI_MATE : -AI_MATE;
@@ -629,13 +659,29 @@
       }
       if (Date.now() > deadline) { completed = false; break; }
     }
+    // 伪走法全被懒合法化滤掉：仅在循环正常跑完时才可下将死/困毙结论；
+    // 超时打断（completed=false）时不得声称无着可走，交由上层丢弃本轮结果。
+    if (!anyLegal) {
+      if (completed) {
+        return { score: isInCheck(board, side) ? -AI_MATE : 0, move: null, done: true };
+      }
+      return { score: aiEvaluate(board, aiColor), move: null, done: false };
+    }
     return { score: bestScore, move: best, done: completed };
   }
   // 迭代加深入口：按难度配置预算/深度；只采纳搜完整层的结果。
-  // 简单档含失误率（参考 Easy 的浅层棋力，避免只会走「唯一最优」）
+  // 走法生成为伪合法，这里先懒过滤送将（同时给简单档的随机失误兜底：不会送将）。
   function aiBestMove(board, aiColor, level) {
     var cfg = AI_LEVELS[level] || AI_LEVELS.normal;
-    var moves = aiGenerateMoves(board, aiColor);
+    var pseudo = aiGenerateMoves(board, aiColor);
+    if (!pseudo.length) return null;
+    var moves = [];
+    for (var li = 0; li < pseudo.length; li++) {
+      var lm = pseudo[li];
+      aiMake(board, lm);
+      if (!isInCheck(board, aiColor)) moves.push(lm);
+      aiUnmake(board, lm);
+    }
     if (!moves.length) return null;
     if (moves.length === 1) return moves[0];
     if (cfg.blunderRate > 0 && Math.random() < cfg.blunderRate) {
@@ -650,7 +696,7 @@
     var best = moves[0];
     var reached = 0;
     for (var depth = cfg.minDepth; depth <= cfg.maxDepth; depth++) {
-      var result = aiSearch(board, aiColor, depth, -AI_INF, AI_INF, aiColor, deadline, cfg, history, true);
+      var result = aiSearch(board, aiColor, depth, -AI_INF, AI_INF, aiColor, deadline, cfg, history, true, reached ? best : null);
       if (result.move && result.done) {
         best = result.move;
         reached = depth;
@@ -658,10 +704,10 @@
         break;
       }
       if (Date.now() > deadline) break;
-      // 困难档胜势/败势已定则不必再搜
+      // 将死分差已出现则不必再搜
       if (cfg.quiesce && Math.abs(result.score) > AI_MATE - 500) break;
     }
-    if (!reached && moves.length) best = moves[0];
+    if (!reached) best = moves[0];
     return best;
   }
 
@@ -754,10 +800,11 @@
     var roomLabel = t('label', null, { text: '房间码' });
     roomLabel.appendChild(roomInput);
 
-    // 电脑棋力：对齐 ChinessChess 的简单/普通/困难三档（仅人机入口读取）
+    // 电脑棋力：默认「普通」。下拉不设默认选中项时浏览器取第一项「简单」，
+    // 人机开局没动过下拉就一直在 20% 随机送子的简单档——这是「人机好傻」的第一主因。
     var levelSelect = t('select', null, { 'data-field': 'level' }, [
       t('option', null, { value: 'easy', text: '简单' }),
-      t('option', null, { value: 'normal', text: '普通' }),
+      t('option', null, { value: 'normal', text: '普通', selected: 'selected' }),
       t('option', null, { value: 'hard', text: '困难' })
     ]);
     var levelLabel = t('label', null, { text: '电脑棋力' });
@@ -910,6 +957,13 @@
     var entryElement = root.querySelector('.chess-entry');
     var errorElement = root.querySelector('.chess-error');
     levelElement = root.querySelector('[data-field="level"]');
+    // 记住上次人机棋力（localStorage）。会话恢复中的进行中对局稍后会用存档档位覆盖此处。
+    if (levelElement) {
+      try {
+        var savedLevel = localStorage.getItem('chess_level');
+        if (AI_LEVELS[savedLevel]) levelElement.value = savedLevel;
+      } catch (e) {}
+    }
     var roomElement = root.querySelector('[data-role="room"]');
     var identityElement = root.querySelector('[data-role="identity"]');
     var connectionElement = root.querySelector('[data-role="connection"]');
@@ -1567,7 +1621,11 @@
       // 人机练习玩家固定执红（红方先手，与本地双人一致的观感）；棋力取入场卡当前选择
       if (nextMode === 'solo') {
         soloColor = 'red';
-        if (levelElement && AI_LEVELS[levelElement.value]) soloLevel = levelElement.value;
+        if (levelElement && AI_LEVELS[levelElement.value]) {
+          soloLevel = levelElement.value;
+          // 持久化棋力选择：下次进入人机保持同一档位
+          try { localStorage.setItem('chess_level', soloLevel); } catch (e) {}
+        }
         AI_HISTORY = [];
       }
       state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
