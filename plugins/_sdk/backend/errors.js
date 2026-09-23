@@ -18,9 +18,13 @@ class PluginError extends Error {
 
 // 判定是否为「网络级失败」（可回退 upstream / 缓存 stale），
 // 业务错误（如 VIP 限制、参数错误）不算——业务错误应直接抛给调用方。
+// 引擎级失败（响应解析失败 / 请求地址无效）也要回退：builtin 解析失败 ≠ upstream 不可用，
+// upstream 返回 HTML 垃圾时更应回退 stale 缓存，而不是把「响应解析失败」直接甩给用户。
 function isNetworkError(err) {
   var msg = String((err && err.message) || '');
-  return /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|超时|网络|fetch failed|socket hang up/i.test(msg);
+  var code = (err && err.code) || '';
+  if (code === 'ERR_INVALID_URL') return true;
+  return /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|超时|网络|fetch failed|socket hang up|响应解析失败|请求地址无效|Invalid URL/i.test(msg);
 }
 
 module.exports = {

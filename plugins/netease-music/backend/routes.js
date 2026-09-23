@@ -53,12 +53,25 @@ function ok(res, data) {
 }
 
 // 统一错误处理：业务错误对象 { code, message } 或 Error
+// 底线原则：面向用户的 message 必须是中文——英文原始错误（如 TypeError 的
+// 「Invalid URL」、Node ERR_* 系统码）一律在此拦下，改用通用提示 + 日志留痕。
+// （ERR_INVALID_URL 曾因带字符串 code 误走业务码分支静默透传，前端 toast
+//  直接显示「Invalid URL」且日志无痕，2026-09-23 修复）
 function sendError(res, err) {
   if (err && typeof err === 'object' && err.code && err.message) {
+    if (typeof err.code !== 'number') {
+      // 字符串 code（Node 系统错误码）≠ 业务码：按内部错误处理
+      console.error('[netease-music]', String(err.stack || err.message).slice(0, 300));
+      return res.status(500).json({ code: 500, message: '服务暂时不可用，请稍后重试' });
+    }
     return res.status(err.code >= 400 && err.code < 600 ? err.code : 500).json({ code: err.code, message: err.message });
   }
-  var message = (err && err.message) || '插件内部错误';
-  console.error('[netease-music]', message);
+  var message = (err && err.message) || '';
+  if (!/[\u4e00-\u9fa5]/.test(message)) {
+    // 无中文的原始错误不透传，写日志便于诊断
+    console.error('[netease-music]', (err && err.stack) ? String(err.stack).slice(0, 300) : String(message || '(空消息错误)'));
+    message = '服务暂时不可用，请稍后重试';
+  }
   res.status(500).json({ code: 500, message: message });
 }
 

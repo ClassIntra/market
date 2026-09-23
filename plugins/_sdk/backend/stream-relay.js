@@ -126,7 +126,16 @@ function fetchRaw(url, headers, proxyUrl) {
 // 返回解析后的 JSON 对象；解析失败抛 Error('响应解析失败')
 function httpGetJson(url, proxyUrl) {
   return new Promise(function (resolve, reject) {
-    var u = new URL(url);
+    var u;
+    try {
+      u = new URL(url);
+    } catch (e) {
+      // URL 构造失败（如上游地址未配置/格式错误）：拒绝时附带 ERR_INVALID_URL 码，
+      // isNetworkError 识别后可回退 stale 缓存，而非把「Invalid URL」透传给前端
+      var err = new Error('请求地址无效: ' + String(url).slice(0, 80));
+      err.code = 'ERR_INVALID_URL';
+      return reject(err);
+    }
     var port = parseInt(u.port, 10) || (u.protocol === 'http:' ? 80 : 443);
     var lib = u.protocol === 'http:' ? http : https;
 

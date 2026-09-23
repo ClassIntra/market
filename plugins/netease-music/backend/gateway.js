@@ -134,7 +134,8 @@ function isFallbackable(err) {
 
 // upstream 调用：GET {upstreamUrl}/{module}?query&cookie=...
 async function callUpstream(engine, endpoint, query, cookieStr) {
-  var base = engine.upstreamUrl.replace(/\/+$/, '');
+  var base = String(engine.upstreamUrl || '').replace(/\/+$/, '');
+  if (!base) throw new PluginError(503, '上游服务未配置'); // 可回退 stale 缓存，不透传英文
   // upstreamStyle=ncm → Binaryify 原版斜杠路由；默认 enhanced → api-enhanced 模块名
   var moduleMap = engine.upstreamStyle === 'ncm' ? UPSTREAM_MODULE_NCM : UPSTREAM_MODULE;
   var moduleName = moduleMap[endpoint];
@@ -147,8 +148,14 @@ async function callUpstream(engine, endpoint, query, cookieStr) {
   params.set('timestamp', String(Date.now())); // 防上游缓存
   var url = base + '/' + moduleName + '?' + params.toString();
   var body = await httpGetJson(url, engine.proxy);
-  if (body && (body.code === 301 || body.code === 302 || body.status >= 400)) {
-    throw new Error('上游返回错误: ' + JSON.stringify(body).slice(0, 200));
+  // upstream 侧错误（4xx/5xx/重定向码）不能当成功结果——否则 {code:400} 会被
+  // 缓存整整一个 TTL（搜索 5 分钟），上游恢复后用户仍看到坏结果。
+  // 抛 PluginError(502)：isFallbackable 命中 → 回退 stale 缓存 / 下一引擎。
+  if (body && typeof body.code === 'number' && (body.code === 301 || body.code === 302 || body.code >= 400)) {
+    throw new PluginError(502, '上游服务返回异常（code ' + body.code + '）');
+  }
+  if (body && typeof body.status === 'number' && body.status >= 400) {
+    throw new PluginError(502, '上游服务返回异常（status ' + body.status + '）');
   }
   return body;
 }
@@ -255,7 +262,9 @@ function createGateway() {
       var stale = store.cacheGet(cacheKey);
       if (stale) return { data: stale.payload, cached: true, stale: true };
     }
-    throw new PluginError(503, '无法连接网易云音乐服务' + (lastErr ? '（' + lastErr.message + '）' : ''), lastErr);
+    // lastErr.message 可能带上游 HTML 片段（如「响应解析失败: <!DOCTYPE...」），截断防泄漏
+    var lastMsg = lastErr ? String(lastErr.message || '').slice(0, 60) : '';
+    throw new PluginError(503, '无法连接网易云音乐服务' + (lastMsg ? '（' + lastMsg + '）' : ''), lastErr);
   }
 
   // 统一调用入口
