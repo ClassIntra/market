@@ -183,6 +183,33 @@ function log() {
   console.log.apply(console, ['[astrbot-relay]'].concat(args));
 }
 
+// ===== 发言人昵称解析 =====
+// 上游推来的 message.sender_name 可能缺失（例如用户不在 chat-server 的 onlineUsers
+// 缓存里、或消息由其它链路写入），缺失时会退化成用户 ID，导致 AstrBot 侧的「林晞」
+// 只能看到 251800 这类编号，无法称呼用户网名。
+// 这里用本插件已有的 db 句柄直接查 users.net_name 兜底（与社区帖子卡片 :501 同一写法）。
+var senderNameStmt = null;
+function lookupNetName(userId) {
+  try {
+    if (!senderNameStmt) {
+      senderNameStmt = db.prepare('SELECT net_name, real_name FROM users WHERE user_id = ?');
+    }
+    var row = senderNameStmt.get(String(userId));
+    if (!row) return '';
+    return String(row.net_name || row.real_name || '').trim();
+  } catch (e) {
+    log('查询用户网名失败: ' + (e && e.message));
+    return '';
+  }
+}
+
+// provided: 上游给的昵称。若为空、或与 userId 相同（即已退化成编号），则查库兜底。
+function resolveSenderName(userId, provided) {
+  var name = String(provided == null ? '' : provided).trim();
+  if (name && name !== String(userId)) return name;
+  return lookupNetName(userId) || String(userId);
+}
+
 // ===== 机器人账号（ClassIntra 侧）=====
 
 function ensureBotAccount() {
@@ -272,6 +299,140 @@ async function deleteForumPost(postId) {
     }
     throw e;
   }
+}
+
+// ===== 社区信息共享：带林晞 JWT 调 CI 自身路由 =====
+//
+// 为什么要绕 HTTP 而不是直读库：社区帖子的可见性按「性别分组」（visible_groups /
+// hidden_groups）、匿名帖要抹掉作者、删除要走墓碑。走 CI 自己的路由 = 天然复用
+// 这套规则，林晞看到的、能做的与一个真实普通用户完全一致，零重复实现。
+
+function ensureLoggedIn() {
+  if (!state.botCfg) {
+    if (!ensureBotAccount()) throw new Error('机器人账号未就绪');
+  }
+  if (state.jwt) return Promise.resolve(state.jwt);
+  return login();
+}
+
+// 鉴权失效（401/403）时重新登录并重试一次
+async function ciRequest(method, pathname, payload, params) {
+  await ensureLoggedIn();
+  var doCall = function () {
+    var cfg = {
+      headers: { Authorization: 'Bearer ' + state.jwt },
+      timeout: 15000
+    };
+    if (method === 'get') {
+      cfg.params = params || {};
+      return axios.get('http://localhost:' + CFG.ciHttpPort + pathname, cfg);
+    }
+    if (method === 'delete') {
+      cfg.params = params || {};
+      return axios.delete('http://localhost:' + CFG.ciHttpPort + pathname, cfg);
+    }
+    return axios.post('http://localhost:' + CFG.ciHttpPort + pathname, payload || {}, cfg);
+  };
+  var unwrap = function (resp) {
+    var data = resp.data;
+    if (!data || data.code !== 200) {
+      throw new Error((data && data.message) || ('请求失败 HTTP ' + resp.status));
+    }
+    return data.data;
+  };
+  try {
+    return unwrap(await doCall());
+  } catch (e) {
+    var status = e && e.response && e.response.status;
+    if (status === 401 || status === 403) {
+      log('社区请求鉴权失效，重新登录后重试:', pathname);
+      await login();
+      return unwrap(await doCall());
+    }
+    throw e;
+  }
+}
+
+// 社区帖子列表（只读；同普通用户视角）
+function normalizePost(p) {
+  var anonymous = !!(p.anonymous || p.is_anonymous);
+  return {
+    id: p.id,
+    type: p.type || 'forum',
+    title: p.title || '',
+    content: clipText(p.content, 600),
+    author: anonymous ? '匿名' : (p.net_name || p.real_name || p.user_id || ''),
+    anonymous: anonymous,
+    like_count: p.like_count || 0,
+    comment_count: p.comment_count || 0,
+    created_at: p.created_at || null
+  };
+}
+
+function clipText(text, max) {
+  var s = String(text == null ? '' : text);
+  return s.length <= max ? s : s.slice(0, max) + '…（已截断）';
+}
+
+function fetchCommunityPosts(opts) {
+  opts = opts || {};
+  var limit = Math.min(30, Math.max(1, parseInt(opts.limit, 10) || 10));
+  var params = {
+    type: opts.type || 'forum',
+    sort: opts.sort === 'hot' ? 'hot' : 'latest',
+    page: Math.max(1, parseInt(opts.page, 10) || 1),
+    limit: limit
+  };
+  return ciRequest('get', '/api/community/posts', null, params).then(function (data) {
+    var posts = (data && data.posts) || [];
+    return {
+      total: (data && data.total) || posts.length,
+      posts: posts.map(normalizePost)
+    };
+  });
+}
+
+// 某帖的评论列表（只读）
+function fetchPostComments(postId, limit) {
+  limit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
+  postId = String(postId || '').replace(/[^0-9]/g, '');
+  if (!postId) return Promise.reject(new Error('无效的帖子 ID'));
+  return ciRequest('get', '/api/community/posts/' + postId + '/comments').then(function (list) {
+    var rows = Array.isArray(list) ? list : [];
+    return rows.slice(-limit).map(function (c) {
+      return {
+        id: c.id,
+        author: c.net_name || c.real_name || c.user_id || '',
+        content: clipText(c.content, 400),
+        parent_id: c.parent_id || null,
+        created_at: c.created_at || null
+      };
+    });
+  });
+}
+
+// 以林晞身份在社区回帖
+function commentForumPost(postId, content) {
+  postId = String(postId || '').replace(/[^0-9]/g, '');
+  content = String(content || '').trim();
+  if (!postId) return Promise.reject(new Error('无效的帖子 ID'));
+  if (!content) return Promise.reject(new Error('回帖内容不能为空'));
+  return ciRequest('post', '/api/community/posts/' + postId + '/comments', { content: content }).then(function (c) {
+    return {
+      id: c && c.id,
+      post_id: c && c.post_id,
+      author: (c && (c.net_name || c.real_name)) || ciSelfId(),
+      content: c && c.content,
+      created_at: c && c.created_at
+    };
+  });
+}
+
+// 以林晞身份删除自己的社区回帖（CI 侧判定权限；只能删自己的）
+function deleteOwnComment(commentId) {
+  commentId = String(commentId || '').replace(/[^0-9]/g, '');
+  if (!commentId) return Promise.reject(new Error('无效的评论 ID'));
+  return ciRequest('delete', '/api/community/comments/' + commentId).then(function () { return true; });
 }
 
 // 撤回 bot 最近发出的聊天消息（按通道/会话过滤；CI 限本人 + 2 分钟内，过期的不算成功）
@@ -556,7 +717,7 @@ function onPrivateMessage(fromUserId, message) {
     return;
   }
   if (!obReady()) {
-    directChat('private', fromUserId, fromUserId, String(message.sender_name || fromUserId), userText);
+    directChat('private', fromUserId, fromUserId, resolveSenderName(fromUserId, message.sender_name), userText);
     return;
   }
   forwardToOneBot(fromUserId, userText, message);
@@ -645,7 +806,10 @@ async function directChat(channel, target, senderId, senderName, rawText) {
 
 function forwardToOneBot(fromUserId, userText, originalMessage) {
   var msgId = ++state.msgSeq;
-  var nickname = (originalMessage && (originalMessage.sender_name || originalMessage.net_name)) || fromUserId;
+  var nickname = resolveSenderName(
+    fromUserId,
+    originalMessage && (originalMessage.sender_name || originalMessage.net_name)
+  );
   var event = {
     time: Math.floor(Date.now() / 1000),
     self_id: ciSelfId(),
@@ -698,7 +862,7 @@ function onGroupMessage(groupId, message) {
     message: buildInboundSegments(text, message && message.reply_to),
     raw_message: text,
     font: 0,
-    sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
+    sender: { user_id: message.sender_id, nickname: String(resolveSenderName(message.sender_id, message.sender_name)), card: String(message.sender_name || ''), role: 'member' }
   };
   var replySegG = inboundReplySegment(message);
   if (replySegG) event.message.unshift(replySegG);
@@ -749,7 +913,7 @@ function onPublicMessage(message) {
     message: segments,
     raw_message: userText,
     font: 0,
-    sender: { user_id: message.sender_id, nickname: String(message.sender_name || message.sender_id), card: String(message.sender_name || ''), role: 'member' }
+    sender: { user_id: message.sender_id, nickname: String(resolveSenderName(message.sender_id, message.sender_name)), card: String(message.sender_name || ''), role: 'member' }
   };
   var replySegPub = inboundReplySegment(message);
   if (replySegPub) event.message.splice(1, 0, replySegPub);
@@ -1499,5 +1663,10 @@ module.exports = {
   recallRecentByTarget: recallRecentByTarget,
   persistPublishImage: persistPublishImage,
   getPostDetail: getPostDetail,
+  // 社区信息共享（带林晞 JWT）
+  fetchCommunityPosts: fetchCommunityPosts,
+  fetchPostComments: fetchPostComments,
+  commentForumPost: commentForumPost,
+  deleteOwnComment: deleteOwnComment,
   CFG: CFG
 };

@@ -1,12 +1,28 @@
 {
   "version": 3,
-  "updated_at": "2026-09-17T00:00:00.000Z",
+  "updated_at": "2026-09-29T00:00:00.000Z",
   "apps": [
+    {
+      "name": "chess",
+      "label": "象棋",
+      "version": "1.7.2",
+      "description": "支持房间联机、人机练习（简单/普通/困难三档棋力，极大极小+a-b 迭代加深）、房间快捷聊天（侧栏双页切换：房间信息/聊天，玩家与观战者均可发言，消息随房间销毁）、观战与替补递补、换方、分享邀请到聊天/社区、服务端走子校验、悔棋认输、本地双人同屏与断线恢复的中国象棋",
+      "author": "ClassIntra",
+      "icon": "./icon.svg",
+      "files": [
+        "apps/chess/manifest.json",
+        "apps/chess/icon.svg",
+        "apps/chess/frontend/entry.js",
+        "apps/chess/frontend/style.css",
+        "apps/chess/backend/routes.js",
+        "apps/chess/backend/rules.js"
+      ]
+    },
     {
       "name": "gomoku",
       "label": "五子棋",
-      "version": "1.1.5",
-      "description": "支持房间联机、观战、HTTP 实时同步与断线恢复的原生 DOM 五子棋",
+      "version": "1.8.0",
+      "description": "支持房间联机、跨班对局、房间快捷聊天、本地双人对战、人机练习、观战与断线恢复的原生 DOM 五子棋",
       "author": "ClassIntra",
       "icon": "./icon.svg",
       "files": [
@@ -22,21 +38,23 @@
     {
       "name": "astrbot-relay",
       "label": "AstrBot 机器人接入",
-      "version": "1.0.0",
-      "description": "将 AstrBot 机器人（独立账号，如\"林晞\"）接入 ClassIntra 私聊与公共聊天室；支持 OneBot 反向 WS 与 HTTP 直调两种管线模式",
+      "version": "1.1.0",
+      "description": "将 AstrBot 机器人（独立账号，如\"林晞\"）接入 ClassIntra 私聊与公共聊天室；支持 OneBot 反向 WS 与 HTTP 直调两种管线模式，并内置机器人代管 ClassIntra 的管理代理（信息共享 + 两段式确认闸门）",
       "author": "ClassIntra",
       "files": [
         "plugins/astrbot-relay/manifest.json",
         "plugins/astrbot-relay/README.md",
         "plugins/astrbot-relay/backend/bot-user.js",
         "plugins/astrbot-relay/backend/relay.js",
-        "plugins/astrbot-relay/backend/routes.js"
+        "plugins/astrbot-relay/backend/routes.js",
+        "plugins/astrbot-relay/backend/info.js",
+        "plugins/astrbot-relay/backend/manage.js"
       ]
     },
     {
       "name": "campusbili-bridge",
       "label": "校园 B 站桥接",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "description": "将外部视频站内容以通信契约方式桥接进 ClassIntra（postMessage 协议）",
       "author": "ClassIntra",
       "files": [
@@ -50,16 +68,19 @@
     {
       "name": "netease-music",
       "label": "网易云音乐",
-      "version": "1.0.0",
+      "version": "1.1.2",
       "description": "让音乐应用接入网易云音乐：扫码登录、搜索、每日推荐、热歌榜、歌单浏览与红心收藏；内置 ncm 协议直连（零第三方依赖）、upstream 转发与磁盘缓存三级网关，所有流量经 ClassIntra 服务器同源中转，内网可用",
       "author": "ClassIntra",
       "files": [
         "plugins/netease-music/manifest.json",
         "plugins/netease-music/README.md",
+        "plugins/netease-music/cli.js",
         "plugins/netease-music/backend/routes.js",
         "plugins/netease-music/backend/gateway.js",
         "plugins/netease-music/backend/store.js",
         "plugins/netease-music/backend/stream.js",
+        "plugins/netease-music/backend/errors.js",
+        "plugins/netease-music/backend/log.js",
         "plugins/netease-music/backend/ncm/api.js",
         "plugins/netease-music/backend/ncm/crypto.js",
         "plugins/netease-music/backend/ncm/engine.js",

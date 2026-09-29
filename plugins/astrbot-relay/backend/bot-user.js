@@ -6,6 +6,11 @@
 //   BOT_REAL_NAME（默认 林晞）
 //   BOT_PASSWORD （必填，同时用于自动建号与 WS 登录）
 //   BOT_GENDER   （默认 女）
+//   BOT_ADMIN_IDS（CI server/.env；含本机器人 user_id 时，其 is_admin 会被置为 1）
+//
+// 2026-09-25 补充：机器人可被声明为「机器人管理员」（is_admin=1）。判定沿用注册流程
+//   的同一套白名单逻辑，只是白名单换成 BOT_ADMIN_IDS——因此改 .env 即可升降权，
+//   且账号被重建时权限会自动恢复。
 //
 // 2026-09-15 修正：原实现是「账号已存在即 return」的幂等建号，导致改 .env 的
 //   BOT_NET_NAME / BOT_REAL_NAME 对已建好的账号永远不生效（表现为「网名改了好几次
@@ -13,16 +18,20 @@
 //   注意 net_name 有 UNIQUE 约束，被他人占用时降级为保留原名并告警（不影响其它字段）。
 
 var db = require('../../../server/src/utils/db');
+var config = require('../../../server/src/config');
 var pwdUtil = require('../../../server/src/utils/password');
 var time = require('../../../server/src/utils/time');
 
 function getBotConfig() {
+  var userId = process.env.BOT_USER_ID || 'linxi_ai';
   return {
-    userId: process.env.BOT_USER_ID || 'linxi_ai',
+    userId: userId,
     netName: process.env.BOT_NET_NAME || '林晞',
     realName: process.env.BOT_REAL_NAME || '林晞',
     password: process.env.BOT_PASSWORD || '',
-    gender: process.env.BOT_GENDER || '女'
+    gender: process.env.BOT_GENDER || '女',
+    // 是否声明为 CI 的「机器人管理员」——沿用注册流程的白名单判定
+    isAdmin: (config.botAdminIds || []).indexOf(String(userId)) !== -1
   };
 }
 
@@ -55,6 +64,15 @@ function syncExistingUser(cfg, existing) {
     sets.push('gender = ?');
     params.push(cfg.gender);
     notes.push('性别「' + existing.gender + '」→「' + cfg.gender + '」');
+  }
+
+  // 管理员权限：声明式同步（.env 的 BOT_ADMIN_IDS 为准），升降权都留痕
+  var wantAdmin = cfg.isAdmin ? 1 : 0;
+  var hasAdmin = existing.is_admin === 1 ? 1 : 0;
+  if (wantAdmin !== hasAdmin) {
+    sets.push('is_admin = ?');
+    params.push(wantAdmin);
+    notes.push(wantAdmin ? 'is_admin 置为 1（机器人管理员）' : 'is_admin 置为 0（已从 BOT_ADMIN_IDS 移出）');
   }
 
   // 密码：先用 .env 密码校验现有 hash，只有对不上才重置（避免每次启动都重算 bcrypt）
@@ -91,7 +109,7 @@ function ensureBotUser() {
   }
   try {
     var existing = db.prepare(
-      'SELECT user_id, net_name, real_name, gender, password_hash FROM users WHERE user_id = ?'
+      'SELECT user_id, net_name, real_name, gender, password_hash, is_admin FROM users WHERE user_id = ?'
     ).get(cfg.userId);
 
     if (existing) {
@@ -110,7 +128,7 @@ function ensureBotUser() {
     var passwordHash = pwdUtil.hashPassword(cfg.password);
     db.prepare(
       'INSERT INTO users (net_name, real_name, user_id, gender, password_hash, status, is_admin, info_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(cfg.netName, cfg.realName, cfg.userId, cfg.gender, passwordHash, 'active', 0, '{}');
+    ).run(cfg.netName, cfg.realName, cfg.userId, cfg.gender, passwordHash, 'active', cfg.isAdmin ? 1 : 0, '{}');
     db.prepare('UPDATE users SET updated_at = ? WHERE user_id = ?').run(time.nowISO(), cfg.userId);
     console.log('[astrbot-relay] 已创建机器人账号: ' + cfg.userId + ' (' + cfg.netName + ')');
     return cfg;
