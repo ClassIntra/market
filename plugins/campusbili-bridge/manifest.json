@@ -1,7 +1,7 @@
 {
   "name": "campusbili-bridge",
   "type": "plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "label": "CampusBili 桥接",
   "category": "hidden",
   "order": 99,

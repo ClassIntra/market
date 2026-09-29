@@ -4,14 +4,15 @@
 
 var express = require('express');
 var router = express.Router();
+var auth = require('../../../server/src/middleware/auth');
 
 // 验证 ClassIntra 用户身份
 // CampusBili 后端可将 postMessage 收到的 user_id + timestamp 提交到此接口验证
 // POST /api/campusbili-bridge/verify
 // body: { user_id, timestamp }
 // 返回: { valid: true, user: { user_id, net_name, is_admin, role } }
-router.post('/verify', function(req, res) {
-  // req.user 由全局 JWT 中间件填充（CampusBili 需携带 ClassIntra 用户的有效 JWT）
+router.post('/verify', auth.requireAuth, function(req, res) {
+  // req.user 由 requireAuth 解析 JWT 填充（CampusBili 需携带 ClassIntra 用户的有效 JWT）
   if (!req.user || !req.user.user_id) {
     return res.status(401).json({ valid: false, error: '未认证' });
   }
