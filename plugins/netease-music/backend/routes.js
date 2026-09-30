@@ -122,7 +122,10 @@ router.get('/login/qr/check', requireAuth, wrap(async function (req, res) {
 router.post('/login/captcha/send', requireAuth, wrap(async function (req, res) {
   var phone = String((req.body && req.body.phone) || '').trim();
   if (!phone) return sendError(res, { code: 400, message: '缺少手机号' });
-  var r = await gateway.call('captchaSent', { phone: phone, ctcode: String((req.body && req.body.countrycode) || '86') }, req.user.user_id, { noCache: true });
+  // 参数名必须用 countrycode：内置通道（ncm eapi）内部会映射成 ctcode，
+  // 而上游 Binaryify 服务只认 countrycode —— 传 ctcode 会被判「参数错误」400，
+  // 而内置通道此时正被短信风控 -462 拦着，两路同时失败 = 「验证码发不出去」。
+  var r = await gateway.call('captchaSent', { phone: phone, countrycode: String((req.body && req.body.countrycode) || '86') }, req.user.user_id, { noCache: true });
   if (r.data && r.data.code !== 200) {
     return res.status(400).json({ code: r.data.code, message: (r.data.message || r.data.msg || '验证码发送失败') });
   }

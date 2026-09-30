@@ -284,8 +284,13 @@ function createGateway() {
   // 并发去重表：同「端点+参数+登录态」的进行中请求共享同一 Promise
   var inflight = {};
 
-  // 账号簇内置通道冷却截止时间（见 AUTH_ENDPOINTS 注释；进程级，重启即清）
-  var authBuiltinBlockedUntil = 0;
+  // 账号簇内置通道冷却截止时间：**按端点隔离**（{ endpoint: timestamp }；进程级，重启即清）。
+  // 必须按端点隔离而不能整簇共用：captchaSent 被短信风控持续 -462 → 会写下冷却标记，
+  // 若该标记对整簇生效，loginCellphone 在之后 10 分钟内会直接跳过内置通道改走上游，
+  // 于是上游的 10004 被原样透出 —— 用户看到的正是「当前登录存在安全风险」。
+  // 这正是「验证码登录怎么都登不上」的最后一环：登录通道本身已修好，却被验证码
+  // 通道的冷却标记连坐。
+  var authBuiltinBlockedUntil = {};
 
   // 执行一次真实调用（多引擎级联 + 缓存写入 + stale 兜底）
   async function execCall(endpoint, args, cookieStr, cacheKey) {
@@ -302,8 +307,8 @@ function createGateway() {
         var body;
         var rawCookie = null;
         if (mode === 'builtin') {
-          // 账号簇内置通道已被风控 → 冷却期内不再浪费一次注定 -462 的请求，直走上游
-          if (AUTH_ENDPOINTS[endpoint] && Date.now() < authBuiltinBlockedUntil) {
+          // 该端点内置通道已被风控 → 冷却期内不再浪费一次注定 -462 的请求，直走上游
+          if (AUTH_ENDPOINTS[endpoint] && Date.now() < (authBuiltinBlockedUntil[endpoint] || 0)) {
             log.debug('gateway', '账号簇内置通道冷却中，跳过 builtin：' + endpoint);
             throw new PluginError(503, '内置通道冷却中');
           }
@@ -322,8 +327,8 @@ function createGateway() {
         }
         // 本机账号簇被网易云风控（负数码，如 -462）：记冷却，本次继续回退上游
         if (mode === 'builtin' && AUTH_ENDPOINTS[endpoint] && body && typeof body.code === 'number' && body.code < 0) {
-          authBuiltinBlockedUntil = Date.now() + AUTH_BUILTIN_COOLDOWN;
-          log.debug('gateway', '账号簇内置通道风控（code ' + body.code + '），冷却 ' + (AUTH_BUILTIN_COOLDOWN / 60000) + ' 分钟改走上游');
+          authBuiltinBlockedUntil[endpoint] = Date.now() + AUTH_BUILTIN_COOLDOWN;
+          log.debug('gateway', '账号簇内置通道风控（code ' + body.code + '，endpoint=' + endpoint + '），冷却 ' + (AUTH_BUILTIN_COOLDOWN / 60000) + ' 分钟改走上游');
         }
         // 风控/异常响应（负数码，如 -462）不落缓存、直接抛出——
         // 否则会被当成功结果缓存 5 分钟，风控解除后用户仍看到空结果。
@@ -432,11 +437,22 @@ function createGateway() {
   }
 
   // 手机号登录（密码 / 验证码二选一）；成功后保存登录态
+  // 错误码 → 面向用户的提示。网易云只给「码」不给可读原因的场景（-462 / 10004 /
+  // -460）必须翻译，否则用户看到的是一句无法行动的黑话，也分不清该重试还是换方式。
+  var LOGIN_CODE_MSG = {
+    502: '账号或密码错误',
+    503: '验证码错误或已过期，请重新获取',
+    406: '操作过于频繁，请稍后再试',
+    '-460': '网易云检测到当前网络环境存在风险，请换网络后重试',
+    '-462': '网易云要求完成人机验证后才能登录（当前出口 IP 触发风控）',
+    10004: '网易云判定本次登录存在风险（多见于新设备 / 校园网出口 IP）。建议改用「扫码登录」，成功率最高'
+  };
   async function loginCellphone(userId, args) {
     var res = await call('loginCellphone', args, userId, { noCache: true });
     var body = res.data || {};
-    if (body.code !== 200) {
-      throw new PluginError(400, (body.message || body.msg || '登录失败，请检查账号信息'));
+    if (Number(body.code) !== 200) {
+      var mapped = LOGIN_CODE_MSG[String(body.code)];
+      throw new PluginError(400, mapped || (body.message || body.msg || '登录失败，请检查账号信息'));
     }
     var profile = await saveLoginCookie(userId, body);
     return { code: 200, profile: profile };
@@ -455,7 +471,8 @@ function createGateway() {
       return { code: code }; // 800 过期 / 801 等待扫码 / 802 已扫描待确认
     }
     // 其它（风控负数码 / 上游异常）：给出中文提示而不是让前端无限轮询转圈
-    throw new PluginError(502, (body.message || body.msg || '网易云登录服务暂时不可用，请稍后重试'));
+    var qrMsg = LOGIN_CODE_MSG[String(body.code)];
+    throw new PluginError(502, qrMsg || (body.message || body.msg || '网易云登录服务暂时不可用，请稍后重试'));
   }
 
   // 供 stream.js 使用：解析真实播放地址（不信任客户端传 URL）

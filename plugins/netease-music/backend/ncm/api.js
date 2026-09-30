@@ -27,7 +27,8 @@ function throttled(task) {
   return run;
 }
 
-function req(uri, data, ctx, cryptoType) {
+// extra.bareAuth：登录簇匿名请求不带任何 Cookie 头（见 engine.js bareAuth 注释）
+function req(uri, data, ctx, cryptoType, extra) {
   ctx = ctx || {};
   return throttled(function () {
     return engine.request(uri, data, {
@@ -35,7 +36,8 @@ function req(uri, data, ctx, cryptoType) {
       cookie: ctx.cookie || {},
       proxy: ctx.proxy || '',
       timeout: ctx.timeout || 0,
-      domain: ctx.domain || ''
+      domain: ctx.domain || '',
+      bareAuth: !!(extra && extra.bareAuth)
     });
   });
 }
@@ -418,7 +420,8 @@ function loginStatus(params, ctx) {
 
 // 退出登录
 function logout(params, ctx) {
-  return req('/api/logout', {}, ctx, 'weapi');
+  // 已登录时 cookie 带 MUSIC_U，bareAuth 不会剥掉它；未登录时无 cookie 可发（等价）
+  return req('/api/logout', {}, ctx, 'weapi', { bareAuth: true });
 }
 
 // 手机号登录（密码或验证码二选一；password 需 md5 后传输）
@@ -438,7 +441,9 @@ function loginCellphone(params, ctx) {
     // 网易云协议要求密码先做 md5 再传输
     data.password = crypto.createHash('md5').update(String(params.password)).digest('hex');
   }
-  return req('/api/w/login/cellphone', data, ctx, 'eapi');
+  // bareAuth：登录请求必须不带伪造设备 Cookie，否则网易云直接 -462
+  // 「请完成验证操作」，上游再把它翻成 10004「当前登录存在安全风险」。
+  return req('/api/w/login/cellphone', data, ctx, 'eapi', { bareAuth: true });
 }
 
 // 发送登录验证码（ctcode 为国家码，默认 86）
@@ -448,10 +453,11 @@ function loginCellphone(params, ctx) {
 // 登录、登录状态）在 os=pc 身份下会被风控 -462，移动端身份可正常下发短信。
 // 参数名按网易云协议为 cellphone（不是 phone）。
 function captchaSent(params, ctx) {
+  // 注意 params 可能来自网关的 countrycode（上游口径）或 ctcode（内置口径）
   return req('/api/sms/captcha/sent', {
     cellphone: params.phone,
-    ctcode: String(params.ctcode || 86)
-  }, ctx, 'eapi');
+    ctcode: String(params.ctcode || params.countrycode || 86)
+  }, ctx, 'eapi', { bareAuth: true });
 }
 
 module.exports = {

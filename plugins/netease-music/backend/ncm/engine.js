@@ -57,6 +57,19 @@ var UA_MAP = {
   eapi: 'NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)'
 };
 
+// 调用方是否携带了「真实身份」Cookie。
+// MUSIC_U / MUSIC_A 是登录态；_ntes_nuid / deviceId / JSESSIONID-WYYY 是网易云
+// 真正下发过的设备/会话字段。以上全无 = 匿名请求，此时若再塞一套自造的设备指纹，
+// 会被网易云判为「未知设备 + 可疑网络」的组合（见 bareAuth 注释）。
+function hasRealCookie(raw) {
+  if (!raw) return false;
+  var keys = ['MUSIC_U', 'MUSIC_A', '_ntes_nuid', 'deviceId', 'JSESSIONID-WYYY', 'WNMCID'];
+  for (var i = 0; i < keys.length; i++) {
+    if (raw[keys[i]]) return true;
+  }
+  return false;
+}
+
 // 保持连接复用，降低内网弱网环境下的握手开销
 var httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
 var httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32 });
@@ -275,7 +288,21 @@ function ncmRequest(uri, data, options) {
   var cryptoType = options.crypto || 'eapi';
   var cookie = options.cookie || {};
   if (typeof cookie === 'string') cookie = cookieToJson(cookie);
+  var rawCookie = cookie; // 补全前的原始 cookie，用于判断是否携带真实身份
   var ident = identityFor(cryptoType, cookie); // 身份必须先于 processCookie 解析（cookie 源里可能带 os）
+
+  // bareAuth：登录簇匿名请求「完全不发 Cookie 头」。
+  // 背景（2026-10-01 隔离探针实测，唯一变量 = 有无 Cookie 头）：
+  //   /api/w/login/cellphone（eapi，验证码 0000）
+  //     无 Cookie 头 → code 503「验证码错误」   ← 真实业务码，风控放行
+  //     伪造 Cookie → code -462「请完成验证操作」← 风控拦截
+  //   密码登录同理：无 Cookie → 502「账号或密码错误」。
+  // 原因：processCookie 会无条件补一套自造设备指纹（_ntes_nuid / deviceId /
+  // WNMCID / os=iPhone OS…），而这套字段在官方客户端里是「登录成功后由服务端
+  // 下发」的。拿着服务端从未见过的设备去登录，风控自然判为脚本/伪造客户端。
+  // 官方客户端首次登录时请求里本就没有 Cookie —— 这里对齐该行为。
+  // 已登录用户（或调用方显式提供了设备字段）走原逻辑，登录态不受影响。
+  var bareAuth = !!options.bareAuth && !hasRealCookie(rawCookie);
   cookie = processCookie(cookie, cryptoType);
 
   var headers = {
@@ -289,13 +316,16 @@ function ncmRequest(uri, data, options) {
   if (cryptoType === 'weapi') {
     headers.Referer = options.domain || DOMAIN;
     headers['User-Agent'] = options.ua || UA_MAP.weapi;
-    headers.Cookie = cookieObjToString(cookie);
+    if (!bareAuth) headers.Cookie = cookieObjToString(cookie);
     data.csrf_token = csrfToken;
     encryptData = encrypt.weapi(data);
     url = (options.domain || DOMAIN) + '/weapi/' + uri.substr(5);
   } else {
     headers['User-Agent'] = options.ua || UA_MAP.eapi;
-    headers.Cookie = cookieObjToString(cookie);
+    // 注意：eapi 的客户端身份（os / appver / deviceId…）同时存在于两处 ——
+    // ① 加密载荷内的 data.header  ② HTTP Cookie 头（下面的 Object.assign）。
+    // bareAuth 只剥掉 ②，① 必须保留：探针验证「无 Cookie + 完整 data.header」
+    // 仍返回真实业务码，说明风控盯的是 Cookie 头里那套设备指纹，而非载荷身份。
     var header = {
       osver: cookie.osver,
       deviceId: cookie.deviceId,
@@ -312,7 +342,7 @@ function ncmRequest(uri, data, options) {
     if (cookie.MUSIC_U) header.MUSIC_U = cookie.MUSIC_U;
     if (cookie.MUSIC_A) header.MUSIC_A = cookie.MUSIC_A;
     if (cookie.NMTID) header.NMTID = cookie.NMTID;
-    headers.Cookie = cookieObjToString(Object.assign({}, cookie, header));
+    if (!bareAuth) headers.Cookie = cookieObjToString(Object.assign({}, cookie, header));
     data.header = header;
     encryptData = encrypt.eapi(uri, data);
     url = (options.domain || EAPI_DOMAIN) + '/eapi/' + uri.substr(5);
