@@ -85,6 +85,65 @@ var UPSTREAM_MODULE_NCM = {
 // HTTP(S) GET JSON 已下沉插件 SDK（stream.js 门面 re-export）
 var httpGetJson = streamMod.httpGetJson;
 
+// ---------- 登录 / 账号簇的专项处理 ----------
+// 这一簇端点有两个与普通业务端点不同的特性，必须单独对待：
+//
+// 1) 上游（Binaryify 兼容服务）用「HTTP 语义码」承载业务结果，不能当故障：
+//      801 / 802 / 803 —— 二维码 等待扫码 / 已扫待确认 / 授权成功
+//      800             —— 二维码过期
+//      502             —— 账号或密码错误
+//      503             —— 验证码错误
+//      10004           —— 登录风控拒绝
+//    旧实现把上游 `code >= 400` 一律当上游故障 → 801 被误判成 502，
+//    表现为「二维码扫描成功、轮询却永远 503 登不上」，同时把 502「账号或密码错误」
+//    吞成通用 503（用户看不到真实原因）。2026-10-01 实测定位。
+// 2) 内置通道容易被网易云按 IP 打上账号簇风控（-462 请完成验证操作），
+//    而二维码轮询每 2.5s 一次，持续撞墙只会加深风控 —— 命中后冷却一段时间直走上游。
+var AUTH_ENDPOINTS = {
+  loginQrKey: 1,
+  loginQrCheck: 1,
+  loginStatus: 1,
+  loginCellphone: 1,
+  captchaSent: 1,
+  logout: 1
+};
+
+// 账号簇内置通道冷却时长（命中风控后多久不再尝试 builtin）
+var AUTH_BUILTIN_COOLDOWN = 10 * 60 * 1000;
+
+// 把 Set-Cookie 串解析为「name=value; name=value」。
+// 必须满足两点：① 用 `,` 切分多个条目，但绝不能切在 Expires 的日期逗号上；
+// ② 丢掉 Max-Age/Expires/Path/Domain 等属性段——否则 MUSIC_U/__csrf 会被属性挤掉，
+// 登录表现为「接口返回 803，但状态一直是未登录」。
+var COOKIE_ATTRS = { 'max-age': 1, expires: 1, path: 1, domain: 1, httponly: 1, secure: 1, samesite: 1, comment: 1, version: 1 };
+function parseCookiePairs(raw) {
+  var out = [];
+  var seen = {};
+  String(raw || '').split(/,\s*(?=[^;=,]+=)/).forEach(function (item) {
+    var first = item.split(';')[0];
+    var idx = first.indexOf('=');
+    if (idx <= 0) return;
+    var name = first.substring(0, idx).trim();
+    if (!name || COOKIE_ATTRS[name.toLowerCase()] || seen[name]) return;
+    var value = first.substring(idx + 1).split(/[;,]/)[0].trim();
+    if (!value) return;
+    seen[name] = 1;
+    out.push(name + '=' + value);
+  });
+  return out;
+}
+
+// 归一化登录响应里的 cookie（内置通道是 Set-Cookie 数组，上游是拼接字符串）
+function normalizeLoginCookie(raw) {
+  var pairs = [];
+  if (Array.isArray(raw)) {
+    raw.forEach(function (item) { pairs = pairs.concat(parseCookiePairs(item)); });
+  } else if (typeof raw === 'string') {
+    pairs = parseCookiePairs(raw);
+  }
+  return pairs.join('; ');
+}
+
 // 搜索结果封面统一补全（builtin 与 upstream 共用的网关层后处理）
 // 背景：封面补全原本只写在 builtin ncmApi.search 内部——风控期间 builtin search 失败
 // 回退 upstream（第三方 NCM API），其搜索结果是老结构（album 无 picUrl）且无补全逻辑，
@@ -151,8 +210,12 @@ async function callUpstream(engine, endpoint, query, cookieStr) {
   // upstream 侧错误（4xx/5xx/重定向码）不能当成功结果——否则 {code:400} 会被
   // 缓存整整一个 TTL（搜索 5 分钟），上游恢复后用户仍看到坏结果。
   // 抛 PluginError(502)：isFallbackable 命中 → 回退 stale 缓存 / 下一引擎。
-  if (body && typeof body.code === 'number' && (body.code === 301 || body.code === 302 || body.code >= 400)) {
-    throw new PluginError(502, '上游服务返回异常（code ' + body.code + '）');
+  // 账号簇豁免：801/802/803/800（二维码轮询）与 502/503（密码/验证码错误）都是
+  // 正常业务结果，一旦按 HTTP 语义误判就永远登不上（见 AUTH_ENDPOINTS 注释）。
+  if (!AUTH_ENDPOINTS[endpoint]) {
+    if (body && typeof body.code === 'number' && (body.code === 301 || body.code === 302 || body.code >= 400)) {
+      throw new PluginError(502, '上游服务返回异常（code ' + body.code + '）');
+    }
   }
   if (body && typeof body.status === 'number' && body.status >= 400) {
     throw new PluginError(502, '上游服务返回异常（status ' + body.status + '）');
@@ -186,7 +249,7 @@ async function callBuiltin(engine, endpoint, args, cookieStr) {
     case 'loginStatus': return ncmApi.loginStatus({}, opts);
     case 'logout': return ncmApi.logout({}, opts);
     case 'loginCellphone': return ncmApi.loginCellphone({ phone: args.phone, countrycode: args.countrycode, password: args.password, captcha: args.captcha }, opts);
-    case 'captchaSent': return ncmApi.captchaSent({ phone: args.phone, ctcode: args.countrycode }, opts);
+    case 'captchaSent': return ncmApi.captchaSent({ phone: args.phone, ctcode: args.ctcode || args.countrycode }, opts);
     default: throw new Error('未知端点: ' + endpoint);
   }
 }
@@ -221,6 +284,9 @@ function createGateway() {
   // 并发去重表：同「端点+参数+登录态」的进行中请求共享同一 Promise
   var inflight = {};
 
+  // 账号簇内置通道冷却截止时间（见 AUTH_ENDPOINTS 注释；进程级，重启即清）
+  var authBuiltinBlockedUntil = 0;
+
   // 执行一次真实调用（多引擎级联 + 缓存写入 + stale 兜底）
   async function execCall(endpoint, args, cookieStr, cacheKey) {
     var engine = readEngine(); // 引擎配置快照（与 call() 内一致；缺失将导致 engine is not defined）
@@ -234,17 +300,41 @@ function createGateway() {
       var mode = order[i];
       try {
         var body;
+        var rawCookie = null;
         if (mode === 'builtin') {
+          // 账号簇内置通道已被风控 → 冷却期内不再浪费一次注定 -462 的请求，直走上游
+          if (AUTH_ENDPOINTS[endpoint] && Date.now() < authBuiltinBlockedUntil) {
+            log.debug('gateway', '账号簇内置通道冷却中，跳过 builtin：' + endpoint);
+            throw new PluginError(503, '内置通道冷却中');
+          }
           var res = await callBuiltin(engine, endpoint, args, cookieStr);
           body = (res && res.body !== undefined) ? res.body : res;
+          if (res && Array.isArray(res.cookie) && res.cookie.length) rawCookie = res.cookie;
         } else {
           body = await callUpstream(engine, endpoint, args, cookieStr);
+        }
+        // 内置通道的登录态在响应头（Set-Cookie）里，callBuiltin 的 body 不含它；
+        // 不回填就永远拿不到 MUSIC_U ——「扫码 803 成功但状态仍未登录」的根因。
+        if (rawCookie && AUTH_ENDPOINTS[endpoint]) {
+          var bag = (body && typeof body === 'object') ? body : {};
+          if (bag.cookie === undefined) bag.cookie = rawCookie;
+          body = bag;
+        }
+        // 本机账号簇被网易云风控（负数码，如 -462）：记冷却，本次继续回退上游
+        if (mode === 'builtin' && AUTH_ENDPOINTS[endpoint] && body && typeof body.code === 'number' && body.code < 0) {
+          authBuiltinBlockedUntil = Date.now() + AUTH_BUILTIN_COOLDOWN;
+          log.debug('gateway', '账号簇内置通道风控（code ' + body.code + '），冷却 ' + (AUTH_BUILTIN_COOLDOWN / 60000) + ' 分钟改走上游');
         }
         // 风控/异常响应（负数码，如 -462）不落缓存、直接抛出——
         // 否则会被当成功结果缓存 5 分钟，风控解除后用户仍看到空结果。
         // QR 登录轮询的 800/801/802/803 为正数业务码，不受影响。
+        // 账号簇例外：已是最后一个引擎时不再抛通用错误，把原始响应交给端点包装函数
+        // 翻译成面向用户的提示（例如区分「二维码过期」与「登录服务被风控」）。
         if (body && typeof body.code === 'number' && body.code < 200) {
           log.debug('gateway', '风控/异常响应（code ' + body.code + '），endpoint=' + endpoint + ' via=' + mode);
+          if (AUTH_ENDPOINTS[endpoint] && i === order.length - 1) {
+            return { data: body, cached: false, via: mode };
+          }
           throw new PluginError(502, '网易云接口异常（code ' + body.code + '），请稍后重试');
         }
         if (endpoint === 'search') body = await ensureSearchCovers(body, engine); // 搜索封面统一补全（upstream 路径裸奔根因）
@@ -321,10 +411,11 @@ function createGateway() {
   }
 
   // 登录成功后的 cookie 落库（二维码 / 手机号登录共用）
-  // 网易云登录响应体自带 cookie: [Set-Cookie...] 数组，其中含 MUSIC_U / __csrf
+  // 内置通道：Set-Cookie 数组（引擎已剔除 Domain 属性）
+  // 上游通道：单条拼接字符串（含 Max-Age/Expires/Path 属性）
+  // 两种形态都必须走 normalizeLoginCookie 归一化，否则 MUSIC_U 会被属性段顶掉。
   async function saveLoginCookie(userId, body) {
-    var cookieArr = (body.cookie && Array.isArray(body.cookie)) ? body.cookie : [];
-    var cookieStr = cookieArr.join('; ');
+    var cookieStr = normalizeLoginCookie(body && body.cookie);
     var profile = {};
     if (!cookieStr) return profile;
     // 先保存 cookie（loginStatus 需要它），再拉取 profile 后回写
@@ -332,7 +423,9 @@ function createGateway() {
     try {
       var st = await call('loginStatus', {}, userId, { noCache: true });
       var sb = st.data || {};
+      // 上游（Binaryify 兼容）把账号信息放在 data 下：{ data: { code, account, profile } }
       if (sb.profile) profile = sb.profile;
+      else if (sb.data && sb.data.profile) profile = sb.data.profile;
     } catch (e) { /* profile 拿不到不阻塞登录 */ }
     store.setAccount(userId, cookieStr, { profile: profile, csrf: (cookieStr.match(/__csrf=([^;]+)/) || ['', ''])[1] });
     return profile;
@@ -353,12 +446,16 @@ function createGateway() {
   async function checkQrLogin(userId, key) {
     var res = await call('loginQrCheck', { key: key }, userId, { noCache: true });
     var body = res.data || {};
-    var code = body.code;
+    var code = Number(body.code); // 内置/上游两路返回类型可能不同，统一按数字比较
     if (code === 803) {
       var profile = await saveLoginCookie(userId, body);
       return { code: 803, profile: profile };
     }
-    return { code: code }; // 800 过期 / 801 等待 / 802 已扫描待确认
+    if (code === 800 || code === 801 || code === 802) {
+      return { code: code }; // 800 过期 / 801 等待扫码 / 802 已扫描待确认
+    }
+    // 其它（风控负数码 / 上游异常）：给出中文提示而不是让前端无限轮询转圈
+    throw new PluginError(502, (body.message || body.msg || '网易云登录服务暂时不可用，请稍后重试'));
   }
 
   // 供 stream.js 使用：解析真实播放地址（不信任客户端传 URL）

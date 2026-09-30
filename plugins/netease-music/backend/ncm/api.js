@@ -412,7 +412,8 @@ function loginQrCheck(params, ctx) {
 
 // 登录状态 / 账号信息
 function loginStatus(params, ctx) {
-  return req('/api/w/nuser/account/get', {}, ctx, 'weapi');
+  // 账号簇统一走 eapi + 移动端身份（os=pc 会被风控 -462）
+  return req('/api/w/nuser/account/get', {}, ctx, 'eapi');
 }
 
 // 退出登录
@@ -421,6 +422,10 @@ function logout(params, ctx) {
 }
 
 // 手机号登录（密码或验证码二选一；password 需 md5 后传输）
+// 通道用 eapi + 移动端身份：账号簇在 os=pc 身份下会被网易云风控 -462，
+// 换移动端身份后同接口返回真实业务码（实测假账号返回 502「账号或密码错误」）。
+// 注意：网易云已对「密码登录」加了网易云盾验证，密码/验证码登录在部分网络
+// 环境仍可能被拒（返回 -462/-460），此时网关会回退上游；扫码登录始终可用。
 function loginCellphone(params, ctx) {
   var data = {
     phone: params.phone,
@@ -433,12 +438,20 @@ function loginCellphone(params, ctx) {
     // 网易云协议要求密码先做 md5 再传输
     data.password = crypto.createHash('md5').update(String(params.password)).digest('hex');
   }
-  return req('/api/w/login/cellphone', data, ctx, 'weapi');
+  return req('/api/w/login/cellphone', data, ctx, 'eapi');
 }
 
 // 发送登录验证码（ctcode 为国家码，默认 86）
+// 路径必须是 /api/sms/captcha/sent：此前写成 /api/captcha/sent，weapi 通道下
+// 网易云直接返回 code 404「接口未找到！」—— 前端看到的就是「验证码发送失败」。
+// 通道用 eapi + 移动端身份：weapi/eapi 都会带上客户端身份，但账号簇（验证码、
+// 登录、登录状态）在 os=pc 身份下会被风控 -462，移动端身份可正常下发短信。
+// 参数名按网易云协议为 cellphone（不是 phone）。
 function captchaSent(params, ctx) {
-  return req('/api/captcha/sent', { phone: params.phone, ctcode: params.ctcode || 86 }, ctx, 'weapi');
+  return req('/api/sms/captcha/sent', {
+    cellphone: params.phone,
+    ctcode: String(params.ctcode || 86)
+  }, ctx, 'eapi');
 }
 
 module.exports = {

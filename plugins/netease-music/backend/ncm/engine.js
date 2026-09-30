@@ -19,10 +19,38 @@ var DEFAULT_TIMEOUT = 15000;
 
 // 客户端信息模板（api-enhanced osMap）
 var OS_MAP = {
-  pc: { os: 'pc', appver: '3.1.17.204416', osver: 'Microsoft-Windows-10-Professional-build-19045-64bit', channel: 'netease' },
-  android: { os: 'android', appver: '8.20.20.231215173437', osver: '14', channel: 'xiaomi' },
-  iphone: { os: 'iPhone OS', appver: '9.0.90', osver: '16.2', channel: 'distribution' }
+  pc: { os: 'pc', appver: '3.1.17.204416', osver: 'Microsoft-Windows-10-Professional-build-19045-64bit', channel: 'netease', mobilename: '', versioncode: '140', resolution: '1920x1080' },
+  android: { os: 'android', appver: '8.20.20.231215173437', osver: '14', channel: 'xiaomi', mobilename: 'MI 9', versioncode: '140', resolution: '1920x1080' },
+  iphone: { os: 'iPhone OS', appver: '9.0.90', osver: '16.2', channel: 'distribution', mobilename: 'iPhone', versioncode: '140', resolution: '1920x1080' }
 };
+
+// 匿名设备指纹：进程级固定，不随请求变化。
+// 背景（2026-10-01 定位）：此前每次请求都随机生成 _ntes_nuid / deviceId / NMTID，
+// 而扫码登录轮询每 2.5s 一次 —— 网易云看到的是「同一秒内不断冒出的全新设备」，
+// 这是登录簇被打上 -462「请完成验证操作」的典型特征。固定后本机对网易云呈现为
+// 「同一台设备」，与官方客户端行为一致，且已登录用户的 cookie 自带真实设备字段，
+// 不受此处默认值影响。
+var ANON_DEVICE = {
+  _ntes_nuid: crypto.randomBytes(16).toString('hex'),
+  WNMCID: randomHex(6) + '.' + Date.now() + '.01.0',
+  NMTID: '00O' + randomHex(19)
+};
+var ANON_DEVICE_AT = Date.now();
+
+// 解析本次请求应使用的客户端身份。
+// 关键：eapi 的 os 绝不能落到 'pc'。域名 interfacepc.music.163.com 虽带 pc，
+// 但走的是移动客户端协议；「os=pc + 移动端 UA」这种自相矛盾的身份会被网易云
+// 判定为伪造客户端，登录 / 账号簇（二维码轮询、验证码、登录状态）直接返回
+// -462 —— 这正是「三种登录方式全挂、验证码也发不出去」的根因。
+// 实测：os=pc 时 login/qrcode/client/login 返回 -462；换成 iPhone 身份后
+// 立即返回 801「等待扫码」，sms/captcha/sent 与 w/nuser/account/get 同时恢复 200。
+function identityFor(cryptoType, rawCookie) {
+  var raw = rawCookie || {};
+  var want = raw.os;
+  if (!want) want = (cryptoType === 'eapi') ? 'iphone' : 'pc';
+  if (OS_MAP[want]) return OS_MAP[want];
+  return (cryptoType === 'eapi') ? OS_MAP.iphone : OS_MAP.pc;
+}
 
 var UA_MAP = {
   weapi: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
@@ -66,28 +94,29 @@ function cookieObjToString(cookie) {
   return parts.join('; ');
 }
 
-// Cookie 补全（对应 api-enhanced processCookieObject，去掉随机 NUID 的持久化副作用）
-function processCookie(cookie) {
+// Cookie 补全（对应 api-enhanced processCookieObject）
+// 设备指纹改为进程级固定（ANON_DEVICE），不再每次请求随机 —— 见 ANON_DEVICE 注释。
+function processCookie(cookie, cryptoType) {
   var raw = {};
   var keys = Object.keys(cookie || {});
   for (var i = 0; i < keys.length; i++) {
     if (cookie[keys[i]] === undefined || cookie[keys[i]] === null || cookie[keys[i]] === '') continue;
     raw[keys[i]] = String(cookie[keys[i]]);
   }
-  var os = OS_MAP[raw.os] || OS_MAP.pc;
+  var os = identityFor(cryptoType, raw);
   var result = {
     __remember_me: 'true',
     ntes_kaola_ad: '1',
-    _ntes_nuid: raw._ntes_nuid || randomHex(32),
-    WNMCID: raw.WNMCID || randomHex(6) + '.' + Date.now() + '.01.0',
+    _ntes_nuid: raw._ntes_nuid || ANON_DEVICE._ntes_nuid,
+    WNMCID: raw.WNMCID || ANON_DEVICE.WNMCID,
     WEVNSM: raw.WEVNSM || '1.0.0',
     osver: raw.osver || os.osver,
-    deviceId: raw.deviceId || raw._ntes_nuid || randomHex(32),
+    deviceId: raw.deviceId || raw._ntes_nuid || ANON_DEVICE._ntes_nuid,
     os: raw.os || os.os,
     channel: raw.channel || os.channel,
     appver: raw.appver || os.appver
   };
-  result._ntes_nnid = raw._ntes_nnid || result._ntes_nuid + ',' + Date.now();
+  result._ntes_nnid = raw._ntes_nnid || result._ntes_nuid + ',' + ANON_DEVICE_AT;
   // 透传登录态与其余业务 Cookie
   var passthrough = ['MUSIC_U', 'MUSIC_A', '__csrf', '__remember_me', 'NMTID', 'JSESSIONID-WYYY', 'sDeviceId', 'buildver', 'versioncode', 'resolution', 'mobilename'];
   for (var j = 0; j < passthrough.length; j++) {
@@ -98,7 +127,7 @@ function processCookie(cookie) {
   for (var m = 0; m < restKeys.length; m++) {
     if (result[restKeys[m]] === undefined) result[restKeys[m]] = raw[restKeys[m]];
   }
-  if (!result.NMTID) result.NMTID = '00O' + randomHex(19);
+  if (!result.NMTID) result.NMTID = ANON_DEVICE.NMTID;
   return result;
 }
 
@@ -246,7 +275,8 @@ function ncmRequest(uri, data, options) {
   var cryptoType = options.crypto || 'eapi';
   var cookie = options.cookie || {};
   if (typeof cookie === 'string') cookie = cookieToJson(cookie);
-  cookie = processCookie(cookie);
+  var ident = identityFor(cryptoType, cookie); // 身份必须先于 processCookie 解析（cookie 源里可能带 os）
+  cookie = processCookie(cookie, cryptoType);
 
   var headers = {
     'Accept-Encoding': 'gzip, deflate',
@@ -271,10 +301,10 @@ function ncmRequest(uri, data, options) {
       deviceId: cookie.deviceId,
       os: cookie.os,
       appver: cookie.appver,
-      versioncode: cookie.versioncode || '140',
-      mobilename: cookie.mobilename || '',
+      versioncode: cookie.versioncode || ident.versioncode || '140',
+      mobilename: cookie.mobilename || ident.mobilename || '',
       buildver: cookie.buildver || String(Date.now()).substr(0, 10),
-      resolution: cookie.resolution || '1920x1080',
+      resolution: cookie.resolution || ident.resolution || '1920x1080',
       __csrf: csrfToken,
       channel: cookie.channel,
       requestId: Date.now() + '_' + Math.floor(Math.random() * 1000).toString().padStart(4, '0')

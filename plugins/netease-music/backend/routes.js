@@ -276,30 +276,38 @@ router.post('/like', requireAuth, wrap(async function (req, res) {
   ok(res, { like: like, online: isOnline, loggedIn: loggedIn });
 }));
 
-// 我喜欢的音乐（在线取网易云并镜像；离线/未登录回退本地镜像）
+// 本机收藏镜像的 ID 列表（未登录 / 云端不可用时的兜底数据源）
+function localLikeIds(userId) {
+  return store.getLocalLikes(userId).map(function (l) { return Number(l.id) || l.id; });
+}
+
+// 我喜欢的音乐
+//   已登录网易云 → 取云端 likelist 并镜像到本地
+//   未登录 / 云端失败 / 云端返回空 → 回退本机镜像（红心收藏在本机也能看到）
 router.get('/like/list', requireAuth, wrap(async function (req, res) {
   var userId = req.user.user_id;
   var uid = profileUserId(userId);
-  var ids = [];
-  if (uid) {
-    try {
-      var r = await gateway.call('likeList', { uid: uid }, userId, { noCache: true });
-      var body = r.data || {};
-      ids = (body.ids || []).map(String);
-      if (Array.isArray(body.ids)) store.syncLikes(userId, ids);
-    } catch (e) {
-      if (e && e.code === 503) {
-        // 网络失败：回退本地镜像
-        var local = store.getLocalLikes(userId);
-        return ok(res, { ids: local.map(function (l) { return Number(l.id) || l.id; }), offline: true });
-      }
-      throw e;
-    }
-  } else {
-    var localLikes = store.getLocalLikes(userId);
-    ids = localLikes.map(function (l) { return Number(l.id) || l.id; });
+  if (!uid) {
+    return ok(res, { ids: localLikeIds(userId), offline: true });
   }
-  ok(res, { ids: ids, offline: !uid });
+  var ids = [];
+  try {
+    var r = await gateway.call('likeList', { uid: uid }, userId, { noCache: true });
+    var body = r.data || {};
+    // 只有非空才覆盖镜像：空数组会把镜像清空，反而让用户「收藏全没了」
+    if (Array.isArray(body.ids) && body.ids.length) {
+      ids = body.ids.map(String);
+      store.syncLikes(userId, ids);
+    }
+  } catch (e) {
+    if (!(e && e.code === 503)) throw e; // 仅网络级失败兜底，其它错误不掩盖
+    return ok(res, { ids: localLikeIds(userId), offline: true });
+  }
+  if (!ids.length) {
+    var local = localLikeIds(userId);
+    if (local.length) return ok(res, { ids: local, offline: true });
+  }
+  ok(res, { ids: ids, offline: false });
 }));
 
 // 批量检查喜欢状态
