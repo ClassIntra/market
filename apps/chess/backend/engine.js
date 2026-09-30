@@ -215,6 +215,8 @@ EngineProcess.prototype.ensureStarted = function() {
       if (settled) return;
       settled = true;
       clearTimeout(bootTimer);
+      // 启动失败还有一条路（握手超时 / spawn error）不经过 exit 事件，这里补上日志
+      try { console.warn('[chess] 引擎启动失败: ' + error.message); } catch (e) {}
       self._fail(error);
       reject(error);
     }
@@ -234,6 +236,9 @@ EngineProcess.prototype.ensureStarted = function() {
       self.lastGameKey = '';
       self.lastMultiPv = 0;   // 进程没了，setoption 一并失效
       self.stats.lastError = '引擎退出 code=' + code + ' signal=' + signal;
+      // 搜索中进程没了：必须留日志，否则线上只剩一个 503 ENGINE_ERROR，无法定位
+      // （退出码 / stderr 全都拿不到）。code=1 + 空 stderr 通常是引擎自己 abort。
+      try { console.warn('[chess] 引擎进程退出 code=' + code + ' signal=' + signal + ' 搜索中=' + !!entry + ' stderrTail=' + JSON.stringify(self.stderrTail.slice(-300))); } catch (e) {}
       if (entry) {
         clearTimeout(entry.timer);
         self.current = null;
@@ -242,6 +247,9 @@ EngineProcess.prototype.ensureStarted = function() {
       }
       if (wasAlive) self.failedUntil = Date.now() + FAIL_COOLDOWN_MS;
       if (!settled) {
+        // 启动失败必须留日志：Pikafish 启动即退是**静默**的（stderr 都不一定有），
+        // 没有这行的话线上只能看到 503，查不到原因（EvalFile 引号那次就是这么踩的）。
+        try { console.warn('[chess] 引擎启动失败 code=' + code + ' signal=' + signal + ' stderrTail=' + JSON.stringify(self.stderrTail.slice(-300))); } catch (e) {}
         fail(engineError('ENGINE_UNAVAILABLE', '引擎启动即退出：' + self.stderrTail.slice(-200)));
       }
       self._pump();
@@ -433,6 +441,11 @@ EngineProcess.prototype._parseLines = function(linesMap) {
       move: { fr: move.fr, fc: move.fc, tr: move.tr, tc: move.tc },
       score: fields.score,
       depth: fields.depth,
+      // MultiPV 的每条 info 行**各自携带** depth/nodes/time（不是全局值）：
+      // 首选着法通常比后面的候选搜得深。带上它们，前端才能像皮卡鱼网页版那样
+      // 在每张候选卡上标「深度 D · N 节点」。
+      nodes: fields.nodes,
+      time: fields.time,
       pv: fields.pv
     });
   }
@@ -558,6 +571,9 @@ EngineProcess.prototype._run = function(entry) {
 
 var engine = new EngineProcess();
 
+// 加载标记：确认线上跑的是哪份引擎代码（改完没生效这类问题，一眼可辨）
+try { console.warn('[chess] 引擎模块已加载 exe=' + ENGINE_EXE + ' hash=' + HASH_MB + 'MB threads=' + THREADS); } catch (e) {}
+
 // 兜底：进程退出时收掉引擎（正常路径由空闲回收负责）
 if (!global.__chessEngineExitHooked) {
   global.__chessEngineExitHooked = true;
@@ -649,6 +665,10 @@ function analyse(opts) {
         move: { fr: line.move.fr, fc: line.move.fc, tr: line.move.tr, tc: line.move.tc },
         score: line.score,
         depth: line.depth,
+        // ⚠️ 逐字段搬运（与 bestMove 同一课）：这里漏掉的字段，路由层就拿到 undefined。
+        // nodes/time 是每条候选自己的搜索量（MultiPV 各行独立），面板候选卡要显示。
+        nodes: line.nodes,
+        time: line.time,
         pv: line.pv
       });
     }

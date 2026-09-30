@@ -598,6 +598,8 @@ router.post('/ai/analyse', requireAuth, function(req, res) {
           },
           score: line.score,
           depth: line.depth,
+          nodes: line.nodes,
+          time: line.time,
           pv: line.pv
         });
       }

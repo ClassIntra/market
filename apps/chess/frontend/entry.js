@@ -1027,10 +1027,9 @@
     var infoTabButton = t('button', 'chess-tab is-active', {
       type: 'button', 'data-action': 'tab-info', role: 'tab', id: 'chess-tab-info', 'aria-selected': 'true', text: '房间信息'
     });
-    // ===== 引擎分析页（对齐皮卡鱼网页版的「引擎」面板）=====
-    // 评分条 + 引擎自报的深度/节点/用时 + Top-N 候选着法（中文记谱，点一条即在棋盘画箭头）。
-    // 只在人机练习/本地对战时出现：房间联机里它是「帮对方想棋」，
-    // 而且服务端引擎是单实例串行队列，全班一起开分析会把别人的应手挤到排队。
+    // ===== 引擎分析页（对齐皮卡鱼网页版 xiangqiai.com 的「引擎」面板）=====
+    // 评分条 + 引擎自报的深度/节点/用时 + Top-N 候选卡片（中文记谱，点一条即在棋盘画箭头）。
+    // 1.9.0 起人机/本地/房间（含观战者）都有这一页；房间内对所有人可见（页脚有说明）。
     var evalFill = t('span', 'chess-eval-fill', { 'aria-hidden': 'true' });
     var evalBar = t('div', 'chess-eval-bar', { 'data-role': 'eval-bar' }, [evalFill]);
     var evalScore = t('span', 'chess-eval-score', { 'data-role': 'eval-score', text: '—' });
@@ -2123,12 +2122,17 @@
         runAnalyse();
       }, 320);
     }
+    // 节点数缩写：305000 → 30.5万（中文语境用「万」比「K」直观；不足 1 万原样给）
+    function fmtNodes(n) {
+      if (!n) return '';
+      return (n >= 10000 ? (n / 10000).toFixed(1) + '万' : String(n)) + ' 节点';
+    }
     // 引擎信息行：自报名字 + 深度 + 节点 + 用时（皮卡鱼网页版同款信息）
     function engineMetaText(data) {
       var parts = [];
       parts.push(data.engineName || 'Pikafish');
       if (data.depth) parts.push('深度 ' + data.depth);
-      if (data.nodes) parts.push((data.nodes >= 10000 ? (data.nodes / 10000).toFixed(1) + '万' : String(data.nodes)) + ' 节点');
+      if (data.nodes) parts.push(fmtNodes(data.nodes));
       if (data.time) parts.push((data.time / 1000).toFixed(1) + ' 秒');
       return parts.join(' · ');
     }
@@ -2175,17 +2179,42 @@
       if (!lines.length) return;
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
-        var lv = evalView(line.score, data.side || state.turn);
+        var side = data.side || state.turn;
+        var lv = evalView(line.score, side);
         var moveText = chineseMove(state.board, line.move.fromRow, line.move.fromCol, line.move.toRow, line.move.toCol);
-        var pvText = pvToChinese(state.board, line.pv || [], data.side || state.turn).slice(1).join(' ');
+        // 评分胶囊配色：有分看红黑，杀棋看琥珀，没分给中性灰（别把「—」也标成杀棋）
+        var scoreCls = ' is-even';
+        if (lv.mate !== null) scoreCls = ' is-mate';
+        else if (lv.cp !== null) scoreCls = lv.cp >= 0 ? ' is-red' : ' is-black';
+        // 每条候选自己的深度/节点（MultiPV 的 info 行各自携带；旧缓存数据可能没有）
+        var metaBits = [];
+        if (line.depth) metaBits.push('深度 ' + line.depth);
+        if (line.nodes) metaBits.push(fmtNodes(line.nodes));
+        // 主变例**按行棋方着色**（皮卡鱼网页版同款）：slice(1) 去掉首着（它已显示为
+        // 候选着法本身），所以第 j 步对应原始 pv[j+1] —— j 为偶数是**对方**在走。
+        // ⚠️ 空格必须是独立文本节点：测试台断言 `.chess-line-pv`.textContent 精确等于
+        // 「着法 着法」，span 拼接不加空格会把这条断言弄挂。
+        var pvMoves = pvToChinese(state.board, line.pv || [], side).slice(1);
+        var pvKids = [];
+        for (var j = 0; j < pvMoves.length; j++) {
+          if (j) pvKids.push(document.createTextNode(' '));
+          var stepSide = ((j + 1) % 2 === 0) ? side : (side === 'red' ? 'black' : 'red');
+          pvKids.push(t('span', 'chess-pv-step is-' + stepSide, { text: pvMoves[j] }));
+        }
+        var pvNode = pvKids.length
+          ? t('span', 'chess-line-pv', null, pvKids)   // 子节点必须是 Node，纯文本走 attrs.text
+          : t('span', 'chess-line-pv', { text: '—' });
         var item = t('li', 'chess-line' + (activeLine === i ? ' is-active' : ''), {
           'data-action': 'line', 'data-line': String(i), role: 'button', tabindex: '0'
         }, [
           t('span', 'chess-line-no', { text: String(line.rank || i + 1) }),
           t('span', 'chess-line-move', { text: moveText }),
-          t('span', 'chess-line-score' + (lv.cp === null ? ' is-mate' : lv.cp >= 0 ? ' is-red' : ' is-black'), { text: lv.text }),
-          t('span', 'chess-line-pv', { text: pvText || '—' })
+          t('span', 'chess-line-score' + scoreCls, { text: lv.text }),
+          pvNode
         ]);
+        if (metaBits.length) {
+          item.appendChild(t('span', 'chess-line-meta', { text: metaBits.join(' · ') }));
+        }
         engineLineListElement.appendChild(item);
       }
     }

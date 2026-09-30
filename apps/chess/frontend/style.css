@@ -1745,18 +1745,35 @@
   color: var(--ci-color-text, #172033);
 }
 
+/* 评分做成**胶囊**（皮卡鱼网页版同款：优势方一眼可辨，而不是一串同色数字） */
 .chess-line-score {
   -ms-flex: 0 0 auto;
   flex: 0 0 auto;
   margin-left: 6px;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 1px 7px 2px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: #ffffff;
+  background-color: rgba(148, 163, 184, .55);
 }
 
-.chess-line-score.is-red { color: #b91c1c; }
-.chess-line-score.is-black { color: var(--ci-color-text-secondary, #64748b); }
-.chess-line-score.is-mate { color: #b45309; }
+.chess-line-score.is-red { background-color: #b91c1c; }
+.chess-line-score.is-black { background-color: #334155; }
+.chess-line-score.is-mate { background-color: #b45309; }
+
+/* 每条候选自己的深度/节点（MultiPV 的 info 行各自携带，首选通常更深） */
+.chess-engine-panel .chess-line-meta {
+  -ms-flex: 1 1 100%;
+  flex: 1 1 100%;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ci-color-text-tertiary, #94a3b8);
+  font-variant-numeric: tabular-nums;
+}
 
 /* 主变例独占一行：flex-wrap 下给了 100% 就会换行 */
 .chess-line-pv {
@@ -1769,6 +1786,11 @@
   word-break: break-word;
   overflow-wrap: break-word;
 }
+
+/* 主变例**按行棋方着色**（皮卡鱼网页版的辨识度来源）：红方着法红字、黑方着法深字，
+   一条十几步的变例才读得出「谁在应谁」。 */
+.chess-pv-step.is-red { color: #b91c1c; }
+.chess-pv-step.is-black { color: var(--ci-color-text, #172033); }
 
 /* 主变例默认只露 2 行。理由：一条变例常有十几步，三条候选全展开就是一面文字墙，
    在平板侧栏里会把「候选着法」这个真正的信息淹掉。点开某条（is-active）才展开全文。
