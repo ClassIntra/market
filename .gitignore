@@ -15,6 +15,12 @@ venv/
 *.db-shm
 *.db-wal
 
+# 象棋人机引擎二进制（Pikafish，GPL-3，约 57MB）：
+# 供应商二进制不进公开仓，也不随市场包分发；各机器用主仓
+# `node scripts/chess-engine-setup.mjs` 装一次即可（详见 apps/chess/backend/engine/README.md）。
+apps/*/backend/engine/*.exe
+apps/*/backend/engine/*.nnue
+
 # 编辑器与系统
 .DS_Store
 Thumbs.db

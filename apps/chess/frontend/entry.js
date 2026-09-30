@@ -283,20 +283,155 @@
     ];
   }
 
+  // ===== 中文记谱（引擎候选着法 / 棋谱共用）=====
+  // 引擎回的是 UCI（"b2e2"），学生看到等于没看到。皮卡鱼网页版的候选着法列表
+  // 用的是中文记谱（「炮八平五」），这里把 UCI 着法与主变例翻成中文。
+  //
+  // 约定（《中国象棋竞赛规则》记谱法）：
+  //   纵线号 —— 红方自右向左为「一~九」，黑方自右向左为「1~9」。
+  //     本应用 board[0] 是黑方底线、board[r][8] 在最右侧：
+  //       红方第 n 路 = 9 - col（红方在下，它的「右」是屏幕右端）
+  //       黑方第 n 路 = col + 1（黑方在上，它的「右」是屏幕左端）
+  //   进/退 —— 红方 row 变小为「进」，黑方 row 变大为「进」。
+  //   直行子（车/炮/兵/将帅）写「进/退 + 步数」；斜行子（马/象相/士仕）写「进/退 + 目标纵线」。
+  //   横走（行不变）一律写「平 + 目标纵线」。
+  //   同一纵线上有 ≥2 个同色同种子时，省略起点纵线改用「前/后」定位
+  //   （3 个及以上按由前到后编号，红方用汉字、黑方用数字）。
+  var CN_DIGITS = '一二三四五六七八九';
+  var STRAIGHT_TYPES = { king: true, rook: true, cannon: true, pawn: true };
+  var UCI_FILES = 'abcdefghi';
+
+  function cnFile(color, col) {
+    return color === 'red' ? CN_DIGITS.charAt(8 - col) : String(col + 1);
+  }
+  function cnCount(color, n) {
+    return color === 'red' ? CN_DIGITS.charAt(n - 1) : String(n);
+  }
+  // 'b2e2' → { fr, fc, tr, tc }。UCI rank 0 = 红方底线 = 本应用 row 9。
+  function uciToCell(text) {
+    var raw = String(text || '');
+    if (!/^[a-i][0-9][a-i][0-9]$/.test(raw)) return null;
+    var fc = UCI_FILES.indexOf(raw.charAt(0));
+    var fr = 9 - Number(raw.charAt(1));
+    var tc = UCI_FILES.indexOf(raw.charAt(2));
+    var tr = 9 - Number(raw.charAt(3));
+    if (fc < 0 || tc < 0 || fr < 0 || fr > 9 || tr < 0 || tr > 9) return null;
+    return { fr: fr, fc: fc, tr: tr, tc: tc };
+  }
+  // 单步中文记谱。board 只读（不改动局面）。
+  function chineseMove(board, fr, fc, tr, tc) {
+    var piece = board[fr] && board[fr][fc];
+    if (!piece) return '';
+    var color = pieceColor(piece);
+    var name = PIECE_CHARS[piece] || '';
+    // 同纵线同色同种计数：≥2 时用前/后定位（车马炮兵都会出现，不是罕见情况）
+    var mates = [];
+    for (var r = 0; r < 10; r++) if (board[r][fc] === piece) mates.push(r);
+    var head;
+    if (mates.length >= 2) {
+      // 红方 row 小 = 更靠对方底线 = 「前」；黑方相反
+      var order = mates.slice().sort(function(a, b) { return color === 'red' ? a - b : b - a; });
+      var idx = order.indexOf(fr);
+      head = (mates.length === 2 ? (idx === 0 ? '前' : '后') : cnCount(color, idx + 1)) + name;
+    } else {
+      head = name + cnFile(color, fc);
+    }
+    if (tr === fr) return head + '平' + cnFile(color, tc);
+    var forward = color === 'red' ? tr < fr : tr > fr;
+    var verb = forward ? '进' : '退';
+    return STRAIGHT_TYPES[pieceType(piece)]
+      ? head + verb + cnCount(color, Math.abs(tr - fr))
+      : head + verb + cnFile(color, tc);
+  }
+  // 主变例（UCI 串数组）→ 中文着法数组。逐步落子是因为记谱要读「落子前」的
+  // 同纵线分布（前/后判定）。线路里出现与轮次不符的着法说明后面已不可信，就地截断。
+  function pvToChinese(board, pv, side) {
+    var tmp = [];
+    for (var r = 0; r < 10; r++) tmp.push(board[r].slice());
+    var turn = side === 'black' ? 'black' : 'red';
+    var out = [];
+    for (var i = 0; i < pv.length; i++) {
+      var cell = uciToCell(pv[i]);
+      if (!cell) break;
+      var piece = tmp[cell.fr][cell.fc];
+      if (!piece || pieceColor(piece) !== turn) break;
+      out.push(chineseMove(tmp, cell.fr, cell.fc, cell.tr, cell.tc));
+      tmp[cell.tr][cell.tc] = piece;
+      tmp[cell.fr][cell.fc] = null;
+      turn = turn === 'red' ? 'black' : 'red';
+    }
+    return out;
+  }
+
+  // 引擎评分 → 盘面观感。UCI 的 score 是**当前行棋方视角**，先翻成红方视角再用
+  // logistic 换算胜率：象棋 1 兵 ≈ 60~100cp，取 220 为尺度时 1 车(900cp) ≈ 98%、
+  // 1 兵 ≈ 62%，与 Pikafish 自带 WDL 的观感接近（不必真去开 UCI_ShowWDL）。
+  function evalView(score, side) {
+    var sign = side === 'black' ? -1 : 1;
+    if (!score) return { cp: null, mate: null, rate: 0.5, text: '—' };
+    if (score.type === 'mate') {
+      var mate = score.value * sign;
+      return {
+        cp: null,
+        mate: mate,
+        rate: mate > 0 ? 1 : 0,
+        text: (mate > 0 ? '红方' : '黑方') + Math.abs(mate) + ' 步杀'
+      };
+    }
+    var cp = score.value * sign;
+    // 用 1/(1+e^-x) 而不是把 cp 线性映射：评估分布天生是 logistic 的
+    return {
+      cp: cp,
+      mate: null,
+      rate: 1 / (1 + Math.exp(-cp / 220)),
+      text: (cp >= 0 ? '+' : '-') + (Math.abs(cp) / 100).toFixed(2)
+    };
+  }
+
   // ===== 人机练习 AI =====
-  // 算法移植自 Resources/ChineseChess/static/js/chess/AI.js（极大极小 + a-b 剪枝 + 位置分表），
-  // 三档棋力：
-  //   简单 = 浅层极大极小 + 失误率（刻意放水，学生可赢）；
-  //   普通 = a-b 迭代加深 + 吃子静态搜索（默认档，不许白送子）；
-  //   困难 = 更深 + 历史启发（走法生成改为伪合法 + 搜索内懒合法化后同预算搜得更深）。
+  // 双引擎结构（1.8.0 重构）：
+  //   主路径 —— 服务端 Pikafish（backend/engine.js）。算力在服务器、不占平板主线程，
+  //             棋力从「能赢新手」直接抬到职业引擎水平。
+  //   兜底   —— 下面这套内置极大极小。引擎缺失/排队满/超时的降级路径，
+  //             保证离线或引擎故障时人机模式照常可用（学生只在连接灯位置看到「内置引擎」）。
+  //
+  // **三档棋力，一律满子**（2026-10-01 用户决定）：取消原来的「让双车 / 让一马」。
+  // 让子改的是子力结构，学生赢了也说不清是自己变强了还是对面少了两个车；
+  // 强弱只由思考时间决定，语义诚实，也与 Pikafish 自身的调参方式一致——
+  // 2026-09 版引擎已移除 Skill Level / UCI_LimitStrength（见 backend/engine.js 注释），
+  // 可调的只剩搜索预算。
+  // 三档必须在两条路径上一致：服务端引擎的 movetime（此处下发）、
+  // 引擎不可用时的内置兜底配置（fallback）—— 否则「降级后突然换了个对手」。
+  // 内置算法说明（兜底路径）：极大极小 + a-b + 位置分表 + MVV-LVA + 历史启发 + 吃子静态搜索。
   // 棋子/坐标系对齐本应用：board[row][col]、黑上红下、r_*/b_* 命名。
   // 分表按「黑方底线在行 0」朝向书写；红方取分时用 9-row 翻转（与参考实现的 player0 朝向一致）。
   var AI_LEVELS = {
-    easy: { minDepth: 1, maxDepth: 2, budget: 150, blunderRate: 0.2, quiesce: false, history: false },
-    normal: { minDepth: 1, maxDepth: 4, budget: 500, blunderRate: 0, quiesce: true, history: true },
-    hard: { minDepth: 1, maxDepth: 8, budget: 900, blunderRate: 0, quiesce: true, history: true }
+    // 快速：够快够顺手，适合刚认全走法的同学（兜底档 depth2 不做静态搜索）
+    quick: {
+      movetime: 300,
+      label: '快速',
+      hint: '约 0.3 秒',
+      fallback: { minDepth: 1, maxDepth: 2, budget: 200, blunderRate: 0, quiesce: false, history: false }
+    },
+    // 常规：默认档。0.9s ≈ 17 层，早已远超「能赢新手」的水平
+    normal: {
+      movetime: 900,
+      label: '常规',
+      hint: '约 1 秒',
+      fallback: { minDepth: 1, maxDepth: 4, budget: 500, blunderRate: 0, quiesce: true, history: true }
+    },
+    // 大师：满血。兜底档放宽到 depth5 / 0.9s —— 再深会把弱平板的主线程卡住一整秒
+    master: {
+      movetime: 2200,
+      label: '大师',
+      hint: '约 2 秒',
+      fallback: { minDepth: 1, maxDepth: 5, budget: 900, blunderRate: 0, quiesce: true, history: true }
+    }
   };
-  var AI_LEVEL_LABELS = { easy: '简单', normal: '普通', hard: '困难' };
+  var AI_DEFAULT_LEVEL = 'normal';
+  function aiLevelConfig(level) {
+    return Object.prototype.hasOwnProperty.call(AI_LEVELS, level) ? AI_LEVELS[level] : AI_LEVELS[AI_DEFAULT_LEVEL];
+  }
   var AI_INF = 100000;
   var AI_MATE = 90000;
   // 历史启发表跨步保留（对齐 HardSearch 的 historyTable），人机开局时清零
@@ -672,7 +807,7 @@
   // 迭代加深入口：按难度配置预算/深度；只采纳搜完整层的结果。
   // 走法生成为伪合法，这里先懒过滤送将（同时给简单档的随机失误兜底：不会送将）。
   function aiBestMove(board, aiColor, level) {
-    var cfg = AI_LEVELS[level] || AI_LEVELS.normal;
+    var cfg = aiLevelConfig(level).fallback;
     var pseudo = aiGenerateMoves(board, aiColor);
     if (!pseudo.length) return null;
     var moves = [];
@@ -782,6 +917,9 @@
     // 触发 ≤1180px 换行规则，联机对局标题栏变成两行（用户实测反馈）
     var actions = t('div', 'chess-actions', null, [
       t('button', 'is-secondary', { type: 'button', 'data-action': 'undo', text: '悔棋' }),
+      // 提示：仅人机模式显示（借服务端引擎算一手推荐着法）。放在悔棋右侧是因为
+      // 人机模式下「认输/换方/分享」都隐藏，位数与联机模式一致，不会把标题栏挤成两行。
+      t('button', 'is-secondary', { type: 'button', 'data-action': 'hint', text: '提示' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'resign', text: '认输' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
@@ -800,12 +938,13 @@
     var roomLabel = t('label', null, { text: '房间码' });
     roomLabel.appendChild(roomInput);
 
-    // 电脑棋力：默认「普通」。下拉不设默认选中项时浏览器取第一项「简单」，
-    // 人机开局没动过下拉就一直在 20% 随机送子的简单档——这是「人机好傻」的第一主因。
+    // 电脑棋力：三档全是满子，差别只在思考时间（见 AI_LEVELS 注释）。
+    // 下拉不设默认选中项时浏览器取第一项「快速」——弱档，会被当成「人机好傻」，
+    // 故显式把 selected 打在默认档上。
     var levelSelect = t('select', null, { 'data-field': 'level' }, [
-      t('option', null, { value: 'easy', text: '简单' }),
-      t('option', null, { value: 'normal', text: '普通', selected: 'selected' }),
-      t('option', null, { value: 'hard', text: '困难' })
+      t('option', null, { value: 'quick', text: '快速' }),
+      t('option', null, { value: 'normal', text: '常规', selected: 'selected' }),
+      t('option', null, { value: 'master', text: '大师' })
     ]);
     var levelLabel = t('label', null, { text: '电脑棋力' });
     levelLabel.appendChild(levelSelect);
@@ -888,9 +1027,42 @@
     var infoTabButton = t('button', 'chess-tab is-active', {
       type: 'button', 'data-action': 'tab-info', role: 'tab', id: 'chess-tab-info', 'aria-selected': 'true', text: '房间信息'
     });
-    var tabs = t('div', 'chess-info-tabs', { role: 'tablist', 'aria-label': '侧栏切换' }, [infoTabButton, chatTabButton]);
+    // ===== 引擎分析页（对齐皮卡鱼网页版的「引擎」面板）=====
+    // 评分条 + 引擎自报的深度/节点/用时 + Top-N 候选着法（中文记谱，点一条即在棋盘画箭头）。
+    // 只在人机练习/本地对战时出现：房间联机里它是「帮对方想棋」，
+    // 而且服务端引擎是单实例串行队列，全班一起开分析会把别人的应手挤到排队。
+    var evalFill = t('span', 'chess-eval-fill', { 'aria-hidden': 'true' });
+    var evalBar = t('div', 'chess-eval-bar', { 'data-role': 'eval-bar' }, [evalFill]);
+    var evalScore = t('span', 'chess-eval-score', { 'data-role': 'eval-score', text: '—' });
+    var evalCaption = t('div', 'chess-eval-caption', null, [
+      t('span', 'chess-eval-side is-red', { text: '红方' }),
+      evalScore,
+      t('span', 'chess-eval-side is-black', { text: '黑方' })
+    ]);
+    var engineInfo = t('p', 'chess-engine-info', { 'data-role': 'engine-info' });
+    var engineLineList = t('ul', 'chess-line-list', { 'data-role': 'line-list' });
+    var engineFoot = t('p', 'chess-engine-foot', { 'data-role': 'engine-foot' });
+    var enginePanel = t('div', 'chess-engine-panel', {
+      'data-role': 'engine-panel', role: 'tabpanel', 'aria-labelledby': 'chess-tab-engine'
+    }, [
+      t('div', 'chess-engine-tools', null, [
+        t('button', 'is-secondary', { type: 'button', 'data-action': 'analyse', text: '分析当前局面' }),
+        t('button', 'is-secondary is-toggle is-on', {
+          type: 'button', 'data-action': 'auto-analyse', 'aria-pressed': 'true', text: '自动分析'
+        })
+      ]),
+      t('div', 'chess-engine-eval', null, [evalBar, evalCaption]),
+      engineInfo,
+      engineLineList,
+      engineFoot
+    ]);
+    enginePanel.hidden = true;
+    var engineTabButton = t('button', 'chess-tab', {
+      type: 'button', 'data-action': 'tab-engine', role: 'tab', id: 'chess-tab-engine', 'aria-selected': 'false', text: '引擎'
+    });
+    var tabs = t('div', 'chess-info-tabs', { role: 'tablist', 'aria-label': '侧栏切换' }, [infoTabButton, chatTabButton, engineTabButton]);
     tabs.hidden = true;
-    var info = t('aside', 'chess-info', null, [turnBanner, tabs, infoPanel, chat]);
+    var info = t('aside', 'chess-info', null, [turnBanner, tabs, infoPanel, chat, enginePanel]);
     var layout = t('div', 'chess-layout', null, [board, info]);
 
     // 标题栏是 .chess-app 的直接子级：shell 有限宽居中，header 移出后全宽贴顶贴边
@@ -918,10 +1090,32 @@
     var labelsPrimed = false;     // 无障碍标签首轮是否已补齐
     // 本地对弈走子历史（悔棋依据）：{ fr, fc, tr, tc, piece, captured }
     var localHistory = [];
-    // 人机练习的 AI 落子定时器：卸载/离开时必须清理，防止已卸载组件操作 DOM
-    var soloTimer = null;
+    // 人机练习的应手状态。旧实现只有一个 setTimeout 句柄；改走服务端引擎后必须有
+    // 「作废在途回调」的能力——重开/退出/悔棋都可能让一个已经发出的请求迟到返回，
+    // 迟到的着法落到新局面或新一局上，表现出来就是「莫名其妙自己动了一步」。
+    var aiPending = false;         // 电脑思考中（远程引擎或本地兜底）
+    var aiToken = 0;               // 会话代次：任何中断（重开/退出/悔棋/换档）都自增
+    var aiTimer = null;            // 应手延时/在途定时器（卸载时必须清理）
+    var soloGameKey = '';          // 每局一个随机 key：后端据此判断要不要 ucinewgame（清哈希）
+    var aiEngineState = 'unknown'; // unknown | pikafish | builtin：当前实际生效的引擎
+    var aiEngineName = '';         // 引擎自报名（如 "Pikafish 2026-09-06"）
+    // ===== 引擎分析（侧栏「引擎」页）=====
+    // 只在引擎页可见时才发请求：服务端引擎是单实例串行队列，全班一起挂着分析会把
+    // 别人的应手挤到排队。切页才跑 = 用户主动要看才占资源，天然是节流阀。
+    var ANALYSE_MOVETIME = 800;    // 分析预算固定，不跟着棋力档走（大师档 2.2s 太慢）
+    var ANALYSE_LINES = 3;         // = MultiPV，后端 clamp 到 1~5
+    var analysisOn = true;         // 自动分析开关（关掉后只能手动点「分析」）
+    var analysisData = null;       // 最近一次分析结果
+    var analysisDoneKey = '';      // 已完成分析的局面键（棋盘|轮次）
+    var analysisBusyKey = '';      // 在途分析的局面键
+    var analysisTimer = null;      // 防抖句柄（卸载必须清）
+    var analysisToken = 0;         // 代次：换局/退出/悔棋作废在途回调
+    var analysisNote = '';         // 降级/失败/进行中的一句话说明
+    var activeLine = -1;           // 当前高亮的候选序号（-1 = 无）
+    var arrowMove = null;          // 棋盘箭头 { fr, fc, tr, tc }（点候选着法才出现）
+    var lastArrowKey = '';         // 箭头层 diff 键
     var soloColor = 'red';        // 人机练习玩家执色（红方先手，玩家默认执红）
-    var soloLevel = 'normal';     // 电脑棋力 easy/normal/hard（入场卡选择，会话恢复保留）
+    var soloLevel = 'normal';     // 电脑棋力 easy/normal/hard/master（入场卡选择，会话恢复保留）
     var levelElement = null;      // 入场卡棋力下拉（root 挂载后缓存）
     var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
     // 会话持久化：切去聊天/社区再返回时恢复本地对局与房间（sessionStorage，关页即清）
@@ -978,6 +1172,7 @@
     var headerActionButtons = root.querySelectorAll('.chess-actions [data-action], .chess-room-tools [data-action]');
     var leaveButton = root.querySelector('[data-action="leave"]');
     var undoButton = root.querySelector('[data-action="undo"]');
+    var hintButton = root.querySelector('[data-action="hint"]');
     var resignButton = root.querySelector('[data-action="resign"]');
     var copyButton = root.querySelector('[data-action="copy"]');
     var shareButton = root.querySelector('[data-action="share-chat"]');
@@ -997,6 +1192,16 @@
     var infoTabButtonElement = root.querySelector('[data-action="tab-info"]');
     var chatTabButtonElement = root.querySelector('[data-action="tab-chat"]');
     var chatTabBadgeElement = root.querySelector('.chess-tab-badge');
+    // 引擎页节点：render 是热路径，同样一次缓存
+    var enginePanelElement = root.querySelector('[data-role="engine-panel"]');
+    var engineTabButtonElement = root.querySelector('[data-action="tab-engine"]');
+    var evalFillElement = root.querySelector('.chess-eval-fill');
+    var evalScoreElement = root.querySelector('[data-role="eval-score"]');
+    var engineInfoElement = root.querySelector('[data-role="engine-info"]');
+    var engineLineListElement = root.querySelector('[data-role="line-list"]');
+    var engineFootElement = root.querySelector('[data-role="engine-foot"]');
+    var analyseButtonElement = root.querySelector('[data-action="analyse"]');
+    var autoAnalyseButtonElement = root.querySelector('[data-action="auto-analyse"]');
 
     function currentUserId() {
       return String(context.user && (context.user.user_id || context.user.id) || '');
@@ -1050,22 +1255,44 @@
     // 历史回填期间不计未读，否则每次进房都会看到一串未读
     var chatHistoryRendering = false;
 
+    // 侧栏分页可选项是模式相关的：房间联机 = 信息/聊天，单机（人机·本地）= 信息/引擎。
+    // 聊天在单机没有意义（一块屏两个人），引擎在房间里是「帮对手想棋」且会占服务端队列。
+    function hasChatTab() { return mode === 'room' && !!roomCode; }
+    function hasEngineTab() { return mode === 'solo' || mode === 'local'; }
+    function tabbed() { return hasChatTab() || hasEngineTab(); }
+    // 把 activeTab 收敛到当前模式下真实存在的页
+    function effectiveTab() {
+      if (activeTab === 'chat' && hasChatTab()) return 'chat';
+      if (activeTab === 'engine' && hasEngineTab()) return 'engine';
+      return 'info';
+    }
     function renderTabs() {
-      var inRoom = mode === 'room' && !!roomCode;
-      if (tabsElement) tabsElement.hidden = !inRoom;
-      if (chatElement) chatElement.hidden = !inRoom || activeTab !== 'chat';
-      // 信息页：非房间态（入场/本地对战）恒显示；房间态下与聊天页互斥
-      if (infoPanelElement) infoPanelElement.hidden = inRoom && activeTab !== 'info';
-      var infoActive = !inRoom || activeTab === 'info';
+      var inRoom = hasChatTab();
+      var engineTab = hasEngineTab();
+      var tab = effectiveTab();
+      if (tabsElement) tabsElement.hidden = !tabbed();
       if (infoTabButtonElement) {
+        var infoActive = tab === 'info';
         setClass(infoTabButtonElement, 'chess-tab' + (infoActive ? ' is-active' : ''));
         infoTabButtonElement.setAttribute('aria-selected', infoActive ? 'true' : 'false');
+        setText(infoTabButtonElement, inRoom ? '房间信息' : '对局信息');
       }
-      var chatActive = inRoom && activeTab === 'chat';
+      if (chatTabButtonElement) chatTabButtonElement.hidden = !inRoom;
+      if (engineTabButtonElement) engineTabButtonElement.hidden = !engineTab;
+      if (chatElement) chatElement.hidden = tab !== 'chat';
+      if (enginePanelElement) enginePanelElement.hidden = tab !== 'engine';
+      // 信息页：非分页态（入场）恒显示；分页态下与另外两页互斥
+      if (infoPanelElement) infoPanelElement.hidden = tab !== 'info';
+      var chatActive = tab === 'chat';
       var showBadge = inRoom && !chatActive && chatUnread > 0;
       if (chatTabButtonElement) {
         setClass(chatTabButtonElement, 'chess-tab' + (chatActive ? ' is-active' : '') + (showBadge ? ' is-unread' : ''));
         chatTabButtonElement.setAttribute('aria-selected', chatActive ? 'true' : 'false');
+      }
+      if (engineTabButtonElement) {
+        var engineActive = tab === 'engine';
+        setClass(engineTabButtonElement, 'chess-tab' + (engineActive ? ' is-active' : ''));
+        engineTabButtonElement.setAttribute('aria-selected', engineActive ? 'true' : 'false');
       }
       if (chatTabBadgeElement) {
         var badge = showBadge ? (chatUnread > 99 ? '99+' : String(chatUnread)) : '';
@@ -1074,11 +1301,13 @@
       }
     }
     function setTab(tab) {
-      var next = tab === 'chat' ? 'chat' : 'info';
+      var next = (tab === 'chat' || tab === 'engine') ? tab : 'info';
       if (next === activeTab) return;
       activeTab = next;
       if (activeTab === 'chat') chatUnread = 0;
       renderTabs();
+      // 切页后 render 会经 syncAnalysis 决定要不要立刻补一次分析（引擎页可见才跑）
+      render();
     }
 
     function chatAtBottom() {
@@ -1232,7 +1461,7 @@
     function canSelectPiece(piece) {
       if (!piece || state.winner || state.status !== 'active' || pending) return false;
       // AI 思考中禁止选子（防连点导致状态错乱）
-      if (mode === 'solo' && soloTimer) return false;
+      if (mode === 'solo' && aiPending) return false;
       // 本地双人：只许选中当前手一方的棋子（否则点击敌子会命中「改选」分支，
       // 永远走不到吃子判定——2026-09-21 实测发现的真 bug）
       if (mode === 'local') return pieceColor(piece) === state.turn;
@@ -1339,6 +1568,10 @@
     // 旧实现按 JSON 签名全量 clearChildren 重建 90 按钮 + SVG —— 低端安卓平板
     // 每次选中/走子都丢一帧合成层，用户感知为棋盘「抽搐」。
     var boardBuilt = false;
+    // 交点层引用（逐格 diff 的锚点）与箭头层引用。不用 lastElementChild：
+    // 箭头层必须画在交点层之上，于是它成了最后一个子元素。
+    var cellsElement = null;
+    var arrowLayerElement = null;
     // ===== 视角（orientation）=====
     // 棋盘数据坐标固定：row 0 = 黑方底线，row 9 = 红方底线（与服务端 rules 一致）。
     // 但呈现坐标要按「我在哪一方」定：黑方玩家若照着红方视角看，自己的棋在最远端、
@@ -1370,6 +1603,12 @@
         }
       }
       boardElement.appendChild(pointsElement);
+      // ⚠️ 顺序有讲究：箭头层必须画在交点层**之后**（z 序在上，否则被棋子盖住），
+      // 而 render 里靠 pointsElement 逐格 diff，所以交点层的位置改为显式缓存
+      // cellsElement，不再用 lastElementChild（那是箭头层了）。
+      arrowLayerElement = buildArrowLayer(boardElement);
+      lastArrowKey = '';
+      cellsElement = pointsElement;
       labelsPrimed = false; // 交点重建后需在下一轮 render 重新补齐无障碍标签
       boardBuilt = true;
     }
@@ -1385,13 +1624,18 @@
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
         if (mode === '') { actionButtons[a].hidden = true; continue; }
+        // 提示只在人机练习有意义（借引擎算一手推荐着法）
+        if (kind === 'hint') { actionButtons[a].hidden = mode !== 'solo'; continue; }
         // 人机/本地隐藏分享类；人机额外隐藏换方（色已固定）与认输（可直接退出）
         actionButtons[a].hidden = isLocal && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community' || kind === 'color' || kind === 'resign');
       }
       root.classList.toggle('chess-room-mode', mode === 'room' && !!roomCode);
       setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
       setText(identityElement, mode === 'solo'
-        ? ('我执' + (soloColor === 'red' ? '红' : '黑') + ' · 电脑执' + (soloColor === 'red' ? '黑' : '红') + ' · ' + (AI_LEVEL_LABELS[soloLevel] || '普通'))
+        // 档位含义是「思考时间」而非让子，所以要写清楚它代表强弱而非棋份。
+        // 引擎名不放这里（副标题已经很长），改由连接灯位置的 chip 显示 Pikafish / 内置。
+        ? ('我执' + (soloColor === 'red' ? '红' : '黑') + ' · 电脑执' + (soloColor === 'red' ? '黑' : '红')
+          + ' · ' + aiLevelConfig(soloLevel).label)
         : mode === 'local' ? '双人同屏 · 红方先手'
         : (member ? (member.role === 'spectator' ? '观战者' : (member.color === 'red' ? '红方' : member.color === 'black' ? '黑方' : '等待分配'))
           : ''));
@@ -1406,7 +1650,7 @@
         statusElement.hidden = false;
         setText(statusElement, state.winner
           ? resultText(state)
-          : mode === 'solo' && soloTimer ? '电脑思考中…'
+          : mode === 'solo' && aiPending ? '电脑思考中…'
           : state.check ? (state.turn === 'red' ? '轮到红方 · 将军！' : '轮到黑方 · 将军！')
           : soloRoom ? '等待对手加入'
           : state.status !== 'active' ? '等待下一局'
@@ -1427,7 +1671,7 @@
         } else if (soloRoom) {
           bannerClass += ' is-waiting';
           bannerText = '等待对手加入';
-        } else if (mode === 'solo' && soloTimer) {
+        } else if (mode === 'solo' && aiPending) {
           bannerClass += ' is-waiting';
           bannerText = '电脑思考中…';
         } else {
@@ -1437,7 +1681,7 @@
         setClass(bannerElement, bannerClass);
         setText(bannerElement, bannerText);
       }
-      if (isLocal) setConnection(mode === 'solo' && soloTimer ? '电脑思考中' : '本地对弈', 'online');
+      if (isLocal) setConnection(mode === 'solo' && aiPending ? '电脑思考中' : (mode === 'solo' ? soloEngineText() || '本地对弈' : '本地对弈'), 'online');
       else if (!roomCode) setConnection('未进入房间', '');
       // 入场态：隐藏副标题与棋盘区
       if (roomElement) roomElement.hidden = !inGame;
@@ -1457,7 +1701,7 @@
 
       // 棋子层：增量 diff（按钮常驻，仅写变化节点，避免全量重建丢帧）
       if (!boardBuilt || !boardElement.firstElementChild) buildBoardLayer();
-      var pointsElement = boardElement.lastElementChild;
+      var pointsElement = cellsElement || boardElement.lastElementChild;
       var checkKing = state.check && !state.winner ? getKingPos(state.board, state.turn) : null;
       var last = state.lastMove;
       var legalKeys = {};
@@ -1538,6 +1782,12 @@
           ? !localHistory.length
           : (!roomCode || !state.lastMove || !!state.winner || state.status !== 'active' || pending || String(state.lastMove.userId) !== currentUserId());
       }
+      // 提示按钮：只在人机模式出现；轮到玩家、未分胜负、没有在途应手时可点。
+      // （引擎不可用时也允许点——后端降级后会回落内置 AI，提示照样给得出来）
+      if (hintButton) {
+        hintButton.hidden = mode !== 'solo';
+        hintButton.disabled = mode !== 'solo' || aiPending || !!state.winner || state.status !== 'active' || state.turn !== soloColor;
+      }
       if (resignButton) {
         resignButton.disabled = isLocal || !roomCode || !!state.winner || state.status !== 'active' || pending || !member || !member.color;
       }
@@ -1562,6 +1812,11 @@
         continueButton.hidden = !finished || !owner;
         continueButton.textContent = '继续下一局';
       }
+      // 引擎页：可能触发一次去抖分析（只在引擎页可见且局面未分析过时），
+      // 然后重画面板与箭头。顺序不能反——syncAnalysis 会先把过期结论撤下。
+      syncAnalysis();
+      renderEnginePanel();
+      renderArrows();
     }
 
     // ===== 走子落盘（本地）：应用走法并判定将死/困毙 =====
@@ -1592,29 +1847,356 @@
       if (mode === 'solo' && !state.winner && state.status === 'active' && state.turn !== soloColor) scheduleAi();
     }
 
-    // ===== 人机 AI 应手：延时调度，避免渲染与搜索挤在同一帧 =====
-    function scheduleAi() {
-      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
-      render(); // 先让「电脑思考中…」上屏
-      soloTimer = setTimeout(function() {
-        soloTimer = null;
-        if (disposed || mode !== 'solo' || state.winner || state.status !== 'active') return;
-        if (state.turn === soloColor) return;
-        var aiSide = soloColor === 'red' ? 'black' : 'red';
-        if (state.turn !== aiSide) return;
-        var mv = aiBestMove(state.board, aiSide, soloLevel);
-        if (!mv) {
-          // AI 无着法（理论上级 applyLocalMove 已判将死/困毙），兜底把回合交回玩家
-          render();
-          return;
+    // ===== 人机应手：服务端引擎优先，内置搜索兜底 =====
+    // 时序（每一步都有实际理由，别顺手删）：
+    //   1) 起手先 render 让「电脑思考中…」上屏，再延时 160ms 发请求——引擎在服务端，
+    //      本地那一帧不该被任何同步计算占用（旧版在这里同步搜 150~900ms，就是「点了半天没反应」）。
+    //   2) 请求带上局面签名（boardKey），回来时局面变过（悔棋/重开/换局）就直接丢弃。
+    //   3) aiToken 作废在途回调：光比局面签名拦不住「撤销后又走回同一局面」。
+    //   4) 引擎失败 → 立即回落内置 AI，用户只看到副标题从 Pikafish 变成「内置」。
+    // 连接灯位置的引擎标记：人机模式显示实际生效的引擎（探测前为空，首次应手后必达 accurate）
+    function soloEngineText() {
+      if (mode !== 'solo') return '';
+      if (aiEngineState === 'builtin') return '内置引擎';
+      if (aiEngineState === 'pikafish') return shortEngineName();
+      return '';
+    }
+    // 自报名形如 "Pikafish 2026-09-06"，副标题只放主名，版本号留给以后的调试面板
+    function shortEngineName() {
+      var name = String(aiEngineName || 'Pikafish');
+      var space = name.indexOf(' ');
+      return space > 0 ? name.slice(0, space) : name;
+    }
+    // 局面签名：90 格拍平成串。只用于「这一步请求返回时局面是否已变」的比对，
+    // 不参与任何持久化，故不需要 hash，字符串直比即可（一次应手算一次，开销可忽略）。
+    function boardKey(board) {
+      var parts = [];
+      for (var r = 0; r < 10; r++) {
+        for (var c = 0; c < 9; c++) parts.push(board[r][c] || '.');
+      }
+      return parts.join(',');
+    }
+    function makeGameKey() {
+      return 'g' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+    }
+    // 中断应手：++代次作废在途回调 + 清思考态。所有会改变局面/会话状态的入口都要调它。
+    function aiAbort() {
+      aiToken += 1;
+      if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
+      if (aiPending) { aiPending = false; return true; }   // 返回 true 表示调用方需要补一次 render
+      return false;
+    }
+    // 引擎能力探测：只在挂载时探一次。不可用时副标题显示「内置」，学生不用等一次失败才知道。
+    function probeAiEngine() {
+      request(context, 'GET', '/chess/ai/status', {}).then(function(data) {
+        if (disposed) return;
+        if (data && data.available) {
+          aiEngineState = 'pikafish';
+          aiEngineName = data.engineName || 'Pikafish';
+        } else {
+          aiEngineState = 'builtin';
         }
-        applyLocalMove(mv.fr, mv.fc, mv.tr, mv.tc);
-      }, 180);
+        render();
+      }).catch(function() {
+        if (disposed) return;
+        // 探测本身失败（离线/旧后端/接口 404）不代表引擎不可用：保持 unknown 不写标记，
+        // 真正的判定交给首次应手（成功=pikafish、失败=builtin），不要在这里误判成「没有引擎」。
+      });
+    }
+
+    function scheduleAi() {
+      if (disposed) return;
+      if (mode !== 'solo' || state.winner || state.status !== 'active') return;
+      if (state.turn === soloColor) return;
+      aiAbort();
+      var token = aiToken;
+      aiPending = true;
+      render();   // 先让「电脑思考中…」上屏
+      aiTimer = setTimeout(function() {
+        aiTimer = null;
+        if (aiToken !== token || disposed) return;
+        if (mode !== 'solo' || state.winner || state.status !== 'active') { aiPending = false; render(); return; }
+        if (state.turn === soloColor) { aiPending = false; render(); return; }
+        requestAiMove(token);
+      }, 160);
+    }
+
+    function requestAiMove(token) {
+      var key = boardKey(state.board);
+      var aiSide = state.turn;   // 轮谁走就是谁要应手（人机模式下必然是电脑执色）
+      request(context, 'POST', '/chess/ai/move', {
+        board: state.board,
+        turn: aiSide,
+        level: soloLevel,
+        gameKey: soloGameKey
+      }).then(function(data) {
+        if (aiToken !== token || disposed) return;              // 已被中断（重开/退出/悔棋）
+        if (boardKey(state.board) !== key) return;              // 局面已变，丢弃迟到着法
+        aiEngineState = 'pikafish';
+        if (data && data.engineName) aiEngineName = data.engineName;
+        var mv = data && data.move;
+        aiPending = false;
+        if (!mv) { render(); return; }                          // 无着可走：交回玩家
+        applyLocalMove(mv.fromRow, mv.fromCol, mv.toRow, mv.toCol);
+      }).catch(function() {
+        if (aiToken !== token || disposed) return;
+        if (boardKey(state.board) !== key) return;
+        // 降级路径：引擎不可用/排队满/超时/着法未过校验 → 内置搜索兜底
+        aiEngineState = 'builtin';
+        localAiMove(aiSide);
+      });
+    }
+
+    // 内置兜底：仍是主线程同步搜索（会占用一帧到数百毫秒），只在这条降级路径上跑
+    function localAiMove(aiSide) {
+      var mv = aiBestMove(state.board, aiSide, soloLevel);
+      aiPending = false;
+      if (!mv) { render(); return; }   // 理论上级 applyLocalMove 已判将死/困毙
+      applyLocalMove(mv.fr, mv.fc, mv.tr, mv.tc);
+    }
+
+    // ===== 提示：借引擎给玩家算一手推荐着法 =====
+    // 表现上复用「选中 + 落点提示」这套既有交互：点提示后自动选中推荐棋子、
+    // 只留一个落点，玩家再点一下即可落子（不自动走，避免误触改变局面）。
+    function requestHint() {
+      if (disposed || mode !== 'solo' || aiPending) return;
+      if (state.winner || state.status !== 'active' || state.turn !== soloColor) return;
+      var key = boardKey(state.board);
+      var token = aiToken;
+      aiPending = true;
+      render();
+      request(context, 'POST', '/chess/ai/move', {
+        board: state.board,
+        turn: soloColor,
+        // 提示永远用顶级预算（与棋力档无关）：它要的是「好棋」，不是「像对手那样想」
+        level: 'master',
+        gameKey: soloGameKey
+      }).then(function(data) {
+        if (aiToken !== token || disposed) return;
+        if (boardKey(state.board) !== key) { aiPending = false; return; }
+        aiPending = false;
+        var mv = data && data.move;
+        if (!mv) { render(); return; }
+        selected = { row: mv.fromRow, col: mv.fromCol };
+        legal = [{ row: mv.toRow, col: mv.toCol }];
+        buzz(8);
+        render();
+      }).catch(function() {
+        if (aiToken !== token || disposed) return;
+        aiPending = false;
+        // 引擎不可用时不静默：明确告诉玩家这次提示没算出来
+        setError('引擎暂时不可用，请稍后再试');
+        render();
+      });
+    }
+
+    // ===== 引擎分析面板（侧栏「引擎」页）=====
+    // 数据流：切到引擎页 / 走子落地 → syncAnalysis 去抖 320ms → POST /ai/analyse
+    // → 校验局面未变 → renderEnginePanel。任何中断（换局/悔棋/退出/卸载）都自增
+    // analysisToken，让在途回调失效——迟到的分析结果落到新局面上的表现是
+    // 「候选着法对不上棋盘」，比不显示更糟。
+    function analysisKey() { return boardKey(state.board) + '|' + state.turn; }
+    function engineTabOpen() {
+      return hasEngineTab() && effectiveTab() === 'engine' && !state.winner && state.status === 'active';
+    }
+    function analysisAbort() {
+      analysisToken += 1;
+      if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null; }
+      analysisBusyKey = '';
+      analysisDoneKey = '';
+      analysisData = null;
+      analysisNote = '';
+      activeLine = -1;
+      arrowMove = null;
+    }
+    function runAnalyse() {
+      if (disposed || !analysisOn || !engineTabOpen()) return;
+      var key = analysisKey();
+      if (key === analysisDoneKey || key === analysisBusyKey) return;
+      // 不与人机应手抢队列：应手在途时先让路，等它落地后那次 render 会再叫一次
+      if (aiPending) return;
+      var token = analysisToken;
+      analysisBusyKey = key;
+      analysisNote = '';
+      request(context, 'POST', '/chess/ai/analyse', {
+        board: state.board,
+        turn: state.turn,
+        gameKey: soloGameKey,
+        movetime: ANALYSE_MOVETIME,
+        multiPv: ANALYSE_LINES
+      }).then(function(data) {
+        if (disposed || token !== analysisToken) return;
+        if (analysisBusyKey === key) analysisBusyKey = '';
+        if (key !== analysisKey()) return;   // 局面已变，丢弃（走子那一路会重新排）
+        analysisData = data && data.lines && data.lines.length ? data : null;
+        if (!analysisData) analysisNote = '引擎没有给出可用的着法';
+        analysisDoneKey = key;
+        if (data && data.engineName) { aiEngineName = data.engineName; aiEngineState = 'pikafish'; }
+        activeLine = -1;
+        arrowMove = null;
+        renderEnginePanel();
+        renderArrows();
+      }).catch(function() {
+        if (disposed || token !== analysisToken) return;
+        if (analysisBusyKey === key) analysisBusyKey = '';
+        if (key !== analysisKey()) return;
+        analysisData = null;
+        analysisNote = aiEngineState === 'builtin' ? '服务端引擎不可用，本局走的是内置 AI' : '引擎暂时不可用，稍后再试';
+        renderEnginePanel();
+      });
+    }
+    // render 末尾调用：只在引擎页可见、且这个局面还没结论时排一次去抖分析
+    function syncAnalysis() {
+      var open = engineTabOpen();
+      if (analyseButtonElement) analyseButtonElement.disabled = !open;
+      if (autoAnalyseButtonElement) {
+        autoAnalyseButtonElement.disabled = !open;
+        setClass(autoAnalyseButtonElement, 'is-secondary is-toggle' + (analysisOn ? ' is-on' : ''));
+        autoAnalyseButtonElement.setAttribute('aria-pressed', analysisOn ? 'true' : 'false');
+      }
+      if (!open || !analysisOn) {
+        if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null; }
+        return;
+      }
+      var key = analysisKey();
+      if (key === analysisDoneKey || key === analysisBusyKey) return;
+      // 局面换了：旧结论立刻撤下（留着就是「候选着法对不上棋盘」），再排新的
+      if (analysisData || arrowMove || analysisNote) {
+        analysisData = null;
+        analysisNote = '';
+        activeLine = -1;
+        arrowMove = null;
+      }
+      if (analysisTimer) return;
+      analysisTimer = setTimeout(function() {
+        analysisTimer = null;
+        runAnalyse();
+      }, 320);
+    }
+    // 引擎信息行：自报名字 + 深度 + 节点 + 用时（皮卡鱼网页版同款信息）
+    function engineMetaText(data) {
+      var parts = [];
+      parts.push(data.engineName || 'Pikafish');
+      if (data.depth) parts.push('深度 ' + data.depth);
+      if (data.nodes) parts.push((data.nodes >= 10000 ? (data.nodes / 10000).toFixed(1) + '万' : String(data.nodes)) + ' 节点');
+      if (data.time) parts.push((data.time / 1000).toFixed(1) + ' 秒');
+      return parts.join(' · ');
+    }
+    // 面板 diff 签名：值没变就不重建（render 每次点击都跑）
+    var enginePanelSignature = '';
+    function renderEnginePanel() {
+      if (!enginePanelElement) return;
+      var data = analysisData;
+      var lines = data && data.lines ? data.lines : [];
+      var sig = [analysisOn, activeLine, analysisNote, aiEngineState, soloLevel, lines.length,
+        lines.length ? lines[0].uci : '', lines.length && lines[0].score ? lines[0].score.type + lines[0].score.value : '',
+        data ? data.depth + ':' + data.nodes + ':' + data.time : ''].join('|');
+      if (sig === enginePanelSignature) return;
+      enginePanelSignature = sig;
+
+      // 评分条：红方优势从左侧生长（红在下，左红右黑是通行读法）
+      var view = lines.length ? evalView(lines[0].score, data.side || state.turn) : null;
+      if (evalFillElement) {
+        var rate = view ? view.rate : 0.5;
+        var pct = Math.max(3, Math.min(97, rate * 100));
+        var width = pct.toFixed(1) + '%';
+        if (evalFillElement.style.width !== width) evalFillElement.style.width = width;
+      }
+      if (evalScoreElement) setText(evalScoreElement, view ? view.text : '—');
+      if (evalFillElement) {
+        setClass(evalFillElement, 'chess-eval-fill' + (view && view.mate ? ' is-mate' : view ? (view.cp >= 0 ? ' is-red' : ' is-black') : ' is-even'));
+      }
+      if (engineInfoElement) {
+        setText(engineInfoElement, lines.length ? engineMetaText(data)
+          : analysisNote || (analysisOn ? '切到本页即分析当前局面' : '自动分析已关闭，点「分析当前局面」'));
+      }
+      if (engineFootElement) {
+        var foot = '';
+        if (lines.length) foot = '点候选着法可在棋盘上标出这一步';
+        else if (analysisNote) foot = analysisNote;
+        setText(engineFootElement, foot);
+      }
+      clearChildren(engineLineListElement);
+      if (!lines.length) return;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var lv = evalView(line.score, data.side || state.turn);
+        var moveText = chineseMove(state.board, line.move.fromRow, line.move.fromCol, line.move.toRow, line.move.toCol);
+        var pvText = pvToChinese(state.board, line.pv || [], data.side || state.turn).slice(1).join(' ');
+        var item = t('li', 'chess-line' + (activeLine === i ? ' is-active' : ''), {
+          'data-action': 'line', 'data-line': String(i), role: 'button', tabindex: '0'
+        }, [
+          t('span', 'chess-line-no', { text: String(line.rank || i + 1) }),
+          t('span', 'chess-line-move', { text: moveText }),
+          t('span', 'chess-line-score' + (lv.cp === null ? ' is-mate' : lv.cp >= 0 ? ' is-red' : ' is-black'), { text: lv.text }),
+          t('span', 'chess-line-pv', { text: pvText || '—' })
+        ]);
+        engineLineListElement.appendChild(item);
+      }
+    }
+    // 棋盘箭头层：只在「点了候选着法」时出现（不自动画最佳着法——那等于替学生下棋）
+    function buildArrowLayer(parent) {
+      if (!parent || !document.createElementNS) return null;
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'chess-arrows');
+      svg.setAttribute('viewBox', '0 0 ' + BOARD_W + ' ' + BOARD_H);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.setAttribute('aria-hidden', 'true');
+      parent.appendChild(svg);
+      return svg;
+    }
+    function renderArrows() {
+      if (!arrowLayerElement) return;
+      var key = arrowMove ? (arrowMove.fr + ',' + arrowMove.fc + ',' + arrowMove.tr + ',' + arrowMove.tc) : '';
+      if (key === lastArrowKey) return;
+      lastArrowKey = key;
+      clearChildren(arrowLayerElement);
+      if (!arrowMove) return;
+      var ns = 'http://www.w3.org/2000/svg';
+      var r1 = flipped ? 9 - arrowMove.fr : arrowMove.fr;
+      var c1 = flipped ? 8 - arrowMove.fc : arrowMove.fc;
+      var r2 = flipped ? 9 - arrowMove.tr : arrowMove.tr;
+      var c2 = flipped ? 8 - arrowMove.tc : arrowMove.tc;
+      var x1 = BOARD_PAD + c1 * BOARD_CELL;
+      var y1 = BOARD_PAD + r1 * BOARD_CELL;
+      var x2 = BOARD_PAD + c2 * BOARD_CELL;
+      var y2 = BOARD_PAD + r2 * BOARD_CELL;
+      var dx = x2 - x1;
+      var dy = y2 - y1;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 1) return;
+      var ux = dx / len;
+      var uy = dy / len;
+      // 两端各让开棋子半径：起点 22、终点 30（棋子半径 ≈27），否则整条线被棋子盖住
+      var sx = x1 + ux * 22;
+      var sy = y1 + uy * 22;
+      var ex = x2 - ux * 30;
+      var ey = y2 - uy * 30;
+      if ((ex - sx) * ux + (ey - sy) * uy < 6) { ex = x2 - ux * 12; ey = y2 - uy * 12; }
+      var head = 16;
+      var w = 8;
+      var bw = ex - ux * head;
+      var bh = ey - uy * head;
+      var nx = -uy;
+      var ny = ux;
+      var line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', String(sx));
+      line.setAttribute('y1', String(sy));
+      line.setAttribute('x2', String(bw));
+      line.setAttribute('y2', String(bh));
+      line.setAttribute('class', 'chess-arrow-line');
+      arrowLayerElement.appendChild(line);
+      var headNode = document.createElementNS(ns, 'polygon');
+      headNode.setAttribute('points',
+        ex + ',' + ey + ' ' + (bw + nx * w) + ',' + (bh + ny * w) + ' ' + (bw - nx * w) + ',' + (bh - ny * w));
+      headNode.setAttribute('class', 'chess-arrow-head');
+      arrowLayerElement.appendChild(headNode);
     }
 
     // ===== 单机开局：local 双人同屏 | solo 人机练习 =====
     function offlineStart(nextMode) {
-      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      aiAbort();
+      analysisAbort();
       mode = nextMode;
       roomCode = '';
       localHistory = [];
@@ -1628,6 +2210,10 @@
         }
         AI_HISTORY = [];
       }
+      // 每局换一个 gameKey：后端据此决定要不要给引擎 ucinewgame（清置换表）。
+      // 人机与本地对战都要（本地对战也要跑引擎分析，分析同样吃置换表状态）。
+      soloGameKey = makeGameKey();
+      // 棋力档只影响电脑思考时间，不再改开局子力 —— 两档都是完整开局
       state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
       selected = null; legal = [];
       lastAnimatedKey = '';
@@ -1638,8 +2224,10 @@
     }
 
     function offlineExit() {
-      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      aiAbort();
+      analysisAbort();
       mode = '';
+      activeTab = 'info';
       localHistory = [];
       state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
       selected = null; legal = [];
@@ -1650,7 +2238,8 @@
 
     // 单机悔棋：local 撤 1 手；solo 撤到「玩家待走」——AI 已应手撤 2 手，AI 思考中撤 1 手
     function offlineUndo() {
-      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      aiAbort();
+      analysisAbort();   // 局面要回退：旧候选着法与箭头一并作废
       if (!localHistory.length) return;
       var steps = 1;
       if (mode === 'solo' && state.turn === soloColor && localHistory.length >= 2) steps = 2;
@@ -1821,8 +2410,40 @@
       var kind = action.dataset.action;
       // 返回桌面：标题栏常驻出口，不受忙碌锁限制
       if (kind === 'home') return navigateHome();
-      // 侧栏双页切换：纯前端状态，不受忙碌锁限制（对局请求在途也要能切页看聊天）
-      if (kind === 'tab-info' || kind === 'tab-chat') return setTab(kind === 'tab-chat' ? 'chat' : 'info');
+      // 侧栏分页切换：纯前端状态，不受忙碌锁限制（对局请求在途也要能切页看聊天/看分析）
+      if (kind === 'tab-info' || kind === 'tab-chat' || kind === 'tab-engine') {
+        return setTab(kind === 'tab-chat' ? 'chat' : kind === 'tab-engine' ? 'engine' : 'info');
+      }
+      // 引擎页的三个动作也不走对局忙碌锁：它们只读局面，不改任何对局状态
+      if (kind === 'analyse') {
+        if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null; }
+        analysisDoneKey = '';
+        analysisBusyKey = '';
+        runAnalyse();
+        render();
+        return;
+      }
+      if (kind === 'auto-analyse') {
+        analysisOn = !analysisOn;
+        render();
+        return;
+      }
+      if (kind === 'line') {
+        var lineIndex = Number(action.getAttribute('data-line'));
+        var picked = analysisData && analysisData.lines ? analysisData.lines[lineIndex] : null;
+        if (!picked) return;
+        // 再点一次同一条 = 取消高亮（箭头是「临时标记」，不该只能靠走子清掉）
+        var sameArrow = arrowMove && arrowMove.fr === picked.move.fromRow && arrowMove.fc === picked.move.fromCol
+          && arrowMove.tr === picked.move.toRow && arrowMove.tc === picked.move.toCol;
+        arrowMove = sameArrow ? null : {
+          fr: picked.move.fromRow, fc: picked.move.fromCol,
+          tr: picked.move.toRow, tc: picked.move.toCol
+        };
+        activeLine = sameArrow ? -1 : lineIndex;
+        renderEnginePanel();
+        renderArrows();
+        return;
+      }
       if (pending) return;
       // 单机模式入口（人机练习/本地双人）：本地开局，不涉及任何后端请求
       if (kind === 'solo' || kind === 'local') { offlineStart(kind); return; }
@@ -1835,6 +2456,8 @@
         return;
       }
       if (kind === 'undo' && (mode === 'local' || mode === 'solo')) { offlineUndo(); return; }
+      // 提示：借引擎算一手推荐着法（仅人机模式按钮可见）
+      if (kind === 'hint') { requestHint(); return; }
       if (kind === 'undo' && roomCode && !pending) {
         action.disabled = true;
         setBusy(true);
@@ -2018,7 +2641,9 @@
     if (context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
         disposed = true;
-        if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+        aiAbort();
+        analysisAbort();
+        aiToken += 1;   // 双保险：卸载后任何在途回调都失效
         removeBoardEvents();
         removeRootClick();
         removeChatInput();
@@ -2031,7 +2656,9 @@
     }
     container.__chessUnmount = function() {
       disposed = true;
-      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      aiAbort();
+      analysisAbort();
+      aiToken += 1;   // 双保险：卸载后任何在途回调都失效
       removeBoardEvents();
       removeRootClick();
       removeChatInput();
@@ -2053,6 +2680,8 @@
         soloColor = savedSession.soloColor === 'black' ? 'black' : 'red';
         soloLevel = AI_LEVELS[savedSession.soloLevel] ? savedSession.soloLevel : 'normal';
         if (levelElement) levelElement.value = soloLevel;
+        // 恢复出来的残局算「新的一局」：换 key 让后端 ucinewgame，不把上一局的哈希带进来
+        soloGameKey = makeGameKey();
       }
       localHistory = Array.isArray(savedSession.offline.history) ? savedSession.offline.history : [];
       state = Object.assign({ members: [], check: false }, savedSession.offline);
@@ -2070,6 +2699,8 @@
     } else {
       loadState();
     }
+    // 引擎能力探测（人机副标题要显示 Pikafish / 内置，且降级要提前可见）
+    probeAiEngine();
     syncMetrics();
   }
 

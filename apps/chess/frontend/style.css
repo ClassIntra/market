@@ -1544,6 +1544,243 @@
   display: none !important;
 }
 
+/* ===== 引擎箭头层：点了候选着法才出现 =====
+ * 与线层同为 .chess-board 的直接子元素，故 .chess-board > svg 那条规则的
+ * absolute/inset 0/pointer-events:none 一并适用；只需把 z-index 提到交点层
+ * （z-index:2）之上，否则箭头会被棋子盖住。
+ * 棋盘是固定木色（不随宿主主题变化），所以箭头用深蓝：金色已被「选中/最后一手」
+ * 占用，红黑会与双方棋子混淆。 */
+/* ⚠️ 必须带上 .chess-board > 前缀：上面的「.chess-board > svg」（0,1,1）
+ * 优先级高于单类（0,1,0），只写 .chess-arrows 时 z-index 会被压回 1，
+ * 箭头就被压在交点层（z-index:2）之下 —— 实测验收台就是这么抓到的。 */
+.chess-board > svg.chess-arrows {
+  z-index: 3;
+  overflow: visible;
+}
+
+.chess-arrow-line {
+  stroke: #1d4ed8;
+  stroke-width: 9;
+  stroke-linecap: round;
+  fill: none;
+  opacity: .82;
+}
+
+.chess-arrow-head {
+  fill: #1d4ed8;
+  opacity: .88;
+}
+
+/* ===== 引擎分析页（侧栏第三页，人机/本地对战时出现） =====
+ * 高度约束与聊天页同一套：面板自身不设固定高度，超出由 .chess-info 的
+ * max-height + overflow:auto 兜底；只有候选着法列表给内部滚动，
+ * 免得 3 条长主变例把「自动分析」按钮顶出可视区。
+ * ⚠️ 列表选择器必须写成 .chess-engine-panel .chess-line-list：
+ * 上面的 .chess-info ul（0,1,1）优先级高于单类（0,1,0），
+ * 只写类名时 margin/padding/height 会被它覆盖。 */
+.chess-engine-panel {
+  margin-top: 0;
+}
+
+.chess-engine-tools {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  margin: 0 0 10px;
+}
+
+/* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
+.chess-engine-tools > * + * {
+  margin-left: 6px;
+}
+
+.chess-engine-tools button {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 0;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ci-color-text, #334155);
+  background-color: var(--ci-color-fill, #e2e8f0);
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-transition: opacity var(--duration-fast, .15s) var(--ease-standard, ease);
+  transition: opacity var(--duration-fast, .15s) var(--ease-standard, ease);
+}
+
+/* 自动分析：开=主色实底，关=与另一个按钮同材质。状态只靠颜色表达，
+ * 文案不动（按钮文字一变宽度就变，侧栏里会跳）。 */
+.chess-engine-tools button.is-toggle.is-on {
+  color: #fff;
+  background-color: #b91c1c;
+  background-image: linear-gradient(135deg, #dc2626 0%, #b91c1c 70%);
+}
+
+.chess-engine-tools button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+/* 与全局「零 transform」反馈原则一致：按压用透明度而非缩放 */
+.chess-engine-tools button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .62;
+}
+
+/* 评分条：左侧红色 = 红方优势，底色留给黑方。宽度由 JS 写 style.width。 */
+.chess-engine-eval {
+  margin: 0 0 8px;
+}
+
+.chess-eval-bar {
+  height: 10px;
+  border-radius: 5px;
+  background-color: #334155;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, .35);
+  overflow: hidden;
+}
+
+.chess-eval-fill {
+  display: block;
+  height: 100%;
+  width: 50%;
+  border-radius: 5px;
+  background-image: linear-gradient(90deg, #f87171 0%, #dc2626 100%);
+  -webkit-transition: width var(--duration-base, .25s) var(--ease-standard, ease);
+  transition: width var(--duration-base, .25s) var(--ease-standard, ease);
+}
+
+.chess-eval-fill.is-even {
+  background-image: linear-gradient(90deg, #fbbf24 0%, #d97706 100%);
+}
+
+.chess-eval-fill.is-mate {
+  background-image: linear-gradient(90deg, #facc15 0%, #f59e0b 100%);
+}
+
+.chess-eval-caption {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -webkit-box-pack: justify;
+  -ms-flex-pack: justify;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #94a3b8);
+}
+
+.chess-eval-side.is-red { color: #b91c1c; }
+.chess-eval-side.is-black { color: var(--ci-color-text, #334155); }
+
+.chess-eval-score {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ci-color-text, #172033);
+}
+
+.chess-engine-info {
+  margin: 0 0 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-engine-panel .chess-line-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: max(120px, calc(var(--chess-room-h) - 330px));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chess-line {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-align: baseline;
+  -ms-flex-align: baseline;
+  align-items: baseline;
+  padding: 7px 8px;
+  margin: 0 0 4px;
+  border-radius: var(--radius-sm, 8px);
+  background-color: rgba(148, 163, 184, .10);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chess-line.is-active {
+  background-color: rgba(29, 78, 216, .16);
+  box-shadow: inset 0 0 0 1px rgba(29, 78, 216, .45);
+}
+
+.chess-line-no {
+  -ms-flex: 0 0 16px;
+  flex: 0 0 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ci-color-text-secondary, #94a3b8);
+}
+
+.chess-line-move {
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ci-color-text, #172033);
+}
+
+.chess-line-score {
+  -ms-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.chess-line-score.is-red { color: #b91c1c; }
+.chess-line-score.is-black { color: var(--ci-color-text-secondary, #64748b); }
+.chess-line-score.is-mate { color: #b45309; }
+
+/* 主变例独占一行：flex-wrap 下给了 100% 就会换行 */
+.chess-line-pv {
+  -ms-flex: 1 1 100%;
+  flex: 1 1 100%;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #64748b);
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.chess-engine-foot {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #94a3b8);
+}
+
+.chess-engine-foot:empty {
+  display: none;
+}
+
 /* ===== 减弱动效 ===== */
 @media (prefers-reduced-motion: reduce) {
   .chess-point.is-check::after,

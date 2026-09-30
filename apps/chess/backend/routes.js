@@ -352,4 +352,177 @@ router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res
   return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM chess_games WHERE id = ?').get(game.id)) });
 });
 
+// ===== 人机练习引擎（Pikafish）=====
+// 前端人机模式把「该电脑走」的局面 POST 上来，由服务端常驻的 Pikafish 进程算一步。
+// 为什么放服务端而不是前端：① 平板算力 + 主线程预算把棋力锁死（旧版极大极小只能赢新手）；
+// ② 引擎冷启动要加载 50MB 权重，绝不能每步新建进程（engine.js 保活单实例 + 串行队列）。
+// 引擎不可用/排队满/超时一律回 503 + fallback 标记，前端回落内置 AI——人机模式
+// 不允许因为一个可选二进制缺失而整体不可用。
+var engine = require('./engine');
+
+// 同一用户并发上限：连点/脚本刷会把单进程队列塞满，别人跟着排队等超时
+var AI_MAX_INFLIGHT_PER_USER = 2;
+var aiInflight = {};
+
+function aiRelease(id) {
+  var next = (aiInflight[id] || 1) - 1;
+  if (next <= 0) delete aiInflight[id];
+  else aiInflight[id] = next;
+}
+
+function turnLabel(value) {
+  return value === 'black' ? 'black' : value === 'red' ? 'red' : null;
+}
+
+// 引擎能力探测：前端用它决定标题栏显示「Pikafish」还是「内置」，并提前知道要不要降级。
+// 刻意不回传 exe/权重路径：这是学生端可见的接口，服务器目录结构没必要外泄。
+router.get('/ai/status', requireAuth, function(req, res) {
+  var info = engine.status();
+  res.json({
+    code: 200,
+    data: {
+      available: info.available && !info.disabled,
+      engineName: info.engineName || '',
+      running: info.running,
+      pending: info.pending,
+      cooldownMs: info.cooldownMs,
+      levels: info.levels,
+      defaultLevel: info.defaultLevel
+    }
+  });
+});
+
+router.post('/ai/move', requireAuth, function(req, res) {
+  var id = userId(req);
+  var body = req.body || {};
+  var turn = turnLabel(body.turn);
+  if (!turn) return res.status(400).json({ code: 400, message: '缺少行棋方' });
+  var level = engine.normalizeLevel(body.level);
+  var gameKey = String(body.gameKey == null ? '' : body.gameKey).slice(0, 64).replace(/\s+/g, '-');
+
+  var inflight = aiInflight[id] || 0;
+  if (inflight >= AI_MAX_INFLIGHT_PER_USER) {
+    return res.status(429).json({ code: 429, message: '引擎请求过于频繁', data: { fallback: true } });
+  }
+  aiInflight[id] = inflight + 1;
+
+  engine.bestMove({ board: body.board, turn: turn, level: level, gameKey: gameKey }).then(function(result) {
+    aiRelease(id);
+    if (!result.move) {
+      // 引擎判定无着可走（被将死/困毙）。前端自己也会先判定，这里只是把结论如实回传。
+      return res.json({ code: 200, data: { move: null, engine: 'pikafish', engineName: result.engineName, level: level } });
+    }
+    // 二次校验引擎着法：合法才交回前端。不合法=局面或引擎状态出了偏差，
+    // 宁可让前端回落内置 AI，也不要让一步非法棋把整盘下崩。
+    var verdict = rules.validateMove(body.board, result.move.fr, result.move.fc, result.move.tr, result.move.tc, turn);
+    if (!verdict.ok) {
+      return res.status(502).json({ code: 502, message: '引擎着法未通过校验', data: { fallback: true } });
+    }
+    return res.json({
+      code: 200,
+      data: {
+        move: {
+          fromRow: result.move.fr,
+          fromCol: result.move.fc,
+          toRow: result.move.tr,
+          toCol: result.move.tc
+        },
+        uci: result.uci,
+        engine: 'pikafish',
+        engineName: result.engineName,
+        level: level,
+        depth: result.depth,
+        nodes: result.nodes,
+        nps: result.nps,
+        time: result.time,
+        score: result.score,
+        pv: result.pv,
+        movetime: result.movetime
+      }
+    });
+  }).catch(function(error) {
+    aiRelease(id);
+    if (error && error.code === 'BAD_POSITION') {
+      return res.status(400).json({ code: 400, message: error.message });
+    }
+    // ENGINE_UNAVAILABLE / ENGINE_BUSY / ENGINE_ERROR → 一律降级，不打 5xx 让前端报错
+    return res.status(503).json({
+      code: 503,
+      message: '引擎暂时不可用',
+      data: { fallback: true, reason: (error && error.code) || 'ENGINE_ERROR' }
+    });
+  });
+});
+
+// 局面分析（MultiPV）：给一个局面回「Top-N 候选着法 + 各自评分与主变例」。
+// 与 /ai/move 共用同一个常驻进程与串行队列，所以同样受 per-user 并发闸门约束：
+// 分析是低频动作（切到引擎页才发），但连点也必须挡住，否则会挤掉别人的应手。
+// 降级口径一致：引擎不在就 503 + fallback，由前端决定是否提示。
+router.post('/ai/analyse', requireAuth, function(req, res) {
+  var id = userId(req);
+  var body = req.body || {};
+  var turn = turnLabel(body.turn);
+  if (!turn) return res.status(400).json({ code: 400, message: '缺少行棋方' });
+  var gameKey = String(body.gameKey == null ? '' : body.gameKey).slice(0, 64).replace(/\s+/g, '-');
+
+  var inflight = aiInflight[id] || 0;
+  if (inflight >= AI_MAX_INFLIGHT_PER_USER) {
+    return res.status(429).json({ code: 429, message: '引擎请求过于频繁', data: { fallback: true } });
+  }
+  aiInflight[id] = inflight + 1;
+
+  engine.analyse({
+    board: body.board,
+    turn: turn,
+    movetime: body.movetime,
+    multiPv: body.multiPv,
+    gameKey: gameKey
+  }).then(function(result) {
+    aiRelease(id);
+    // 候选着法逐条过校验：引擎给的是 UCI 串，转成内部坐标后必须能在当前局面下走。
+    // 非法项直接剔除（而不是整批失败）——少一条候选不影响面板可用。
+    var lines = [];
+    for (var i = 0; i < result.lines.length; i++) {
+      var line = result.lines[i];
+      var verdict = rules.validateMove(body.board, line.move.fr, line.move.fc, line.move.tr, line.move.tc, turn);
+      if (!verdict.ok) continue;
+      lines.push({
+        rank: lines.length + 1,
+        uci: line.uci,
+        move: {
+          fromRow: line.move.fr, fromCol: line.move.fc,
+          toRow: line.move.tr, toCol: line.move.tc
+        },
+        score: line.score,
+        depth: line.depth,
+        pv: line.pv
+      });
+    }
+    return res.json({
+      code: 200,
+      data: {
+        engine: 'pikafish',
+        engineName: result.engineName,
+        side: result.side,
+        depth: result.depth,
+        nodes: result.nodes,
+        nps: result.nps,
+        time: result.time,
+        movetime: result.movetime,
+        lines: lines
+      }
+    });
+  }).catch(function(error) {
+    aiRelease(id);
+    if (error && error.code === 'BAD_POSITION') {
+      return res.status(400).json({ code: 400, message: error.message });
+    }
+    return res.status(503).json({
+      code: 503,
+      message: '引擎暂时不可用',
+      data: { fallback: true, reason: (error && error.code) || 'ENGINE_ERROR' }
+    });
+  });
+});
+
 module.exports = router;
