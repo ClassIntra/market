@@ -370,6 +370,80 @@ function aiRelease(id) {
   else aiInflight[id] = next;
 }
 
+// ===== 引擎结果缓存（观战扩容的关键）=====
+// 房间模式下「凡是打开引擎页的人，每走一步都各发一次分析请求」，而服务端引擎是
+// **单实例串行队列**：一个班 20 个人观战同一盘棋 = 20 次串行搜索，最后一位要等十几秒，
+// 还会把别人的**人机应手**一起挤到队尾。但关键事实是——**他们问的是同一个局面**。
+// 所以按局面做两级去重：
+//   ① 结果缓存：TTL 内算过的局面直接回，连引擎都不碰（观战者成本 ≈ 0）
+//   ② 在途合并：同一局面正在算，后来的请求搭同一个 Promise（全程只跑一次引擎）
+// 命中/搭车**不计入 per-user 并发闸**：它们没占任何引擎资源，没理由被限流。
+// 缓存键用 boardToFen 的产物（规范 FEN），不同客户端用不同表示传来的同一局面会归一到同键。
+// ⚠️ 分析键必须建立在**真实下发到引擎的参数**上（movetime/multiPv 经归一化），
+//    否则 {movetime:0} 与 {movetime:999} 会算成两个键却跑同一个预算，缓存形同虚设。
+var MOVE_CACHE_TTL = 20 * 1000;
+var ANALYSE_CACHE_TTL = 15 * 1000;
+var CACHE_MAX_ENTRIES = 64;
+var moveCache = {};
+var analyseCache = {};
+var inflightJobs = {};   // key -> Promise<{ok,data|error}>
+var cacheStats = { moveHits: 0, analyseHits: 0, joined: 0, misses: 0 };
+
+function cacheGet(store, key, ttl) {
+  var entry = store[key];
+  if (!entry) return null;
+  if (Date.now() - entry.at > ttl) { delete store[key]; return null; }
+  return entry.data;
+}
+
+function cachePut(store, key, data) {
+  store[key] = { at: Date.now(), data: data };
+  var keys = Object.keys(store);
+  if (keys.length <= CACHE_MAX_ENTRIES) return;
+  // 条目本身很小（几 KB），但没上限就会随一个学期无限增长 → 超限按时间淘汰最旧的
+  keys.sort(function(a, b) { return store[a].at - store[b].at; });
+  for (var i = 0; i < keys.length - CACHE_MAX_ENTRIES; i++) delete store[keys[i]];
+}
+
+// 局面键。boardToFen 对非法棋盘会抛，缓存键构造失败时返回 null → 调用方跳过缓存走直算。
+function fenKeyOf(board, turn, suffix) {
+  var fen;
+  try { fen = engine.boardToFen(board, turn); } catch (e) { return null; }
+  return fen + (suffix ? '|' + suffix : '');
+}
+
+// 统一把「job 结果」翻译成 HTTP 响应。job 约定为永不 reject 的 { ok, data | error }，
+// 这样搭车的请求不必各自再写一遍 catch 分支。
+function respondJob(job, res) {
+  job.then(function(payload) {
+    if (payload.ok) return res.json({ code: 200, data: payload.data });
+    var error = payload.error;
+    if (error && error.code === 'BAD_POSITION') {
+      return res.status(400).json({ code: 400, message: error.message });
+    }
+    return res.status(503).json({
+      code: 503,
+      message: '引擎暂时不可用',
+      data: { fallback: true, reason: (error && error.code) || 'ENGINE_ERROR' }
+    });
+  });
+}
+
+// 起一个在途任务（并把 per-user 并发计数挂上）。调用方必须先确认没有同键在途任务。
+function startJob(key, id, work) {
+  aiInflight[id] = (aiInflight[id] || 0) + 1;
+  var job = work().then(
+    function(data) { return { ok: true, data: data }; },
+    function(error) { return { ok: false, error: error }; }
+  );
+  inflightJobs[key] = job;
+  var clear = function() { delete inflightJobs[key]; aiRelease(id); };
+  job.then(clear, clear);
+  return job;
+}
+
+function overLimit(id) { return (aiInflight[id] || 0) >= AI_MAX_INFLIGHT_PER_USER; }
+
 function turnLabel(value) {
   return value === 'black' ? 'black' : value === 'red' ? 'red' : null;
 }
@@ -387,7 +461,16 @@ router.get('/ai/status', requireAuth, function(req, res) {
       pending: info.pending,
       cooldownMs: info.cooldownMs,
       levels: info.levels,
-      defaultLevel: info.defaultLevel
+      defaultLevel: info.defaultLevel,
+      // 缓存观测：房间观战是否真的被去重，看 hit/joined 与引擎 pending 的对比即可
+      cache: {
+        hit: cacheStats.moveHits + cacheStats.analyseHits,
+        moveHits: cacheStats.moveHits,
+        analyseHits: cacheStats.analyseHits,
+        joined: cacheStats.joined,
+        misses: cacheStats.misses,
+        entries: Object.keys(moveCache).length + Object.keys(analyseCache).length
+      }
     }
   });
 });
@@ -400,27 +483,40 @@ router.post('/ai/move', requireAuth, function(req, res) {
   var level = engine.normalizeLevel(body.level);
   var gameKey = String(body.gameKey == null ? '' : body.gameKey).slice(0, 64).replace(/\s+/g, '-');
 
-  var inflight = aiInflight[id] || 0;
-  if (inflight >= AI_MAX_INFLIGHT_PER_USER) {
+  // ① 结果缓存：同局面 + 同档位在 TTL 内算过就直接回。班级场景收益很大——
+  //    一节课几十个人从初始局面开人机，问的其实是同一手，缓存后只有第一个人真占引擎。
+  var moveKey = fenKeyOf(body.board, turn, 'L' + level);
+  var cachedMove = moveKey ? cacheGet(moveCache, moveKey, MOVE_CACHE_TTL) : null;
+  if (cachedMove) {
+    cacheStats.moveHits += 1;
+    return res.json({ code: 200, data: cachedMove });
+  }
+  // ② 在途合并：同局面已在算，后来的搭同一个 Promise（不再起第二个引擎任务）
+  var running = moveKey ? inflightJobs[moveKey] : null;
+  if (running) {
+    cacheStats.joined += 1;
+    return respondJob(running, res);
+  }
+  // ③ 只有真要占引擎时才计 per-user 并发（缓存命中/搭车都不占资源，不该被限流）
+  if (overLimit(id)) {
     return res.status(429).json({ code: 429, message: '引擎请求过于频繁', data: { fallback: true } });
   }
-  aiInflight[id] = inflight + 1;
-
-  engine.bestMove({ board: body.board, turn: turn, level: level, gameKey: gameKey }).then(function(result) {
-    aiRelease(id);
-    if (!result.move) {
-      // 引擎判定无着可走（被将死/困毙）。前端自己也会先判定，这里只是把结论如实回传。
-      return res.json({ code: 200, data: { move: null, engine: 'pikafish', engineName: result.engineName, level: level } });
-    }
-    // 二次校验引擎着法：合法才交回前端。不合法=局面或引擎状态出了偏差，
-    // 宁可让前端回落内置 AI，也不要让一步非法棋把整盘下崩。
-    var verdict = rules.validateMove(body.board, result.move.fr, result.move.fc, result.move.tr, result.move.tc, turn);
-    if (!verdict.ok) {
-      return res.status(502).json({ code: 502, message: '引擎着法未通过校验', data: { fallback: true } });
-    }
-    return res.json({
-      code: 200,
-      data: {
+  cacheStats.misses += 1;
+  var job = startJob(moveKey || ('move:' + id + ':' + Date.now()), id, function() {
+    return engine.bestMove({ board: body.board, turn: turn, level: level, gameKey: gameKey }).then(function(result) {
+      if (!result.move) {
+        // 引擎判定无着可走（被将死/困毙）。前端自己也会先判定，这里只是把结论如实回传。
+        return { move: null, engine: 'pikafish', engineName: result.engineName, level: level };
+      }
+      // 二次校验引擎着法：合法才交回前端。不合法=局面或引擎状态出了偏差，
+      // 宁可让前端回落内置 AI，也不要让一步非法棋把整盘下崩。
+      var verdict = rules.validateMove(body.board, result.move.fr, result.move.fc, result.move.tr, result.move.tc, turn);
+      if (!verdict.ok) {
+        var bad = new Error('引擎着法未通过校验');
+        bad.code = 'BAD_MOVE';
+        throw bad;
+      }
+      return {
         move: {
           fromRow: result.move.fr,
           fromCol: result.move.fc,
@@ -438,20 +534,12 @@ router.post('/ai/move', requireAuth, function(req, res) {
         score: result.score,
         pv: result.pv,
         movetime: result.movetime
-      }
-    });
-  }).catch(function(error) {
-    aiRelease(id);
-    if (error && error.code === 'BAD_POSITION') {
-      return res.status(400).json({ code: 400, message: error.message });
-    }
-    // ENGINE_UNAVAILABLE / ENGINE_BUSY / ENGINE_ERROR → 一律降级，不打 5xx 让前端报错
-    return res.status(503).json({
-      code: 503,
-      message: '引擎暂时不可用',
-      data: { fallback: true, reason: (error && error.code) || 'ENGINE_ERROR' }
+      };
     });
   });
+  // 只缓存算成功的：引擎失败（不可用/冷却中）返回的 503 不该被固化住 20 秒
+  job.then(function(payload) { if (payload.ok && moveKey) cachePut(moveCache, moveKey, payload.data); });
+  respondJob(job, res);
 });
 
 // 局面分析（MultiPV）：给一个局面回「Top-N 候选着法 + 各自评分与主变例」。
@@ -465,42 +553,55 @@ router.post('/ai/analyse', requireAuth, function(req, res) {
   if (!turn) return res.status(400).json({ code: 400, message: '缺少行棋方' });
   var gameKey = String(body.gameKey == null ? '' : body.gameKey).slice(0, 64).replace(/\s+/g, '-');
 
-  var inflight = aiInflight[id] || 0;
-  if (inflight >= AI_MAX_INFLIGHT_PER_USER) {
+  // 归一化必须与真正下发给引擎的参数一致，缓存键才有意义（见 normalizeAnalyseOpts 注释）
+  var budget = engine.normalizeAnalyseOpts(body);
+  var analyseKey = fenKeyOf(body.board, turn, 'A' + budget.movetime + 'x' + budget.multiPv);
+
+  // ① 结果缓存：同一局面（同预算）在 TTL 内算过 → 直接回。这是观战扩容的主力：
+  //    一个房间所有人看的是同一个局面，只有第一个人真的占用引擎。
+  var cachedAnalyse = analyseKey ? cacheGet(analyseCache, analyseKey, ANALYSE_CACHE_TTL) : null;
+  if (cachedAnalyse) {
+    cacheStats.analyseHits += 1;
+    return res.json({ code: 200, data: cachedAnalyse });
+  }
+  // ② 在途合并：第一个人还在算，其余人搭同一个 Promise，全程只跑一次引擎
+  var runningAnalyse = analyseKey ? inflightJobs[analyseKey] : null;
+  if (runningAnalyse) {
+    cacheStats.joined += 1;
+    return respondJob(runningAnalyse, res);
+  }
+  if (overLimit(id)) {
     return res.status(429).json({ code: 429, message: '引擎请求过于频繁', data: { fallback: true } });
   }
-  aiInflight[id] = inflight + 1;
-
-  engine.analyse({
-    board: body.board,
-    turn: turn,
-    movetime: body.movetime,
-    multiPv: body.multiPv,
-    gameKey: gameKey
-  }).then(function(result) {
-    aiRelease(id);
-    // 候选着法逐条过校验：引擎给的是 UCI 串，转成内部坐标后必须能在当前局面下走。
-    // 非法项直接剔除（而不是整批失败）——少一条候选不影响面板可用。
-    var lines = [];
-    for (var i = 0; i < result.lines.length; i++) {
-      var line = result.lines[i];
-      var verdict = rules.validateMove(body.board, line.move.fr, line.move.fc, line.move.tr, line.move.tc, turn);
-      if (!verdict.ok) continue;
-      lines.push({
-        rank: lines.length + 1,
-        uci: line.uci,
-        move: {
-          fromRow: line.move.fr, fromCol: line.move.fc,
-          toRow: line.move.tr, toCol: line.move.tc
-        },
-        score: line.score,
-        depth: line.depth,
-        pv: line.pv
-      });
-    }
-    return res.json({
-      code: 200,
-      data: {
+  cacheStats.misses += 1;
+  var analyseJob = startJob(analyseKey || ('analyse:' + id + ':' + Date.now()), id, function() {
+    return engine.analyse({
+      board: body.board,
+      turn: turn,
+      movetime: budget.movetime,
+      multiPv: budget.multiPv,
+      gameKey: gameKey
+    }).then(function(result) {
+      // 候选着法逐条过校验：引擎给的是 UCI 串，转成内部坐标后必须能在当前局面下走。
+      // 非法项直接剔除（而不是整批失败）——少一条候选不影响面板可用。
+      var lines = [];
+      for (var i = 0; i < result.lines.length; i++) {
+        var line = result.lines[i];
+        var verdict = rules.validateMove(body.board, line.move.fr, line.move.fc, line.move.tr, line.move.tc, turn);
+        if (!verdict.ok) continue;
+        lines.push({
+          rank: lines.length + 1,
+          uci: line.uci,
+          move: {
+            fromRow: line.move.fr, fromCol: line.move.fc,
+            toRow: line.move.tr, toCol: line.move.tc
+          },
+          score: line.score,
+          depth: line.depth,
+          pv: line.pv
+        });
+      }
+      return {
         engine: 'pikafish',
         engineName: result.engineName,
         side: result.side,
@@ -509,20 +610,13 @@ router.post('/ai/analyse', requireAuth, function(req, res) {
         nps: result.nps,
         time: result.time,
         movetime: result.movetime,
+        multiPv: budget.multiPv,
         lines: lines
-      }
-    });
-  }).catch(function(error) {
-    aiRelease(id);
-    if (error && error.code === 'BAD_POSITION') {
-      return res.status(400).json({ code: 400, message: error.message });
-    }
-    return res.status(503).json({
-      code: 503,
-      message: '引擎暂时不可用',
-      data: { fallback: true, reason: (error && error.code) || 'ENGINE_ERROR' }
+      };
     });
   });
+  analyseJob.then(function(payload) { if (payload.ok && analyseKey) cachePut(analyseCache, analyseKey, payload.data); });
+  respondJob(analyseJob, res);
 });
 
 module.exports = router;

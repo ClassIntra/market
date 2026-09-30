@@ -1104,7 +1104,11 @@
     // 别人的应手挤到排队。切页才跑 = 用户主动要看才占资源，天然是节流阀。
     var ANALYSE_MOVETIME = 800;    // 分析预算固定，不跟着棋力档走（大师档 2.2s 太慢）
     var ANALYSE_LINES = 3;         // = MultiPV，后端 clamp 到 1~5
-    var analysisOn = true;         // 自动分析开关（关掉后只能手动点「分析」）
+    // 「自动分析」开关（持久化在 localStorage.chess_analyse）。
+    // ⚠️ 语义必须分清：关掉 = 不再随走子自动重算，**但手动点「分析当前局面」照样可用**。
+    // 之前 runAnalyse 无差别地 `if (!analysisOn) return`，把手动入口一起堵死了——正好反了：
+    // 手动分析恰恰是「自动关掉」之后用户唯一的手段。
+    var analysisOn = true;
     var analysisData = null;       // 最近一次分析结果
     var analysisDoneKey = '';      // 已完成分析的局面键（棋盘|轮次）
     var analysisBusyKey = '';      // 在途分析的局面键
@@ -1158,6 +1162,11 @@
         if (AI_LEVELS[savedLevel]) levelElement.value = savedLevel;
       } catch (e) {}
     }
+    // 「自动分析」偏好同理持久化：关掉的人不希望每次开新局又被自动跑一遍分析。
+    // 只在明确存过 '0' 时才关——读不到/异常一律保持默认开，别把默认值读丢了。
+    try {
+      if (localStorage.getItem('chess_analyse') === '0') analysisOn = false;
+    } catch (e) {}
     var roomElement = root.querySelector('[data-role="room"]');
     var identityElement = root.querySelector('[data-role="identity"]');
     var connectionElement = root.querySelector('[data-role="connection"]');
@@ -1255,10 +1264,14 @@
     // 历史回填期间不计未读，否则每次进房都会看到一串未读
     var chatHistoryRendering = false;
 
-    // 侧栏分页可选项是模式相关的：房间联机 = 信息/聊天，单机（人机·本地）= 信息/引擎。
-    // 聊天在单机没有意义（一块屏两个人），引擎在房间里是「帮对手想棋」且会占服务端队列。
+    // 侧栏分页可选项是模式相关的：
+    //   房间联机 = 信息 / 聊天 / 引擎（三页）
+    //   单机（人机 · 本地双人）= 信息 / 引擎
+    // 聊天在单机没有意义（一块屏两个人）。引擎页 2026-10-01 起**房间也有**：
+    // 按需求开放给双人对战与观战者（观战者也能打开看局面分析）。服务端为此加了
+    // 「同局面结果缓存 + 在途合并」——一个房间的人问的是同一个局面，只占一次引擎。
     function hasChatTab() { return mode === 'room' && !!roomCode; }
-    function hasEngineTab() { return mode === 'solo' || mode === 'local'; }
+    function hasEngineTab() { return mode === 'solo' || mode === 'local' || (mode === 'room' && !!roomCode); }
     function tabbed() { return hasChatTab() || hasEngineTab(); }
     // 把 activeTab 收敛到当前模式下真实存在的页
     function effectiveTab() {
@@ -1624,8 +1637,12 @@
       for (var a = 0; a < actionButtons.length; a++) {
         var kind = actionButtons[a].dataset.action;
         if (mode === '') { actionButtons[a].hidden = true; continue; }
-        // 提示只在人机练习有意义（借引擎算一手推荐着法）
-        if (kind === 'hint') { actionButtons[a].hidden = mode !== 'solo'; continue; }
+        // 提示在 人机 / 本地双人 / 房间（含观战者）都可用。
+        // 这里只管「显不显示」——它的可用性随轮次变化，交给下面 disabled 表达，
+        // 不隐藏才能保证按钮位置稳定（否则到别人回合按钮就消失、整个标题栏重排）。
+        // ⚠️ 必须显式写回 false：入场态（mode === ''）那一轮把**所有**按钮都置了 hidden = true，
+        //    这里若只 `continue` 就会把那个 true 一直留着 —— 按钮在房间里永远不出现。
+        if (kind === 'hint') { actionButtons[a].hidden = false; continue; }
         // 人机/本地隐藏分享类；人机额外隐藏换方（色已固定）与认输（可直接退出）
         actionButtons[a].hidden = isLocal && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community' || kind === 'color' || kind === 'resign');
       }
@@ -1782,11 +1799,11 @@
           ? !localHistory.length
           : (!roomCode || !state.lastMove || !!state.winner || state.status !== 'active' || pending || String(state.lastMove.userId) !== currentUserId());
       }
-      // 提示按钮：只在人机模式出现；轮到玩家、未分胜负、没有在途应手时可点。
-      // （引擎不可用时也允许点——后端降级后会回落内置 AI，提示照样给得出来）
+      // 提示按钮：人机 / 本地双人 / 房间都显示，可用性由 hintSide() 决定
+      // （人机=只在自己回合；本地=跟着当前行棋方；房间=玩家只在自己回合、观战者按当前行棋方）。
+      // 引擎不可用时也允许点——后端降级后会回落内置 AI，提示照样给得出来。
       if (hintButton) {
-        hintButton.hidden = mode !== 'solo';
-        hintButton.disabled = mode !== 'solo' || aiPending || !!state.winner || state.status !== 'active' || state.turn !== soloColor;
+        hintButton.disabled = !hintSide() || aiPending || pending;
       }
       if (resignButton) {
         resignButton.disabled = isLocal || !roomCode || !!state.winner || state.status !== 'active' || pending || !member || !member.color;
@@ -1955,22 +1972,39 @@
       applyLocalMove(mv.fr, mv.fc, mv.tr, mv.tc);
     }
 
-    // ===== 提示：借引擎给玩家算一手推荐着法 =====
+    // ===== 提示：借引擎算一手推荐着法 =====
     // 表现上复用「选中 + 落点提示」这套既有交互：点提示后自动选中推荐棋子、
     // 只留一个落点，玩家再点一下即可落子（不自动走，避免误触改变局面）。
+    // 归属方由 hintSide() 决定；提示在 人机 / 本地双人 / 房间（含观战者）三种模式都可用。
+    function hintSide() {
+      if (state.winner || state.status !== 'active') return null;
+      // 人机：只有轮到玩家时才给，否则等于提前泄露电脑要走哪儿
+      if (mode === 'solo') return state.turn === soloColor ? soloColor : null;
+      // 本地双人：一块屏两个人，谁走就帮谁
+      if (mode === 'local') return state.turn;
+      // 房间：玩家只在自己回合可用（免得替对手想棋）；
+      // 观战者无色可轮，就按当前行棋方给——「观战也能用」是明确需求
+      if (mode === 'room') {
+        var member = currentMember();
+        if (member && member.color) return state.turn === member.color ? member.color : null;
+        return state.turn;
+      }
+      return null;
+    }
     function requestHint() {
-      if (disposed || mode !== 'solo' || aiPending) return;
-      if (state.winner || state.status !== 'active' || state.turn !== soloColor) return;
+      if (disposed || aiPending) return;
+      var side = hintSide();
+      if (!side) return;
       var key = boardKey(state.board);
       var token = aiToken;
       aiPending = true;
       render();
       request(context, 'POST', '/chess/ai/move', {
         board: state.board,
-        turn: soloColor,
+        turn: side,
         // 提示永远用顶级预算（与棋力档无关）：它要的是「好棋」，不是「像对手那样想」
         level: 'master',
-        gameKey: soloGameKey
+        gameKey: analysisGameKey()
       }).then(function(data) {
         if (aiToken !== token || disposed) return;
         if (boardKey(state.board) !== key) { aiPending = false; return; }
@@ -1984,7 +2018,7 @@
       }).catch(function() {
         if (aiToken !== token || disposed) return;
         aiPending = false;
-        // 引擎不可用时不静默：明确告诉玩家这次提示没算出来
+        // 引擎不可用时不静默：明确告诉用户这次提示没算出来
         setError('引擎暂时不可用，请稍后再试');
         render();
       });
@@ -1996,8 +2030,18 @@
     // analysisToken，让在途回调失效——迟到的分析结果落到新局面上的表现是
     // 「候选着法对不上棋盘」，比不显示更糟。
     function analysisKey() { return boardKey(state.board) + '|' + state.turn; }
+    // 引擎靠 gameKey 判断要不要 ucinewgame（清哈希）。房间/本地给一个稳定键：
+    // 同一局内不清哈希（换位表留着，后续局面搜得更深），跨局自然换键。
+    function analysisGameKey() {
+      if (mode === 'solo') return soloGameKey;
+      if (mode === 'room') return 'room-' + roomCode;
+      if (mode === 'local') return 'local';
+      return '';
+    }
     function engineTabOpen() {
-      return hasEngineTab() && effectiveTab() === 'engine' && !state.winner && state.status === 'active';
+      // 对局结束后也允许分析：复盘是「棋局分析」最自然的用法之一。
+      // 只排除「房间等人」那种既没结束、又不在对局中的中间态。
+      return hasEngineTab() && effectiveTab() === 'engine' && (state.status === 'active' || !!state.winner);
     }
     function analysisAbort() {
       analysisToken += 1;
@@ -2009,19 +2053,23 @@
       activeLine = -1;
       arrowMove = null;
     }
-    function runAnalyse() {
-      if (disposed || !analysisOn || !engineTabOpen()) return;
+    // force=true 来自「分析当前局面」按钮：显式手动请求，绕过自动开关与 done/busy 去重。
+    // 自动分析（syncAnalysis 那条路）不传 force，才受 analysisOn 与去重约束。
+    function runAnalyse(force) {
+      if (disposed || !engineTabOpen()) return;
+      if (!analysisOn && !force) return;
       var key = analysisKey();
-      if (key === analysisDoneKey || key === analysisBusyKey) return;
-      // 不与人机应手抢队列：应手在途时先让路，等它落地后那次 render 会再叫一次
+      if (!force && (key === analysisDoneKey || key === analysisBusyKey)) return;
+      // 不与人机应手/提示抢队列：在途时先让路，等它落地后那次 render 会再叫一次
       if (aiPending) return;
       var token = analysisToken;
       analysisBusyKey = key;
-      analysisNote = '';
+      analysisNote = '分析中…';   // 面板要能区分「正在算」和「没结论」，否则用户只看到空面板
+      renderEnginePanel();
       request(context, 'POST', '/chess/ai/analyse', {
         board: state.board,
         turn: state.turn,
-        gameKey: soloGameKey,
+        gameKey: analysisGameKey(),
         movetime: ANALYSE_MOVETIME,
         multiPv: ANALYSE_LINES
       }).then(function(data) {
@@ -2029,7 +2077,7 @@
         if (analysisBusyKey === key) analysisBusyKey = '';
         if (key !== analysisKey()) return;   // 局面已变，丢弃（走子那一路会重新排）
         analysisData = data && data.lines && data.lines.length ? data : null;
-        if (!analysisData) analysisNote = '引擎没有给出可用的着法';
+        analysisNote = analysisData ? '' : '引擎没有给出可用的着法';
         analysisDoneKey = key;
         if (data && data.engineName) { aiEngineName = data.engineName; aiEngineState = 'pikafish'; }
         activeLine = -1;
@@ -2054,19 +2102,21 @@
         setClass(autoAnalyseButtonElement, 'is-secondary is-toggle' + (analysisOn ? ' is-on' : ''));
         autoAnalyseButtonElement.setAttribute('aria-pressed', analysisOn ? 'true' : 'false');
       }
-      if (!open || !analysisOn) {
+      if (!open) {
         if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null; }
         return;
       }
       var key = analysisKey();
       if (key === analysisDoneKey || key === analysisBusyKey) return;
-      // 局面换了：旧结论立刻撤下（留着就是「候选着法对不上棋盘」），再排新的
+      // 局面换了：旧结论立刻撤下（留着就是「候选着法对不上棋盘」，比空着更糟）。
+      // 这一步与自动开关**无关**——关掉自动分析只是不自动重算，不代表可以留着过期结论。
       if (analysisData || arrowMove || analysisNote) {
         analysisData = null;
         analysisNote = '';
         activeLine = -1;
         arrowMove = null;
       }
+      if (!analysisOn) return;   // 自动重算到此为止；要重算就手动点「分析当前局面」
       if (analysisTimer) return;
       analysisTimer = setTimeout(function() {
         analysisTimer = null;
@@ -2114,6 +2164,11 @@
         var foot = '';
         if (lines.length) foot = '点候选着法可在棋盘上标出这一步';
         else if (analysisNote) foot = analysisNote;
+        // 房间模式补一句透明说明：分析页人人可见（含观战者）。
+        // 不写清楚容易让人以为「只有我能看到」，进而在对局里偷偷用引擎。
+        if (mode === 'room') {
+          foot = foot ? foot + ' · 本页分析房间内所有人可见' : '本页分析房间内所有人可见';
+        }
         setText(engineFootElement, foot);
       }
       clearChildren(engineLineListElement);
@@ -2353,7 +2408,10 @@
         setError('');
         var me = currentMember();
         if (kind === 'watch') {
-          setError('已进入观战，玩家退出时空位会递补给你');
+          // 文案必须压到**单行**：侧栏内容宽只有 212px，而这个提示条挂在侧栏里，
+          // 折一行就多吃 23px 高度、把成员列表整段往下推（实测 46px vs 23px）。
+          // 「会递补」这层信息成员列表里已经写着「观战 · 可替补」，这里不必重复解释。
+          setError('已进入观战席，可递补上场');
         } else if (me && me.role === 'spectator') {
           // 满员自动观战：红黑两色都已有人，后端把新成员降级为 spectator——
           // 明确告知降级结果，避免用户误以为进错了房间（点邀请卡片进入的常见场景）
@@ -2416,15 +2474,19 @@
       }
       // 引擎页的三个动作也不走对局忙碌锁：它们只读局面，不改任何对局状态
       if (kind === 'analyse') {
+        // 手动分析：清掉「已算/在算」标记后强制跑一次（force 绕过自动开关，这是它的意义）
         if (analysisTimer) { clearTimeout(analysisTimer); analysisTimer = null; }
         analysisDoneKey = '';
         analysisBusyKey = '';
-        runAnalyse();
+        runAnalyse(true);
         render();
         return;
       }
       if (kind === 'auto-analyse') {
         analysisOn = !analysisOn;
+        // 选择要记住：关掉的人不希望下次开新局又被自动跑一遍分析
+        try { localStorage.setItem('chess_analyse', analysisOn ? '1' : '0'); } catch (e) {}
+        // 切回「开」时，当前局面若一直没算过，这次 render 会让 syncAnalysis 自动补一次
         render();
         return;
       }
@@ -2456,7 +2518,7 @@
         return;
       }
       if (kind === 'undo' && (mode === 'local' || mode === 'solo')) { offlineUndo(); return; }
-      // 提示：借引擎算一手推荐着法（仅人机模式按钮可见）
+      // 提示：借引擎算一手推荐着法（人机 / 本地双人 / 房间都可用，归属方见 hintSide）
       if (kind === 'hint') { requestHint(); return; }
       if (kind === 'undo' && roomCode && !pending) {
         action.disabled = true;

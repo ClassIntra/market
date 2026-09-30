@@ -31,7 +31,10 @@ var ENGINE_NNUE = process.env.CHESS_ENGINE_NNUE || path.join(ENGINE_DIR, 'pikafi
 
 var DISABLED = String(process.env.CHESS_ENGINE_DISABLE || '') === '1';
 var THREADS = clampInt(process.env.CHESS_ENGINE_THREADS, 1, 1, 8);
-var HASH_MB = clampInt(process.env.CHESS_ENGINE_HASH, 32, 1, 1024);
+// 换位表大小。32MB 对单线程短时搜索够用，但「分析」这条路会连续搜同一族局面
+// （走一步换个近亲局面），加大换位表能明显减少重复子树 → 同样 movetime 下深度更高。
+// 64MB 对一台校园服务器是可忽略的开销（引擎进程常驻），故默认提到 64。
+var HASH_MB = clampInt(process.env.CHESS_ENGINE_HASH, 64, 1, 1024);
 
 var IDLE_SHUTDOWN_MS = 10 * 60 * 1000;  // 空闲回收
 var FAIL_COOLDOWN_MS = 30 * 1000;       // 启动/运行失败后的冷却期，期间直接降级
@@ -605,6 +608,17 @@ function bestMove(opts) {
   });
 }
 
+// 分析参数归一化。抽成导出的独立函数是为了让**路由层拿它算缓存键**——
+// 缓存键必须在「真实下发到引擎的参数」上取值，否则 {movetime: 0} 与 {movetime: 999}
+// 会算出两个不同的键、却跑到同一个 movetime，缓存形同虚设。
+function normalizeAnalyseOpts(opts) {
+  var options = opts || {};
+  return {
+    movetime: clampInt(options.movetime, ANALYSE_MOVETIME, MIN_MOVETIME, ANALYSE_MAX_MOVETIME),
+    multiPv: clampInt(options.multiPv, ANALYSE_MULTIPV, 1, ANALYSE_MAX_MULTIPV)
+  };
+}
+
 // 局面分析：给一个局面要「Top-N 候选着法 + 各自评分与主变例」。
 // 与 bestMove 走同一条串行队列（引擎单实例），只是把 MultiPV 放大、预算放宽。
 // opts: { board, turn, movetime?, multiPv?, gameKey? }
@@ -617,8 +631,9 @@ function analyse(opts) {
   } catch (error) {
     return Promise.reject(error);
   }
-  var movetime = clampInt(options.movetime, ANALYSE_MOVETIME, MIN_MOVETIME, ANALYSE_MAX_MOVETIME);
-  var multiPv = clampInt(options.multiPv, ANALYSE_MULTIPV, 1, ANALYSE_MAX_MULTIPV);
+  var budget = normalizeAnalyseOpts(options);
+  var movetime = budget.movetime;
+  var multiPv = budget.multiPv;
   return engine.submit({
     fen: fen,
     movetime: movetime,
@@ -667,6 +682,7 @@ module.exports = {
   squareToUci: squareToUci,
   uciToMove: uciToMove,
   normalizeLevel: normalizeLevel,
+  normalizeAnalyseOpts: normalizeAnalyseOpts,
   levelMovetime: levelMovetime,
   bestMove: bestMove,
   analyse: analyse,

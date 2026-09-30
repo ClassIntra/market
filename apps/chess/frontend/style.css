@@ -1770,6 +1770,22 @@
   overflow-wrap: break-word;
 }
 
+/* 主变例默认只露 2 行。理由：一条变例常有十几步，三条候选全展开就是一面文字墙，
+   在平板侧栏里会把「候选着法」这个真正的信息淹掉。点开某条（is-active）才展开全文。
+   ⚠️ -webkit-line-clamp 必须配 display:-webkit-box 才生效（Chrome 80 可用）；
+   写成普通 <span> 的 display:block 就完全不截断，看起来「样式没生效」。 */
+.chess-engine-panel .chess-line .chess-line-pv {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.chess-engine-panel .chess-line.is-active .chess-line-pv {
+  -webkit-line-clamp: 99;   /* 展开：给个足够大的数即可，不要写 none（不识别） */
+  overflow: visible;
+}
+
 .chess-engine-foot {
   margin: 8px 0 0;
   font-size: 11px;
