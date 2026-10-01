@@ -41,6 +41,8 @@ function stateFor(roomCode, game) {
     // 轮到的一方是否正被将军（active 且未分胜负时才有意义）
     check: game.status === 'active' && !game.winner ? rules.isInCheck(board, game.turn) : false,
     members: members,
+    // 房间分析规则（1.10.0）：走子提示/候选分析是否开启，随状态广播给全员与观战者
+    settings: roomSettingsView(roomRow(roomCode)),
     lastMove: last ? { userId: last.user_id, color: last.color, fromRow: last.from_row, fromCol: last.from_col, toRow: last.to_row, toCol: last.to_col } : null
   };
 }
@@ -117,6 +119,28 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_chess_games_room ON chess_games(room_cod
 db.exec('CREATE INDEX IF NOT EXISTS idx_chess_moves_game ON chess_moves(game_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_chess_messages_room ON chess_messages(room_code, id)');
 
+// 房间分析规则（1.10.0）：房主建房时选择是否开启「走子提示」与「候选分析」。
+// 胜率条不受此开关影响——看局势是观棋的基本需求，禁掉它等于蒙眼下棋。
+// 旧库迁移：表已存在时 CREATE TABLE 不会补列，须按 PRAGMA 逐列 ALTER（幂等）。
+(function ensureRoomSettingColumns() {
+  var cols = db.prepare("PRAGMA table_info(chess_rooms)").all().map(function(row) { return row.name; });
+  if (cols.indexOf('hint_enabled') === -1) {
+    db.exec("ALTER TABLE chess_rooms ADD COLUMN hint_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+  if (cols.indexOf('analyse_enabled') === -1) {
+    db.exec("ALTER TABLE chess_rooms ADD COLUMN analyse_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+})();
+
+// 前端传参归一化：只认「明确关闭」为关（false/0/'0'），其余（缺省/'1'/true）一律开——
+// 旧客户端不传参时必须保持现状（两个都开），而不是被 undefined 关掉。
+function settingFlag(value) {
+  return (value === false || value === 0 || value === '0') ? 0 : 1;
+}
+function roomSettingsView(roomRowData) {
+  return { hint: !!(roomRowData && roomRowData.hint_enabled), analyse: !!(roomRowData && roomRowData.analyse_enabled) };
+}
+
 function requireRoom(req, res, next) {
   var room = roomRow(req.params.roomCode);
   if (room && room.status !== 'closed') {
@@ -142,7 +166,10 @@ function join(roomCode, id) {
 function createRoom(req, res) {
   var code;
   do { code = makeCode(); } while (roomRow(code));
-  db.prepare('INSERT INTO chess_rooms (room_code, owner_id) VALUES (?, ?)').run(code, userId(req));
+  var body = req.body || {};
+  var hintEnabled = settingFlag(body.hintEnabled);
+  var analyseEnabled = settingFlag(body.analyseEnabled);
+  db.prepare('INSERT INTO chess_rooms (room_code, owner_id, hint_enabled, analyse_enabled) VALUES (?, ?, ?, ?)').run(code, userId(req), hintEnabled, analyseEnabled);
   db.prepare('INSERT INTO chess_members (room_code, user_id, role, color) VALUES (?, ?, ?, ?)').run(code, userId(req), 'owner', 'red');
   db.prepare("UPDATE chess_rooms SET updated_at = datetime('now') WHERE room_code = ?").run(code);
   var createdState = stateFor(code, ensureGame(code));

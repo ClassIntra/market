@@ -118,16 +118,51 @@ router.get('/login/qr/check', requireAuth, wrap(async function (req, res) {
   ok(res, result); // { code: 800/801/802/803, profile? }
 }));
 
+// ---------- 验证码发送的限流闸（防「自己把自己限流」）----------
+// 背景（2026-10-01 实测）：验证码只能靠 upstream 下发（内置通道恒 -462，出口 IP 被网易云短信风控），
+// 而 upstream 对「发送验证码」有自己的限流，且是**按来源 IP 判定**的 —— 突发几个请求后
+// 连「不带手机号」的请求都会被回 406「操作频繁，请稍候再试」，也就是**整台服务器**都发不出验证码。
+// 前端虽有 60s 倒计时，但多设备 / 重开弹窗 / 直接调接口都能绕过，所以必须在服务端兜一道闸。
+var CAPTCHA_COOLDOWN_MS = 60 * 1000;        // 单用户正常冷却
+var CAPTCHA_BACKOFF_MS = 3 * 60 * 1000;     // 上游限流后的退避（全局：因为限流是按出口 IP）
+var captchaNextAllowed = {};                // userId -> 下次允许发送的时间戳
+var captchaBlockedUntil = 0;                // 全局：上游 405/406 后所有人一起等
+
 // 发送登录验证码（手机号登录 - 验证码模式）
 router.post('/login/captcha/send', requireAuth, wrap(async function (req, res) {
   var phone = String((req.body && req.body.phone) || '').trim();
   if (!phone) return sendError(res, { code: 400, message: '缺少手机号' });
+
+  var uid = String(req.user.user_id);
+  var now = Date.now();
+  if (now < captchaBlockedUntil) {
+    return res.status(429).json({
+      code: 429,
+      message: '验证码服务被网易云按出口 IP 限流，请 ' + Math.ceil((captchaBlockedUntil - now) / 1000) + ' 秒后再试（勿连续点击）'
+    });
+  }
+  var wait = (captchaNextAllowed[uid] || 0) - now;
+  if (wait > 0) {
+    return res.status(429).json({ code: 429, message: '发送过于频繁，请 ' + Math.ceil(wait / 1000) + ' 秒后再试' });
+  }
+  // 先占位再发请求：并发双击时第二个请求会被上面的闸挡住
+  captchaNextAllowed[uid] = now + CAPTCHA_COOLDOWN_MS;
   // 参数名必须用 countrycode：内置通道（ncm eapi）内部会映射成 ctcode，
   // 而上游 Binaryify 服务只认 countrycode —— 传 ctcode 会被判「参数错误」400，
   // 而内置通道此时正被短信风控 -462 拦着，两路同时失败 = 「验证码发不出去」。
   var r = await gateway.call('captchaSent', { phone: phone, countrycode: String((req.body && req.body.countrycode) || '86') }, req.user.user_id, { noCache: true });
   if (r.data && r.data.code !== 200) {
-    return res.status(400).json({ code: r.data.code, message: (r.data.message || r.data.msg || '验证码发送失败') });
+    var c = Number(r.data.code);
+    // 405「发送验证码间隔过短」/ 406「操作频繁」是网易云**按来源 IP** 的限流：
+    // 此时继续重试只会刷新限流窗口，因此对所有人退避一段时间（而非仅当前用户）。
+    if (c === 405 || c === 406) {
+      captchaBlockedUntil = Date.now() + CAPTCHA_BACKOFF_MS;
+      return res.status(429).json({
+        code: 429,
+        message: '验证码服务被网易云按出口 IP 限流，请 ' + (CAPTCHA_BACKOFF_MS / 60000) + ' 分钟后再试（勿连续点击）'
+      });
+    }
+    return res.status(400).json({ code: c, message: (r.data.message || r.data.msg || '验证码发送失败') });
   }
   ok(res, {});
 }));

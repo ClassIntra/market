@@ -471,6 +471,66 @@
   line-height: 1.5;
 }
 
+/* ===== 建房分析规则开关（1.10.0）===== */
+/* 房主建房时勾选是否提供「走子提示」「候选分析」；胜率条不受影响 */
+.chess-entry-create-opts {
+  margin-top: 12px;
+  padding: 10px 12px 9px;
+  border: 1px solid var(--ci-color-border, #e2e8f0);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--ci-color-surface-2, #f8fafc);
+}
+
+.chess-entry-opt {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  min-height: 32px;   /* 平板触摸目标：勾选框行不可矮于 32px */
+  font-size: 13px;
+  color: var(--ci-color-text, #172033);
+  cursor: pointer;
+}
+
+.chess-entry-opt + .chess-entry-opt {
+  margin-top: 2px;
+}
+
+.chess-entry-opt input {
+  -webkit-box-flex: 0;
+  -ms-flex: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0 8px 0 0;
+}
+
+.chess-entry-opt-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+/* ===== 房间规则行（1.10.0）===== */
+/* 成员列表下的小字说明：把「提示/分析为什么不可用」亮出来，观战者才不会以为界面坏了 */
+.chess-room-rules {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-left: 3px solid #94a3b8;
+  border-radius: 0 6px 6px 0;
+  background: var(--ci-color-surface-2, #f8fafc);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-room-rules[hidden] {
+  display: none;
+}
+
 .chess-entry-row {
   margin-top: 14px;
   -ms-flex-wrap: wrap;

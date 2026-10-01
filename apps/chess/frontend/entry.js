@@ -949,9 +949,24 @@
     var levelLabel = t('label', null, { text: '电脑棋力' });
     levelLabel.appendChild(levelSelect);
 
+    // 建房分析规则（1.10.0）：房主建房时勾选是否提供「走子提示」与「候选分析」。
+    // 胜率条不受影响（始终可见）——这句说明直接写在卡上，避免房主误以为关掉后全黑。
+    var entryCreateOpts = t('div', 'chess-entry-create-opts', null, [
+      t('label', 'chess-entry-opt', null, [
+        t('input', null, { type: 'checkbox', 'data-field': 'opt-hint', checked: 'checked' }),
+        t('span', null, { text: '走子提示' })
+      ]),
+      t('label', 'chess-entry-opt', null, [
+        t('input', null, { type: 'checkbox', 'data-field': 'opt-analyse', checked: 'checked' }),
+        t('span', null, { text: '候选分析' })
+      ]),
+      t('p', 'chess-entry-opt-note', { text: '关闭后房间内所有人（含观战者）不可用；胜率条始终可见' })
+    ]);
+
     var entryCard = t('div', 'chess-entry-card', null, [
       t('h2', null, { text: '进入棋局' }),
       t('p', null, { text: '创建房间邀请同学对战，或用本地/人机模式离线对弈。红方先行。' }),
+      entryCreateOpts,
       t('div', 'chess-entry-row', null, [
         t('button', null, { type: 'button', 'data-action': 'create', text: '创建房间' })
       ]),
@@ -1008,9 +1023,13 @@
     // 侧栏双页（信息 / 聊天）互斥显示：聊天页常驻会把成员与房间操作一路顶下去，
     // 侧栏高度随消息增长；横屏平板下 .chess-app 是 overflow:hidden，撑出去的部分
     // 既看不到也滑不动（2026-09-22 实测：聊天 8 条时侧栏 811px、棋盘 609px，底部越出视口 270px）。
+    // 房间规则行（1.10.0）：房主建房选择的分析规则，全员可见——
+    // 不写出来，观战者会以为提示/分析页坏了，而不是「房主没开」。
+    var roomRulesElement = t('div', 'chess-room-rules', { 'data-role': 'room-rules' });
     var infoPanel = t('div', 'chess-info-panel', { 'data-role': 'info-panel', role: 'tabpanel', 'aria-labelledby': 'chess-tab-info' }, [
       t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
+      roomRulesElement,
       captured,
       roomTools,
       t('div', 'chess-finished', null, [
@@ -1044,7 +1063,7 @@
     var enginePanel = t('div', 'chess-engine-panel', {
       'data-role': 'engine-panel', role: 'tabpanel', 'aria-labelledby': 'chess-tab-engine'
     }, [
-      t('div', 'chess-engine-tools', null, [
+      t('div', 'chess-engine-tools', { 'data-role': 'engine-tools' }, [
         t('button', 'is-secondary', { type: 'button', 'data-action': 'analyse', text: '分析当前局面' }),
         t('button', 'is-secondary is-toggle is-on', {
           type: 'button', 'data-action': 'auto-analyse', 'aria-pressed': 'true', text: '自动分析'
@@ -1120,7 +1139,7 @@
     var soloColor = 'red';        // 人机练习玩家执色（红方先手，玩家默认执红）
     var soloLevel = 'normal';     // 电脑棋力 easy/normal/hard/master（入场卡选择，会话恢复保留）
     var levelElement = null;      // 入场卡棋力下拉（root 挂载后缓存）
-    var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
+    var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null, settings: { hint: true, analyse: true } };
     // 会话持久化：切去聊天/社区再返回时恢复本地对局与房间（sessionStorage，关页即清）
     var SESSION_KEY = 'chess_session';
     function saveSession() {
@@ -1208,6 +1227,8 @@
     var engineInfoElement = root.querySelector('[data-role="engine-info"]');
     var engineLineListElement = root.querySelector('[data-role="line-list"]');
     var engineFootElement = root.querySelector('[data-role="engine-foot"]');
+    var engineToolsElement = root.querySelector('[data-role="engine-tools"]');
+    var roomRulesElement = root.querySelector('[data-role="room-rules"]');
     var analyseButtonElement = root.querySelector('[data-action="analyse"]');
     var autoAnalyseButtonElement = root.querySelector('[data-action="auto-analyse"]');
 
@@ -1491,13 +1512,22 @@
     // （clearChildren + 重建 li 会打断 is-turn 脉冲动画并造成无谓回流）
     var lastMembersSignature = '';
     function renderMembers() {
-      var sig = mode + '|' + state.turn + '|' + (state.winner || '') + '|' + (state.status || '') + '|';
+      var settingsNow = roomSettings();
+      // settings 进签名：房主建房规则是广播字段，变了这里必须重绘（规则行 + is-turn 等不依赖它）
+      var sig = mode + '|' + state.turn + '|' + (state.winner || '') + '|' + (state.status || '') + '|' + (settingsNow.hint ? 1 : 0) + (settingsNow.analyse ? 1 : 0) + '|';
       for (var i = 0; i < state.members.length; i++) {
         var m = state.members[i];
         sig += m.user_id + ':' + (m.net_name || '') + ':' + m.role + ':' + (m.color || '') + ';';
       }
       if (sig === lastMembersSignature) return;
       lastMembersSignature = sig;
+      // 房间规则行（仅房间模式）：把「提示/分析为什么不可用」亮出来，观战者才不会以为界面坏了
+      if (roomRulesElement) {
+        roomRulesElement.hidden = mode !== 'room';
+        if (mode === 'room') {
+          setText(roomRulesElement, '房间规则：走子提示' + (settingsNow.hint ? '开' : '关') + ' · 候选分析' + (settingsNow.analyse ? '开' : '关'));
+        }
+      }
       clearChildren(membersElement);
       if (mode === 'local' || mode === 'solo') {
         var soloSides = mode === 'solo'
@@ -1801,8 +1831,11 @@
       // 提示按钮：人机 / 本地双人 / 房间都显示，可用性由 hintSide() 决定
       // （人机=只在自己回合；本地=跟着当前行棋方；房间=玩家只在自己回合、观战者按当前行棋方）。
       // 引擎不可用时也允许点——后端降级后会回落内置 AI，提示照样给得出来。
+      // 房主关掉「走子提示」的房间：按钮整个隐藏（禁用反而让人以为是坏了）。
       if (hintButton) {
-        hintButton.disabled = !hintSide() || aiPending || pending;
+        var hintRoomOff = mode === 'room' && !roomSettings().hint;
+        hintButton.hidden = hintRoomOff;
+        hintButton.disabled = hintRoomOff || !hintSide() || aiPending || pending;
       }
       if (resignButton) {
         resignButton.disabled = isLocal || !roomCode || !!state.winner || state.status !== 'active' || pending || !member || !member.color;
@@ -1975,6 +2008,15 @@
     // 表现上复用「选中 + 落点提示」这套既有交互：点提示后自动选中推荐棋子、
     // 只留一个落点，玩家再点一下即可落子（不自动走，避免误触改变局面）。
     // 归属方由 hintSide() 决定；提示在 人机 / 本地双人 / 房间（含观战者）三种模式都可用。
+    // 房间分析规则（1.10.0）：走子提示/候选分析由房主建房时选择，随房间状态广播；
+    // 单机模式没有「房间」这个概念，一律全开。
+    function roomSettings() {
+      if (mode !== 'room' || !state.settings) return { hint: true, analyse: true };
+      return {
+        hint: state.settings.hint !== false,
+        analyse: state.settings.analyse !== false
+      };
+    }
     function hintSide() {
       if (state.winner || state.status !== 'active') return null;
       // 人机：只有轮到玩家时才给，否则等于提前泄露电脑要走哪儿
@@ -1982,8 +2024,10 @@
       // 本地双人：一块屏两个人，谁走就帮谁
       if (mode === 'local') return state.turn;
       // 房间：玩家只在自己回合可用（免得替对手想棋）；
-      // 观战者无色可轮，就按当前行棋方给——「观战也能用」是明确需求
+      // 观战者无色可轮，就按当前行棋方给——「观战也能用」是明确需求。
+      // 房主建房关掉「走子提示」时对全员（含观战者）一律关闭。
       if (mode === 'room') {
+        if (!roomSettings().hint) return null;
         var member = currentMember();
         if (member && member.color) return state.turn === member.color ? member.color : null;
         return state.turn;
@@ -2054,9 +2098,12 @@
     }
     // force=true 来自「分析当前局面」按钮：显式手动请求，绕过自动开关与 done/busy 去重。
     // 自动分析（syncAnalysis 那条路）不传 force，才受 analysisOn 与去重约束。
+    // 仅胜率模式（房间关掉候选分析）例外：analysisOn 强制视为开——该模式下手动按钮
+    // 已隐藏，analysisOn 再把自动路径堵死，胜率条就成了死水。
+    function analyseAutoOn() { return analysisOn || (mode === 'room' && !roomSettings().analyse); }
     function runAnalyse(force) {
       if (disposed || !engineTabOpen()) return;
-      if (!analysisOn && !force) return;
+      if (!analyseAutoOn() && !force) return;
       var key = analysisKey();
       if (!force && (key === analysisDoneKey || key === analysisBusyKey)) return;
       // 不与人机应手/提示抢队列：在途时先让路，等它落地后那次 render 会再叫一次
@@ -2070,7 +2117,9 @@
         turn: state.turn,
         gameKey: analysisGameKey(),
         movetime: ANALYSE_MOVETIME,
-        multiPv: ANALYSE_LINES
+        // 仅胜率模式（房主关掉候选分析）：multiPv 降为 1，胜率条照常更新，
+        // 但不产生候选列表——引擎面板与棋局页都不会出现候选着法。
+        multiPv: (mode === 'room' && !roomSettings().analyse) ? 1 : ANALYSE_LINES
       }).then(function(data) {
         if (disposed || token !== analysisToken) return;
         if (analysisBusyKey === key) analysisBusyKey = '';
@@ -2115,7 +2164,7 @@
         activeLine = -1;
         arrowMove = null;
       }
-      if (!analysisOn) return;   // 自动重算到此为止；要重算就手动点「分析当前局面」
+      if (!analyseAutoOn()) return;   // 自动重算到此为止；要重算就手动点「分析当前局面」
       if (analysisTimer) return;
       analysisTimer = setTimeout(function() {
         analysisTimer = null;
@@ -2142,13 +2191,17 @@
       if (!enginePanelElement) return;
       var data = analysisData;
       var lines = data && data.lines ? data.lines : [];
-      var sig = [analysisOn, activeLine, analysisNote, aiEngineState, soloLevel, lines.length,
+      // 仅胜率模式：房主关掉候选分析的房间。候选 UI 全部隐藏，只留胜率条。
+      var winRateOnly = mode === 'room' && !roomSettings().analyse;
+      var sig = [analysisOn, winRateOnly, activeLine, analysisNote, aiEngineState, soloLevel, lines.length,
         lines.length ? lines[0].uci : '', lines.length && lines[0].score ? lines[0].score.type + lines[0].score.value : '',
         data ? data.depth + ':' + data.nodes + ':' + data.time : ''].join('|');
       if (sig === enginePanelSignature) return;
       enginePanelSignature = sig;
 
-      // 评分条：红方优势从左侧生长（红在下，左红右黑是通行读法）
+      // 工具行（手动分析 + 自动开关）仅胜率模式下隐藏：没有候选可刷，这两个入口没有意义
+      if (engineToolsElement) engineToolsElement.hidden = winRateOnly;
+      // 评分条：红方优势从左侧生长（红在下，左红右黑是通行读法）——仅胜率模式也照常工作
       var view = lines.length ? evalView(lines[0].score, data.side || state.turn) : null;
       if (evalFillElement) {
         var rate = view ? view.rate : 0.5;
@@ -2166,17 +2219,23 @@
       }
       if (engineFootElement) {
         var foot = '';
-        if (lines.length) foot = '点候选着法可在棋盘上标出这一步';
+        if (winRateOnly) {
+          // 仅胜率模式：页脚固定说明，避免观战者以为分析页坏了
+          foot = '房主未开启候选分析，仅显示胜率走势';
+        } else if (lines.length) foot = '点候选着法可在棋盘上标出这一步';
         else if (analysisNote) foot = analysisNote;
         // 房间模式补一句透明说明：分析页人人可见（含观战者）。
         // 不写清楚容易让人以为「只有我能看到」，进而在对局里偷偷用引擎。
-        if (mode === 'room') {
+        if (mode === 'room' && !winRateOnly) {
           foot = foot ? foot + ' · 本页分析房间内所有人可见' : '本页分析房间内所有人可见';
         }
         setText(engineFootElement, foot);
       }
+      // 仅胜率模式：候选列表整块隐藏 + **必须清空**——换房场景下上一房间（可能全开）
+      // 留下的候选 li 还挂在列表里，只 hidden 不 clear 会让旧候选滞留 DOM（实测 S6 踩到）
+      if (engineLineListElement) engineLineListElement.hidden = winRateOnly || !lines.length;
       clearChildren(engineLineListElement);
-      if (!lines.length) return;
+      if (winRateOnly || !lines.length) return;
       for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
         var side = data.side || state.turn;
@@ -2429,7 +2488,7 @@
       if (!/^[A-Z0-9]{4,6}$/.test(normalized)) { setError('请输入 4-6 位房间码'); return Promise.resolve(); }
       var kind = enterKind === 'watch' ? 'watch' : 'join';
       return request(context, 'POST', '/chess/rooms/' + encodeURIComponent(normalized) + '/' + kind, {}).then(function(data) {
-        if (roomCode !== normalized) { activeTab = 'info'; chatClear(); }   // 换房：先清空并作废上一房间的在途回调
+        if (roomCode !== normalized) { activeTab = 'info'; chatClear(); analysisAbort(); }   // 换房：清空聊天 + 作废上一房间在途分析/箭头（新旧房间分析规则可能不同）
         roomCode = normalized;
         mode = 'room';
         selected = null; legal = [];
@@ -2450,8 +2509,16 @@
       }).catch(function(error) { setError(errMsg(error, '进入房间失败')); });
     }
     function create() {
-      return request(context, 'POST', '/chess/rooms', {}).then(function(data) {
-        if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); }   // 建房：同上，作废上一房间的在途回调
+      // 建房开关：checkbox 勾选状态直接映射 hintEnabled/analyseEnabled
+      // （服务端 settingFlag 只认 false/0/'0' 为关，其余一律开——旧客户端不传也安全）
+      var optHint = root.querySelector('[data-field="opt-hint"]');
+      var optAnalyse = root.querySelector('[data-field="opt-analyse"]');
+      var body = {
+        hintEnabled: !!(optHint && optHint.checked),
+        analyseEnabled: !!(optAnalyse && optAnalyse.checked)
+      };
+      return request(context, 'POST', '/chess/rooms', body).then(function(data) {
+        if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); analysisAbort(); }   // 建房：同上，作废上一房间的在途分析/箭头
         roomCode = data.roomCode;
         mode = 'room';
         selected = null; legal = [];
