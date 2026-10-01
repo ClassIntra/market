@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "updated_at": "2026-10-01T07:33:54.237Z",
+  "updated_at": "2026-10-01T07:57:26.596Z",
   "apps": [
     {
       "name": "chess",
@@ -23,7 +23,7 @@
     {
       "name": "gomoku",
       "label": "五子棋",
-      "version": "1.8.0",
+      "version": "1.8.1",
       "description": "支持房间联机、跨班对局、房间快捷聊天、本地双人对战、人机练习、观战与断线恢复的原生 DOM 五子棋",
       "author": "ClassIntra",
       "icon": "./icon.svg",

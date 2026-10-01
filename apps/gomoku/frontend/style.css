@@ -45,11 +45,28 @@
      侧栏以它为 max-height 在卡片内部滚动，绝不再把 .gomoku-layout 撑高 ——
      横屏平板下 .gomoku-app 是 overflow:hidden，撑出去的部分既看不见也滑不动。 */
   --gomoku-room-h: calc(var(--gomoku-room-w) + 4px);
+  /* ===== 应用内主题语义变量（深色适配）=====
+     CI 的 --ci-* 令牌里没有 text / surface / fill / border / border-strong / accent（不带后缀）
+     这组名字（真名见 themes/*/tokens.js：--ci-color-text-primary、--ci-color-bg-card…），
+     写错名字不报错，只会落到 var() 的浅色兜底 → 深色主题下「浅底 + 浅字」什么都看不见。
+     浅色给原硬编码值（外观零变化），深色由 [data-theme="dark"] 覆写。
+     ⚠️ 白/黑棋子与棋盘是实物材质，不参与主题切换。 */
+  --gomoku-app-bg: #f8fafc;
+  --gomoku-text: #172033;
+  --gomoku-text-2: #334155;
+  --gomoku-text-muted: #64748b;
+  --gomoku-fill: #e2e8f0;
+  --gomoku-surface: #ffffff;
+  --gomoku-border: #dbe3ef;
+  --gomoku-border-strong: #cbd5e1;
+  --gomoku-accent: #2563eb;
+  --gomoku-accent-solid: #2563eb;   /* 实底主按钮：白字压在它上面，必须够深 */
+  --gomoku-danger: #dc2626;
   /* 不留内边距：标题栏作为首个子级天然贴视口边缘（sticky 吸顶不被 padding 区截住），
      内容内边距由 .gomoku-shell 承担 */
   padding: 0;
-  color: var(--ci-color-text, #172033);
-  background-color: var(--ci-color-surface, #f8fafc);
+  color: var(--gomoku-text, #172033);
+  background-color: var(--gomoku-surface, #f8fafc);
   /* 环境光氛围：右上蓝 / 左下紫的极淡径向光斑（低透明度，不影响主题） */
   background-image:
     radial-gradient(1100px 520px at 85% -10%, rgba(37, 99, 235, .07), transparent 60%),
@@ -57,6 +74,32 @@
   box-sizing: border-box;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* 深色主题：CI 把 data-theme 挂在 <html> 上，故用后代选择器覆写局部语义变量。
+   取值对齐 CI 深色令牌；蓝色主色在纯黑上要提亮，环境光斑同步提亮。 */
+[data-theme="dark"] .gomoku-app {
+  --gomoku-app-bg: #000000;
+  --gomoku-text: rgba(235, 235, 245, .95);
+  --gomoku-text-2: rgba(235, 235, 245, .78);
+  --gomoku-text-muted: rgba(235, 235, 245, .55);
+  --gomoku-fill: rgba(255, 255, 255, .10);
+  --gomoku-surface: #1c1c1e;
+  --gomoku-border: rgba(84, 84, 88, .65);
+  --gomoku-border-strong: rgba(120, 120, 128, .75);
+  --gomoku-accent: #4b83f0;
+  --gomoku-accent-solid: #2563eb;
+  --gomoku-danger: #ff453a;
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(75, 131, 240, .12), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(160, 110, 255, .09), transparent 55%);
+}
+
+/* 深色下主按钮渐变整体压深：底色亮了白字就读不出来（浅色的 #4183f7 起笔在深色主题里太亮） */
+[data-theme="dark"] .gomoku-actions button,
+[data-theme="dark"] .gomoku-entry-row button,
+[data-theme="dark"] .gomoku-finished button {
+  background-image: linear-gradient(135deg, #2563eb 0%, #1d4ed8 62%, #1e3a8a 100%);
 }
 
 /* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽仍 1160）；
@@ -130,7 +173,7 @@
   border: 0;
   background: transparent;
   /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--gomoku-accent, #007aff));
   font: inherit;
   font-size: var(--font-size-body, 17px);
   padding: 6px 8px 6px 4px;
@@ -251,7 +294,7 @@
   font-size: 13px;
   font-weight: 500;
   border-radius: 999px;
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--gomoku-accent, #007aff));
   background-color: transparent;
   background-image: none;
   box-shadow: none;
@@ -311,7 +354,7 @@
 }
 
 .gomoku-status.is-waiting {
-  color: var(--ci-color-accent, #2563eb);
+  color: var(--gomoku-accent, #2563eb);
   font-weight: 600;
 }
 
@@ -336,8 +379,8 @@
   padding: 10px 16px;
   color: #fff;
   /* 主按钮：对角渐变 + 柔和投影（纯色兜底在前，不支持渐变时仍有底色） */
-  background-color: var(--ci-color-accent, #2563eb);
-  background-image: linear-gradient(135deg, #4183f7 0%, var(--ci-color-accent, #2563eb) 62%, #1d4ed8 100%);
+  background-color: var(--gomoku-accent-solid, #2563eb);
+  background-image: linear-gradient(135deg, #4183f7 0%, var(--gomoku-accent-solid, #2563eb) 62%, #1d4ed8 100%);
   box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
   cursor: pointer;
   font: inherit;
@@ -380,8 +423,8 @@
 .gomoku-actions button.is-secondary,
 .gomoku-entry-row button.is-secondary,
 .gomoku-finished button.is-secondary {
-  color: var(--ci-color-text, #334155);
-  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--gomoku-text, #334155);
+  background: var(--gomoku-fill, #e2e8f0);
   /* 次级按钮回归平面：shorthand 已重置渐变，这里再去掉主按钮的投影 */
   box-shadow: none;
 }
@@ -404,7 +447,7 @@
   max-width: 520px;
   padding: 22px 24px;
   background: var(--ci-color-bg-elevated, #fff);
-  border: 1px solid var(--ci-color-border, #dbe3ef);
+  border: 1px solid var(--gomoku-border, #dbe3ef);
   border-radius: var(--radius-lg, 16px);
   box-shadow: var(--ci-shadow-md, 0 8px 24px rgba(30, 41, 59, .06));
   box-sizing: border-box;
@@ -418,7 +461,7 @@
   top: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--ci-color-accent, #2563eb), rgba(124, 58, 237, .9));
+  background: linear-gradient(90deg, var(--gomoku-accent, #2563eb), rgba(124, 58, 237, .9));
 }
 
 /* 迷你棋盘装饰角标（右上角）：呼应桌面新图标。
@@ -459,7 +502,7 @@
 /* 侧栏标题：左侧竖条强调 */
 .gomoku-info h2 {
   padding-left: 10px;
-  border-left: 3px solid var(--ci-color-accent, #2563eb);
+  border-left: 3px solid var(--gomoku-accent, #2563eb);
 }
 
 .gomoku-entry-row {
@@ -507,9 +550,9 @@
 .gomoku-entry-row select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border: 1px solid var(--gomoku-border-strong, #cbd5e1);
   border-radius: var(--radius-sm, 8px);
-  color: var(--ci-color-text, #172033);
+  color: var(--gomoku-text, #172033);
   background: var(--ci-color-bg-elevated, #fff);
   font: inherit;
   box-sizing: border-box;
@@ -518,7 +561,7 @@
 .gomoku-entry-row input:focus,
 .gomoku-entry-row select:focus {
   outline: none;
-  border-color: var(--ci-color-accent, #2563eb);
+  border-color: var(--gomoku-accent, #2563eb);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
 }
 
@@ -538,7 +581,7 @@
   min-height: 0;
   padding: 9px 14px;
   border-radius: var(--radius-sm, 8px);
-  color: var(--ci-color-danger, #dc2626);
+  color: var(--gomoku-danger, #dc2626);
   background-color: rgba(254, 242, 242, .96);
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   border: 1px solid rgba(220, 38, 38, .25);
@@ -924,7 +967,7 @@
   -ms-flex: 0 0 230px;
   flex: 0 0 230px;
   padding: 18px;
-  border: 1px solid var(--ci-color-border, #dbe3ef);
+  border: 1px solid var(--gomoku-border, #dbe3ef);
   border-radius: var(--radius-lg, 16px);
   background: var(--ci-color-bg-elevated, #fff);
   box-sizing: border-box;
@@ -1015,7 +1058,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: var(--ci-color-text, #172033);
+  color: var(--gomoku-text, #172033);
 }
 
 .gomoku-member-role {
@@ -1024,7 +1067,7 @@
   margin-left: 8px;
   padding: 2px 8px;
   border-radius: var(--radius-pill, 999px);
-  background: var(--ci-color-fill, #e2e8f0);
+  background: var(--gomoku-fill, #e2e8f0);
   color: var(--ci-color-text-secondary, #475569);
   font-size: 11px;
   white-space: nowrap;
@@ -1032,7 +1075,7 @@
 
 .gomoku-member-role.is-owner {
   background: rgba(37, 99, 235, .12);
-  color: var(--ci-color-accent, #2563eb);
+  color: var(--gomoku-accent, #2563eb);
 }
 
 .gomoku-finished {
@@ -1055,16 +1098,16 @@
   border: 0;
   border-radius: var(--radius-sm, 8px);
   color: #fff;
-  background-color: var(--ci-color-accent, #2563eb);
-  background-image: linear-gradient(135deg, #4183f7 0%, var(--ci-color-accent, #2563eb) 62%, #1d4ed8 100%);
+  background-color: var(--gomoku-accent-solid, #2563eb);
+  background-image: linear-gradient(135deg, #4183f7 0%, var(--gomoku-accent-solid, #2563eb) 62%, #1d4ed8 100%);
   box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
   cursor: pointer;
   font: inherit;
 }
 
 .gomoku-finished button.is-secondary {
-  color: var(--ci-color-text, #334155);
-  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--gomoku-text, #334155);
+  background: var(--gomoku-fill, #e2e8f0);
 }
 
 /* hidden 收敛到应用作用域：全局选择器会覆盖宿主页面的 hidden 行为（样式污染） */
@@ -1280,7 +1323,7 @@
   font-size: 13px;
   font-weight: 500;
   text-align: center;
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--gomoku-accent, #007aff));
   background: rgba(148, 163, 184, .14);
   border-radius: var(--radius-sm, 8px);
   white-space: nowrap;
@@ -1349,7 +1392,7 @@
 
 .gomoku-tab.is-active {
   background-color: var(--ci-color-bg-elevated, #fff);
-  color: var(--ci-color-text, #172033);
+  color: var(--gomoku-text, #172033);
   box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
 }
 
@@ -1420,7 +1463,7 @@
 }
 
 .gomoku-chat-text {
-  color: var(--ci-color-text, #1e293b);
+  color: var(--gomoku-text, #1e293b);
 }
 
 /* 自己的发言用主色区分，便于在多人对话里定位 */
@@ -1433,7 +1476,7 @@
   padding: 6px 0;
   font-size: 12px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--gomoku-text-muted, #94a3b8);
 }
 
 .gomoku-chat-form {
