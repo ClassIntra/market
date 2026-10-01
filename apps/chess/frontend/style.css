@@ -715,6 +715,76 @@
 .chess-replay-side.is-black { color: var(--chess-text, #334155); }
 .chess-replay-move.is-active .chess-replay-side { color: #fff; }
 
+/* 复盘：子力账本（到当前手为止双方被吃的子 + 净差） */
+.chess-replay-lost-row {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  min-height: 22px;
+  font-size: 12px;
+}
+
+.chess-replay-lost {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  min-width: 0;
+}
+
+.chess-replay-material {
+  margin: 2px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--chess-text-2, #334155);
+}
+
+/* 复盘：进度条（长棋谱拖一下就到，不必按几十次「下一手」）。
+   Chrome 80 必须 -webkit-appearance:none + 自绘轨道/滑块；滑块做够大（平板触摸），
+   命中区由 28px 高的 input 撑开，视觉轨道只有 6px。 */
+.chess-replay-range-wrap {
+  margin: 2px 0 8px;
+}
+
+.chess-replay-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.chess-replay-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--chess-fill, #e2e8f0);
+}
+
+.chess-replay-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;   /* (6 - 20) / 2：把滑块压在 6px 轨道正中 */
+  border: 2px solid var(--chess-surface, #fff);
+  border-radius: 50%;
+  background: var(--chess-accent, #b91c1c);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+}
+
 .chess-replay-text {
   -webkit-box-flex: 1;
   -ms-flex: 1 1 auto;
@@ -1442,8 +1512,9 @@
   line-height: 1;
 }
 
-.chess-cap-piece.is-red { color: #b02318; }
-.chess-cap-piece.is-black { color: #262626; }
+/* 被吃棋子字形跟着主题走：硬编码的 #262626 在深色主题下就是「黑底黑字」（信息页/复盘两处都用） */
+.chess-cap-piece.is-red { color: var(--chess-accent, #b02318); }
+.chess-cap-piece.is-black { color: var(--chess-text-2, #262626); }
 
 .chess-captured-empty {
   font-size: 12px;

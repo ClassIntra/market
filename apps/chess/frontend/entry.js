@@ -2152,7 +2152,9 @@
     function replayLoad(title, winnerText, moves) {
       replayAbort();
       var board = initialBoard();
-      var snapshots = [{ board: board.map(function(row) { return row.slice(); }), lastMove: null, turn: 'red', check: false, text: '', captured: null, no: 0 }];
+      // 子力账本：重放时顺带记录「到第 n 手为止双方被吃掉的子」，复盘面板据此显示谁赚了
+      var lost = { red: [], black: [] };
+      var snapshots = [{ board: board.map(function(row) { return row.slice(); }), lastMove: null, turn: 'red', check: false, text: '', captured: null, no: 0, lostRed: [], lostBlack: [] }];
       for (var i = 0; i < moves.length; i++) {
         var m = moves[i];
         // 记谱必须用「走子前」的局面（前/后消歧依赖同列同子计数）
@@ -2162,6 +2164,7 @@
         var nextTurn = mover === 'red' ? 'black' : 'red';
         board[m.toRow][m.toCol] = m.piece;
         board[m.fromRow][m.fromCol] = null;
+        if (m.captured) lost[pieceColor(m.captured)].push(m.captured);
         snapshots.push({
           board: board.map(function(row) { return row.slice(); }),
           lastMove: { fromRow: m.fromRow, fromCol: m.fromCol, toRow: m.toRow, toCol: m.toCol, color: mover },
@@ -2169,7 +2172,9 @@
           check: isInCheck(board, nextTurn),
           text: text,
           captured: m.captured || null,
-          no: i + 1
+          no: i + 1,
+          lostRed: lost.red.slice(),
+          lostBlack: lost.black.slice()
         });
       }
       replay.snapshots = snapshots;
@@ -2188,6 +2193,7 @@
       if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
       replay.active = false;
       replay.playing = false;
+      replayEls = null;   // 面板元素已被成员列表重建冲掉，悬空引用清掉
       arrowMove = null;
       lastArrowKey = '';
       // ⚠️ 清成员列表签名缓存：退出复盘后 renderMembers 的 sig 与复盘前相同会直接
@@ -2264,25 +2270,61 @@
         render();
       }).catch(function() {});
     }
-    // 复盘侧栏：控制条 + 当前手文本 + 全部着法列表（点一条跳到那一手）
-    function renderReplayPanel() {
-      var sig = replay.index + '|' + replay.playing + '|' + replay.snapshots.length + '|' + replay.title + '|' + replay.winnerText;
-      if (sig === replay.sig) return;
-      replay.sig = sig;
+    // 复盘侧栏：标题 / 当前手 / 子力账本 / 进度条 / 控制条 / 着法列表（点一条跳到那一手）
+    //
+    // ⚠️ 分「结构重建」与「局部同步」两条路（1.13.0 起）：**index 与 playing 都不进结构签名**。
+    //    若 index 进签名，拖动进度条或自动播放时整块 DOM 会被 clearChildren 重建 ——
+    //    拖动中的 <input type=range> 会随元素一起销毁，拖动当场中断；几十上百手的棋谱也会每手白重建一遍。
+    var replayEls = null;
+    // 子力分值（象棋惯例：车 9 / 马 4 / 炮 5 / 兵 1 / 仕 2 / 相 2）——
+    // 复盘时给「谁赚了」一个量化，而不是只罗列被吃的子。
+    var PIECE_VALUE = { rook: 9, knight: 4, cannon: 5, elephant: 2, guard: 2, pawn: 1 };
+    function lostScore(list) {
+      var sum = 0;
+      for (var i = 0; i < list.length; i++) sum += PIECE_VALUE[pieceType(list[i])] || 0;
+      return sum;
+    }
+    function fillLost(container, list, color) {
+      clearChildren(container);
+      if (!list.length) { container.appendChild(t('span', 'chess-captured-empty', { text: '无损失' })); return; }
+      for (var i = 0; i < list.length; i++) {
+        container.appendChild(t('span', 'chess-cap-piece is-' + color, { text: PIECE_CHARS[list[i]] || '?' }));
+      }
+    }
+    function buildReplayPanel() {
+      replayEls = { moves: [] };
       clearChildren(membersElement);
       membersElement.appendChild(t('li', 'chess-replay-head', null, [
         t('span', 'chess-replay-title', { text: replay.title + (replay.winnerText ? ' · ' + replay.winnerText : '') }),
-        t('span', 'chess-replay-progress', { text: replay.index === 0 ? '开局' : '第 ' + replay.index + ' / ' + (replay.snapshots.length - 1) + ' 手' })
+        replayEls.progress = t('span', 'chess-replay-progress', { text: '' })
       ]));
-      var snap = replay.snapshots[replay.index];
-      membersElement.appendChild(t('li', 'chess-replay-now', {
-        text: replay.index === 0 ? '初始局面，红方先行'
-          : (snap.lastMove.color === 'red' ? '红方 ' : '黑方 ') + snap.text + (snap.captured ? '（吃' + (PIECE_CHARS[snap.captured] || '') + '）' : '')
-      }));
+      replayEls.now = t('li', 'chess-replay-now', { text: '' });
+      membersElement.appendChild(replayEls.now);
+      // 子力账本（复用信息页的棋子字形与标签样式，两处观感一致）。
+      // 差值另起一行写「子力差 红方 +N」——挂在「红失」行尾会被读成「红方多丢了一个」。
+      replayEls.lostRedRow = t('li', 'chess-replay-lost-row', null, [
+        t('span', 'chess-captured-label', { text: '红失' }),
+        replayEls.lostRed = t('span', 'chess-replay-lost', { text: '' })
+      ]);
+      replayEls.lostBlackRow = t('li', 'chess-replay-lost-row', null, [
+        t('span', 'chess-captured-label', { text: '黑失' }),
+        replayEls.lostBlack = t('span', 'chess-replay-lost', { text: '' })
+      ]);
+      replayEls.material = t('li', 'chess-replay-material', { text: '' });
+      membersElement.appendChild(replayEls.lostRedRow);
+      membersElement.appendChild(replayEls.lostBlackRow);
+      membersElement.appendChild(replayEls.material);
+      // 进度条：长棋谱（几十上百手）时靠按钮一格格点太慢，拖一下就到
+      replayEls.range = t('input', 'chess-replay-range', {
+        type: 'range', min: '0', max: String(Math.max(0, replay.snapshots.length - 1)), step: '1', value: '0',
+        'data-role': 'replay-range', 'aria-label': '回顾进度，拖动跳转到任意一手'
+      });
+      membersElement.appendChild(t('li', 'chess-replay-range-wrap', null, [replayEls.range]));
+      replayEls.toggle = t('button', 'chess-replay-btn is-main', { type: 'button', 'data-action': 'replay-toggle', text: '播放', title: '播放 / 暂停（空格）' });
       membersElement.appendChild(t('li', 'chess-replay-controls', null, [
         t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-first', text: '|<', 'aria-label': '第一手', title: '第一手（Home）' }),
         t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-prev', text: '<', 'aria-label': '上一手', title: '上一手（←）' }),
-        t('button', 'chess-replay-btn is-main', { type: 'button', 'data-action': 'replay-toggle', text: replay.playing ? '暂停' : '播放', title: '播放 / 暂停（空格）' }),
+        replayEls.toggle,
         t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-next', text: '>', 'aria-label': '下一手', title: '下一手（→）' }),
         t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-last', text: '>|', 'aria-label': '最后一手', title: '最后一手（End）' }),
         t('button', 'chess-replay-btn is-exit', { type: 'button', 'data-action': 'replay-exit', text: '退出回顾', title: '退出回顾（Esc）' })
@@ -2290,19 +2332,45 @@
       for (var i = 1; i < replay.snapshots.length; i++) {
         (function(n) {
           var s = replay.snapshots[n];
-          membersElement.appendChild(t('li', 'chess-replay-move' + (n === replay.index ? ' is-active' : ''), {
+          var el = t('li', 'chess-replay-move', {
             'data-action': 'replay-jump', 'data-step': String(n), role: 'button', tabindex: '0'
           }, [
             t('span', 'chess-replay-no', { text: String(n) }),
             t('span', 'chess-replay-side is-' + s.lastMove.color, { text: s.lastMove.color === 'red' ? '红' : '黑' }),
             t('span', 'chess-replay-text', { text: s.text + (s.captured ? '吃' + (PIECE_CHARS[s.captured] || '') : '') })
-          ]));
+          ]);
+          replayEls.moves.push(el);
+          membersElement.appendChild(el);
         })(i);
       }
-      // 长棋谱（几十手）时高亮的当前手会滚出侧栏可视区 —— 列表重建后把它拉回视野。
-      // block:'nearest' 是最小滚动：元素已可见就完全不动，避免整页跳动（Chrome 61+ 支持 options 形式）。
-      var activeMove = membersElement.querySelector('.chess-replay-move.is-active');
+    }
+    // 只随 index / playing 变化的局部更新：不动 DOM 结构，只改文本、类、进度条值与滚动位置
+    function syncReplayPanel() {
+      if (!replayEls) return;
+      var snap = replay.snapshots[replay.index];
+      setText(replayEls.progress, replay.index === 0 ? '开局' : '第 ' + replay.index + ' / ' + (replay.snapshots.length - 1) + ' 手');
+      setText(replayEls.now, replay.index === 0 ? '初始局面，红方先行'
+        : (snap.lastMove.color === 'red' ? '红方 ' : '黑方 ') + snap.text + (snap.captured ? '（吃' + (PIECE_CHARS[snap.captured] || '') + '）' : ''));
+      if (replayEls.toggle) setText(replayEls.toggle, replay.playing ? '暂停' : '播放');
+      if (replayEls.range) replayEls.range.value = String(replay.index);
+      // 子力账本：正 = 红方子力占优（黑方被吃得多）
+      var lostRed = snap.lostRed || [], lostBlack = snap.lostBlack || [];
+      fillLost(replayEls.lostRed, lostRed, 'red');
+      fillLost(replayEls.lostBlack, lostBlack, 'black');
+      var diff = lostScore(lostBlack) - lostScore(lostRed);   // 正 = 红方子力占优
+      setText(replayEls.material, '子力差 ' + (diff === 0 ? '均势' : (diff > 0 ? '红方 +' + diff : '黑方 +' + (-diff))));
+      // 高亮当前手 + 把它拉回视野（长棋谱滚动时才不会滚丢）
+      for (var i = 0; i < replayEls.moves.length; i++) {
+        if (i + 1 === replay.index) replayEls.moves[i].classList.add('is-active');
+        else replayEls.moves[i].classList.remove('is-active');
+      }
+      var activeMove = replay.index > 0 ? replayEls.moves[replay.index - 1] : null;
       if (activeMove && activeMove.scrollIntoView) activeMove.scrollIntoView({ block: 'nearest' });
+    }
+    function renderReplayPanel() {
+      var sig = replay.snapshots.length + '|' + replay.title + '|' + replay.winnerText;
+      if (sig !== replay.sig) { replay.sig = sig; buildReplayPanel(); }
+      syncReplayPanel();
     }
     // 战事回顾列表（信息页）：房间内一进房就列出来 —— 本局（进行中/已结束）+ 全部历史局。
     // 「只要房主不退出，多少局都可以看到」：所以**不能**只列已结束的局，
@@ -3059,6 +3127,14 @@
       el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     }
     root.addEventListener('keydown', onRootKeydown);
+    // 3) 复盘进度条：拖动即跳转。用事件委托而不是逐个绑定 —— range 元素会随面板重建换新节点，
+    //    委托在 root 上一次到位；拖动期间 index 变化只走局部同步，DOM 不重建（见 renderReplayPanel 注释）。
+    function onRootInput(event) {
+      var el = event.target;
+      if (!el || !el.getAttribute || el.getAttribute('data-role') !== 'replay-range') return;
+      replaySeek(Number(el.value));
+    }
+    root.addEventListener('input', onRootInput);
     // 2) 复盘全局快捷键：←/→ 换手、空格播放暂停、Home/End 首末手、Esc 退出回顾。
     //    输入框内不生效（否则打字敲空格会变成播放/暂停）。
     function onGlobalKeydown(event) {
@@ -3076,6 +3152,7 @@
     document.addEventListener('keydown', onGlobalKeydown);
     var removeKeys = function() {
       root.removeEventListener('keydown', onRootKeydown);
+      root.removeEventListener('input', onRootInput);
       document.removeEventListener('keydown', onGlobalKeydown);
     };
     var removeBoardEvents = function() {
