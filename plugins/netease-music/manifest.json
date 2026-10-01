@@ -1,13 +1,13 @@
 {
   "name": "netease-music",
   "type": "plugin",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "label": "网易云音乐接入",
   "category": "hidden",
   "order": 30,
   "defaultEnabled": true,
   "canDisable": true,
-  "description": "为音乐应用提供网易云在线曲库：内网环境由服务器中转全部网易云流量（搜索 / 播放 / 歌词 / 红心收藏 / 歌单 / 每日推荐 / 排行榜），扫码登录、SQLite 响应缓存、音频磁盘缓存与离线回退保证弱网可用，零第三方依赖。",
+  "description": "为音乐应用提供网易云在线曲库：内网环境由服务器中转全部网易云流量（搜索 / 播放 / 歌词 / 红心收藏 / 歌单 / 每日推荐 / 排行榜），扫码登录、验证码发送服务端限流闸（单用户冷却 + 上游 IP 限流全局退避）、SQLite 响应缓存、音频磁盘缓存与离线回退保证弱网可用，零第三方依赖。",
   "backend": {
     "mountPath": "/api/netease-music",
     "entry": "./backend/routes.js",

@@ -73,8 +73,8 @@
     {
       "name": "netease-music",
       "label": "网易云音乐",
-      "version": "1.1.4",
-      "description": "让音乐应用接入网易云音乐：扫码登录、搜索、每日推荐、热歌榜、歌单浏览与红心收藏；内置 ncm 协议直连（零第三方依赖）、upstream 转发与磁盘缓存三级网关，所有流量经 ClassIntra 服务器同源中转，内网可用",
+      "version": "1.1.5",
+      "description": "让音乐应用接入网易云音乐：扫码登录、搜索、每日推荐、热歌榜、歌单浏览与红心收藏；验证码发送服务端限流闸（单用户冷却 + 上游 IP 限流全局退避）；内置 ncm 协议直连（零第三方依赖）、upstream 转发与磁盘缓存三级网关，所有流量经 ClassIntra 服务器同源中转，内网可用",
       "author": "ClassIntra",
       "files": [
         "plugins/netease-music/manifest.json",
