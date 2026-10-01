@@ -921,6 +921,10 @@
       // 人机模式下「认输/换方/分享」都隐藏，位数与联机模式一致，不会把标题栏挤成两行。
       t('button', 'is-secondary', { type: 'button', 'data-action': 'hint', text: '提示' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'resign', text: '认输' }),
+      // 和棋（1.14.1）：与认输并列——两者都是「这盘棋怎么收尾」的同类动作，
+      // 原先只在侧栏提议区里才有「提议和棋」，发起入口离得太远。仅房间模式且是玩家时显示
+      // （本地/人机没有对手可协商，观战者无权参与；见 render 的按钮显隐分支）。
+      t('button', 'is-secondary', { type: 'button', 'data-action': 'draw', text: '和棋' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
     // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
@@ -997,14 +1001,15 @@
     var turnBanner = t('div', 'chess-turn-banner', { 'data-role': 'turn-banner', 'aria-live': 'polite' });
     turnBanner.hidden = true;
     // 和棋提议区（1.14.0）：挂在横幅下方、标签页之上——切到聊天/引擎页时也看得见，
-    // 对手提和不会因为「你在别的页」而被漏掉。默认整块 hidden，只有房间对局中出现。
+    // 对手提和不会因为「你在别的页」而被漏掉。
+    // 1.14.1：发起动作搬到标题栏「和棋」按钮（与认输并列），这里只承担**回应**：
+    // 无人提和时整块 hidden（侧栏不留空块），有待处理提议时才出现文案 + 同意/拒绝/撤回。
     var drawOfferText = t('p', 'chess-draw-offer-text', { 'data-role': 'draw-offer-text' });
-    var drawOfferButton = t('button', 'is-secondary', { type: 'button', 'data-action': 'draw-offer', text: '提议和棋' });
     var drawAcceptButton = t('button', null, { type: 'button', 'data-action': 'draw-accept', text: '同意' });
     var drawDeclineButton = t('button', 'is-secondary', { type: 'button', 'data-action': 'draw-decline', text: '拒绝' });
     var drawOffer = t('div', 'chess-draw-offer', { 'data-role': 'draw-offer', 'aria-live': 'polite' }, [
       drawOfferText,
-      t('div', 'chess-draw-offer-actions', null, [drawOfferButton, drawAcceptButton, drawDeclineButton])
+      t('div', 'chess-draw-offer-actions', null, [drawAcceptButton, drawDeclineButton])
     ]);
     drawOffer.hidden = true;
     // 被吃子展示：由初始子力推导（见 renderCaptured），不依赖后端字段
@@ -1218,7 +1223,7 @@
     var bannerElement = root.querySelector('[data-role="turn-banner"]');
     var drawOfferElement = root.querySelector('[data-role="draw-offer"]');
     var drawOfferTextElement = root.querySelector('[data-role="draw-offer-text"]');
-    var drawOfferButtonElement = root.querySelector('[data-action="draw-offer"]');
+    var drawButtonElement = root.querySelector('[data-action="draw"]');
     var drawAcceptButtonElement = root.querySelector('[data-action="draw-accept"]');
     var drawDeclineButtonElement = root.querySelector('[data-action="draw-decline"]');
     var capturedElement = root.querySelector('[data-role="captured"]');
@@ -1523,42 +1528,37 @@
       return next.winner === 'red' ? '红方将死黑方，红方获胜' : '黑方将死红方，黑方获胜';
     }
 
-    // ===== 和棋提议区（1.14.0）=====
+    // ===== 和棋：标题栏发起 + 侧栏回应（1.14.1）=====
     // 官方「和棋」第 2 条是双方协商：一方提议作和、另一方同意即和。
-    // 三种形态：① 无人提和 → 玩家见「提议和棋」；② 我方提的 → 「撤回」+ 等待文案；
-    // ③ 对手提的 → 「同意 / 拒绝」。观战者只看不操作。走子即视为拒绝（后端 move 路由清标记）。
+    // 发起在标题栏「和棋」按钮（与认输并列），侧栏这块只在**有待处理提议**时出现：
+    // ① 我方提的 → 「撤回」+ 等待文案；② 对手提的 → 「同意 / 拒绝」。
+    // 观战者只看不操作。走子即视为拒绝（后端 move 路由清标记）。
     function syncDrawOffer(member) {
       var offerBy = state.drawOffer ? String(state.drawOffer) : '';
       var myId = currentUserId();
       var iAmPlayer = !!(member && member.color);
-      // 复盘接管显示层时不显示：回顾的是过去局面，不能让人对历史局提和
+      // 复盘接管显示层时不显示：回顾的是过去局面，不能让人对历史局回应和棋
       var playable = mode === 'room' && !!roomCode && state.status === 'active' && !state.winner && !replay.active;
-      if (!playable) { drawOfferElement.hidden = true; return; }
+      // 标题栏「和棋」按钮：房间里的玩家才可用；已有待处理提议时禁用 ——
+      // 否则再提一次会把对方的提议顶掉（后端 offer 是「覆盖成自己」的语义）
+      if (drawButtonElement) {
+        drawButtonElement.disabled = !playable || !iAmPlayer || !!offerBy || pending;
+      }
+      if (!playable || !offerBy) { drawOfferElement.hidden = true; return; }
       var offerer = null;
       for (var i = 0; i < state.members.length; i++) {
         if (String(state.members[i].user_id) === offerBy) { offerer = state.members[i]; break; }
       }
       var sideName = offerer ? (offerer.color === 'red' ? '红方' : offerer.color === 'black' ? '黑方' : '对手') : '对手';
-      if (!offerBy) {
-        drawOfferElement.hidden = !iAmPlayer;
-        if (!iAmPlayer) return;
-        setText(drawOfferTextElement, '局面僵持？可以提议和棋');
-        drawOfferButtonElement.hidden = false;
-        drawAcceptButtonElement.hidden = true;
-        drawDeclineButtonElement.hidden = true;
-        return;
-      }
       drawOfferElement.hidden = false;
       if (offerBy === myId) {
         setText(drawOfferTextElement, '已提议和棋，等待对方回应');
-        drawOfferButtonElement.hidden = true;
         drawAcceptButtonElement.hidden = true;
-        drawDeclineButtonElement.hidden = false;
+        drawDeclineButtonElement.hidden = !iAmPlayer;
         setText(drawDeclineButtonElement, '撤回');
         return;
       }
       setText(drawOfferTextElement, sideName + '提议和棋');
-      drawOfferButtonElement.hidden = true;
       drawAcceptButtonElement.hidden = !iAmPlayer;
       drawDeclineButtonElement.hidden = !iAmPlayer;
       setText(drawDeclineButtonElement, '拒绝');
@@ -1787,6 +1787,8 @@
         // ⚠️ 必须显式写回 false：入场态（mode === ''）那一轮把**所有**按钮都置了 hidden = true，
         //    这里若只 `continue` 就会把那个 true 一直留着 —— 按钮在房间里永远不出现。
         if (kind === 'hint') { actionButtons[a].hidden = false; continue; }
+        // 和棋：只在房间且自己是玩家时出现（本地/人机没有对手可协商，观战者无权参与）
+        if (kind === 'draw') { actionButtons[a].hidden = mode !== 'room' || !member || !member.color; continue; }
         // 人机/本地隐藏分享类；人机额外隐藏换方（色已固定）与认输（可直接退出）
         actionButtons[a].hidden = isLocal && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community' || kind === 'color' || kind === 'resign');
       }
@@ -3108,15 +3110,15 @@
         return;
       }
       // 和棋提议（1.14.0）：提议要二次确认（误点会打断对手节奏），同意/拒绝是回应对手、不需要确认
-      if ((kind === 'draw-offer' || kind === 'draw-accept' || kind === 'draw-decline') && roomCode && !pending) {
-        var drawAction = kind === 'draw-offer' ? 'offer' : kind === 'draw-accept' ? 'accept' : 'decline';
-        var drawHint = kind === 'draw-offer' ? '提和失败' : kind === 'draw-accept' ? '同意和棋失败' : '操作失败';
+      if ((kind === 'draw' || kind === 'draw-accept' || kind === 'draw-decline') && roomCode && !pending) {
+        var drawAction = kind === 'draw' ? 'offer' : kind === 'draw-accept' ? 'accept' : 'decline';
+        var drawHint = kind === 'draw' ? '提和失败' : kind === 'draw-accept' ? '同意和棋失败' : '操作失败';
         var sendDraw = function() {
           action.disabled = true;
           setBusy(true);
           actionRequest('/draw', drawHint, { action: drawAction }).then(function() { setBusy(false); });
         };
-        if (kind === 'draw-offer' && context.modal && typeof context.modal.confirm === 'function') {
+        if (kind === 'draw' && context.modal && typeof context.modal.confirm === 'function') {
           context.modal.confirm({
             title: '提议和棋', message: '对方同意即和棋；对方走子则视为拒绝。确定提议吗？',
             confirmText: '提议', cancelText: '取消'
