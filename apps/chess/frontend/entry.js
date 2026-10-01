@@ -949,16 +949,20 @@
     var levelLabel = t('label', null, { text: '电脑棋力' });
     levelLabel.appendChild(levelSelect);
 
-    // 建房分析规则（1.10.0）：房主建房时勾选是否提供「走子提示」与「候选分析」。
+    // 建房分析规则（1.10.0/1.10.1）：房主建房时选择是否提供「走子提示」与「候选分析」。
     // 胜率条不受影响（始终可见）——这句说明直接写在卡上，避免房主误以为关掉后全黑。
-    var entryCreateOpts = t('div', 'chess-entry-create-opts', null, [
-      t('label', 'chess-entry-opt', null, [
-        t('input', null, { type: 'checkbox', 'data-field': 'opt-hint', checked: 'checked' }),
-        t('span', null, { text: '走子提示' })
-      ]),
-      t('label', 'chess-entry-opt', null, [
-        t('input', null, { type: 'checkbox', 'data-field': 'opt-analyse', checked: 'checked' }),
-        t('span', null, { text: '候选分析' })
+    // 1.10.1 视觉重做：原生 checkbox 与卡片按钮语言不搭（实测反馈「好奇怪」），
+    // 改成标签式开关 pill——选中朱红底白字，aria-pressed 表达状态，点击由 toggle-opt 处理。
+    var entryCreateOpts = t('div', 'chess-entry-opt-block', null, [
+      t('div', 'chess-entry-opt-row', null, [
+        t('button', 'chess-entry-opt is-on', {
+          type: 'button', 'data-action': 'toggle-opt', 'data-field': 'opt-hint',
+          'aria-pressed': 'true', text: '走子提示'
+        }),
+        t('button', 'chess-entry-opt is-on', {
+          type: 'button', 'data-action': 'toggle-opt', 'data-field': 'opt-analyse',
+          'aria-pressed': 'true', text: '候选分析'
+        })
       ]),
       t('p', 'chess-entry-opt-note', { text: '关闭后房间内所有人（含观战者）不可用；胜率条始终可见' })
     ]);
@@ -2509,13 +2513,15 @@
       }).catch(function(error) { setError(errMsg(error, '进入房间失败')); });
     }
     function create() {
-      // 建房开关：checkbox 勾选状态直接映射 hintEnabled/analyseEnabled
+      // 建房开关：读 pill 的 aria-pressed（1.10.1 从 checkbox 迁移）
       // （服务端 settingFlag 只认 false/0/'0' 为关，其余一律开——旧客户端不传也安全）
-      var optHint = root.querySelector('[data-field="opt-hint"]');
-      var optAnalyse = root.querySelector('[data-field="opt-analyse"]');
+      function optOn(field) {
+        var el = root.querySelector('[data-field="' + field + '"]');
+        return !!(el && el.getAttribute('aria-pressed') === 'true');
+      }
       var body = {
-        hintEnabled: !!(optHint && optHint.checked),
-        analyseEnabled: !!(optAnalyse && optAnalyse.checked)
+        hintEnabled: optOn('opt-hint'),
+        analyseEnabled: optOn('opt-analyse')
       };
       return request(context, 'POST', '/chess/rooms', body).then(function(data) {
         if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); analysisAbort(); }   // 建房：同上，作废上一房间的在途分析/箭头
@@ -2584,6 +2590,14 @@
         try { localStorage.setItem('chess_analyse', analysisOn ? '1' : '0'); } catch (e) {}
         // 切回「开」时，当前局面若一直没算过，这次 render 会让 syncAnalysis 自动补一次
         render();
+        return;
+      }
+      // 建房开关（入场卡）：纯前端状态，不进忙碌锁。aria-pressed 是唯一状态源，
+      // create() 读它、测试台也断言它——类名只是视觉投影。
+      if (kind === 'toggle-opt') {
+        var nowOn = action.getAttribute('aria-pressed') === 'true';
+        action.setAttribute('aria-pressed', nowOn ? 'false' : 'true');
+        setClass(action, 'chess-entry-opt' + (nowOn ? '' : ' is-on'));
         return;
       }
       if (kind === 'line') {

@@ -471,44 +471,65 @@
   line-height: 1.5;
 }
 
-/* ===== 建房分析规则开关（1.10.0）===== */
-/* 房主建房时勾选是否提供「走子提示」「候选分析」；胜率条不受影响 */
-.chess-entry-create-opts {
+/* ===== 建房分析规则开关（1.10.1：标签式开关 pill）===== */
+/* 房主建房时选择是否提供「走子提示」「候选分析」；胜率条不受影响。
+   1.10.0 用原生 checkbox 视觉突兀（实测反馈），1.10.1 改为与卡片按钮语言统一的 pill */
+.chess-entry-opt-block {
   margin-top: 12px;
-  padding: 10px 12px 9px;
-  border: 1px solid var(--ci-color-border, #e2e8f0);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--ci-color-surface-2, #f8fafc);
 }
 
-.chess-entry-opt {
+.chess-entry-opt-row {
   display: -webkit-box;
   display: -ms-flexbox;
   display: flex;
-  -webkit-box-align: center;
-  -ms-flex-align: center;
-  align-items: center;
-  min-height: 32px;   /* 平板触摸目标：勾选框行不可矮于 32px */
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+}
+
+.chess-entry-opt-row > * + * {
+  margin-left: 8px;
+}
+
+.chess-entry-opt {
+  height: 40px;               /* 平板触摸目标 */
+  padding: 0 16px;
+  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border-radius: 999px;
+  background: transparent;
   font-size: 13px;
-  color: var(--ci-color-text, #172033);
+  color: var(--ci-color-text-secondary, #64748b);
   cursor: pointer;
 }
 
-.chess-entry-opt + .chess-entry-opt {
-  margin-top: 2px;
+.chess-entry-opt::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: -2px 8px 0 0;       /* -2px 抵消 vertical-align:middle 的下沉 */
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  vertical-align: middle;
 }
 
-.chess-entry-opt input {
-  -webkit-box-flex: 0;
-  -ms-flex: none;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  margin: 0 8px 0 0;
+.chess-entry-opt:not(.is-on):hover {
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.chess-entry-opt.is-on {
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #fff;
+  font-weight: 600;
+}
+
+.chess-entry-opt.is-on::before {
+  border-color: #fff;
 }
 
 .chess-entry-opt-note {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.45;
   color: var(--ci-color-text-secondary, #64748b);
