@@ -50,11 +50,30 @@
      横屏平板下 .chess-app 是 overflow:hidden，撑出去的部分既看不见也滑不动
      （2026-09-22 实测：聊天 8 条时侧栏 811px / 棋盘 609px，侧栏底部越出视口 270px）。 */
   --chess-room-h: calc(var(--chess-board-w) * 1.1112 + 4px);
+  /* ===== 应用内主题语义变量（深色适配，2026-10-01）=====
+     CI 的 --ci-* 令牌里没有 surface / fill / border-strong / text（不带后缀）这组名字
+     （真名见 themes/*/tokens.js：--ci-color-text-primary、--ci-color-bg-card…），
+     写错名字不会报错，只会一路落到 var() 的浅色兜底 → 深色主题下「浅底 + 浅字」
+     （白底白字，什么都看不见）。这里收拢成局部语义变量：
+     浅色给原来的硬编码值（外观零变化），深色由 [data-theme="dark"] 覆写。
+     ⚠️ 棋盘与棋子是「实物」材质（木纹/象牙），不参与主题切换，不要套这组变量。 */
+  --chess-app-bg: #f8fafc;
+  --chess-text: #172033;
+  --chess-text-2: #334155;
+  --chess-text-muted: #64748b;
+  --chess-surface: #ffffff;
+  --chess-fill: #e2e8f0;
+  --chess-fill-2: #f8fafc;
+  --chess-border: #e2e8f0;
+  --chess-border-strong: #cbd5e1;
+  --chess-accent: #b91c1c;
+  --chess-danger: #dc2626;
+  --chess-warn: #b45309;
   /* 不留内边距：标题栏作为首个子级天然贴视口边缘（sticky 吸顶不被 padding 区截住），
      内容内边距由 .chess-shell 承担 */
   padding: 0;
-  color: var(--ci-color-text, #172033);
-  background-color: var(--ci-color-surface, #f8fafc);
+  color: var(--chess-text, #172033);
+  background-color: var(--chess-app-bg, #f8fafc);
   /* 环境光氛围：右上朱红 / 左下墨青 / 底部琥珀的极淡径向光斑
      （毛玻璃卡片需要环境色彩层次，透出高级感） */
   background-image:
@@ -69,6 +88,29 @@
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* 深色主题：CI 把 data-theme 挂在 <html> 上，故用后代选择器覆写局部语义变量。
+   取值对齐 CI 深色令牌（正文 rgba(235,235,245,.95)、卡片 #1C1C1E、分隔线 rgba(84,84,88,.65)）；
+   朱红主色在深底上会糊，改用更亮的珊瑚红（#ff5a4e ≈ 6:1 于 #000）。 */
+[data-theme="dark"] .chess-app {
+  --chess-app-bg: #000000;
+  --chess-text: rgba(235, 235, 245, .95);
+  --chess-text-2: rgba(235, 235, 245, .78);
+  --chess-text-muted: rgba(235, 235, 245, .55);
+  --chess-surface: #1c1c1e;
+  --chess-fill: rgba(255, 255, 255, .10);
+  --chess-fill-2: rgba(255, 255, 255, .055);
+  --chess-border: rgba(84, 84, 88, .65);
+  --chess-border-strong: rgba(120, 120, 128, .75);
+  --chess-accent: #ff5a4e;
+  --chess-danger: #ff453a;
+  --chess-warn: #ffd166;
+  /* 环境光斑在纯黑底上要提亮，否则等于没有层次 */
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(255, 90, 78, .10), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(120, 160, 255, .08), transparent 55%),
+    radial-gradient(760px 460px at 55% 120%, rgba(255, 190, 90, .07), transparent 62%);
 }
 
 /* shell 承担原 app 的内容内边距 + 限宽居中（max-width 含自身 padding，内容净宽约 1120） */
@@ -138,7 +180,7 @@
   border: 0;
   background: transparent;
   /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--chess-accent, #007aff));
   font: inherit;
   font-size: var(--font-size-body, 17px);
   padding: 6px 8px 6px 4px;
@@ -250,7 +292,7 @@
   font-weight: 500;
   border-radius: 999px;
   border: 0;
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--chess-accent, #007aff));
   background-color: transparent;
   background-image: none;
   box-shadow: none;
@@ -309,17 +351,17 @@
 }
 
 .chess-status.is-waiting {
-  color: var(--ci-color-accent, #b91c1c);
+  color: var(--chess-accent, #b91c1c);
   font-weight: 600;
 }
 
 .chess-status.is-check {
-  color: #dc2626;
+  color: var(--chess-danger);
   font-weight: 600;
 }
 
 .chess-status.is-winner {
-  color: #b45309;
+  color: var(--chess-warn, #b45309);
   font-weight: 600;
 }
 
@@ -383,8 +425,8 @@
 .chess-actions button.is-secondary,
 .chess-entry-row button.is-secondary,
 .chess-finished button.is-secondary {
-  color: var(--ci-color-text, #334155);
-  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--chess-text, #334155);
+  background: var(--chess-fill, #e2e8f0);
   background-image: none;
   box-shadow: none;
 }
@@ -493,7 +535,7 @@
 .chess-entry-opt {
   height: 40px;               /* 平板触摸目标 */
   padding: 0 16px;
-  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border: 1px solid var(--chess-border-strong, #cbd5e1);
   border-radius: 999px;
   background: transparent;
   font-size: 13px;
@@ -514,7 +556,7 @@
 
 .chess-entry-opt:not(.is-on):hover {
   border-color: #b91c1c;
-  color: #b91c1c;
+  color: var(--chess-accent, #b91c1c);
 }
 
 .chess-entry-opt.is-on {
@@ -542,7 +584,7 @@
   padding: 7px 10px;
   border-left: 3px solid #94a3b8;
   border-radius: 0 6px 6px 0;
-  background: var(--ci-color-surface-2, #f8fafc);
+  background: var(--chess-fill-2, #f8fafc);
   font-size: 12px;
   line-height: 1.5;
   color: var(--ci-color-text-secondary, #64748b);
@@ -572,7 +614,7 @@
 .chess-replay-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
 }
 
 .chess-replay-progress {
@@ -584,10 +626,10 @@
   margin-bottom: 6px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--ci-color-surface-2, #f8fafc);
+  background: var(--chess-fill-2, #f8fafc);
   font-size: 12px;
   line-height: 1.4;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   min-height: 27px;
 }
 
@@ -608,11 +650,11 @@
   height: 34px;
   min-width: 34px;
   padding: 0 8px;
-  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border: 1px solid var(--chess-border-strong, #cbd5e1);
   border-radius: 6px;
-  background: var(--ci-color-surface, #fff);
+  background: var(--chess-surface, #fff);
   font-size: 12px;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   cursor: pointer;
 }
 
@@ -639,7 +681,7 @@
   padding: 0 6px;
   border-radius: 6px;
   font-size: 12px;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   cursor: pointer;
 }
 
@@ -669,8 +711,8 @@
   font-weight: 600;
 }
 
-.chess-replay-side.is-red { color: #b91c1c; }
-.chess-replay-side.is-black { color: #334155; }
+.chess-replay-side.is-red { color: var(--chess-accent, #b91c1c); }
+.chess-replay-side.is-black { color: var(--chess-text, #334155); }
 .chess-replay-move.is-active .chess-replay-side { color: #fff; }
 
 .chess-replay-text {
@@ -705,11 +747,11 @@
   min-height: 34px;
   margin-bottom: 4px;
   padding: 0 8px;
-  border: 1px solid var(--ci-color-border, #e2e8f0);
+  border: 1px solid var(--chess-border, #e2e8f0);
   border-radius: 6px;
-  background: var(--ci-color-surface, #fff);
+  background: var(--chess-surface, #fff);
   font-size: 12px;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   text-align: left;
   cursor: pointer;
 }
@@ -779,9 +821,9 @@
 .chess-entry-row select {
   height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border: 1px solid var(--chess-border-strong, #cbd5e1);
   border-radius: var(--radius-sm, 8px);
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   background: var(--ci-color-bg-elevated, #fff);
   font: inherit;
   box-sizing: border-box;
@@ -803,7 +845,7 @@
   min-height: 0;
   padding: 9px 14px;
   border-radius: var(--radius-sm, 8px);
-  color: var(--ci-color-danger, #dc2626);
+  color: var(--chess-danger, #dc2626);
   background: rgba(220, 38, 38, .08);
   font-size: 13px;
 }
@@ -1300,7 +1342,7 @@
 }
 
 .chess-turn-banner.is-turn-red {
-  color: #b02318;
+  color: var(--chess-accent, #b02318);
   background: rgba(185, 28, 28, .1);
   box-shadow: inset 0 0 0 1px rgba(185, 28, 28, .22);
 }
@@ -1309,7 +1351,7 @@
 }
 
 .chess-turn-banner.is-turn-black {
-  color: #1f2937;
+  color: var(--chess-text, #1f2937);
   background: rgba(15, 23, 42, .08);
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .18);
 }
@@ -1318,7 +1360,7 @@
 }
 
 .chess-turn-banner.is-check {
-  color: #dc2626;
+  color: var(--chess-danger, #dc2626);
   background: rgba(220, 38, 38, .12);
   box-shadow: inset 0 0 0 1px rgba(220, 38, 38, .3);
 }
@@ -1328,7 +1370,7 @@
 }
 
 .chess-turn-banner.is-winner {
-  color: #b45309;
+  color: var(--chess-warn, #b45309);
   background: rgba(245, 158, 11, .14);
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, .35);
 }
@@ -1337,7 +1379,7 @@
 }
 
 .chess-turn-banner.is-waiting {
-  color: var(--ci-color-accent, #b91c1c);
+  color: var(--chess-accent, #b91c1c);
   font-weight: 600;
 }
 
@@ -1453,7 +1495,7 @@
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--primary-color, var(--ci-color-accent, #007aff));
+  color: var(--primary-color, var(--chess-accent, #007aff));
   background: rgba(148, 163, 184, .14);
   border-radius: var(--radius-sm, 8px);
   white-space: nowrap;
@@ -1520,7 +1562,7 @@
 
 .chess-tab.is-active {
   background-color: var(--glass-bg, #ffffff);
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
   box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
 }
 
@@ -1597,20 +1639,20 @@
 }
 
 .chess-chat-text {
-  color: var(--ci-color-text, #1e293b);
+  color: var(--chess-text, #1e293b);
 }
 
 /* 自己的发言用主色区分，便于在多人对话里定位 */
 .chess-chat-item.is-me .chess-chat-name,
 .chess-chat-item.is-me .chess-chat-text {
-  color: #b91c1c;
+  color: var(--chess-accent, #b91c1c);
 }
 
 .chess-chat-empty {
   padding: 6px 0;
   font-size: 12px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--chess-text-muted, #94a3b8);
 }
 
 .chess-chat-form {
@@ -1638,8 +1680,8 @@
   font: inherit;
   font-size: 13px;
   color: inherit;
-  background: rgba(255, 255, 255, .78);
-  border: 1px solid rgba(148, 163, 184, .45);
+  background: var(--chess-surface, #fff);
+  border: 1px solid var(--chess-border-strong, rgba(148, 163, 184, .45));
   border-radius: var(--radius-sm, 8px);
   box-sizing: border-box;
   -webkit-appearance: none;
@@ -1649,7 +1691,7 @@
 .chess-chat-input:focus {
   outline: none;
   border-color: rgba(185, 28, 28, .55);
-  background: #fff;
+  background: var(--chess-surface, #fff);
 }
 
 .chess-chat-send {
@@ -1752,7 +1794,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
 }
 
 .chess-member-role {
@@ -1761,7 +1803,7 @@
   margin-left: 8px;
   padding: 2px 8px;
   border-radius: var(--radius-pill, 999px);
-  background: var(--ci-color-fill, #e2e8f0);
+  background: var(--chess-fill, #e2e8f0);
   color: var(--ci-color-text-secondary, #475569);
   font-size: 11px;
   white-space: nowrap;
@@ -1799,8 +1841,8 @@
 }
 
 .chess-finished button.is-secondary {
-  color: var(--ci-color-text, #334155);
-  background: var(--ci-color-fill, #e2e8f0);
+  color: var(--chess-text, #334155);
+  background: var(--chess-fill, #e2e8f0);
   background-image: none;
 }
 
@@ -1868,8 +1910,8 @@
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--ci-color-text, #334155);
-  background-color: var(--ci-color-fill, #e2e8f0);
+  color: var(--chess-text, #334155);
+  background-color: var(--chess-fill, #e2e8f0);
   border: 0;
   border-radius: var(--radius-sm, 8px);
   white-space: nowrap;
@@ -1945,14 +1987,14 @@
   color: var(--ci-color-text-secondary, #94a3b8);
 }
 
-.chess-eval-side.is-red { color: #b91c1c; }
-.chess-eval-side.is-black { color: var(--ci-color-text, #334155); }
+.chess-eval-side.is-red { color: var(--chess-accent, #b91c1c); }
+.chess-eval-side.is-black { color: var(--chess-text, #334155); }
 
 .chess-eval-score {
   font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
 }
 
 .chess-engine-info {
@@ -2007,7 +2049,7 @@
   min-width: 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--ci-color-text, #172033);
+  color: var(--chess-text, #172033);
 }
 
 /* 评分做成**胶囊**（皮卡鱼网页版同款：优势方一眼可辨，而不是一串同色数字） */
@@ -2036,7 +2078,8 @@
   margin-top: 2px;
   font-size: 10px;
   line-height: 1.4;
-  color: var(--ci-color-text-tertiary, #94a3b8);
+  /* 10px 小字用 tertiary 令牌在深色下只有 2.5:1（读不出深度/节点），提到 muted */
+  color: var(--chess-text-muted, #94a3b8);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2054,8 +2097,8 @@
 
 /* 主变例**按行棋方着色**（皮卡鱼网页版的辨识度来源）：红方着法红字、黑方着法深字，
    一条十几步的变例才读得出「谁在应谁」。 */
-.chess-pv-step.is-red { color: #b91c1c; }
-.chess-pv-step.is-black { color: var(--ci-color-text, #172033); }
+.chess-pv-step.is-red { color: var(--chess-accent, #b91c1c); }
+.chess-pv-step.is-black { color: var(--chess-text, #172033); }
 
 /* 主变例默认只露 2 行。理由：一条变例常有十几步，三条候选全展开就是一面文字墙，
    在平板侧栏里会把「候选着法」这个真正的信息淹掉。点开某条（is-active）才展开全文。

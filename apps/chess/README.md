@@ -1,0 +1,95 @@
+# 象棋（chess）
+
+ClassIntra 市场应用：房间联机 + 本地双人 + 人机练习的中国象棋，含引擎分析面板与战事回顾（复盘）。
+
+## 功能
+
+- **房间联机**：4 位房间码、观战与替补递补、换方、侧栏快捷聊天、断线恢复
+- **本地双人同屏** / **人机练习**（服务端 Pikafish 三档棋力；引擎缺失时自动回落内置 AI）
+- **引擎分析面板**：评分条与胜率、深度/节点/用时、Top-3 候选着法（中文记谱）、主变例
+- **走子提示与候选分析**：房主建房时可选择是否开放（全员一致生效，胜率条始终可见）
+- **战事回顾（复盘）**：对局结束后回放复盘 —— 棋子逐步动画 + 箭头指引当前手 + 中文记谱列表可点击跳转；
+  房间内只要房主不退出，全部历史局都可回顾，观战者同权；本地双人与人机同样支持
+- 悔棋 / 认输 / 服务端走子校验（联机走子一律经服务端校验，防客户端作弊）
+
+## 出处与致谢 / Attributions
+
+> **约定：借鉴任何第三方成果（代码、算法、界面、素材、数据）都必须在本仓库标明出处。**
+> 新增依赖或参考时同步更新本文件 —— 界面参考记入「界面与交互参考」，代码/算法记入对应条目。
+
+### 引擎
+
+| 名称 | 用途 | 来源 | 许可 |
+|---|---|---|---|
+| **Pikafish** | 人机对弈与局面分析（服务端常驻 UCI 进程） | https://github.com/official-pikafish/Pikafish | GPL-3.0 |
+| **Pikafish NNUE 权重**（`pikafish.nnue`） | 引擎评估网络 | https://github.com/official-pikafish/Networks（`master-net` 发布） | 见 `backend/engine/NNUE-License.md` |
+
+- 许可与作者原文随二进制一并保留：`backend/engine/Copying.txt`、`backend/engine/AUTHORS`、`backend/engine/NNUE-License.md`
+- 二进制与权重**不入库**（主仓 `market-apps/` 整体被 gitignore；market 仓排除 `*.exe` / `*.nnue`），
+  由 `node scripts/chess-engine-setup.mjs` 在目标机按需安装 —— 详见 [`backend/engine/README.md`](backend/engine/README.md)
+- 本应用以**服务端进程调用**方式使用引擎（学生端只发一个 HTTP 请求，不分发引擎源码），
+  引擎不可用时自动降级为内置 AI，不影响应用可用性
+
+### 界面与交互参考
+
+- **皮卡鱼网页版 https://www.xiangqiai.com/** —— 引擎分析面板的**信息结构与交互**参考其「引擎」面板：
+  评分条 + 胜率、深度/节点/用时信息行、Top-N 候选着法（中文记谱）、主变例按行棋方着色、评分胶囊。
+  仅参考其信息组织与呈现方式，**未复制其代码或美术素材**。
+  对应实现：`frontend/entry.js` 的引擎分析页、`frontend/style.css` 的 `.chess-engine-*` / `.chess-line-*` / `.chess-pv-*`
+
+### 协议
+
+- **UCI**（Universal Chess Interface）：与引擎通信遵循这一公开标准协议及其象棋扩展。
+
+### 自研部分（列出以便对照，避免误认作第三方成果）
+
+- **规则引擎**：走法生成、合法性校验、将军/将死/困毙判定 —— 服务端权威副本 `backend/rules.js`、
+  本地对局副本 `frontend/entry.js`，两副本共用同一坐标系（`board[row][col]`，10 行 × 9 列，黑上红下）。
+- **内置兜底 AI**（引擎不可用时）：极大极小 + α-β 剪枝 + 位置分值 + MVV-LVA + 历史启发 + 吃子静态搜索。
+  ⚠️ 位置分值表的坐标系朝向参考了公开开源实现的 `player0` 约定（说明见 `frontend/entry.js` 中 `AI_LEVELS` 上方注释）；
+  具体来源待考，确认后请在此补全项目名与链接。
+- **中文记谱**（`炮八进一` / `马2进3`）：中国象棋通行记谱法（红方自右向左用汉字、黑方用阿拉伯数字），
+  非引用特定实现。
+- **美术**：棋盘木纹、棋子、图标均为自绘 SVG / CSS 渐变（`icon.svg`、`frontend/style.css`），
+  未使用第三方图片素材。
+- **字体**：棋盘「楚河汉界」使用系统楷体（`STKaiti` / `KaiTi` / `Songti SC` / `SimSun`），不内嵌字体文件。
+
+## 目录结构
+
+```
+chess/
+├── manifest.json          应用清单（版本 / 入口 / 权限 / 后端挂载点）
+├── icon.svg               图标（自绘）
+├── frontend/
+│   ├── entry.js           全部前端逻辑（市场应用不经 Vite 构建，需兼容 Chrome 80）
+│   └── style.css          全部样式（禁用 flex gap / aspect-ratio / :is()）
+└── backend/
+    ├── routes.js          挂载于 /api/chess 的路由
+    ├── rules.js           规则引擎（服务端权威校验）
+    ├── engine.js          Pikafish UCI 桥（常驻单实例 + 串行队列 + 空闲回收）
+    └── engine/            引擎二进制与许可证原文（不入库，见其 README）
+```
+
+## 数据表
+
+`chess_rooms`（房间/局面/规则开关）、`chess_games`（每局：含局内版本号 `rev`）、`chess_moves`（棋谱）。
+服务端启动时自动迁移建列，无需手工建表。
+
+## 安装引擎（可选）
+
+```bash
+node scripts/chess-engine-setup.mjs          # 已装好则跳过
+node scripts/chess-engine-setup.mjs --check  # 只自检：文件在不在 + 能否出着
+node scripts/chess-engine-setup.mjs --from <本地.Pikafish.7z>   # 离线安装
+```
+
+没装也能正常玩：人机自动回落内置 AI（副标题显示「内置引擎」），只是棋力上限低一些。
+
+## 开发约束
+
+- **Chrome 80 基线**（校园平板）：禁用 flex/grid `gap`、`aspect-ratio`、`:is()`；
+  圆角统一走 `--radius-*` 令牌
+- 颜色优先 `--ci-*` 主题令牌；本应用另有一组 `--chess-*` 局部语义变量做深浅主题适配 ——
+  CI 的令牌里没有 `surface` / `fill` / `border-strong`（写错名字不报错，只会落到 `var()` 的浅色兜底，
+  于是深色主题下「浅底 + 浅字」什么都看不见）。详见 `frontend/style.css` 顶部注释块
+- 棋盘与棋子是「实物」材质（木纹/象牙），**不参与主题切换**

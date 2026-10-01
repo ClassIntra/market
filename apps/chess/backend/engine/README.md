@@ -22,8 +22,12 @@ node scripts/chess-engine-setup.mjs --from <本地.Pikafish.7z>   # 离线安装
 | `pikafish.nnue` | ≈48 MB | NNUE 评估权重，**必须与 exe 同目录**（缺了引擎会启动即退出） |
 | `Copying.txt` / `NNUE-License.md` / `AUTHORS` | — | GPL-3 与权重授权原文，随二进制一起保留 |
 
-当前版本：**Pikafish 2026-09-06**（`official-pikafish/Pikafish`，GPL-3.0）。
-权重来源：`official-pikafish/Networks` 的 `master-net` 发布。
+当前版本：**Pikafish 2026-09-06**
+- 引擎来源：https://github.com/official-pikafish/Pikafish （GPL-3.0，作者与许可证原文见同目录 `AUTHORS` / `Copying.txt`）
+- 权重来源：https://github.com/official-pikafish/Networks 的 `master-net` 发布（许可见 `NNUE-License.md`）
+
+> 出处约定：本应用借鉴的第三方成果（引擎、权重、界面参考等）统一登记在
+> [`../../README.md`](../../README.md) 的「出处与致谢」章节，新增引用时同步更新。
 
 ## 其它机器的注意事项
 
