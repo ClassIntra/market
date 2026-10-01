@@ -451,7 +451,7 @@
   /* 毛玻璃卡片：半透明白 + 背景模糊 + 发丝边（对齐宿主 AppShell 材质） */
   background-color: var(--glass-bg, rgba(255, 255, 255, .72));
   -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
-  border: 1px solid rgba(255, 255, 255, .65);
+  border: 1px solid var(--ci-color-glass-border, rgba(255, 255, 255, .65));
   border-radius: var(--radius-lg, 16px);
   box-shadow: 0 8px 28px rgba(30, 41, 59, .1);
   box-sizing: border-box;
@@ -1453,7 +1453,7 @@
   /* 毛玻璃卡片（与入场卡同材质） */
   background-color: var(--glass-bg, rgba(255, 255, 255, .72));
   -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
-  border: 1px solid rgba(255, 255, 255, .65);
+  border: 1px solid var(--ci-color-glass-border, rgba(255, 255, 255, .65));
   border-radius: var(--radius-lg, 16px);
   box-shadow: 0 8px 28px rgba(30, 41, 59, .1);
   box-sizing: border-box;
@@ -1679,7 +1679,7 @@
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
-  color: inherit;
+  color: var(--chess-text, #172033);
   background: var(--chess-surface, #fff);
   border: 1px solid var(--chess-border-strong, rgba(148, 163, 184, .45));
   border-radius: var(--radius-sm, 8px);

@@ -1504,9 +1504,9 @@
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
-  color: inherit;
-  background: rgba(255, 255, 255, .78);
-  border: 1px solid rgba(148, 163, 184, .45);
+  color: var(--gomoku-text, #172033);
+  background: var(--gomoku-surface, #fff);
+  border: 1px solid var(--gomoku-border-strong, rgba(148, 163, 184, .45));
   border-radius: var(--radius-sm, 8px);
   box-sizing: border-box;
   -webkit-appearance: none;
@@ -1516,7 +1516,7 @@
 .gomoku-chat-input:focus {
   outline: none;
   border-color: rgba(37, 99, 235, .55);
-  background: #fff;
+  background: var(--gomoku-surface, #fff);
 }
 
 .gomoku-chat-send {
