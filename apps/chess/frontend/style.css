@@ -552,6 +552,190 @@
   display: none;
 }
 
+/* ===== 战事回顾（1.11.0）===== */
+/* 复盘接管侧栏成员区：标题行 + 当前手文本 + 控制条 + 着法列表 */
+.chess-replay-head {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-pack: justify;
+  -ms-flex-pack: justify;
+  justify-content: space-between;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.chess-replay-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ci-color-text, #172033);
+}
+
+.chess-replay-progress {
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-replay-now {
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--ci-color-surface-2, #f8fafc);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ci-color-text, #172033);
+  min-height: 27px;
+}
+
+.chess-replay-controls {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chess-replay-controls > * + * {
+  margin-left: 4px;
+}
+
+.chess-replay-btn {
+  height: 34px;
+  min-width: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--ci-color-border-strong, #cbd5e1);
+  border-radius: 6px;
+  background: var(--ci-color-surface, #fff);
+  font-size: 12px;
+  color: var(--ci-color-text, #172033);
+  cursor: pointer;
+}
+
+.chess-replay-btn.is-main {
+  min-width: 52px;
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #fff;
+  font-weight: 600;
+}
+
+.chess-replay-btn.is-exit {
+  border-style: dashed;
+}
+
+.chess-replay-move {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  min-height: 32px;   /* 平板触摸目标 */
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ci-color-text, #172033);
+  cursor: pointer;
+}
+
+.chess-replay-move.is-active {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.chess-replay-no {
+  -webkit-box-flex: 0;
+  -ms-flex: none;
+  flex: none;
+  width: 30px;
+  color: var(--ci-color-text-secondary, #64748b);
+  font-size: 11px;
+}
+
+.chess-replay-move.is-active .chess-replay-no {
+  color: rgba(255, 255, 255, .75);
+}
+
+.chess-replay-side {
+  -webkit-box-flex: 0;
+  -ms-flex: none;
+  flex: none;
+  width: 22px;
+  font-weight: 600;
+}
+
+.chess-replay-side.is-red { color: #b91c1c; }
+.chess-replay-side.is-black { color: #334155; }
+.chess-replay-move.is-active .chess-replay-side { color: #fff; }
+
+.chess-replay-text {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+}
+
+.chess-replay-list {
+  margin-top: 8px;
+}
+
+.chess-replay-list[hidden] {
+  display: none;
+}
+
+.chess-replay-list-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-replay-item {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-box-align: center;
+  -ms-flex-align: center;
+  align-items: center;
+  width: 100%;
+  min-height: 34px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--ci-color-border, #e2e8f0);
+  border-radius: 6px;
+  background: var(--ci-color-surface, #fff);
+  font-size: 12px;
+  color: var(--ci-color-text, #172033);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chess-replay-item-no {
+  -webkit-box-flex: 0;
+  -ms-flex: none;
+  flex: none;
+  width: 52px;
+  font-weight: 600;
+}
+
+.chess-replay-item-result {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
+.chess-replay-item-count {
+  -webkit-box-flex: 0;
+  -ms-flex: none;
+  flex: none;
+  color: var(--ci-color-text-secondary, #64748b);
+}
+
 .chess-entry-row {
   margin-top: 14px;
   -ms-flex-wrap: wrap;

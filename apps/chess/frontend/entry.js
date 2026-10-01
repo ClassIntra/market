@@ -1030,14 +1030,18 @@
     // 房间规则行（1.10.0）：房主建房选择的分析规则，全员可见——
     // 不写出来，观战者会以为提示/分析页坏了，而不是「房主没开」。
     var roomRulesElement = t('div', 'chess-room-rules', { 'data-role': 'room-rules' });
+    // 历史对局列表（1.11.0）：房主不退出期间全部历史局可回顾（含观战者）
+    var replayListElement = t('div', 'chess-replay-list', { 'data-role': 'replay-list' });
     var infoPanel = t('div', 'chess-info-panel', { 'data-role': 'info-panel', role: 'tabpanel', 'aria-labelledby': 'chess-tab-info' }, [
       t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
       roomRulesElement,
+      replayListElement,
       captured,
       roomTools,
       t('div', 'chess-finished', null, [
         t('p', null, { 'data-role': 'finished' }),
+        t('button', null, { type: 'button', 'data-action': 'replay-current', text: '战事回顾' }),
         t('button', null, { type: 'button', 'data-action': 'continue', text: '继续下一局' })
       ])
     ]);
@@ -1233,6 +1237,8 @@
     var engineFootElement = root.querySelector('[data-role="engine-foot"]');
     var engineToolsElement = root.querySelector('[data-role="engine-tools"]');
     var roomRulesElement = root.querySelector('[data-role="room-rules"]');
+    var replayListElement = root.querySelector('[data-role="replay-list"]');
+    var replayCurrentButton = root.querySelector('[data-action="replay-current"]');
     var analyseButtonElement = root.querySelector('[data-action="analyse"]');
     var autoAnalyseButtonElement = root.querySelector('[data-action="auto-analyse"]');
 
@@ -1454,10 +1460,16 @@
 
     function applyState(next, opts) {
       if (!next) return;
-      // 推送路径防回退：长轮询回退模式可能补发旧事件，吃子是合法减子所以这里
-      // 只比 gameId 一致时棋子总数？象棋有吃子，无法像五子棋用子数单调递增判旧事件。
-      // 改用回合守卫：同 gameId 且状态更旧（turn 回到上一手方且 lastMove 退格）不予应用，
-      // 简化为本端已领先（lastMove 不一致且 board 变化）时以 HTTP 响应为最高优先。
+      // 防回退守卫（1.11.0）：chess_games.rev 随每次走子/悔棋/认输自增，同局内单调递增。
+      // 悔棋与对手在途走子的响应/广播到达顺序不保证——旧快照后到会覆盖新局面，
+      // 表现就是「棋盘上多出/少出一些子」（实测反馈的悔棋 bug 根因）。
+      // rev 更小的同局快照一律丢弃；悔棋回退包的 rev 同样更大，合法回退不受影响。
+      // 服务端未升级（无 rev 字段）时保持原行为。
+      if (mode === 'room' && typeof next.rev === 'number'
+          && state.gameId === next.gameId && typeof state.rev === 'number'
+          && next.rev < state.rev) {
+        return;
+      }
       state = Object.assign(state, next);
       if (mode === 'room') saveSession();
       // 状态更新后选中项可能失效：被吃/不属于己方/对局结束
@@ -1496,6 +1508,7 @@
       try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {}
     }
     function canSelectPiece(piece) {
+      if (replay.active) return false;   // 复盘接管棋盘：交互冻结，退出后恢复
       if (!piece || state.winner || state.status !== 'active' || pending) return false;
       // AI 思考中禁止选子（防连点导致状态错乱）
       if (mode === 'solo' && aiPending) return false;
@@ -1516,6 +1529,8 @@
     // （clearChildren + 重建 li 会打断 is-turn 脉冲动画并造成无谓回流）
     var lastMembersSignature = '';
     function renderMembers() {
+      // 战事回顾接管侧栏：成员名单让位给回放控制与着法列表
+      if (replay.active) { renderReplayPanel(); return; }
       var settingsNow = roomSettings();
       // settings 进签名：房主建房规则是广播字段，变了这里必须重绘（规则行 + is-turn 等不依赖它）
       var sig = mode + '|' + state.turn + '|' + (state.winner || '') + '|' + (state.status || '') + '|' + (settingsNow.hint ? 1 : 0) + (settingsNow.analyse ? 1 : 0) + '|';
@@ -1751,11 +1766,18 @@
 
       // 棋子层：增量 diff（按钮常驻，仅写变化节点，避免全量重建丢帧）
       if (!boardBuilt || !boardElement.firstElementChild) buildBoardLayer();
+      // 战事回顾：显示层接管——棋盘渲染用快照，state 保持即时真相（广播照常落地）
+      var view = replay.active ? replay.snapshots[replay.index] : state;
+      // 复盘箭头：始终指当前手 from→to（复用候选着法的箭头层）
+      if (replay.active) {
+        var rl = view.lastMove;
+        arrowMove = rl ? { fr: rl.fromRow, fc: rl.fromCol, tr: rl.toRow, tc: rl.toCol } : null;
+      }
       var pointsElement = cellsElement || boardElement.lastElementChild;
-      var checkKing = state.check && !state.winner ? getKingPos(state.board, state.turn) : null;
-      var last = state.lastMove;
+      var checkKing = view.check && !view.winner ? getKingPos(view.board, view.turn) : null;
+      var last = view.lastMove;
       var legalKeys = {};
-      legal.forEach(function(mv) { legalKeys[mv.row + '_' + mv.col] = !!state.board[mv.row][mv.col]; });
+      legal.forEach(function(mv) { legalKeys[mv.row + '_' + mv.col] = !!view.board[mv.row][mv.col]; });
       var newAnimatedKey = last ? last.toRow + '_' + last.toCol : '';
       var animateLast = newAnimatedKey !== lastAnimatedKey;
       var allCells = pointsElement.children;
@@ -1765,8 +1787,8 @@
         for (var col = 0; col < 9; col++) {
           var cell = allCells[index];
           index++;
-          var piece = state.board[row][col];
-          var isSelected = selected && selected.row === row && selected.col === col;
+          var piece = view.board[row][col];
+          var isSelected = !replay.active && selected && selected.row === row && selected.col === col;
           var isLastFrom = last && last.fromRow === row && last.fromCol === col;
           var isLastTo = last && last.toRow === row && last.toCol === col;
           // 交点按钮类名：先拼目标串再 diff 写，串相同则不写（不重启动画/不过渡）
@@ -1865,6 +1887,15 @@
         continueButton.hidden = !finished || !owner;
         continueButton.textContent = '继续下一局';
       }
+      // 战事回顾入口（1.11.0）：房间进房即可回顾当前局（进行中也可回看——复盘接管显示，
+      // 对局广播照常落地，退出即回最新局面）；本地有走子记录即可；复盘期间隐藏。
+      if (replayCurrentButton) {
+        var canReplay = mode === 'room' ? !!state.gameId : (isLocal && localHistory.length > 0);
+        replayCurrentButton.hidden = replay.active || !canReplay;
+      }
+      // 房间历史局：对局结束/换局时刷新列表；复盘期间列表让位给回放面板
+      if (mode === 'room' && finished) refreshRoomGames();
+      renderReplayList();
       // 引擎页：可能触发一次去抖分析（只在引擎页可见且局面未分析过时），
       // 然后重画面板与箭头。顺序不能反——syncAnalysis 会先把过期结论撤下。
       syncAnalysis();
@@ -2099,6 +2130,186 @@
       analysisNote = '';
       activeLine = -1;
       arrowMove = null;
+    }
+
+    // ===== 战事回顾（1.11.0）=====
+    // 复盘 = 显示层接管：数据（state）永远是服务端即时真相，replay.active 时
+    // render 的棋盘段改用快照（snap）渲染，退出即回到最新即时局面——
+    // 复盘期间收到广播也不会丢更新（applyState 照常写 state，只是不显示）。
+    // 快照一次性预计算（含每手中文记谱，记谱依赖走子前局面），跳转零重放成本。
+    var replay = { active: false, title: '', winnerText: '', snapshots: [], index: 0, playing: false, timer: null, sig: '' };
+    function replayLoad(title, winnerText, moves) {
+      replayAbort();
+      var board = initialBoard();
+      var snapshots = [{ board: board.map(function(row) { return row.slice(); }), lastMove: null, turn: 'red', check: false, text: '', captured: null, no: 0 }];
+      for (var i = 0; i < moves.length; i++) {
+        var m = moves[i];
+        // 记谱必须用「走子前」的局面（前/后消歧依赖同列同子计数）
+        var text = chineseMove(board, m.fromRow, m.fromCol, m.toRow, m.toCol)
+          || (pieceColor(m.piece) === 'red' ? '红方走子' : '黑方走子');
+        var mover = pieceColor(m.piece);
+        var nextTurn = mover === 'red' ? 'black' : 'red';
+        board[m.toRow][m.toCol] = m.piece;
+        board[m.fromRow][m.fromCol] = null;
+        snapshots.push({
+          board: board.map(function(row) { return row.slice(); }),
+          lastMove: { fromRow: m.fromRow, fromCol: m.fromCol, toRow: m.toRow, toCol: m.toCol, color: mover },
+          turn: nextTurn,
+          check: isInCheck(board, nextTurn),
+          text: text,
+          captured: m.captured || null,
+          no: i + 1
+        });
+      }
+      replay.snapshots = snapshots;
+      replay.title = title;
+      replay.winnerText = winnerText || '';
+      replay.index = 0;
+      replay.playing = false;
+      replay.active = true;
+      replay.sig = '';
+      analysisAbort();   // 复盘接管棋盘：候选箭头与高亮一并让位
+      selected = null; legal = [];   // 即时对局的选中态在复盘中没有意义
+      render();
+    }
+    function replayAbort() {
+      if (!replay.active) return;
+      if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+      replay.active = false;
+      replay.playing = false;
+      arrowMove = null;
+      lastArrowKey = '';
+      // ⚠️ 清成员列表签名缓存：退出复盘后 renderMembers 的 sig 与复盘前相同会直接
+      // return，复盘面板（控制条/着法列表）就会滞留在侧栏（实测 L14 踩到）
+      lastMembersSignature = '';
+    }
+    function replaySeek(index) {
+      if (!replay.active) return;
+      var to = Math.max(0, Math.min(replay.snapshots.length - 1, index));
+      if (to === replay.index) return;
+      replay.index = to;
+      if (replay.playing) {   // 手动跳转打断自动播放（预期行为：接管权回到用户手里）
+        if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+        replay.playing = false;
+      }
+      render();
+    }
+    function replayToggle() {
+      if (!replay.active) return;
+      if (replay.playing) {
+        if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+        replay.playing = false;
+        render();
+        return;
+      }
+      if (replay.index >= replay.snapshots.length - 1) replay.index = 0;   // 播完再点 = 从头再来
+      replay.playing = true;
+      replay.timer = setInterval(function() {
+        if (replay.index >= replay.snapshots.length - 1) {
+          if (replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+          replay.playing = false;
+          render();
+          return;
+        }
+        replay.index += 1;
+        render();
+      }, 1200);
+      render();
+    }
+    // 房间：按 gameId 拉棋谱进入复盘（列表项/「战事回顾」按钮共用）
+    function startRoomReplay(gameId) {
+      if (!roomCode || !gameId) return;
+      request(context, 'GET', '/chess/rooms/' + encodeURIComponent(roomCode) + '/games/' + gameId + '/moves', {}).then(function(data) {
+        if (!data || !data.moves || !data.moves.length) { setError('这局还没有棋谱'); return; }
+        var g = data.game || {};
+        var winnerText = g.winner ? resultText({ winner: g.winner, result: g.result }) : '进行中';
+        replayLoad('对局 #' + gameId, winnerText, data.moves);
+      }).catch(function(error) { setError(errMsg(error, '读取棋谱失败')); });
+    }
+    // 本地：localHistory 就是权威棋谱（悔棋会 pop，回放自动一致）
+    function startLocalReplay() {
+      if (!localHistory.length) { setError('还没有走子记录'); return; }
+      var moves = localHistory.map(function(m, i) {
+        return {
+          fromRow: m.fr, fromCol: m.fc, toRow: m.tr, toCol: m.tc,
+          piece: m.piece, captured: m.captured, color: pieceColor(m.piece), id: i + 1
+        };
+      });
+      var winnerText = state.winner ? resultText(state) : '';
+      replayLoad(mode === 'solo' ? '人机练习' : '本地对战', winnerText, moves);
+    }
+    // 房间历史局列表：房主不退出（房间在）就一直可看，观战者同权
+    var roomGames = null;
+    var roomGamesFetchedStatus = '';
+    function refreshRoomGames() {
+      if (mode !== 'room' || !roomCode) return;
+      var mark = roomCode + ':' + (state.status || '') + ':' + (state.gameId || '');
+      if (mark === roomGamesFetchedStatus) return;   // 同房同状态只拉一次（对局结束/换局时 mark 变化触发刷新）
+      roomGamesFetchedStatus = mark;
+      request(context, 'GET', '/chess/rooms/' + encodeURIComponent(roomCode) + '/games', {}).then(function(data) {
+        roomGames = data && data.games ? data.games : [];
+        render();
+      }).catch(function() {});
+    }
+    // 复盘侧栏：控制条 + 当前手文本 + 全部着法列表（点一条跳到那一手）
+    function renderReplayPanel() {
+      var sig = replay.index + '|' + replay.playing + '|' + replay.snapshots.length + '|' + replay.title + '|' + replay.winnerText;
+      if (sig === replay.sig) return;
+      replay.sig = sig;
+      clearChildren(membersElement);
+      membersElement.appendChild(t('li', 'chess-replay-head', null, [
+        t('span', 'chess-replay-title', { text: replay.title + (replay.winnerText ? ' · ' + replay.winnerText : '') }),
+        t('span', 'chess-replay-progress', { text: replay.index === 0 ? '开局' : '第 ' + replay.index + ' / ' + (replay.snapshots.length - 1) + ' 手' })
+      ]));
+      var snap = replay.snapshots[replay.index];
+      membersElement.appendChild(t('li', 'chess-replay-now', {
+        text: replay.index === 0 ? '初始局面，红方先行'
+          : (snap.lastMove.color === 'red' ? '红方 ' : '黑方 ') + snap.text + (snap.captured ? '（吃' + (PIECE_CHARS[snap.captured] || '') + '）' : '')
+      }));
+      membersElement.appendChild(t('li', 'chess-replay-controls', null, [
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-first', text: '|<', 'aria-label': '第一手' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-prev', text: '<', 'aria-label': '上一手' }),
+        t('button', 'chess-replay-btn is-main', { type: 'button', 'data-action': 'replay-toggle', text: replay.playing ? '暂停' : '播放' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-next', text: '>', 'aria-label': '下一手' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-last', text: '>|', 'aria-label': '最后一手' }),
+        t('button', 'chess-replay-btn is-exit', { type: 'button', 'data-action': 'replay-exit', text: '退出回顾' })
+      ]));
+      for (var i = 1; i < replay.snapshots.length; i++) {
+        (function(n) {
+          var s = replay.snapshots[n];
+          membersElement.appendChild(t('li', 'chess-replay-move' + (n === replay.index ? ' is-active' : ''), {
+            'data-action': 'replay-jump', 'data-step': String(n), role: 'button', tabindex: '0'
+          }, [
+            t('span', 'chess-replay-no', { text: String(n) }),
+            t('span', 'chess-replay-side is-' + s.lastMove.color, { text: s.lastMove.color === 'red' ? '红' : '黑' }),
+            t('span', 'chess-replay-text', { text: s.text + (s.captured ? '吃' + (PIECE_CHARS[s.captured] || '') : '') })
+          ]));
+        })(i);
+      }
+    }
+    // 历史局列表（信息页）：只列已结束的局；进行中的局结束后自动出现
+    function renderReplayList() {
+      if (!replayListElement) return;
+      var games = (mode === 'room' && !replay.active && roomGames) ? roomGames.filter(function(g) { return g.status === 'finished' || g.winner; }) : null;
+      if (!games || !games.length) {
+        if (!replayListElement.hidden) { replayListElement.hidden = true; clearChildren(replayListElement); }
+        return;
+      }
+      replayListElement.hidden = false;
+      var sig = roomCode + '|' + games.map(function(g) { return g.id + ':' + (g.winner || '') + ':' + g.moveCount; }).join(';');
+      if (sig === replayListElement.getAttribute('data-sig')) return;
+      replayListElement.setAttribute('data-sig', sig);
+      clearChildren(replayListElement);
+      replayListElement.appendChild(t('div', 'chess-replay-list-title', { text: '战事回顾 · 历史对局' }));
+      games.forEach(function(g, i) {
+        replayListElement.appendChild(t('button', 'chess-replay-item', {
+          type: 'button', 'data-action': 'replay-game', 'data-game': String(g.id)
+        }, [
+          t('span', 'chess-replay-item-no', { text: '第 ' + (i + 1) + ' 局' }),
+          t('span', 'chess-replay-item-result', { text: g.winner ? resultText({ winner: g.winner, result: g.result }) : '已结束' }),
+          t('span', 'chess-replay-item-count', { text: (g.moveCount || 0) + ' 手' })
+        ]));
+      });
     }
     // force=true 来自「分析当前局面」按钮：显式手动请求，绕过自动开关与 done/busy 去重。
     // 自动分析（syncAnalysis 那条路）不传 force，才受 analysisOn 与去重约束。
@@ -2344,6 +2555,7 @@
     function offlineStart(nextMode) {
       aiAbort();
       analysisAbort();
+      replayAbort();     // 重开一局：localHistory 清空，回顾快照已失效
       mode = nextMode;
       roomCode = '';
       localHistory = [];
@@ -2361,7 +2573,7 @@
       // 人机与本地对战都要（本地对战也要跑引擎分析，分析同样吃置换表状态）。
       soloGameKey = makeGameKey();
       // 棋力档只影响电脑思考时间，不再改开局子力 —— 两档都是完整开局
-      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
+      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null, settings: { hint: true, analyse: true } };
       selected = null; legal = [];
       lastAnimatedKey = '';
       setError('');
@@ -2373,10 +2585,11 @@
     function offlineExit() {
       aiAbort();
       analysisAbort();
+      replayAbort();
       mode = '';
       activeTab = 'info';
       localHistory = [];
-      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null };
+      state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null, settings: { hint: true, analyse: true } };
       selected = null; legal = [];
       lastAnimatedKey = '';
       clearSession();
@@ -2387,6 +2600,7 @@
     function offlineUndo() {
       aiAbort();
       analysisAbort();   // 局面要回退：旧候选着法与箭头一并作废
+      replayAbort();     // 悔棋改变 localHistory：正在回顾的快照与棋谱脱节，必须退出复盘
       if (!localHistory.length) return;
       var steps = 1;
       if (mode === 'solo' && state.turn === soloColor && localHistory.length >= 2) steps = 2;
@@ -2492,7 +2706,7 @@
       if (!/^[A-Z0-9]{4,6}$/.test(normalized)) { setError('请输入 4-6 位房间码'); return Promise.resolve(); }
       var kind = enterKind === 'watch' ? 'watch' : 'join';
       return request(context, 'POST', '/chess/rooms/' + encodeURIComponent(normalized) + '/' + kind, {}).then(function(data) {
-        if (roomCode !== normalized) { activeTab = 'info'; chatClear(); analysisAbort(); }   // 换房：清空聊天 + 作废上一房间在途分析/箭头（新旧房间分析规则可能不同）
+        if (roomCode !== normalized) { activeTab = 'info'; chatClear(); analysisAbort(); replayAbort(); roomGames = null; roomGamesFetchedStatus = ''; }   // 换房：作废上一房间的在途分析/箭头/回顾/历史局
         roomCode = normalized;
         mode = 'room';
         selected = null; legal = [];
@@ -2524,7 +2738,7 @@
         analyseEnabled: optOn('opt-analyse')
       };
       return request(context, 'POST', '/chess/rooms', body).then(function(data) {
-        if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); analysisAbort(); }   // 建房：同上，作废上一房间的在途分析/箭头
+        if (roomCode !== data.roomCode) { activeTab = 'info'; chatClear(); analysisAbort(); replayAbort(); roomGames = null; roomGamesFetchedStatus = ''; }   // 建房：作废上一房间的在途分析/箭头/回顾/历史局
         roomCode = data.roomCode;
         mode = 'room';
         selected = null; legal = [];
@@ -2539,7 +2753,7 @@
         return data;
       }).catch(function(error) { setError(errMsg(error, message)); return null; });
     }
-    function leaveRoom() {
+    function leaveRoom() { replayAbort(); roomGames = null; roomGamesFetchedStatus = '';
       actionRequest('/leave', '离开房间失败').then(function() { roomCode = ''; mode = ''; activeTab = 'info'; clearSession(); chatClear(); render(); });
     }
     function navigateHome() { if (context.router && typeof context.router.push === 'function') context.router.push('/'); }
@@ -2600,6 +2814,21 @@
         setClass(action, 'chess-entry-opt' + (nowOn ? '' : ' is-on'));
         return;
       }
+      // 战事回顾（1.11.0）：控制类纯前端；拉棋谱的 GET 也不改对局状态，同样不进忙碌锁
+      if (kind === 'replay-exit') { replayAbort(); render(); return; }
+      if (kind === 'replay-first') { replaySeek(0); return; }
+      if (kind === 'replay-last') { replaySeek(replay.snapshots.length - 1); return; }
+      if (kind === 'replay-prev') { replaySeek(replay.index - 1); return; }
+      if (kind === 'replay-next') { replaySeek(replay.index + 1); return; }
+      if (kind === 'replay-toggle') { replayToggle(); return; }
+      if (kind === 'replay-jump') { replaySeek(Number(action.getAttribute('data-step'))); return; }
+      if (kind === 'replay-current') {
+        if (mode === 'room') startRoomReplay(state.gameId);
+        else startLocalReplay();
+        return;
+      }
+      if (kind === 'replay-game') { startRoomReplay(Number(action.getAttribute('data-game'))); return; }
+      if (kind === 'replay-local') { startLocalReplay(); return; }
       if (kind === 'line') {
         var lineIndex = Number(action.getAttribute('data-line'));
         var picked = analysisData && analysisData.lines ? analysisData.lines[lineIndex] : null;
@@ -2633,7 +2862,12 @@
       if (kind === 'undo' && roomCode && !pending) {
         action.disabled = true;
         setBusy(true);
-        actionRequest('/undo', '悔棋失败：等对方走子后才能悔棋').then(function() { setBusy(false); });
+        actionRequest('/undo', '悔棋失败：等对方走子后才能悔棋').then(function(data) {
+          // 悔棋成功：当前局棋谱已变，回顾中的快照随之失效（历史局回顾不受影响，保守退出）
+          if (data) replayAbort();
+          refreshRoomGames();
+          setBusy(false);
+        });
         return;
       }
       if (kind === 'resign' && roomCode && !pending) {

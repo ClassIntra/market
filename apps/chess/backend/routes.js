@@ -43,6 +43,8 @@ function stateFor(roomCode, game) {
     members: members,
     // 房间分析规则（1.10.0）：走子提示/候选分析是否开启，随状态广播给全员与观战者
     settings: roomSettingsView(roomRow(roomCode)),
+    // 局内版本号（1.11.0）：前端据此丢弃乱序旧快照（悔棋竞态的根因修复）
+    rev: game.rev || 0,
     lastMove: last ? { userId: last.user_id, color: last.color, fromRow: last.from_row, fromCol: last.from_col, toRow: last.to_row, toCol: last.to_col } : null
   };
 }
@@ -129,6 +131,17 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_chess_messages_room ON chess_messages(ro
   }
   if (cols.indexOf('analyse_enabled') === -1) {
     db.exec("ALTER TABLE chess_rooms ADD COLUMN analyse_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+})();
+
+// 局内版本号（1.11.0）：chess_games.rev 在每次对棋局的写操作（走子/悔棋/认输）时自增。
+// 作用：前端 applyState 用它拒绝**乱序到达的旧快照**——悔棋与对手在途走子的响应/广播
+// 到达顺序不保证，旧快照后到会覆盖新局面，用户看到的就是「棋盘上多出/少出一些子」。
+// rev 单调递增后，回退（悔棋）包的 rev 也更大，合法回退不受影响。
+(function ensureGameRevColumn() {
+  var cols = db.prepare("PRAGMA table_info(chess_games)").all().map(function(row) { return row.name; });
+  if (cols.indexOf('rev') === -1) {
+    db.exec("ALTER TABLE chess_games ADD COLUMN rev INTEGER NOT NULL DEFAULT 0");
   }
 })();
 
@@ -273,6 +286,31 @@ router.post('/rooms/:roomCode/reset', requireAuth, requireRoom, function(req, re
   res.json({ code: 200, data: result });
 });
 
+// ===== 战事回顾（1.11.0）=====
+// 房间历史局列表：只要房间还在（房主未退出销毁），历史局全部可看，观战者同权。
+// chess_moves 按 game_id 隔离，悔棋删记录 → 棋谱自动与最终局面一致。
+router.get('/rooms/:roomCode/games', requireAuth, requireRoom, function(req, res) {
+  var rows = db.prepare('SELECT id, winner, result, status, started_at, ended_at, (SELECT COUNT(*) FROM chess_moves m WHERE m.game_id = chess_games.id) AS moveCount FROM chess_games WHERE room_code = ? ORDER BY id').all(req.params.roomCode);
+  res.json({ code: 200, data: { games: rows } });
+});
+
+// 单局棋谱：房间成员可看（房间码只有 4 位，不校验成员等于把棋谱暴露给猜码者，口径对齐聊天）
+router.get('/rooms/:roomCode/games/:gameId/moves', requireAuth, requireRoom, function(req, res) {
+  var member = db.prepare('SELECT user_id FROM chess_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, userId(req));
+  if (!member) return res.status(403).json({ code: 403, message: '不在房间中' });
+  var gameId = Number(req.params.gameId);
+  if (!gameId) return res.status(400).json({ code: 400, message: '对局 ID 不合法' });
+  var game = db.prepare('SELECT id, winner, result, status FROM chess_games WHERE id = ? AND room_code = ?').get(gameId, req.params.roomCode);
+  if (!game) return res.status(404).json({ code: 404, message: '对局不存在' });
+  var moves = db.prepare('SELECT id, user_id, color, from_row, from_col, to_row, to_col, piece, captured FROM chess_moves WHERE game_id = ? ORDER BY id').all(game.id);
+  res.json({ code: 200, data: {
+    game: { id: game.id, winner: game.winner, result: game.result, status: game.status },
+    moves: moves.map(function(m) {
+      return { id: m.id, userId: m.user_id, color: m.color, fromRow: m.from_row, fromCol: m.from_col, toRow: m.to_row, toCol: m.to_col, piece: m.piece, captured: m.captured };
+    })
+  } });
+});
+
 // 换方：与对手互换红黑；对手未加入时直接翻转自己颜色（空出的色位留给后来者，
 // join 按空色分配——房主可以让出先手红方）。已有走子一律禁止：
 // 换方后棋盘上既有棋子的归属会与成员颜色错位，等于换了一盘棋。
@@ -304,7 +342,7 @@ router.post('/rooms/:roomCode/resign', requireAuth, requireRoom, function(req, r
   var game = currentGame(roomCode);
   if (!game || game.winner || game.status !== 'active') return res.status(409).json({ code: 409, message: '对局已结束' });
   var winner = member.color === 'red' ? 'black' : 'red';
-  db.prepare("UPDATE chess_games SET winner = ?, result = 'resign', status = 'finished', ended_at = datetime('now') WHERE id = ?").run(winner, game.id);
+  db.prepare("UPDATE chess_games SET winner = ?, result = 'resign', status = 'finished', rev = rev + 1, ended_at = datetime('now') WHERE id = ?").run(winner, game.id);
   return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM chess_games WHERE id = ?').get(game.id)) });
 });
 
@@ -324,7 +362,7 @@ router.post('/rooms/:roomCode/undo', requireAuth, requireRoom, function(req, res
   // 复原：棋子退回起点，被吃子回到原位
   state[last.to_row][last.to_col] = last.captured || null;
   state[last.from_row][last.from_col] = last.piece;
-  db.prepare('UPDATE chess_games SET board = ?, turn = ?, winner = NULL, result = NULL, status = \'active\' WHERE id = ?').run(JSON.stringify(state), last.color, game.id);
+  db.prepare('UPDATE chess_games SET board = ?, turn = ?, winner = NULL, result = NULL, status = \'active\', rev = rev + 1 WHERE id = ?').run(JSON.stringify(state), last.color, game.id);
   db.prepare('DELETE FROM chess_moves WHERE id = ?').run(last.id);
   return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM chess_games WHERE id = ?').get(game.id)) });
 });
@@ -372,7 +410,7 @@ router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res
   } else if (rules.isStalemate(board, nextTurn)) {
     winner = 'draw'; result = 'stalemate'; status = 'finished';
   }
-  db.prepare('UPDATE chess_games SET board = ?, turn = ?, winner = ?, result = ?, status = ?, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?')
+  db.prepare('UPDATE chess_games SET board = ?, turn = ?, winner = ?, result = ?, status = ?, rev = rev + 1, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?')
     .run(JSON.stringify(board), winner ? moverColor : nextTurn, winner, result, status, winner, game.id);
   db.prepare('INSERT INTO chess_moves (game_id, user_id, color, from_row, from_col, to_row, to_col, piece, captured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(game.id, id, moverColor, fr, fc, tr, tc, moving, captured);
