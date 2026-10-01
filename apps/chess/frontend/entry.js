@@ -1530,7 +1530,13 @@
     var lastMembersSignature = '';
     function renderMembers() {
       // 战事回顾接管侧栏：成员名单让位给回放控制与着法列表
-      if (replay.active) { renderReplayPanel(); return; }
+      // 侧栏下方那条「历史对局」列表也要一并让位，否则会与复盘面板同屏堆叠
+      //（退出复盘时 renderReplayList 会按自己的规则重新显示，不需要在这里恢复）。
+      if (replay.active) {
+        if (replayListElement && !replayListElement.hidden) replayListElement.hidden = true;
+        renderReplayPanel();
+        return;
+      }
       var settingsNow = roomSettings();
       // settings 进签名：房主建房规则是广播字段，变了这里必须重绘（规则行 + is-turn 等不依赖它）
       var sig = mode + '|' + state.turn + '|' + (state.winner || '') + '|' + (state.status || '') + '|' + (settingsNow.hint ? 1 : 0) + (settingsNow.analyse ? 1 : 0) + '|';
@@ -1892,9 +1898,14 @@
       if (replayCurrentButton) {
         var canReplay = mode === 'room' ? !!state.gameId : (isLocal && localHistory.length > 0);
         replayCurrentButton.hidden = replay.active || !canReplay;
+        // 文案跟随对局状态：进行中点它回顾的是**当前这局**，写「战事回顾」会让人以为已经下完了
+        setText(replayCurrentButton, finished ? '战事回顾' : '回顾本局');
       }
-      // 房间历史局：对局结束/换局时刷新列表；复盘期间列表让位给回放面板
-      if (mode === 'room' && finished) refreshRoomGames();
+      // 房间战事回顾列表：一进房就拉「本局 + 全部历史局」。
+      // ⚠️ 不能只在 finished 时拉 —— 下一局开局后 finished 归 false，列表会整段消失
+      //（实测：第 1 局结束、第 2 局进行中时，历史列表与复盘入口一起不见）。
+      // refreshRoomGames 内部按 roomCode:status:gameId 去重，同状态不会重复请求。
+      if (mode === 'room') refreshRoomGames();
       renderReplayList();
       // 引擎页：可能触发一次去抖分析（只在引擎页可见且局面未分析过时），
       // 然后重画面板与箭头。顺序不能反——syncAnalysis 会先把过期结论撤下。
@@ -2243,7 +2254,9 @@
     var roomGamesFetchedStatus = '';
     function refreshRoomGames() {
       if (mode !== 'room' || !roomCode) return;
-      var mark = roomCode + ':' + (state.status || '') + ':' + (state.gameId || '');
+      // mark 带上 rev（局内版本号，走子/悔棋各 +1）：否则「本局 N 手」这一行不会随走子刷新
+      // （status/gameId 都没变，会被去重挡掉）。
+      var mark = roomCode + ':' + (state.status || '') + ':' + (state.gameId || '') + ':' + (state.rev || 0);
       if (mark === roomGamesFetchedStatus) return;   // 同房同状态只拉一次（对局结束/换局时 mark 变化触发刷新）
       roomGamesFetchedStatus = mark;
       request(context, 'GET', '/chess/rooms/' + encodeURIComponent(roomCode) + '/games', {}).then(function(data) {
@@ -2267,12 +2280,12 @@
           : (snap.lastMove.color === 'red' ? '红方 ' : '黑方 ') + snap.text + (snap.captured ? '（吃' + (PIECE_CHARS[snap.captured] || '') + '）' : '')
       }));
       membersElement.appendChild(t('li', 'chess-replay-controls', null, [
-        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-first', text: '|<', 'aria-label': '第一手' }),
-        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-prev', text: '<', 'aria-label': '上一手' }),
-        t('button', 'chess-replay-btn is-main', { type: 'button', 'data-action': 'replay-toggle', text: replay.playing ? '暂停' : '播放' }),
-        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-next', text: '>', 'aria-label': '下一手' }),
-        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-last', text: '>|', 'aria-label': '最后一手' }),
-        t('button', 'chess-replay-btn is-exit', { type: 'button', 'data-action': 'replay-exit', text: '退出回顾' })
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-first', text: '|<', 'aria-label': '第一手', title: '第一手（Home）' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-prev', text: '<', 'aria-label': '上一手', title: '上一手（←）' }),
+        t('button', 'chess-replay-btn is-main', { type: 'button', 'data-action': 'replay-toggle', text: replay.playing ? '暂停' : '播放', title: '播放 / 暂停（空格）' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-next', text: '>', 'aria-label': '下一手', title: '下一手（→）' }),
+        t('button', 'chess-replay-btn', { type: 'button', 'data-action': 'replay-last', text: '>|', 'aria-label': '最后一手', title: '最后一手（End）' }),
+        t('button', 'chess-replay-btn is-exit', { type: 'button', 'data-action': 'replay-exit', text: '退出回顾', title: '退出回顾（Esc）' })
       ]));
       for (var i = 1; i < replay.snapshots.length; i++) {
         (function(n) {
@@ -2286,27 +2299,38 @@
           ]));
         })(i);
       }
+      // 长棋谱（几十手）时高亮的当前手会滚出侧栏可视区 —— 列表重建后把它拉回视野。
+      // block:'nearest' 是最小滚动：元素已可见就完全不动，避免整页跳动（Chrome 61+ 支持 options 形式）。
+      var activeMove = membersElement.querySelector('.chess-replay-move.is-active');
+      if (activeMove && activeMove.scrollIntoView) activeMove.scrollIntoView({ block: 'nearest' });
     }
-    // 历史局列表（信息页）：只列已结束的局；进行中的局结束后自动出现
+    // 战事回顾列表（信息页）：房间内一进房就列出来 —— 本局（进行中/已结束）+ 全部历史局。
+    // 「只要房主不退出，多少局都可以看到」：所以**不能**只列已结束的局，
+    // 否则下一局开局后（finished 归 false）整个列表会消失，上一局的复盘也就进不去了。
     function renderReplayList() {
       if (!replayListElement) return;
-      var games = (mode === 'room' && !replay.active && roomGames) ? roomGames.filter(function(g) { return g.status === 'finished' || g.winner; }) : null;
+      var games = (mode === 'room' && !replay.active && roomGames) ? roomGames.slice() : null;
       if (!games || !games.length) {
         if (!replayListElement.hidden) { replayListElement.hidden = true; clearChildren(replayListElement); }
         return;
       }
+      games.reverse();   // 最近的局排最上（当前局天然落在第一行）
       replayListElement.hidden = false;
-      var sig = roomCode + '|' + games.map(function(g) { return g.id + ':' + (g.winner || '') + ':' + g.moveCount; }).join(';');
+      var sig = roomCode + '|' + (state.gameId || '') + '|'
+        + games.map(function(g) { return g.id + ':' + (g.winner || '') + ':' + g.moveCount; }).join(';');
       if (sig === replayListElement.getAttribute('data-sig')) return;
       replayListElement.setAttribute('data-sig', sig);
       clearChildren(replayListElement);
-      replayListElement.appendChild(t('div', 'chess-replay-list-title', { text: '战事回顾 · 历史对局' }));
+      replayListElement.appendChild(t('div', 'chess-replay-list-title', { text: '战事回顾 · 本局与历史局' }));
+      var total = games.length;
       games.forEach(function(g, i) {
-        replayListElement.appendChild(t('button', 'chess-replay-item', {
+        var isCurrent = String(g.id) === String(state.gameId || '');
+        var live = !g.winner && g.status !== 'finished';
+        replayListElement.appendChild(t('button', 'chess-replay-item' + (isCurrent ? ' is-current' : ''), {
           type: 'button', 'data-action': 'replay-game', 'data-game': String(g.id)
         }, [
-          t('span', 'chess-replay-item-no', { text: '第 ' + (i + 1) + ' 局' }),
-          t('span', 'chess-replay-item-result', { text: g.winner ? resultText({ winner: g.winner, result: g.result }) : '已结束' }),
+          t('span', 'chess-replay-item-no', { text: isCurrent ? '本局' : '第 ' + (total - i) + ' 局' }),
+          t('span', 'chess-replay-item-result', { text: live ? '进行中' : (g.winner ? resultText({ winner: g.winner, result: g.result }) : '已结束') }),
           t('span', 'chess-replay-item-count', { text: (g.moveCount || 0) + ' 手' })
         ]));
       });
@@ -3023,6 +3047,37 @@
     var removeChatInput = function() {
       if (chatInputElement) chatInputElement.removeEventListener('keydown', onChatKeydown);
     };
+    // ===== 键盘可达性（桌面 / 带键盘的平板）=====
+    // 1) 复盘着法列表项是 <li role="button" tabindex="0">：Enter/Space 不会自动派发 click
+    //    （只有原生 <button> 会）。这里补齐，并用 stopPropagation 挡住同一次按键再落到下面的全局快捷键。
+    function onRootKeydown(event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      var el = event.target && event.target.closest ? event.target.closest('[data-action]:not(button):not(input)') : null;
+      if (!el) return;
+      event.preventDefault();
+      event.stopPropagation();
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+    root.addEventListener('keydown', onRootKeydown);
+    // 2) 复盘全局快捷键：←/→ 换手、空格播放暂停、Home/End 首末手、Esc 退出回顾。
+    //    输入框内不生效（否则打字敲空格会变成播放/暂停）。
+    function onGlobalKeydown(event) {
+      if (!replay.active) return;
+      var t = event.target;
+      var tag = t && t.tagName ? String(t.tagName).toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable)) return;
+      if (event.key === 'ArrowLeft') { replaySeek(replay.index - 1); event.preventDefault(); }
+      else if (event.key === 'ArrowRight') { replaySeek(replay.index + 1); event.preventDefault(); }
+      else if (event.key === 'Home') { replaySeek(0); event.preventDefault(); }
+      else if (event.key === 'End') { replaySeek(replay.snapshots.length - 1); event.preventDefault(); }
+      else if (event.key === ' ') { replayToggle(); event.preventDefault(); }
+      else if (event.key === 'Escape') { replayAbort(); render(); event.preventDefault(); }
+    }
+    document.addEventListener('keydown', onGlobalKeydown);
+    var removeKeys = function() {
+      root.removeEventListener('keydown', onRootKeydown);
+      document.removeEventListener('keydown', onGlobalKeydown);
+    };
     var removeBoardEvents = function() {
       boardElement.removeEventListener('pointerdown', onBoardDown);
       boardElement.removeEventListener('pointerup', onBoardUp);
@@ -3053,6 +3108,7 @@
         removeBoardEvents();
         removeRootClick();
         removeChatInput();
+        removeKeys();
         removeResize();
         removeObserver();
         subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); });
@@ -3068,6 +3124,7 @@
       removeBoardEvents();
       removeRootClick();
       removeChatInput();
+      removeKeys();
       removeResize();
       removeObserver();
       if (roomCode) send({ type: 'chess_unsubscribe', room_code: roomCode });

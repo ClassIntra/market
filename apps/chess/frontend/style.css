@@ -756,6 +756,12 @@
   cursor: pointer;
 }
 
+/* 当前这一局（进行中或刚结束）单独描边：与历史局一眼分开 */
+.chess-replay-item.is-current {
+  border-color: var(--chess-accent, #b91c1c);
+  font-weight: 600;
+}
+
 .chess-replay-item-no {
   -webkit-box-flex: 0;
   -ms-flex: none;
