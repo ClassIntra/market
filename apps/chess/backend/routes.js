@@ -17,6 +17,39 @@ function userId(req) {
 // 房间码：4 位纯数字，低龄用户念读零负担（与 gomoku 一致）
 function makeCode() { return String(crypto.randomBytes(2).readUInt16BE(0) % 10000).padStart(4, '0'); }
 function roomRow(roomCode) { return db.prepare('SELECT * FROM chess_rooms WHERE room_code = ?').get(roomCode); }
+// 六十回合自然限着（官方「和棋」第 4 条）：连续 60 回合 = 双方各 60 手 = 120 手无吃子即判和
+var NATURAL_LIMIT_MOVES = 120;
+// 本手之前连续多少手没有吃子（供「本手 + 之前」凑满 120 判定）
+function captureStreak(gameId) {
+  var rows = db.prepare('SELECT captured FROM chess_moves WHERE game_id = ? ORDER BY id DESC LIMIT ?').all(gameId, NATURAL_LIMIT_MOVES);
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].captured) break;
+    n++;
+  }
+  return n;
+}
+// 长将判负（官方「禁止着法」条款的简化落地）：同一方连续 PERPETUAL_CHECK_LIMIT 手
+// 照将、且期间双方都没有吃子 → 判该方负。
+// 为什么加「期间无吃子」：长将的本质是循环不变，一旦有人吃子局面就推进了，
+// 那是正常进攻（含连将杀），不能误判。真·连将杀若 6 手还杀不掉，说明对方每次都能
+// 应将、局面在原地打转，按长将处理是合理的。
+var PERPETUAL_CHECK_LIMIT = 6;
+// 本手之前，该方已连续照将多少手（供「本手 + 之前」凑满 6 判定）
+function checkStreak(gameId, color) {
+  var rows = db.prepare('SELECT color, captured, gave_check FROM chess_moves WHERE game_id = ? ORDER BY id DESC LIMIT ?')
+    .all(gameId, PERPETUAL_CHECK_LIMIT * 2);
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].captured) break;          // 期间有吃子 → 局面在推进，不是长将
+    if (rows[i].color === color) {
+      if (!rows[i].gave_check) break;     // 该方这一手没将军 → 连将断了
+      n++;
+    }
+    // 对方的应将手不要求将军，只要求没吃子（上面已判）
+  }
+  return n;
+}
 function currentGame(roomCode) { return db.prepare('SELECT * FROM chess_games WHERE room_code = ? AND status = \'active\' ORDER BY id DESC LIMIT 1').get(roomCode); }
 function ensureGame(roomCode) {
   var game = currentGame(roomCode);
@@ -28,6 +61,7 @@ function ensureGame(roomCode) {
 function stateFor(roomCode, game) {
   // LEFT JOIN users 带出网名；成员列表显示网名而非学号账号（对齐 gomoku）
   var members = db.prepare('SELECT m.user_id, m.role, m.color, m.joined_at, m.last_seen_at, u.net_name FROM chess_members m LEFT JOIN users u ON u.user_id = m.user_id WHERE m.room_code = ? ORDER BY m.joined_at').all(roomCode);
+  var room = roomRow(roomCode);
   var board = JSON.parse(game.board);
   var last = db.prepare('SELECT user_id, color, from_row, from_col, to_row, to_col FROM chess_moves WHERE game_id = ? ORDER BY id DESC LIMIT 1').get(game.id);
   return {
@@ -42,7 +76,10 @@ function stateFor(roomCode, game) {
     check: game.status === 'active' && !game.winner ? rules.isInCheck(board, game.turn) : false,
     members: members,
     // 房间分析规则（1.10.0）：走子提示/候选分析是否开启，随状态广播给全员与观战者
-    settings: roomSettingsView(roomRow(roomCode)),
+    settings: roomSettingsView(room),
+    // 和棋提议（1.14.0）：谁提的（字符串 user_id），null = 没有待处理提议。
+    // 前端据此：提议方看到「等待对方回应」，另一方看到「同意 / 拒绝」。
+    drawOffer: room && room.draw_offer_by ? String(room.draw_offer_by) : null,
     // 局内版本号（1.11.0）：前端据此丢弃乱序旧快照（悔棋竞态的根因修复）
     rev: game.rev || 0,
     lastMove: last ? { userId: last.user_id, color: last.color, fromRow: last.from_row, fromCol: last.from_col, toRow: last.to_row, toCol: last.to_col } : null
@@ -132,6 +169,11 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_chess_messages_room ON chess_messages(ro
   if (cols.indexOf('analyse_enabled') === -1) {
     db.exec("ALTER TABLE chess_rooms ADD COLUMN analyse_enabled INTEGER NOT NULL DEFAULT 1");
   }
+  // 和棋提议（1.14.0）：官方规则「和棋」第 2 条是双方协商，需要记下「谁在提议、待谁回应」。
+  // NULL = 当前没有待处理提议；走子即视为拒绝（规则原文：走出轮走的一着棋即为拒绝）。
+  if (cols.indexOf('draw_offer_by') === -1) {
+    db.exec("ALTER TABLE chess_rooms ADD COLUMN draw_offer_by INTEGER");
+  }
 })();
 
 // 局内版本号（1.11.0）：chess_games.rev 在每次对棋局的写操作（走子/悔棋/认输）时自增。
@@ -142,6 +184,15 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_chess_messages_room ON chess_messages(ro
   var cols = db.prepare("PRAGMA table_info(chess_games)").all().map(function(row) { return row.name; });
   if (cols.indexOf('rev') === -1) {
     db.exec("ALTER TABLE chess_games ADD COLUMN rev INTEGER NOT NULL DEFAULT 0");
+  }
+})();
+
+// 每手是否将军（1.14.0）：长将判负要靠它连读历史，不能只在内存里数——
+// 服务重启/换进程后计数会丢，而长将正是「跨很多手」的判定。
+(function ensureMoveCheckColumn() {
+  var cols = db.prepare("PRAGMA table_info(chess_moves)").all().map(function(row) { return row.name; });
+  if (cols.indexOf('gave_check') === -1) {
+    db.exec("ALTER TABLE chess_moves ADD COLUMN gave_check INTEGER NOT NULL DEFAULT 0");
   }
 })();
 
@@ -368,7 +419,7 @@ router.post('/rooms/:roomCode/undo', requireAuth, requireRoom, function(req, res
 });
 
 // 走子：服务端权威校验（轮次/棋子归属/走法规则/送将/将见面），
-// 走后判定将死与困毙（无子可动判和，按中国象棋规则）。
+// 走后判定：将死 / 困毙（判负）/ 长将（判负）/ 六十回合自然限着（判和）。
 router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var game = ensureGame(roomCode);
@@ -401,6 +452,7 @@ router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res
   board[tr][tc] = moving;
   board[fr][fc] = null;
   var nextTurn = moverColor === 'red' ? 'black' : 'red';
+  var gaveCheck = rules.isInCheck(board, nextTurn) ? 1 : 0;
   var winner = null, result = null, status = 'active';
   if (captured === 'r_king' || captured === 'b_king') {
     // 理论上被送将规则拦截，兜底判负
@@ -408,13 +460,75 @@ router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res
   } else if (rules.isCheckmate(board, nextTurn)) {
     winner = moverColor; result = 'checkmate'; status = 'finished';
   } else if (rules.isStalemate(board, nextTurn)) {
-    winner = 'draw'; result = 'stalemate'; status = 'finished';
+    // 困毙（轮走方无子可动且未被将军）：**中国象棋判负**，不是和棋
+    // （国际象棋的 stalemate 才是和棋，别套错规则）
+    winner = moverColor; result = 'stalemate'; status = 'finished';
+  } else if (!captured && gaveCheck && checkStreak(game.id, moverColor) + 1 >= PERPETUAL_CHECK_LIMIT) {
+    // 长将判负（不是和棋）：轮走方被连续照将且每次都能应将 = 局面在循环，
+    // 照将方属于「禁止着法」，不变作负。判给被长将的一方（nextTurn）。
+    winner = nextTurn; result = 'perpetual'; status = 'finished';
+  } else if (!captured && captureStreak(game.id) + 1 >= NATURAL_LIMIT_MOVES) {
+    // 六十回合自然限着（官方「和棋」第 4 条）：连续 60 回合（双方各 60 手 = 120 手）
+    // 均未吃子即判和。没有这条，双方只会互相绕圈的局面永远下不完。
+    winner = 'draw'; result = 'natural'; status = 'finished';
+  }
+  // 走子即视为拒绝待处理的和棋提议（规则原文：走出轮走的一着棋即为拒绝）
+  var roomNow = roomRow(roomCode);
+  if (roomNow && roomNow.draw_offer_by) {
+    db.prepare('UPDATE chess_rooms SET draw_offer_by = NULL WHERE room_code = ?').run(roomCode);
   }
   db.prepare('UPDATE chess_games SET board = ?, turn = ?, winner = ?, result = ?, status = ?, rev = rev + 1, ended_at = CASE WHEN ? IS NULL THEN ended_at ELSE datetime(\'now\') END WHERE id = ?')
     .run(JSON.stringify(board), winner ? moverColor : nextTurn, winner, result, status, winner, game.id);
-  db.prepare('INSERT INTO chess_moves (game_id, user_id, color, from_row, from_col, to_row, to_col, piece, captured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(game.id, id, moverColor, fr, fc, tr, tc, moving, captured);
+  db.prepare('INSERT INTO chess_moves (game_id, user_id, color, from_row, from_col, to_row, to_col, piece, captured, gave_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(game.id, id, moverColor, fr, fc, tr, tc, moving, captured, gaveCheck);
   return res.json({ code: 200, data: stateFor(roomCode, db.prepare('SELECT * FROM chess_games WHERE id = ?').get(game.id)) });
+});
+
+// 和棋提议（1.14.0）：官方「和棋」第 2 条是双方协商——「一方提议作和，另一方表示同意」。
+// 一个端点三种动作（action = offer | accept | decline），状态存在 chess_rooms.draw_offer_by。
+// 规则要点：① 只有玩家（有 color）能提；② 不能同意自己的提议；③ 走子即拒绝（见 move 路由）。
+router.post('/rooms/:roomCode/draw', requireAuth, requireRoom, function(req, res) {
+  var id = userId(req), roomCode = req.params.roomCode;
+  var action = req.body && req.body.action;
+  // ⚠️ 这里不能用 ensureGame：它只在「没有进行中的对局」时才建新局，而**上一局刚结束**
+  // 同样满足这个条件 —— 于是终局后再提和会静默开一局并把提议挂到新局上（实测 200 而非 409）。
+  // 分两步：先取进行中的一局；取不到再看最新一局，若它已结束就明确拒绝，从未开局才建局。
+  var game = currentGame(roomCode);
+  if (!game) {
+    var lastGame = db.prepare('SELECT * FROM chess_games WHERE room_code = ? ORDER BY id DESC LIMIT 1').get(roomCode);
+    if (lastGame) {
+      return res.status(409).json({ code: 409, message: '对局已结束', data: stateFor(roomCode, lastGame) });
+    }
+    game = ensureGame(roomCode);
+  }
+  if (game.status !== 'active' || game.winner) {
+    return res.status(409).json({ code: 409, message: '对局已结束', data: stateFor(roomCode, game) });
+  }
+  var member = db.prepare('SELECT * FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
+  if (!member) member = join(roomCode, id);
+  if (!member.color) return res.status(403).json({ code: 403, message: '观战者不能提和' });
+  var roomNow = roomRow(roomCode);
+  var offerBy = roomNow && roomNow.draw_offer_by ? String(roomNow.draw_offer_by) : null;
+
+  if (action === 'offer') {
+    if (offerBy !== String(id)) {
+      db.prepare('UPDATE chess_rooms SET draw_offer_by = ? WHERE room_code = ?').run(id, roomCode);
+    }
+  } else if (action === 'accept') {
+    if (!offerBy || offerBy === String(id)) return res.status(409).json({ code: 409, message: '没有待处理的和棋提议' });
+    db.prepare("UPDATE chess_games SET winner = 'draw', result = 'agreement', status = 'finished', rev = rev + 1, ended_at = datetime('now') WHERE id = ?").run(game.id);
+    db.prepare('UPDATE chess_rooms SET draw_offer_by = NULL WHERE room_code = ?').run(roomCode);
+    game = db.prepare('SELECT * FROM chess_games WHERE id = ?').get(game.id);
+  } else if (action === 'decline') {
+    // 拒绝 / 撤回共用：别人提的叫拒绝，自己提的叫撤回（走子也会自动清掉，见 move 路由）
+    if (!offerBy) return res.status(409).json({ code: 409, message: '没有待处理的和棋提议' });
+    db.prepare('UPDATE chess_rooms SET draw_offer_by = NULL WHERE room_code = ?').run(roomCode);
+  } else {
+    return res.status(400).json({ code: 400, message: '未知操作' });
+  }
+  var state = stateFor(roomCode, game);
+  notifyRoom(roomCode, state);
+  return res.json({ code: 200, data: state });
 });
 
 // ===== 人机练习引擎（Pikafish）=====

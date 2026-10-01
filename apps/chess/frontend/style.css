@@ -379,6 +379,9 @@
   border: 0;
   border-radius: var(--radius-md, 12px);
   padding: 10px 16px;
+  /* 触控目标下限（平板手指）：各断点只调 padding，这里兜住高度——实测个别断点会缩到 25px，
+     手指点不中（iOS 44pt / Android 48dp 的建议值下 34px 是本应用其它控件的共同下限）。 */
+  min-height: 34px;
   color: #fff;
   /* 主按钮：对角渐变 + 柔和投影（象棋主色：朱红） */
   background-color: #b91c1c;
@@ -677,7 +680,7 @@
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  min-height: 32px;   /* 平板触摸目标 */
+  min-height: 34px;   /* 平板触摸目标（与页签/操作按钮同一下限） */
   padding: 0 6px;
   border-radius: 6px;
   font-size: 12px;
@@ -1459,11 +1462,85 @@
   font-weight: 600;
 }
 
-/* ===== 被吃子展示：小圆片一排，随格子无关固定尺寸 ===== */
+/* ===== 和棋提议区（1.14.0）=====
+   挂在回合横幅下方：提和是低频但「不看会漏」的信息，不能塞进信息页底部。
+   整块默认 hidden，只有房间对局进行中才出现（布局零影响）。 */
+.chess-draw-offer {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 12px);
+  background: var(--chess-surface, #fff);
+  -webkit-box-shadow: inset 0 0 0 1px var(--chess-border, rgba(148, 163, 184, .3));
+  box-shadow: inset 0 0 0 1px var(--chess-border, rgba(148, 163, 184, .3));
+}
+.chess-draw-offer[hidden] {
+  display: none;
+}
+.chess-draw-offer-text {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--chess-text, #1f2937);
+}
+.chess-draw-offer-actions {
+  display: -webkit-box;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 按钮样式必须自己写全：宿主没有通用的 .is-secondary，既有规则只覆盖
+   .chess-room-tools button —— 提议区是侧栏顶部的新容器，落进默认样式就是
+   「深色下黑字（实测对比度 1.23）」。视觉语言与房间工具栏 / 结束区保持一致。 */
+.chess-draw-offer-actions > button {
+  -webkit-box-flex: 1;
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  min-height: 34px;   /* 触控下限：与页签 / 房间工具栏同一个值 */
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  color: #fff;
+  /* 主按钮（同意）：与「继续下一局」同一套朱红渐变，白字对比度 ≈ 6.3，深浅主题通用 */
+  background-color: #b91c1c;
+  background-image: linear-gradient(135deg, #dc2626 0%, #b91c1c 62%, #7f1d1d 100%);
+}
+/* 次按钮（提议和棋 / 拒绝 / 撤回）：与房间工具栏同一语言 */
+.chess-draw-offer-actions > button.is-secondary {
+  color: var(--primary-color, var(--chess-accent, #007aff));
+  background-color: transparent;
+  background-image: none;
+  box-shadow: inset 0 0 0 1px var(--chess-border, rgba(148, 163, 184, .3));
+}
+.chess-draw-offer-actions > button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+.chess-draw-offer-actions > button:not(:disabled):active {
+  -webkit-transform: none;
+  transform: none;
+  opacity: .6;
+}
+.chess-draw-offer-actions > button[hidden] {
+  display: none;
+}
+
+/* ===== 被吃子展示：小圆片一排，随格子无关固定尺寸 =====
+   1.14.0 位置：从信息页底部挪到侧栏顶部（横幅下方、标签页上方）。
+   原位置被成员名单 + 规则行 + 历史对局列表顶到 851px，而侧栏可视区只有 704px
+   （平板实测滚不到 → 反馈「看不到损失具体棋子」）。
+   双方均无战损时整块 hidden（见 renderCaptured）：开局不白占侧栏高度。 */
 .chess-captured {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(148, 163, 184, .28);
+  margin: 0 0 14px;
+}
+.chess-captured[hidden] {
+  display: none;
 }
 
 .chess-captured-row {
@@ -1513,8 +1590,13 @@
 }
 
 /* 被吃棋子字形跟着主题走：硬编码的 #262626 在深色主题下就是「黑底黑字」（信息页/复盘两处都用） */
-.chess-cap-piece.is-red { color: var(--chess-accent, #b02318); }
-.chess-cap-piece.is-black { color: var(--chess-text-2, #262626); }
+/* 圆片底是固定浅木纹材质（background-image 渐变，不随主题切换），字形必须恒为深色。
+   ⚠️ 别改成跟随主题变量：上一轮曾把 is-black 写成 var(--chess-text-2)，深色下变浅字，
+   落在浅木圆片上就是「看不清吃的什么子」（用户实测）。对比度扫描器取有效背景时
+   只认 background-color、读不到 background-image，会把这里的浅木底误判成深色面板底 ——
+   这是已知盲区，棋子/棋盘类「实物材质」一律豁免主题变量（见 .chess-app 变量组注释）。 */
+.chess-cap-piece.is-red { color: #b02318; }
+.chess-cap-piece.is-black { color: #262626; }
 
 .chess-captured-empty {
   font-size: 12px;
@@ -1569,6 +1651,7 @@
   flex: 1 1 96px;
   margin: 4px;
   padding: 8px 10px;
+  min-height: 34px;   /* 与页签/操作按钮同一下限（原先 33px，横向差一点点但统一更好） */
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -1612,8 +1695,10 @@
   -webkit-box-flex: 1;
   -ms-flex: 1 1 0;
   flex: 1 1 0;
-  /* flex 子项默认 min-width:auto：长文案会把另一页挤到换行/溢出 */
-  min-width: 0;
+  /* 不要 min-width:0：那会让页签收缩到小于文案宽 —— 侧栏一旦出现滚动条
+     （内容超高 ~10px），内容区变窄，「房间信息」就折成两行（实测）。
+     三个页签的 min-content 合计（≈152px）远小于侧栏内宽，回到默认 min-width:auto
+     即可既不折行也不溢出；真出现超长文案时宁可整体溢出也别折行（折行更难看）。 */
   display: -webkit-box;
   display: -ms-flexbox;
   display: flex;
@@ -1624,6 +1709,8 @@
   -ms-flex-pack: center;
   justify-content: center;
   padding: 7px 6px;
+  /* 页签也是高频触控目标：7px 竖向内边距只有 30px 高，加到 34px（与其它控件同一下限） */
+  min-height: 34px;
   border: 0;
   border-radius: 6px;
   background-color: transparent;
@@ -1740,6 +1827,16 @@
   -ms-flex-align: center;
   align-items: center;
   margin-top: 8px;
+  /* 吸底：消息一多，输入行会被推到视口下方，要滚到底才能打字（竖屏长列表实测越出 26px+）。
+     sticky + bottom:0 让它在滚动时始终贴着可视区底部；用不透明卡面色 + 顶部发丝线
+     隔开滚过去的消息（不用毛玻璃，低端平板上滚动期重绘更贵）。 */
+  position: -webkit-sticky;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 8px 0 2px;
+  background: var(--chess-surface, #fff);
+  box-shadow: 0 -1px 0 var(--chess-border, #e2e8f0);
 }
 
 /* Chrome 80 无 flex gap：相邻兄弟补左侧间距 */
@@ -1887,7 +1984,12 @@
 }
 
 .chess-finished {
-  margin-top: 20px;
+  /* 结束区现在排在信息页最前：用下外边距与「房间成员」分隔（原来在底部时用的是 margin-top） */
+  margin: 0 0 14px;
+}
+
+.chess-finished[hidden] {
+  display: none;
 }
 
 .chess-finished p {
@@ -2349,6 +2451,9 @@
     min-width: 0;
   }
   .chess-actions button {
+    /* 触控目标下限：横屏窄高度时原先只有 25px 高，平板上手指很难点中（实测 1280x800 下 42x25）。
+       34px 与本应用其它触控控件（复盘按钮 34、着法条目 32）一致；只增高不改宽，不影响标题栏换行。 */
+    min-height: 34px;
     padding: 8px 12px;
     font-size: 13px;
   }

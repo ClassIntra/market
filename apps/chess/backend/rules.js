@@ -207,7 +207,8 @@ function hasAnyMove(board, color) {
 function isCheckmate(board, color) {
   return isInCheck(board, color) && !hasAnyMove(board, color);
 }
-// 困毙：未被将军但无子可动（中国象棋规则判和）
+// 困毙：未被将军但无子可动。注意**中国象棋判负**（困毙方输，走子方胜），
+// 国际象棋的 stalemate 才是和棋——判负逻辑在 routes.js 的 move 路由里，别在这里改语义。
 function isStalemate(board, color) {
   return !isInCheck(board, color) && !hasAnyMove(board, color);
 }

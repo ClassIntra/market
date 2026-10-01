@@ -996,6 +996,17 @@
     // 纯静态换色，无动效——遵循「棋子/界面不动」的反馈原则）
     var turnBanner = t('div', 'chess-turn-banner', { 'data-role': 'turn-banner', 'aria-live': 'polite' });
     turnBanner.hidden = true;
+    // 和棋提议区（1.14.0）：挂在横幅下方、标签页之上——切到聊天/引擎页时也看得见，
+    // 对手提和不会因为「你在别的页」而被漏掉。默认整块 hidden，只有房间对局中出现。
+    var drawOfferText = t('p', 'chess-draw-offer-text', { 'data-role': 'draw-offer-text' });
+    var drawOfferButton = t('button', 'is-secondary', { type: 'button', 'data-action': 'draw-offer', text: '提议和棋' });
+    var drawAcceptButton = t('button', null, { type: 'button', 'data-action': 'draw-accept', text: '同意' });
+    var drawDeclineButton = t('button', 'is-secondary', { type: 'button', 'data-action': 'draw-decline', text: '拒绝' });
+    var drawOffer = t('div', 'chess-draw-offer', { 'data-role': 'draw-offer', 'aria-live': 'polite' }, [
+      drawOfferText,
+      t('div', 'chess-draw-offer-actions', null, [drawOfferButton, drawAcceptButton, drawDeclineButton])
+    ]);
+    drawOffer.hidden = true;
     // 被吃子展示：由初始子力推导（见 renderCaptured），不依赖后端字段
     var captured = t('div', 'chess-captured', { 'data-role': 'captured' });
     // 房间操作区（侧栏）：从标题栏移入的低频按钮，仅房间模式显示。
@@ -1033,17 +1044,19 @@
     // 历史对局列表（1.11.0）：房主不退出期间全部历史局可回顾（含观战者）
     var replayListElement = t('div', 'chess-replay-list', { 'data-role': 'replay-list' });
     var infoPanel = t('div', 'chess-info-panel', { 'data-role': 'info-panel', role: 'tabpanel', 'aria-labelledby': 'chess-tab-info' }, [
+      // 结束区排在最前：对局一结束，用户第一眼要看到结果与「回顾本局 / 继续下一局」，
+      // 而不是滚过成员名单、规则行、回顾列表、红失黑失才够得着（矮横屏实测要滚 120px 以上）。
+      // 非结束时整块 hidden（连 margin 一起让位），进行中的布局与从前完全一致。
+      t('div', 'chess-finished', { 'data-role': 'finished-block' }, [
+        t('p', null, { 'data-role': 'finished' }),
+        t('button', null, { type: 'button', 'data-action': 'replay-current', text: '回顾本局' }),
+        t('button', null, { type: 'button', 'data-action': 'continue', text: '继续下一局' })
+      ]),
       t('h2', null, { 'data-role': 'info-title', text: '房间成员' }),
       t('ul', null, { 'data-role': 'members' }),
       roomRulesElement,
       replayListElement,
-      captured,
-      roomTools,
-      t('div', 'chess-finished', null, [
-        t('p', null, { 'data-role': 'finished' }),
-        t('button', null, { type: 'button', 'data-action': 'replay-current', text: '战事回顾' }),
-        t('button', null, { type: 'button', 'data-action': 'continue', text: '继续下一局' })
-      ])
+      roomTools
     ]);
     // 未读徽标：不打断对局，但也不能漏掉对手发言
     var chatTabBadge = t('span', 'chess-tab-badge', { text: '' });
@@ -1088,7 +1101,10 @@
     });
     var tabs = t('div', 'chess-info-tabs', { role: 'tablist', 'aria-label': '侧栏切换' }, [infoTabButton, chatTabButton, engineTabButton]);
     tabs.hidden = true;
-    var info = t('aside', 'chess-info', null, [turnBanner, tabs, infoPanel, chat, enginePanel]);
+    // 被吃子紧跟横幅、排在标签页之上：它是「这盘棋打到什么程度」的核心信息，
+    // 以前放在信息页最底部，被成员名单 + 规则行 + 历史对局列表一路顶到 851px 处，
+    // 而侧栏可视区只有 704px —— 平板上根本滚不到（实测「看不到损失具体棋子」）。
+    var info = t('aside', 'chess-info', null, [turnBanner, drawOffer, captured, tabs, infoPanel, chat, enginePanel]);
     var layout = t('div', 'chess-layout', null, [board, info]);
 
     // 标题栏是 .chess-app 的直接子级：shell 有限宽居中，header 移出后全宽贴顶贴边
@@ -1147,7 +1163,8 @@
     var soloColor = 'red';        // 人机练习玩家执色（红方先手，玩家默认执红）
     var soloLevel = 'normal';     // 电脑棋力 easy/normal/hard/master（入场卡选择，会话恢复保留）
     var levelElement = null;      // 入场卡棋力下拉（root 挂载后缓存）
-    var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null, settings: { hint: true, analyse: true } };
+    // drawOffer：房间内待处理的和棋提议发起者 user_id（null = 无人提和），1.14.0
+    var state = { board: initialBoard(), turn: 'red', winner: null, result: null, status: 'active', check: false, members: [], lastMove: null, drawOffer: null, settings: { hint: true, analyse: true } };
     // 会话持久化：切去聊天/社区再返回时恢复本地对局与房间（sessionStorage，关页即清）
     var SESSION_KEY = 'chess_session';
     function saveSession() {
@@ -1199,8 +1216,14 @@
     var membersElement = root.querySelector('[data-role="members"]');
     var infoTitleElement = root.querySelector('[data-role="info-title"]');
     var bannerElement = root.querySelector('[data-role="turn-banner"]');
+    var drawOfferElement = root.querySelector('[data-role="draw-offer"]');
+    var drawOfferTextElement = root.querySelector('[data-role="draw-offer-text"]');
+    var drawOfferButtonElement = root.querySelector('[data-action="draw-offer"]');
+    var drawAcceptButtonElement = root.querySelector('[data-action="draw-accept"]');
+    var drawDeclineButtonElement = root.querySelector('[data-action="draw-decline"]');
     var capturedElement = root.querySelector('[data-role="captured"]');
     var finishedElement = root.querySelector('[data-role="finished"]');
+    var finishedBlock = root.querySelector('[data-role="finished-block"]');
     var roomToolsElement = root.querySelector('[data-role="room-tools"]');
     // 渲染热路径复用的节点引用：render 每次点击/推送都会跑，
     // querySelector 全家桶挪到 mount 时一次性缓存
@@ -1471,6 +1494,9 @@
         return;
       }
       state = Object.assign(state, next);
+      // 服务端未升级（无 drawOffer 字段）时不能留着上一次的提议者，否则会显示一个
+      // 早已失效的「XX提议和棋」
+      if (!('drawOffer' in next)) state.drawOffer = null;
       if (mode === 'room') saveSession();
       // 状态更新后选中项可能失效：被吃/不属于己方/对局结束
       if (selected) {
@@ -1481,10 +1507,61 @@
     }
 
     // ===== 结果文案 =====
+    // 终局原因（result）与胜负（winner）分开表达：和棋有「双方同意 / 六十回合自然限着」两种由头，
+    // 困毙则是**判负**（中国象棋规则，别写成和棋）。
     function resultText(next) {
       if (next.result === 'resign') return (next.winner === 'red' ? '黑方认输，红方获胜' : '红方认输，黑方获胜');
-      if (next.winner === 'draw') return '困毙，和棋';
+      if (next.result === 'agreement') return '双方同意和棋';
+      if (next.result === 'natural') return '和棋（六十回合无吃子）';
+      // 长将判负（不是和棋）：照将方属「禁止着法」，判给被长将的一方
+      if (next.result === 'perpetual') return next.winner === 'red' ? '黑方长将判负，红方获胜' : '红方长将判负，黑方获胜';
+      if (next.result === 'stalemate') {
+        return next.winner === 'draw' ? '困毙，和棋'
+          : (next.winner === 'red' ? '黑方被困毙，红方获胜' : '红方被困毙，黑方获胜');
+      }
+      if (next.winner === 'draw') return '和棋';
       return next.winner === 'red' ? '红方将死黑方，红方获胜' : '黑方将死红方，黑方获胜';
+    }
+
+    // ===== 和棋提议区（1.14.0）=====
+    // 官方「和棋」第 2 条是双方协商：一方提议作和、另一方同意即和。
+    // 三种形态：① 无人提和 → 玩家见「提议和棋」；② 我方提的 → 「撤回」+ 等待文案；
+    // ③ 对手提的 → 「同意 / 拒绝」。观战者只看不操作。走子即视为拒绝（后端 move 路由清标记）。
+    function syncDrawOffer(member) {
+      var offerBy = state.drawOffer ? String(state.drawOffer) : '';
+      var myId = currentUserId();
+      var iAmPlayer = !!(member && member.color);
+      // 复盘接管显示层时不显示：回顾的是过去局面，不能让人对历史局提和
+      var playable = mode === 'room' && !!roomCode && state.status === 'active' && !state.winner && !replay.active;
+      if (!playable) { drawOfferElement.hidden = true; return; }
+      var offerer = null;
+      for (var i = 0; i < state.members.length; i++) {
+        if (String(state.members[i].user_id) === offerBy) { offerer = state.members[i]; break; }
+      }
+      var sideName = offerer ? (offerer.color === 'red' ? '红方' : offerer.color === 'black' ? '黑方' : '对手') : '对手';
+      if (!offerBy) {
+        drawOfferElement.hidden = !iAmPlayer;
+        if (!iAmPlayer) return;
+        setText(drawOfferTextElement, '局面僵持？可以提议和棋');
+        drawOfferButtonElement.hidden = false;
+        drawAcceptButtonElement.hidden = true;
+        drawDeclineButtonElement.hidden = true;
+        return;
+      }
+      drawOfferElement.hidden = false;
+      if (offerBy === myId) {
+        setText(drawOfferTextElement, '已提议和棋，等待对方回应');
+        drawOfferButtonElement.hidden = true;
+        drawAcceptButtonElement.hidden = true;
+        drawDeclineButtonElement.hidden = false;
+        setText(drawDeclineButtonElement, '撤回');
+        return;
+      }
+      setText(drawOfferTextElement, sideName + '提议和棋');
+      drawOfferButtonElement.hidden = true;
+      drawAcceptButtonElement.hidden = !iAmPlayer;
+      drawDeclineButtonElement.hidden = !iAmPlayer;
+      setText(drawDeclineButtonElement, '拒绝');
     }
 
     // ===== 棋盘尺寸度量：交点按钮/棋子字号随棋盘宽度换算 =====
@@ -1593,7 +1670,10 @@
     // 被吃子签名缓存：棋盘子力没变（纯选子/提示类重渲染）就不重建（最多 32 个 span）
     var lastCapturedSignature = '';
     function renderCaptured() {
-      if (mode === '') {
+      // 入场态 / 复盘中整块让位：复盘面板自带「红失/黑失 + 子力差」，这里再显示一份
+      // 会与快照不一致（这里读的是即时 state，复盘显示的是历史局面）
+      if (mode === '' || replay.active) {
+        capturedElement.hidden = true;
         if (lastCapturedSignature !== '') { lastCapturedSignature = ''; clearChildren(capturedElement); }
         return;
       }
@@ -1611,6 +1691,16 @@
       if (sig === lastCapturedSignature) return;
       lastCapturedSignature = sig;
       clearChildren(capturedElement);
+      // 双方都还没损子时整块让位：开局就顶两行「无损失」纯占高度，
+      // 而它挪到侧栏顶部后每一像素都在挤棋盘 —— 只在真正有战损时出现。
+      var totalLost = 0;
+      CAPTURE_TYPES.forEach(function(type) {
+        var initial = type === 'pawn' ? 5 : 2;
+        totalLost += Math.max(0, initial - (onBoard['r_' + type] || 0));
+        totalLost += Math.max(0, initial - (onBoard['b_' + type] || 0));
+      });
+      capturedElement.hidden = totalLost === 0;
+      if (capturedElement.hidden) return;
       ['red', 'black'].forEach(function(color) {
         var prefix = color === 'red' ? 'r_' : 'b_';
         var row = t('div', 'chess-captured-row', null, [
@@ -1752,6 +1842,7 @@
         setClass(bannerElement, bannerClass);
         setText(bannerElement, bannerText);
       }
+      syncDrawOffer(member);
       if (isLocal) setConnection(mode === 'solo' && aiPending ? '电脑思考中' : (mode === 'solo' ? soloEngineText() || '本地对弈' : '本地对弈'), 'online');
       else if (!roomCode) setConnection('未进入房间', '');
       // 入场态：隐藏副标题与棋盘区
@@ -1883,7 +1974,10 @@
       if (isLocal) {
         setText(finishedElement, state.winner
           ? (mode === 'solo'
-            ? (state.winner === 'draw' ? '困毙，和棋' : state.winner === soloColor ? '恭喜，你赢了！' : '电脑获胜，再战一局？')
+            // 和棋要说出由头（六十回合自然限着），不能笼统写「和棋」；
+            // 困毙/长将现在都有明确胜负方，不会走进 draw 分支
+            ? (state.winner === 'draw' ? (state.result === 'natural' ? '和棋（六十回合无吃子）' : '和棋')
+              : state.winner === soloColor ? '恭喜，你赢了！' : '电脑获胜，再战一局？')
             : resultText(state))
           : '');
         continueButton.hidden = !finished;
@@ -1893,6 +1987,9 @@
         continueButton.hidden = !finished || !owner;
         continueButton.textContent = '继续下一局';
       }
+      // 结束区整体显隐：它现在是信息页的第一块，非结束时必须连 margin 一起让位，
+      // 否则「房间成员」标题会被凭空推下去一截。
+      if (finishedBlock) finishedBlock.hidden = !finished;
       // 战事回顾入口（1.11.0）：房间进房即可回顾当前局（进行中也可回看——复盘接管显示，
       // 对局广播照常落地，退出即回最新局面）；本地有走子记录即可；复盘期间隐藏。
       if (replayCurrentButton) {
@@ -1915,21 +2012,54 @@
     }
 
     // ===== 走子落盘（本地）：应用走法并判定将死/困毙 =====
+    // 六十回合自然限着（官方「和棋」第 4 条）：连续 60 回合 = 双方各 60 手 = 120 手无吃子判和
+    var LOCAL_NATURAL_LIMIT = 120;
+    function localNoCaptureStreak() {
+      var n = 0;
+      for (var i = localHistory.length - 1; i >= 0; i--) {
+        if (localHistory[i].captured) break;
+        n++;
+      }
+      return n;   // 含刚落下的这一手（调用点在 push 之后）
+    }
+    // 长将判负：同一方连续 6 手照将、期间双方都没吃子 → 判该方负（与服务端 checkStreak 同阈值同语义）
+    var LOCAL_PERPETUAL_LIMIT = 6;
+    function localCheckStreak(color) {
+      var n = 0;
+      for (var i = localHistory.length - 1; i >= 0; i--) {
+        var h = localHistory[i];
+        if (h.captured) break;                       // 期间有吃子 → 局面在推进，不是长将
+        if (pieceColor(h.piece) === color) {
+          if (!h.gaveCheck) break;                   // 该方这一手没将军 → 连将断了
+          n++;
+        }
+      }
+      return n;   // 含刚落下的这一手（调用点在 push 之后）
+    }
     function applyLocalMove(fr, fc, tr, tc) {
       var piece = state.board[fr][fc];
       var captured = state.board[tr][tc] || null;
       var mover = pieceColor(piece);
       state.board[tr][tc] = piece;
       state.board[fr][fc] = null;
-      localHistory.push({ fr: fr, fc: fc, tr: tr, tc: tc, piece: piece, captured: captured });
-      state.lastMove = { fromRow: fr, fromCol: fc, toRow: tr, toCol: tc, color: mover };
       var nextTurn = mover === 'red' ? 'black' : 'red';
+      // 落子后的将军状态：既是本手是否照将（长将计数用），也是下一手的 check 提示
+      var gaveCheck = isInCheck(state.board, nextTurn);
+      localHistory.push({ fr: fr, fc: fc, tr: tr, tc: tc, piece: piece, captured: captured, gaveCheck: gaveCheck });
+      state.lastMove = { fromRow: fr, fromCol: fc, toRow: tr, toCol: tc, color: mover };
       if (captured === 'r_king' || captured === 'b_king') {
         state.winner = mover; state.result = 'checkmate'; state.status = 'finished'; state.check = false;
       } else if (isInCheck(state.board, nextTurn) && !hasAnyMove(state.board, nextTurn)) {
         state.winner = mover; state.result = 'checkmate'; state.status = 'finished'; state.check = false;
       } else if (!isInCheck(state.board, nextTurn) && !hasAnyMove(state.board, nextTurn)) {
-        state.winner = 'draw'; state.result = 'stalemate'; state.status = 'finished'; state.check = false;
+        // 困毙：轮走方无子可动且未被将军 —— **中国象棋判负**（走子方胜），不是和棋
+        state.winner = mover; state.result = 'stalemate'; state.status = 'finished'; state.check = false;
+      } else if (gaveCheck && localCheckStreak(mover) >= LOCAL_PERPETUAL_LIMIT) {
+        // 长将判负：照将方属于「禁止着法」，不变作负 —— 判给被长将的一方（nextTurn）
+        state.winner = nextTurn; state.result = 'perpetual'; state.status = 'finished'; state.check = false;
+      } else if (localNoCaptureStreak() >= LOCAL_NATURAL_LIMIT) {
+        // 六十回合自然限着（官方「和棋」第 4 条）→ 判和
+        state.winner = 'draw'; state.result = 'natural'; state.status = 'finished'; state.check = false;
       } else {
         state.turn = nextTurn;
         state.check = isInCheck(state.board, nextTurn);
@@ -2977,6 +3107,25 @@
         }
         return;
       }
+      // 和棋提议（1.14.0）：提议要二次确认（误点会打断对手节奏），同意/拒绝是回应对手、不需要确认
+      if ((kind === 'draw-offer' || kind === 'draw-accept' || kind === 'draw-decline') && roomCode && !pending) {
+        var drawAction = kind === 'draw-offer' ? 'offer' : kind === 'draw-accept' ? 'accept' : 'decline';
+        var drawHint = kind === 'draw-offer' ? '提和失败' : kind === 'draw-accept' ? '同意和棋失败' : '操作失败';
+        var sendDraw = function() {
+          action.disabled = true;
+          setBusy(true);
+          actionRequest('/draw', drawHint, { action: drawAction }).then(function() { setBusy(false); });
+        };
+        if (kind === 'draw-offer' && context.modal && typeof context.modal.confirm === 'function') {
+          context.modal.confirm({
+            title: '提议和棋', message: '对方同意即和棋；对方走子则视为拒绝。确定提议吗？',
+            confirmText: '提议', cancelText: '取消'
+          }).then(function(confirmed) { if (confirmed) sendDraw(); });
+        } else {
+          sendDraw();
+        }
+        return;
+      }
       if (kind === 'copy' && roomCode) {
         var copyPromise = navigator.clipboard && navigator.clipboard.writeText
           ? navigator.clipboard.writeText(roomCode)
@@ -3115,6 +3264,20 @@
     var removeChatInput = function() {
       if (chatInputElement) chatInputElement.removeEventListener('keydown', onChatKeydown);
     };
+    // 入场卡房间码：回车 = 加入对局（与聊天一样，平板软键盘的「前往/发送」键也派发 Enter）。
+    // 之前只有手指点按钮这一条路，键盘用户输完码只能去点按钮。
+    var roomFieldInput = root.querySelector('[data-field="room"]');
+    function onRoomFieldKeydown(event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      var code = roomFieldInput.value;
+      if (!code) return;
+      enter(code, 'join');
+    }
+    if (roomFieldInput) roomFieldInput.addEventListener('keydown', onRoomFieldKeydown);
+    var removeRoomField = function() {
+      if (roomFieldInput) roomFieldInput.removeEventListener('keydown', onRoomFieldKeydown);
+    };
     // ===== 键盘可达性（桌面 / 带键盘的平板）=====
     // 1) 复盘着法列表项是 <li role="button" tabindex="0">：Enter/Space 不会自动派发 click
     //    （只有原生 <button> 会）。这里补齐，并用 stopPropagation 挡住同一次按键再落到下面的全局快捷键。
@@ -3154,6 +3317,7 @@
       root.removeEventListener('keydown', onRootKeydown);
       root.removeEventListener('input', onRootInput);
       document.removeEventListener('keydown', onGlobalKeydown);
+      removeRoomField();
     };
     var removeBoardEvents = function() {
       boardElement.removeEventListener('pointerdown', onBoardDown);
