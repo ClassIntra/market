@@ -102,6 +102,19 @@ node scripts/chess-engine-setup.mjs --from <本地.Pikafish.7z>   # 离线安装
 
 没装也能正常玩：人机自动回落内置 AI（副标题显示「内置引擎」），只是棋力上限低一些。
 
+⚠️ **每台部署机都要各自装一次**：引擎二进制与权重在 `.stignore` 里被明确排除
+（57MB 走 Syncthing 隧道既慢又常断），**换台机器它们不会自己出现**。所以服务端启动时会在日志里
+直接明示自检结果，不必靠「平板上怎么没有引擎」反推：
+
+```
+[chess] 引擎模块已加载 exe=…\pikafish.exe 存在=true 权重=true hash=64MB threads=1
+[chess] 引擎可执行文件缺失，人机练习将回落内置 AI。修复：在服务器上执行 node scripts/chess-engine-setup.mjs
+[chess] 引擎权重 pikafish.nnue 缺失（exe 在但无 NNUE），搜索会失败并回落内置 AI。修复：…
+```
+
+接口侧同样可查（`available:false` + `engineName:""` 即未装）：`GET /api/chess/ai/status`。
+装完**无需重启服务**——引擎是首次用到时按需拉起的。
+
 ## 开发约束
 
 - **Chrome 80 基线**（校园平板）：禁用 flex/grid `gap`、`aspect-ratio`、`:is()`；

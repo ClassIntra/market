@@ -571,8 +571,20 @@ EngineProcess.prototype._run = function(entry) {
 
 var engine = new EngineProcess();
 
-// 加载标记：确认线上跑的是哪份引擎代码（改完没生效这类问题，一眼可辨）
-try { console.warn('[chess] 引擎模块已加载 exe=' + ENGINE_EXE + ' hash=' + HASH_MB + 'MB threads=' + THREADS); } catch (e) {}
+// 加载标记：确认线上跑的是哪份引擎代码（改完没生效这类问题，一眼可辨），
+// 并顺带报一次文件是否到位。exe/权重是 .stignore 排除项（57MB 走 Syncthing 不现实），
+// 换机器后不会自动出现——只听「模块已加载」会误判成可用（8i 上真踩过一次：
+// 前端静默回落内置 AI，只能从平板上「没引擎」的观感反推，运维侧毫无线索）。
+try {
+  var exeExists = fs.existsSync(ENGINE_EXE);
+  var nnueExists = fs.existsSync(ENGINE_NNUE);
+  console.warn('[chess] 引擎模块已加载 exe=' + ENGINE_EXE + ' 存在=' + exeExists + ' 权重=' + nnueExists + ' hash=' + HASH_MB + 'MB threads=' + THREADS);
+  if (!DISABLED && !exeExists) {
+    console.warn('[chess] 引擎可执行文件缺失，人机练习将回落内置 AI。修复：在服务器上执行 node scripts/chess-engine-setup.mjs（约 51MB，装完无需重启服务）');
+  } else if (!DISABLED && !nnueExists) {
+    console.warn('[chess] 引擎权重 pikafish.nnue 缺失（exe 在但无 NNUE），搜索会失败并回落内置 AI。修复：node scripts/chess-engine-setup.mjs');
+  }
+} catch (e) {}
 
 // 兜底：进程退出时收掉引擎（正常路径由空闲回收负责）
 if (!global.__chessEngineExitHooked) {
