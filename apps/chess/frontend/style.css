@@ -1488,7 +1488,16 @@
   display: flex;
   -ms-flex-wrap: wrap;
   flex-wrap: wrap;
-  gap: 8px;
+}
+/* 兼容红线：本文件直出、无 polyfill，flex gap 需 Chrome 84+（见文件头）。
+   这里用相邻兄弟 margin 代替，与本文件其余布局原语（第 125 行起）保持一致。
+   margin 打在每个子项右侧、抵消首项，才能拿到「项间 8px、容器左端不留白」
+   的等价效果 —— flex gap 不会在容器左端产生缩进。 */
+.chess-draw-offer-actions > * {
+  margin: 0 8px 0 0;
+}
+.chess-draw-offer-actions > *:first-child {
+  margin-left: 0;
 }
 /* 按钮样式必须自己写全：宿主没有通用的 .is-secondary，既有规则只覆盖
    .chess-room-tools button —— 提议区是侧栏顶部的新容器，落进默认样式就是

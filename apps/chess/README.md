@@ -115,6 +115,14 @@ node scripts/chess-engine-setup.mjs --from <本地.Pikafish.7z>   # 离线安装
 接口侧同样可查（`available:false` + `engineName:""` 即未装）：`GET /api/chess/ai/status`。
 装完**无需重启服务**——引擎是首次用到时按需拉起的。
 
+⚠️ **在管理端「更新 / 重装」本应用会删掉引擎（2026-10-12 实测）**：市场安装器执行更新时会
+**递归删除整个应用目录**后重装（`server/src/core/market-service.js` 的
+`fs.rmSync(finalDir, { recursive: true, force: true })`），装在 `backend/engine/` 里的
+exe 与权重必然被清掉——表现是平板人机练习静默回落内置 AI（副标题「内置引擎」）。
+**每次更新 chess 后，都要重跑一次上面的安装命令**（已装好会跳过，几秒完成）。
+自查两种口径：① `GET /api/chess/ai/status` 回 `available:false` + `engineName:""`；
+② 看服务器 `market-apps/chess/` 下文件时间戳是否**整目录统一**（统一 = 刚被整体重写 = 更新过）。
+
 ## 开发约束
 
 - **Chrome 80 基线**（校园平板）：禁用 flex/grid `gap`、`aspect-ratio`、`:is()`；
