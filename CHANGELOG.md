@@ -7,6 +7,8 @@
 - 新增 `.gitignore`（依赖、环境变量、日志与数据库不入库）。
 - 完善市场仓库说明，补充 Gitee 镜像、catalog、应用发布流程和 iFlyCompass 致谢。
 - 更新五子棋应用目录元数据，明确房间联机、观战、实时同步和断线恢复能力。
+- 新增网页代理插件 `web-proxy`（作者 [yujing0208](https://github.com/yujing0208)）：内置纯 Node 网页代理，超能岛浏览器自动为外网站点改走代理，可打开被防盗链、跨域或 iframe 限制的站点；默认监听 `9005`（占用自动顺延 `9006`–`9009`），随 ClassIntra 启动自动运行，兼容 iFlyCompass 的 `getassets/<scheme>/<host>/<path>` 地址形态（详见插件 README「出处与致谢」）。
+- `index.json` 升至 `4`，登记 `web-proxy` 插件条目。
 
 ## 1.1.0
 
