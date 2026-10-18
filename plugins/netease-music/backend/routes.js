@@ -428,11 +428,14 @@ router.get('/image', wrap(async function (req, res) {
 
 // ---------- 管理配置 ----------
 
-router.get('/admin/config', requireAdmin, function (req, res) {
+// ⚠️ 必须同时挂 requireAuth + requireAdmin：
+// req.user 只有 requireAuth 会写入（app.js 无全局 auth，插件路由是 app.use(mountPath, router) 直挂），
+// 单挂 requireAdmin 会让本接口永久 401 —— 2026-10-09 修复。
+router.get('/admin/config', requireAuth, requireAdmin, function (req, res) {
   ok(res, { config: store.getConfig() });
 });
 
-router.post('/admin/config', requireAdmin, function (req, res) {
+router.post('/admin/config', requireAuth, requireAdmin, function (req, res) {
   var applied = store.setConfig(req.body || {});
   ok(res, { applied: applied });
 });
