@@ -82,6 +82,30 @@ var JS_TYPES = {
 
 var MAX_REWRITE_BYTES = 12 * 1024 * 1024;
 var UPSTREAM_TIMEOUT_MS = 45000;
+// 解压上限：防止「压缩炸弹」把内存撑爆；超限时退化为原字节透传
+var MAX_INFLATE_BYTES = 64 * 1024 * 1024;
+
+// 上游连接池：显式开启 keep-alive。
+// 一次整页加载要对同一批域名发起几十个请求，复用连接可省掉每个资源的
+// DNS 查询 + TCP 三次握手 + TLS 握手——跨境链路上这笔开销往往比传输本身还大。
+// Node 19+ 的 globalAgent 虽默认 keepAlive，但部署环境可能是旧版 Node，故此处显式声明。
+var httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  scheduling: 'lifo'
+});
+var httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  scheduling: 'lifo',
+  rejectUnauthorized: !INSECURE_TLS,
+  // TLS 会话缓存：重连（如浏览器硬刷新）可走会话复用，省掉一次完整握手
+  maxCachedSessions: 200
+});
 
 // ---- 状态 ----
 
@@ -148,7 +172,10 @@ function sanitizeRequestHeaders(src, target, req, proxyBase) {
     out[key] = src[key];
   }
   out['host'] = target.host;
-  out['accept-encoding'] = 'identity';
+  // 透传浏览器的 accept-encoding：让上游以压缩形式传输（HTML/CSS/JS 通常可省 3-5 倍字节，
+  // 跨境链路上直接等于缩短加载时间）。本代理在重写文本前解压、重写后按同算法重新压缩。
+  var acceptEncoding = src['accept-encoding'] || src['Accept-Encoding'] || '';
+  out['accept-encoding'] = acceptEncoding || 'gzip, deflate, br';
 
   // 与目标站点的真实来源保持一致，减少防盗链/跨站拦截
   var browserReferer = src['referer'] || src['Referer'] || '';
@@ -305,16 +332,37 @@ function charsetOf(headers) {
 function decompressBuffer(buffer, encoding, cb) {
   var enc = String(encoding || '').toLowerCase();
   if (!enc || enc === 'identity') return cb(null, buffer);
+  var opts = { maxOutputLength: MAX_INFLATE_BYTES };
   if (enc === 'gzip' || enc === 'x-gzip') {
-    return zlib.gunzip(buffer, cb);
+    return zlib.gunzip(buffer, opts, cb);
   }
   if (enc === 'deflate') {
-    return zlib.inflate(buffer, cb);
+    return zlib.inflate(buffer, opts, cb);
   }
   if (enc === 'br') {
-    return zlib.brotliDecompress(buffer, cb);
+    return zlib.brotliDecompress(buffer, opts, cb);
   }
   return cb(null, null);
+}
+
+// 重写完成后按上游原本的压缩算法重新压缩，
+// 避免「去程用了压缩、回程又变回明文」导致节省的带宽白费。
+// brotli 用质量 4（质量 11 耗 CPU 且对已压缩文本收益极小）。
+function compressBuffer(buffer, encoding, cb) {
+  var enc = String(encoding || '').toLowerCase();
+  if (!enc || enc === 'identity') return cb(null, buffer, '');
+  if (enc === 'gzip' || enc === 'x-gzip') {
+    return zlib.gzip(buffer, { level: 5 }, function (e, out) { cb(e, out, 'gzip'); });
+  }
+  if (enc === 'deflate') {
+    return zlib.deflate(buffer, { level: 5 }, function (e, out) { cb(e, out, 'deflate'); });
+  }
+  if (enc === 'br') {
+    var brotliOpts = {};
+    brotliOpts[zlib.constants.BROTLI_PARAM_QUALITY] = 4;
+    return zlib.brotliCompress(buffer, { params: brotliOpts }, function (e, out) { cb(e, out, 'br'); });
+  }
+  return cb(null, null, '');
 }
 
 // ---- 文本编码处理 ----
@@ -407,58 +455,90 @@ function handleProxyRequest(req, res, target, proxyBase) {
       method: req.method,
       headers: headers,
       timeout: UPSTREAM_TIMEOUT_MS,
+      agent: isHttps ? httpsAgent : httpAgent,
       rejectUnauthorized: !INSECURE_TLS
     };
 
-    var upstream;
-    try {
-      upstream = transport.request(upstreamUrl, options, function (upRes) {
-        try {
-          onUpstreamResponse(req, res, upRes, target, proxyBase);
-        } catch (e) {
-          state.errors++;
-          state.lastError = 'response handler: ' + e.message;
-          sendErrorPage(res, 502, '代理处理失败', String(e.message));
-        }
-      });
-    } catch (e) {
-      state.errors++;
-      state.lastError = e.message;
-      sendErrorPage(res, 502, '代理请求失败', String(e.message));
-      return;
+    // keep-alive 复用的空闲连接可能已被上游 / NAT 静默回收，首个请求会拿到
+    // socket hang up / ECONNRESET。只对幂等方法（GET/HEAD/OPTIONS，无副作用）做一次
+    // 换连接重试；写方法绝不重试，避免重复提交。
+    var method = String(req.method || 'GET').toUpperCase();
+    var idempotent = (method === 'GET' || method === 'HEAD' || method === 'OPTIONS');
+    var maxAttempts = idempotent ? 2 : 1;
+
+    // 判定是否为「连接层、可安全重试」的错误
+    function isRetryableError(e) {
+      if (!e) return false;
+      var code = e.code || '';
+      if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' ||
+          code === 'EPIPE' || code === 'ECONNABORTED' || code === 'EHOSTUNREACH' ||
+          code === 'ENETUNREACH' || code === 'EAI_AGAIN') {
+        return true;
+      }
+      return /socket hang up/i.test(String(e.message || ''));
     }
-    myUpstream = upstream;
 
-    var settled = false;
+    function attempt(n) {
+      var gotResponse = false;
+      var settled = false;
 
-    upstream.on('timeout', function () {
-      if (settled) return;
-      settled = true;
-      state.errors++;
-      state.lastError = 'upstream timeout';
-      try { upstream.destroy(); } catch (e) {}
-      // 已开始回传（流式）时只断开，不再写错误页
-      if (res.headersSent) {
-        try { res.destroy(); } catch (e) {}
+      var upstream;
+      try {
+        upstream = transport.request(upstreamUrl, options, function (upRes) {
+          gotResponse = true;
+          try {
+            onUpstreamResponse(req, res, upRes, target, proxyBase);
+          } catch (e) {
+            state.errors++;
+            state.lastError = 'response handler: ' + e.message;
+            sendErrorPage(res, 502, '代理处理失败', String(e.message));
+          }
+        });
+      } catch (e) {
+        state.errors++;
+        state.lastError = e.message;
+        sendErrorPage(res, 502, '代理请求失败', String(e.message));
         return;
       }
-      sendErrorPage(res, 504, '上游响应超时', '目标站点在 ' + (UPSTREAM_TIMEOUT_MS / 1000) + ' 秒内没有响应。');
-    });
+      myUpstream = upstream;
 
-    upstream.on('error', function (e) {
-      state.errors++;
-      state.lastError = e.message;
-      if (!res.headersSent) {
-        sendErrorPage(res, 502, '无法连接目标站点', String(e.message));
-      } else {
-        try { res.destroy(); } catch (err) {}
+      upstream.on('timeout', function () {
+        if (settled) return;
+        settled = true;
+        state.errors++;
+        state.lastError = 'upstream timeout';
+        try { upstream.destroy(); } catch (e) {}
+        // 已开始回传（流式）时只断开，不再写错误页
+        if (res.headersSent) {
+          try { res.destroy(); } catch (e) {}
+          return;
+        }
+        sendErrorPage(res, 504, '上游响应超时', '目标站点在 ' + (UPSTREAM_TIMEOUT_MS / 1000) + ' 秒内没有响应。');
+      });
+
+      upstream.on('error', function (e) {
+        // 尚未拿到响应头、且是幂等请求的连接层错误 → 换一条连接再试一次
+        if (!gotResponse && !settled && isRetryableError(e) && n < maxAttempts && !res.headersSent) {
+          try { upstream.destroy(); } catch (err) {}
+          attempt(n + 1);
+          return;
+        }
+        state.errors++;
+        state.lastError = e.message;
+        if (!res.headersSent) {
+          sendErrorPage(res, 502, '无法连接目标站点', String(e.message));
+        } else {
+          try { res.destroy(); } catch (err) {}
+        }
+      });
+
+      if (body && body.length) {
+        upstream.write(body);
       }
-    });
-
-    if (body && body.length) {
-      upstream.write(body);
+      upstream.end();
     }
-    upstream.end();
+
+    attempt(1);
   });
 
   req.on('error', function (e) {
@@ -525,8 +605,18 @@ function onUpstreamResponse(req, res, upRes, target, proxyBase) {
     if (aborted) return;
     var raw = Buffer.concat(buffered);
     decompressBuffer(raw, encoding, function (err, inflated) {
-      var payload = err || !inflated ? raw : inflated;
-      var text = decodeText(payload, charset);
+      if (err || !inflated) {
+        // 解压失败（含超大解压保护触发、上游用了不支持的编码）：不做重写，
+        // 按原始字节 + 原始响应头透传，保证内容至少可读
+        if (!res.headersSent) {
+          var rawHeaders = sanitizeResponseHeaders(upRes.headers, proxyBase, sitePrefix, realUrl);
+          rawHeaders['Content-Length'] = String(raw.length);
+          res.writeHead(status, rawHeaders);
+        }
+        res.end(raw);
+        return;
+      }
+      var text = decodeText(inflated, charset);
       var ctx = {
         proxyBase: proxyBase,
         scheme: target.scheme,
@@ -555,9 +645,14 @@ function onUpstreamResponse(req, res, upRes, target, proxyBase) {
       }
       outHeaders['Content-Type'] = ct;
       delete outHeaders['content-type'];
-      outHeaders['Content-Length'] = String(encoded.body.length);
-      res.writeHead(status, outHeaders);
-      res.end(encoded.body);
+      // 按上游原本的压缩算法重新压缩后回传（原本是 identity 就保持 identity）
+      compressBuffer(encoded.body, encoding, function (cerr, compressed, encOut) {
+        var body = (cerr || !compressed) ? encoded.body : compressed;
+        if (!cerr && compressed && encOut) outHeaders['Content-Encoding'] = encOut;
+        outHeaders['Content-Length'] = String(body.length);
+        if (!res.headersSent) res.writeHead(status, outHeaders);
+        res.end(body);
+      });
     });
   });
 
