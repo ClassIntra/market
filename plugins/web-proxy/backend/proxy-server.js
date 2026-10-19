@@ -406,8 +406,14 @@ function sendErrorPage(res, code, title, detail) {
     '<style>body{margin:0;background:#0f1115;color:#e6e8ee;font:14px/1.6 system-ui,sans-serif;' +
     'display:flex;align-items:center;justify-content:center;height:100vh}' +
     '.box{max-width:560px;padding:28px 32px;border:1px solid #2a2f3a;border-radius:14px;background:#161a22}' +
-    'h1{font-size:17px;margin:0 0 10px}p{margin:0;color:#9aa3b2;word-break:break-all}</style>' +
-    '</head><body><div class="box"><h1>' + title + '</h1><p>' + detail + '</p></div></body></html>';
+    'h1{font-size:17px;margin:0 0 10px}p{margin:0;color:#9aa3b2;word-break:break-all}' +
+    '.hint{margin-top:10px;font-size:13px;color:#6b7280}' +
+    'button{margin-top:18px;padding:9px 22px;border:0;border-radius:9px;background:#3b82f6;color:#fff;' +
+    'font-size:14px;cursor:pointer}button:hover{background:#2563eb}</style>' +
+    '</head><body><div class="box"><h1>' + title + '</h1><p>' + detail + '</p>' +
+    '<button onclick="location.reload()">重试</button>' +
+    '<p class="hint">若多次重试仍失败，通常是目标站点不可达或当前网络受限。</p>' +
+    '</div></body></html>';
   try {
     res.writeHead(code, {
       'Content-Type': 'text/html; charset=utf-8',
