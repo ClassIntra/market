@@ -159,6 +159,38 @@ function buildProxyBase(req) {
 
 // ---- 请求头处理 ----
 
+// 过滤上游编码协商：代理支持 gzip / deflate / br 的解压与重新压缩；
+// 其余编码（如 zstd）若透传，上游可能据此返回代理无法解压的内容，
+// 于是只能原样透传 → HTML/JS 失去改写能力 → 页面资源残缺。
+var PROXY_SUPPORTED_ENCODINGS = {
+  gzip: true,
+  'x-gzip': true,
+  deflate: true,
+  br: true,
+  identity: true,
+  '*': true
+};
+
+function filterAcceptEncoding(header) {
+  if (!header) return '';
+  var parts = String(header).split(',');
+  var kept = [];
+  for (var i = 0; i < parts.length; i++) {
+    var raw = parts[i].trim();
+    if (!raw) continue;
+    var semi = raw.indexOf(';');
+    var name = (semi >= 0 ? raw.substring(0, semi) : raw).trim().toLowerCase();
+    if (!name) continue;
+    // Node 具备 zstd 解压能力时才保留 zstd，否则剔除
+    if (name === 'zstd' && typeof zlib.zstdDecompress === 'function') {
+      kept.push(raw);
+      continue;
+    }
+    if (PROXY_SUPPORTED_ENCODINGS[name]) kept.push(raw);
+  }
+  return kept.join(', ');
+}
+
 function sanitizeRequestHeaders(src, target, req, proxyBase) {
   var out = {};
   for (var key in src) {
@@ -174,7 +206,7 @@ function sanitizeRequestHeaders(src, target, req, proxyBase) {
   out['host'] = target.host;
   // 透传浏览器的 accept-encoding：让上游以压缩形式传输（HTML/CSS/JS 通常可省 3-5 倍字节，
   // 跨境链路上直接等于缩短加载时间）。本代理在重写文本前解压、重写后按同算法重新压缩。
-  var acceptEncoding = src['accept-encoding'] || src['Accept-Encoding'] || '';
+  var acceptEncoding = filterAcceptEncoding(src['accept-encoding'] || src['Accept-Encoding'] || '');
   out['accept-encoding'] = acceptEncoding || 'gzip, deflate, br';
 
   // 与目标站点的真实来源保持一致，减少防盗链/跨站拦截
@@ -337,10 +369,20 @@ function decompressBuffer(buffer, encoding, cb) {
     return zlib.gunzip(buffer, opts, cb);
   }
   if (enc === 'deflate') {
-    return zlib.inflate(buffer, opts, cb);
+    // 部分服务器发送的是「裸 deflate」（无 zlib 头），zlib.inflate 会失败；
+    // 此时退回 inflateRaw 再试一次，避免解压失败 → 原样透传 → 文本不再改写。
+    return zlib.inflate(buffer, opts, function (err, out) {
+      if (!err && out) return cb(null, out);
+      return zlib.inflateRaw(buffer, opts, cb);
+    });
   }
   if (enc === 'br') {
     return zlib.brotliDecompress(buffer, opts, cb);
+  }
+  // zstd：新版浏览器会附带，部分 CDN 会据此返回 zstd；Node 22.15+ 提供解压能力。
+  // 解压后照常改写；回程若无法重新压缩，则按未压缩（identity）回传。
+  if (enc === 'zstd' && typeof zlib.zstdDecompress === 'function') {
+    return zlib.zstdDecompress(buffer, opts, cb);
   }
   return cb(null, null);
 }

@@ -160,6 +160,22 @@ function rewriteInlineStyles(html, ctx) {
   });
 }
 
+// ---- 内联 <style> 块中的 url()/@import ----
+// 此前只改写了「style 属性」与外部 CSS 文件，页面内联 <style> 块未被处理：
+// 其中的根相对路径会绕过代理落到代理根而 404，深层页面的相对路径也会因
+// <base> 基准不同而解析错误，导致背景图等资源缺失（表现为「代理不完全」）。
+
+var STYLE_BLOCK_RE = /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi;
+
+function rewriteStyleBlocks(html, ctx) {
+  return html.replace(STYLE_BLOCK_RE, function (match, open, body, close) {
+    if (!body || (body.indexOf('url(') < 0 && body.indexOf('@import') < 0)) return match;
+    var next = rewriteCss(body, ctx);
+    if (next === body) return match;
+    return open + next + close;
+  });
+}
+
 // ---- <base href> 重写 ----
 // 目标站点若带 <base>，相对路径会以它为基准解析；必须同步改写成代理 URL，
 // 否则相对资源会落到代理根路径而解析失败。
@@ -365,6 +381,7 @@ function injectHook(html, ctx) {
 function rewriteHtml(html, ctx) {
   var out = rewriteAttrs(html, ctx);
   out = rewriteInlineStyles(out, ctx);
+  out = rewriteStyleBlocks(out, ctx);
   out = rewriteBaseTag(out, ctx);
   out = rewriteMetaTags(out, ctx);
   out = rewriteInlineScripts(out, ctx);
