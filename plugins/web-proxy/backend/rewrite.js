@@ -376,10 +376,22 @@ function injectHook(html, ctx) {
   return baseTag + snippet + html;
 }
 
+// ---- SRI / crossorigin 清理 ----
+// 资源地址被改写后，页面内容与原始站点已不是「同一份字节」，
+// 浏览器按 integrity 校验必然失败并把脚本/样式直接拦掉（表现为整页白屏或功能缺失）；
+// 而代理后所有资源同源，crossorigin 也失去意义。故统一清除这两个属性。
+var SRI_ATTR_RE = /\s+integrity\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+var CROSSORIGIN_ATTR_RE = /\s+crossorigin(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=[\s>\/])/gi;
+
+function stripSecurityAttrs(html) {
+  return String(html).replace(SRI_ATTR_RE, '').replace(CROSSORIGIN_ATTR_RE, '');
+}
+
 // ---- 对外入口 ----
 
 function rewriteHtml(html, ctx) {
-  var out = rewriteAttrs(html, ctx);
+  var out = stripSecurityAttrs(html);
+  out = rewriteAttrs(out, ctx);
   out = rewriteInlineStyles(out, ctx);
   out = rewriteStyleBlocks(out, ctx);
   out = rewriteBaseTag(out, ctx);

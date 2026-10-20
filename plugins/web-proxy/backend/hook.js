@@ -60,10 +60,34 @@
     return false;
   }
 
+  // 局域网 / 本机 / 内网短主机名：直连即可，不必绕代理。
+  // 如果这类地址也改写成代理地址，请求会变成由服务器所在网络发起，
+  // 指向学生本机设备的地址（如 192.168.x 的投屏、打印）将无法到达。
+  function isLanHostname(hostname) {
+    var h = String(hostname || '').toLowerCase();
+    if (!h) return true;
+    if (h === 'localhost' || /\.localhost$/.test(h)) return true;
+    if (h === '[::1]' || h === '::1') return true;
+    if (/^\[?fe80:/i.test(h) || /^\[?f[cd][0-9a-f]{2}:/i.test(h)) return true;
+    if (h.charAt(0) !== '[' && h.indexOf('.') < 0) return true;
+    if (/(\.local|\.lan|\.internal|\.home|\.corp|\.intranet|\.localdomain)$/.test(h)) return true;
+    var m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+    if (!m) return false;
+    var a = parseInt(m[1], 10);
+    var b = parseInt(m[2], 10);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+
   function toProxy(absolute) {
     try {
       var parsed = new URL(absolute);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      if (isLanHostname(parsed.hostname)) return null;
       var scheme = parsed.protocol === 'https:' ? 'https' : 'http';
       var out = PROXY_BASE + '/' + scheme + '/' + parsed.host + (parsed.pathname || '/');
       if (parsed.search) out += parsed.search;
@@ -91,6 +115,29 @@
     } catch (e) {
       return u;
     }
+  }
+
+  // 改写 CSS 文本中的 url()（供 insertRule / addRule 等动态注入的样式使用）
+  function rewriteCssText(css) {
+    return String(css).replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, function (m, q, u) {
+      var p = rewrite(u);
+      return p === u ? m : 'url(' + p + ')';
+    });
+  }
+
+  // 改写 HTML 字符串中带引号的 URL 属性（供 innerHTML / outerHTML / insertAdjacentHTML 使用）。
+  // 目的：innerHTML 赋值发生在 MutationObserver 回调之前，浏览器可能早在观察者回补前
+  // 就已向原始域名发起请求（CORS / 防盗链失败）；这里在「赋值前」先改写以消除竞态。
+  var HTML_URL_ATTR_RE = /(\b(?:src|href|action|poster|background|data-src|data-href|formaction|data|codebase|icon|manifest)\s*=\s*)(["'])([^"']*)\2/gi;
+  // 片段里的 SRI / crossorigin 同样要清掉：地址一旦改写，integrity 校验必然失败
+  var FRAG_SRI_RE = /\s+integrity\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+  var FRAG_CO_RE = /\s+crossorigin(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=[\s>\/])/gi;
+  function rewriteHtmlAttrs(html) {
+    var src = String(html).replace(FRAG_SRI_RE, '').replace(FRAG_CO_RE, '');
+    return src.replace(HTML_URL_ATTR_RE, function (m, pre, q, u) {
+      var p = rewrite(u);
+      return p === u ? m : pre + q + p + q;
+    });
   }
 
   // 代理 URL 还原为真实 URL
@@ -264,6 +311,44 @@
     window.WebSocket.prototype = NativeWS.prototype;
   }
 
+  // ---- Worker / SharedWorker ----
+  // Worker 运行在独立线程，注入的 hook 不生效；在构造时把脚本 URL 改写为代理地址，
+  // 至少保证 Worker 脚本本身经代理加载（Worker 内部的 fetch 仍指向真实域名，属已知边界）。
+  try {
+    var NativeWorker = window.Worker;
+    if (typeof NativeWorker === 'function') {
+      window.Worker = function (url, opts) {
+        var u = rewrite(String(url));
+        return opts === undefined ? new NativeWorker(u) : new NativeWorker(u, opts);
+      };
+      window.Worker.prototype = NativeWorker.prototype;
+    }
+  } catch (e) {}
+  try {
+    var NativeSharedWorker = window.SharedWorker;
+    if (typeof NativeSharedWorker === 'function') {
+      window.SharedWorker = function (url, name) {
+        var u = rewrite(String(url));
+        return name === undefined ? new NativeSharedWorker(u) : new NativeSharedWorker(u, name);
+      };
+      window.SharedWorker.prototype = NativeSharedWorker.prototype;
+    }
+  } catch (e) {}
+
+  // ---- Service Worker 注册 ----
+  // 作用域仍在代理域下（见 README「已知限制」），但至少把注册脚本指向代理，
+  // 避免其直接向原始域名拉取而被拦截。
+  try {
+    var swContainer = window.navigator && window.navigator.serviceWorker;
+    if (swContainer && typeof swContainer.register === 'function') {
+      var nativeRegister = swContainer.register;
+      swContainer.register = function (url, opts) {
+        try { url = rewrite(String(url)); } catch (e) {}
+        return nativeRegister.call(swContainer, url, opts);
+      };
+    }
+  } catch (e) {}
+
   // ---- Image.src ----
   try {
     var imgProto = window.HTMLImageElement && window.HTMLImageElement.prototype;
@@ -321,6 +406,32 @@
     };
   }
 
+  // ---- innerHTML / outerHTML / insertAdjacentHTML ----
+  // MutationObserver 是异步的：动态写入的 HTML 片段可能在观察者回补 URL 之前
+  // 就已发起请求（原始域名 → CORS / 防盗链失败）。这里在「赋值前」同步改写。
+  function installHtmlSetter(prop) {
+    try {
+      var desc = Object.getOwnPropertyDescriptor(window.Element.prototype, prop);
+      if (!desc || !desc.set || !desc.get) return;
+      Object.defineProperty(window.Element.prototype, prop, {
+        configurable: true,
+        enumerable: desc.enumerable,
+        get: function () { return desc.get.call(this); },
+        set: function (value) { desc.set.call(this, rewriteHtmlAttrs(value)); }
+      });
+    } catch (e) {}
+  }
+  installHtmlSetter('innerHTML');
+  installHtmlSetter('outerHTML');
+  try {
+    var nativeInsertAdjacentHTML = window.Element.prototype.insertAdjacentHTML;
+    if (typeof nativeInsertAdjacentHTML === 'function') {
+      window.Element.prototype.insertAdjacentHTML = function (position, html) {
+        return nativeInsertAdjacentHTML.call(this, position, rewriteHtmlAttrs(html));
+      };
+    }
+  } catch (e) {}
+
   // ---- CSS backgroundImage ----
   try {
     var styleProto = window.CSSStyleDeclaration && window.CSSStyleDeclaration.prototype;
@@ -340,6 +451,39 @@
             bgDesc.set.call(this, next);
           }
         });
+      }
+    }
+  } catch (e) {}
+
+  // ---- CSSStyleSheet 动态规则（insertRule / addRule / replaceSync）----
+  // 这类样式由脚本拼装后直接注入，不经过任何 DOM 属性，MutationObserver 观察不到；
+  // 其中的 url() 若不改写，背景图/字体等资源会直接请求原始域名而失败。
+  try {
+    var sheetProto = window.CSSStyleSheet && window.CSSStyleSheet.prototype;
+    if (sheetProto) {
+      var nativeInsertRule = sheetProto.insertRule;
+      if (typeof nativeInsertRule === 'function') {
+        sheetProto.insertRule = function (rule, index) {
+          var next = rewriteCssText(rule);
+          return index === undefined
+            ? nativeInsertRule.call(this, next)
+            : nativeInsertRule.call(this, next, index);
+        };
+      }
+      var nativeAddRule = sheetProto.addRule;
+      if (typeof nativeAddRule === 'function') {
+        sheetProto.addRule = function (selector, body, index) {
+          return index === undefined
+            ? nativeAddRule.call(this, selector, rewriteCssText(body))
+            : nativeAddRule.call(this, selector, rewriteCssText(body), index);
+        };
+      }
+      // 构造式样式表（new CSSStyleSheet().replaceSync('...')）同样是脚本直写
+      var nativeReplaceSync = sheetProto.replaceSync;
+      if (typeof nativeReplaceSync === 'function') {
+        sheetProto.replaceSync = function (text) {
+          return nativeReplaceSync.call(this, rewriteCssText(text));
+        };
       }
     }
   } catch (e) {}
