@@ -1630,6 +1630,16 @@ function sendFallback(userId) {
 function start() {
   if (state.started) return;
   state.started = true;
+  // 镜像实例（ClassIntra 的 app-https.js）不启动机器人 relay。
+  // 机器人账号在 CI WS 上只允许一个连接：9001 主实例已经登着，
+  // 镜像实例再登一次，服务端会把旧连接踢掉（对端收到 code=1005），
+  // 而镜像这边 scheduleReconnect 立刻又连回来 —— 于是两边互相踢，
+  // 每 3 秒一轮的无尽循环，日志刷屏不说，机器人在学生端表现为间歇性掉线。
+  // 同 ws/chat-server.js 的镜像早退：全局唯一资源只归主实例。
+  if (process.env.WS_MIRROR_MODE === 'true') {
+    log('镜像实例（app-https）：机器人 relay 由 9001 主实例负责，本实例跳过');
+    return;
+  }
   if (!ensureBotAccount()) {
     log('机器人账号创建失败，3 秒后重试');
     setTimeout(start, 3000);
