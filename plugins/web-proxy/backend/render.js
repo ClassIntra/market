@@ -349,6 +349,22 @@ function navigate(sess, url) {
   return state.cdp.send('Page.navigate', { url: url }, sess.cdpSession);
 }
 
+// 按当前会话视口重开 screencast：改过视口后必须重开，否则帧尺寸仍是旧的
+function restartScreencast(sess) {
+  if (!state.cdp || !sess) return Promise.resolve();
+  var sid = sess.cdpSession;
+  var start = function () {
+    return state.cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: SCREENCAST_QUALITY,
+      maxWidth: Math.round(sess.width * sess.dpr),
+      maxHeight: Math.round(sess.height * sess.dpr),
+      everyNthFrame: 1
+    }, sid);
+  };
+  return state.cdp.send('Page.stopScreencast', {}, sid).then(start, start);
+}
+
 function closeSession(sess, notify) {
   if (!sess) return;
   delete state.sessions[sess.id];
@@ -365,6 +381,24 @@ function findSessionByCdp(cdpSessionId) {
     if (state.sessions[id].cdpSession === cdpSessionId) return state.sessions[id];
   }
   return null;
+}
+
+// 查询页面自身的导航历史，让前端的「返回 / 前进」按钮反映真实可用状态
+function sendHistoryState(sess) {
+  if (!state.cdp || !sess) return;
+  state.cdp.send('Page.getNavigationHistory', {}, sess.cdpSession).then(function (r) {
+    var entries = r.entries || [];
+    var idx = Number(r.currentIndex) || 0;
+    var entry = entries[idx] || {};
+    sendJson(sess.out, {
+      type: 'history',
+      // 会话最初打开的 about:blank 占第 0 条，真正可用的「后退」从第 2 条起算，
+      // 否则第一次后退会退到空白页而不是回到上一站。
+      canBack: idx > 1,
+      canForward: idx < entries.length - 1,
+      title: entry.title || ''
+    });
+  }).catch(function () {});
 }
 
 // ---- CDP 事件分发 ----
@@ -393,11 +427,21 @@ function dispatchEvent(method, params, cdpSessionId) {
     if (!f.parentId && f.url) {
       sess.url = f.url;
       sendJson(sess.out, { type: 'url', url: f.url });
+      sendHistoryState(sess);
     }
     return;
   }
   if (method === 'Page.loadEventFired') {
     sendJson(sess.out, { type: 'loaded' });
+    sendHistoryState(sess);
+    // 标题在 load 之后才稳定（SPA 还会异步改写），单独回传一次供分享使用
+    try {
+      state.cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, cdpSessionId)
+        .then(function (r) {
+          var title = r && r.result ? String(r.result.value || '') : '';
+          if (title) sendJson(sess.out, { type: 'title', title: title });
+        }).catch(function () {});
+    } catch (e) {}
     return;
   }
   if (method === 'Page.javascriptDialogOpening') {
@@ -528,6 +572,27 @@ function handleInput(sess, msg) {
   }
   if (msg.type === 'reload') {
     guard(cdp.send('Page.reload', { ignoreCache: !!msg.hard }, sid), 'reload');
+    return;
+  }
+  // 前端可用区域变化（手机旋转 / 窗口拖拽）时同步无头浏览器视口，
+  // 否则页面会按旧尺寸排版，出现留白或滚动条。
+  if (msg.type === 'resize') {
+    var nw = clampSize(msg.width, sess.width, MIN_WIDTH, MAX_WIDTH);
+    var nh = clampSize(msg.height, sess.height, MIN_HEIGHT, MAX_HEIGHT);
+    if (nw === sess.width && nh === sess.height) return;
+    sess.width = nw;
+    sess.height = nh;
+    guard(cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: nw,
+      height: nh,
+      deviceScaleFactor: sess.dpr,
+      mobile: sess.touch
+    }, sid).then(function () {
+      return restartScreencast(sess);
+    }).then(function () {
+      sendJson(sess.out, { type: 'resized', width: nw, height: nh });
+      sendHistoryState(sess);
+    }), 'resize');
     return;
   }
   if (msg.type === 'back') {

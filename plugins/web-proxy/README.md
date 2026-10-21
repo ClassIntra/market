@@ -148,7 +148,11 @@ http://<host>:9005/http/example.com/   经代理访问 http 站点
 - **自适应视口**：视口按前端可用区域下发（宽 320–1600、高 320–1200）；触摸设备自动切移动 UA + 触摸仿真 + `mobile` 布局
 - **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1`，首帧前下发 `{type:'ready'}`（含实际视口尺寸与触摸标记）
 - **会话上限**：默认 3 个（单浏览器实测约 1.8GB 内存）；无会话空闲 5 分钟后自动关闭浏览器进程
-- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`text`、`key`、`navigate`、`reload`、`back`、`forward`
+- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
+- **页内导航**：兼容模式内跳转复用同一会话（保留页内历史，比重新建会话快）；服务端回传 `{type:'history'}` 告知前进/后退是否可用，顶部返回到首站后才退出浏览
+- **刷新**：地址栏地址未变化时「转到」按钮自动变为「刷新」，不额外占用工具栏；`reload` 保留会话与历史
+- **视口自适应**：前端监听可用区域尺寸（手机旋转 / 窗口缩放），防抖后下发 `resize`；服务端重设视口并重开帧流，回传 `{type:'resized'}`
+- **标题同步**：页面加载后回传 `{type:'title'}`（及 `history.title`），分享到聊天 / 社区时带上真实标题
 - **移动端文字输入**：画面流无法唤起系统键盘。点到页面输入框时服务端下发 `{type:'focus'}`，前端自动展开中转输入条；也可点右下角悬浮键盘按钮手动展开（输入法组合结束后一次性插入，空内容退格转发为按键）
 - **能力探测**：`GET /api/web-proxy/status` 的 `data.render.available` 为 `true` 时前端才展示入口
 - **不影响主链路**：渲染引擎加载失败或浏览器缺失时只在日志提示，普通代理照常工作
