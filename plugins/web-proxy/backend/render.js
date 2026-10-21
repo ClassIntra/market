@@ -32,7 +32,15 @@ var IDLE_KILL_MS = 5 * 60 * 1000;  // 无会话空闲多久后关闭浏览器进
 var SESSION_IDLE_MS = 3 * 60 * 1000; // 单会话无操作多久后回收
 var VIEW_WIDTH = 1280;
 var VIEW_HEIGHT = 800;
+var MIN_WIDTH = 320;
+var MAX_WIDTH = 1600;
+var MIN_HEIGHT = 320;
+var MAX_HEIGHT = 1200;
+var MAX_DPR = 2;
 var SCREENCAST_QUALITY = 55;
+
+// 移动端 UA：与触摸仿真、窄视口配合，让站点返回移动版布局而不是被强行塞进桌面版
+var MOBILE_UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
 var state = {
   proc: null,
@@ -248,11 +256,18 @@ function sessionCount() {
   return Object.keys(state.sessions).length;
 }
 
-// 建立一次渲染会话：新建标签页 → 开启 screencast → 导航到目标地址
-function createSession(url, out, cb) {
+// 建立一次渲染会话：新建标签页 → 视口/触摸仿真 → 开启 screencast → 导航到目标地址
+// opts: { width, height, dpr, touch } —— 由前端按自身可用区域传入，缺省用桌面尺寸
+function createSession(url, out, opts, cb) {
   if (sessionCount() >= MAX_SESSIONS) {
     return cb(new Error('兼容模式同时最多 ' + MAX_SESSIONS + ' 个会话，请稍后再试'));
   }
+  var o = opts || {};
+  var vw = clampSize(o.width, VIEW_WIDTH, MIN_WIDTH, MAX_WIDTH);
+  var vh = clampSize(o.height, VIEW_HEIGHT, MIN_HEIGHT, MAX_HEIGHT);
+  var dpr = clampSize(o.dpr, 1, 1, MAX_DPR);
+  var touch = !!o.touch;
+
   ensureBrowser(function (err, cdp) {
     if (err) return cb(err);
     cdp.send('Target.createTarget', { url: 'about:blank' }).then(function (r) {
@@ -266,24 +281,44 @@ function createSession(url, out, cb) {
           cdpSession: sessionId,
           out: out,
           lastActive: Date.now(),
-          url: url
+          url: url,
+          width: vw,
+          height: vh,
+          dpr: dpr,
+          touch: touch
         };
         state.sessions[id] = sess;
-        return cdp.send('Page.enable', {}, sessionId)
+        var chain = Promise.resolve();
+        // 触摸设备：开启触摸仿真并切到移动 UA，否则移动版站点不会响应触摸也不返回移动布局
+        if (touch) {
+          chain = chain.then(function () {
+            return cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 }, sessionId);
+          }).then(function () {
+            return cdp.send('Emulation.setUserAgentOverride', {
+              userAgent: MOBILE_UA,
+              acceptLanguage: 'zh-CN,zh;q=0.9,en;q=0.8',
+              platform: 'Linux armv8l'
+            }, sessionId);
+          });
+        }
+        return chain.then(function () {
+          return cdp.send('Page.enable', {}, sessionId);
+        })
           .then(function () {
             return cdp.send('Emulation.setDeviceMetricsOverride', {
-              width: VIEW_WIDTH,
-              height: VIEW_HEIGHT,
-              deviceScaleFactor: 1,
-              mobile: false
+              width: vw,
+              height: vh,
+              deviceScaleFactor: dpr,
+              mobile: touch
             }, sessionId);
           })
           .then(function () {
+            // 帧尺寸按物理像素下发（dpr 缩放），前端画布等比显示，文字更清晰
             return cdp.send('Page.startScreencast', {
               format: 'jpeg',
               quality: SCREENCAST_QUALITY,
-              maxWidth: VIEW_WIDTH,
-              maxHeight: VIEW_HEIGHT,
+              maxWidth: Math.round(vw * dpr),
+              maxHeight: Math.round(vh * dpr),
               everyNthFrame: 1
             }, sessionId);
           })
@@ -298,6 +333,12 @@ function createSession(url, out, cb) {
       cb(e);
     });
   });
+}
+
+function clampSize(value, fallback, min, max) {
+  var n = Number(value);
+  if (!n || !isFinite(n)) n = fallback;
+  return Math.max(min, Math.min(max, Math.round(n)));
 }
 
 function navigate(sess, url) {
@@ -335,8 +376,12 @@ function dispatchEvent(method, params, cdpSessionId) {
     sendJson(sess.out, {
       type: 'frame',
       data: params.data,
-      width: (params.metadata && params.metadata.deviceWidth) || VIEW_WIDTH,
-      height: (params.metadata && params.metadata.deviceHeight) || VIEW_HEIGHT
+      // viewWidth/viewHeight 是坐标换算的唯一依据（Input.* 用 CSS 像素）；
+      // 帧的实际像素以 JPEG 为准，前端按 naturalWidth 校正画布，避免高 dpr 下裁切。
+      width: (params.metadata && params.metadata.deviceWidth) || sess.width,
+      height: (params.metadata && params.metadata.deviceHeight) || sess.height,
+      viewWidth: sess.width,
+      viewHeight: sess.height
     });
     try {
       state.cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, cdpSessionId).catch(function () {});
@@ -389,30 +434,72 @@ function handleInput(sess, msg) {
   sess.lastActive = Date.now();
   var cdp = state.cdp;
   var sid = sess.cdpSession;
+  // 输入事件失败只需记一次，避免把日志刷爆
+  function guard(promise, label) {
+    promise.catch(function (e) {
+      if (!sess.inputErrorLogged) {
+        sess.inputErrorLogged = true;
+        console.log('[web-proxy] ' + label + ' 事件失败: ' + e.message);
+      }
+    });
+  }
 
   if (msg.type === 'mouse') {
-    cdp.send('Input.dispatchMouseEvent', {
+    guard(cdp.send('Input.dispatchMouseEvent', {
       type: msg.event || 'mouseMoved',
       x: Number(msg.x) || 0,
       y: Number(msg.y) || 0,
       button: msg.button || 'none',
       buttons: Number(msg.buttons) || 0,
       clickCount: Number(msg.clickCount) || 0
-    }, sid).catch(function () {});
+    }, sid), 'mouse');
+    return;
+  }
+  // 触摸：移动端必须走真实 touch 事件，页面才会响应点击、原生滚动与手势
+  if (msg.type === 'touch') {
+    var ev = msg.event;
+    var cdpType = ev === 'start' ? 'touchStart'
+      : ev === 'move' ? 'touchMove'
+        : ev === 'end' ? 'touchEnd' : 'touchCancel';
+    var points = [];
+    var list = Array.isArray(msg.points) ? msg.points : [];
+    for (var i = 0; i < list.length; i++) {
+      points.push({
+        x: Number(list[i].x) || 0,
+        y: Number(list[i].y) || 0,
+        id: Number(list[i].id) || 1,
+        radiusX: 1,
+        radiusY: 1,
+        force: 1
+      });
+    }
+    guard(cdp.send('Input.dispatchTouchEvent', { type: cdpType, touchPoints: points }, sid), 'touch');
+    // 触摸结束后检查页面是否把焦点落在可输入元素上：移动端没有真实键盘可唤起，
+    // 此时通知前端展开中转输入条，否则用户点了搜索框却打不了字。
+    if (cdpType === 'touchEnd') {
+      setTimeout(function () {
+        cdp.send('Runtime.evaluate', {
+          expression: '(function(){var a=document.activeElement;return !!(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.isContentEditable));})()',
+          returnByValue: true
+        }, sid).then(function (r) {
+          if (r && r.result && r.result.value) sendJson(sess.out, { type: 'focus', input: true });
+        }).catch(function () {});
+      }, 120);
+    }
     return;
   }
   if (msg.type === 'wheel') {
-    cdp.send('Input.dispatchMouseEvent', {
+    guard(cdp.send('Input.dispatchMouseEvent', {
       type: 'mouseWheel',
       x: Number(msg.x) || 0,
       y: Number(msg.y) || 0,
       deltaX: Number(msg.deltaX) || 0,
       deltaY: Number(msg.deltaY) || 0
-    }, sid).catch(function () {});
+    }, sid), 'wheel');
     return;
   }
   if (msg.type === 'text') {
-    cdp.send('Input.insertText', { text: String(msg.text || '') }, sid).catch(function () {});
+    guard(cdp.send('Input.insertText', { text: String(msg.text || '') }, sid), 'text');
     return;
   }
   if (msg.type === 'key') {
@@ -420,18 +507,18 @@ function handleInput(sess, msg) {
     var info = KEY_CODES[k];
     var isDown = msg.event !== 'up';
     if (info) {
-      cdp.send('Input.dispatchKeyEvent', {
+      guard(cdp.send('Input.dispatchKeyEvent', {
         type: isDown ? 'rawKeyDown' : 'keyUp',
         key: k,
         code: info.code,
         windowsVirtualKeyCode: info.vk,
         nativeVirtualKeyCode: info.vk
-      }, sid).catch(function () {});
+      }, sid), 'key');
       return;
     }
     // 可打印字符：走 insertText 更稳（避免输入法/组合键问题）
     if (isDown && k.length === 1) {
-      cdp.send('Input.insertText', { text: k }, sid).catch(function () {});
+      guard(cdp.send('Input.insertText', { text: k }, sid), 'text');
     }
     return;
   }
@@ -440,15 +527,15 @@ function handleInput(sess, msg) {
     return;
   }
   if (msg.type === 'reload') {
-    cdp.send('Page.reload', { ignoreCache: !!msg.hard }, sid).catch(function () {});
+    guard(cdp.send('Page.reload', { ignoreCache: !!msg.hard }, sid), 'reload');
     return;
   }
   if (msg.type === 'back') {
-    cdp.send('Runtime.evaluate', { expression: 'history.back()' }, sid).catch(function () {});
+    guard(cdp.send('Runtime.evaluate', { expression: 'history.back()' }, sid), 'back');
     return;
   }
   if (msg.type === 'forward') {
-    cdp.send('Runtime.evaluate', { expression: 'history.forward()' }, sid).catch(function () {});
+    guard(cdp.send('Runtime.evaluate', { expression: 'history.forward()' }, sid), 'forward');
     return;
   }
   if (msg.type === 'click-text') {
@@ -463,14 +550,17 @@ function handleUpgrade(req, socket, head) {
   var query = '';
   var idx = String(req.url || '').indexOf('?');
   if (idx >= 0) query = String(req.url).substring(idx + 1);
-  var url = '';
+  var params = {};
   var parts = query.split('&');
   for (var i = 0; i < parts.length; i++) {
+    if (!parts[i]) continue;
     var kv = parts[i].split('=');
-    if (kv[0] === 'url') {
-      try { url = decodeURIComponent(kv.slice(1).join('=')); } catch (e) { url = kv.slice(1).join('='); }
-    }
+    var key = kv[0];
+    var val = kv.slice(1).join('=');
+    try { val = decodeURIComponent(val); } catch (e) {}
+    params[key] = val;
   }
+  var url = params.url || '';
 
   var wss = new WS.Server({ noServer: true, perMessageDeflate: false, maxPayload: 4 * 1024 * 1024 });
   wss.handleUpgrade(req, socket, head, function (client) {
@@ -479,13 +569,24 @@ function handleUpgrade(req, socket, head) {
       try { client.close(); } catch (e) {}
       return;
     }
-    createSession(url, client, function (err, sess) {
+    createSession(url, client, {
+      width: params.w,
+      height: params.h,
+      dpr: params.dpr,
+      touch: params.touch === '1'
+    }, function (err, sess) {
       if (err) {
         sendJson(client, { type: 'error', message: err.message });
         try { client.close(); } catch (e) {}
         return;
       }
-      sendJson(client, { type: 'ready', session: sess.id, width: VIEW_WIDTH, height: VIEW_HEIGHT });
+      sendJson(client, {
+        type: 'ready',
+        session: sess.id,
+        width: sess.width,
+        height: sess.height,
+        touch: sess.touch
+      });
       client.on('message', function (raw) {
         var msg;
         try { msg = JSON.parse(String(raw)); } catch (e) { return; }

@@ -145,15 +145,18 @@ http://<host>:9005/http/example.com/   经代理访问 http 站点
 
 - **零额外体积**：不下载 Chromium，不新增依赖（`ws` 已随 server 提供）
 - **按需启用**：仅当某站点普通模式打不开时，在浏览器工具栏点「兼容」按钮切换
-- **通道**：`ws://<host>:<port>/__render__?url=<目标地址>`，首帧前下发 `{type:'ready'}`
+- **自适应视口**：视口按前端可用区域下发（宽 320–1600、高 320–1200）；触摸设备自动切移动 UA + 触摸仿真 + `mobile` 布局
+- **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1`，首帧前下发 `{type:'ready'}`（含实际视口尺寸与触摸标记）
 - **会话上限**：默认 3 个（单浏览器实测约 1.8GB 内存）；无会话空闲 5 分钟后自动关闭浏览器进程
-- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`text`、`key`、`navigate`、`reload`
+- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`text`、`key`、`navigate`、`reload`、`back`、`forward`
+- **移动端文字输入**：画面流无法唤起系统键盘。点到页面输入框时服务端下发 `{type:'focus'}`，前端自动展开中转输入条；也可点右下角悬浮键盘按钮手动展开（输入法组合结束后一次性插入，空内容退格转发为按键）
 - **能力探测**：`GET /api/web-proxy/status` 的 `data.render.available` 为 `true` 时前端才展示入口
 - **不影响主链路**：渲染引擎加载失败或浏览器缺失时只在日志提示，普通代理照常工作
 
 ## 已知限制
 
 - 兼容模式为**少数站点兜底**：画面为帧流（非完整视频），滚动/动画流畅度低于直连；并发上限 3
+- 画面按视口 CSS 尺寸编码（约为设备像素 1 倍），文字清晰度略低于本地原生渲染
 - GBK/GB2312 页面统一按 UTF-8 输出并同步修正 `charset` 声明
 - 内联脚本只改写 `"https://..."` 字符串字面量，不修改业务逻辑
 - 页面若使用 Service Worker 自行拦截请求，其作用域仍在代理域下，可能影响部分离线站点
