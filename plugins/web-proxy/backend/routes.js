@@ -35,6 +35,7 @@ if (String(process.env.WEB_PROXY_AUTOSTART || '1') !== '0') {
 // 代理状态（公开，供前端与内嵌页面探测端口）
 router.get('/status', function (req, res) {
   var s = proxy.status();
+  var render = proxy.renderStatus ? proxy.renderStatus() : { available: false };
   res.json({
     code: 200,
     data: {
@@ -43,6 +44,14 @@ router.get('/status', function (req, res) {
       requests: s.requests,
       errors: s.errors,
       lastError: s.lastError || startError || '',
+      // 兼容模式（服务器端无头浏览器渲染）能力：前端据此决定是否展示入口
+      render: {
+        available: !!render.available,
+        browser: render.browser || '',
+        sessions: render.sessions || 0,
+        maxSessions: render.maxSessions || 0,
+        lastError: render.lastError || render.reason || ''
+      },
       urlPattern: 'http://<host>:' + (s.port || proxy.DEFAULT_PORT) + '/<scheme>/<host>/<path>'
     }
   });

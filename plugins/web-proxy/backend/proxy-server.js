@@ -17,6 +17,15 @@ var os = require('os');
 
 var rewrite = require('./rewrite');
 
+// 兼容模式渲染引擎（可选能力）：依赖系统浏览器与 ws。
+// 加载失败不能影响代理主链路，因此单独 try 包裹。
+var renderEngine = null;
+try {
+  renderEngine = require('./render');
+} catch (e) {
+  console.log('[web-proxy] 兼容模式不可用: ' + e.message);
+}
+
 var DEFAULT_PORT = 9005;
 var PORT_FALLBACKS = [9005, 9006, 9007, 9008, 9009];
 
@@ -229,6 +238,23 @@ function sanitizeRequestHeaders(src, target, req, proxyBase) {
     delete out['Origin'];
   }
 
+  // sec-fetch-site 一致性：
+  // 浏览器上报的值是相对「代理源」计算的（几乎永远是 same-origin），
+  // 而这里转发给上游的 referer 是目标站点的真实域名，两者矛盾会被 WAF 判为异常请求。
+  // 依据真实来源域名重算一次（同域 same-origin / 同主域 same-site / 其他 cross-site）。
+  if (out['sec-fetch-site'] || out['Sec-Fetch-Site']) {
+    var targetHostOnly = String(target.host || '').split(':')[0].toLowerCase();
+    var refHostOnly = hostOf(realReferer);
+    var fetchSite = 'none';
+    if (refHostOnly) {
+      if (refHostOnly === targetHostOnly) fetchSite = 'same-origin';
+      else if (sameSiteDomain(refHostOnly, targetHostOnly)) fetchSite = 'same-site';
+      else fetchSite = 'cross-site';
+    }
+    delete out['Sec-Fetch-Site'];
+    out['sec-fetch-site'] = fetchSite;
+  }
+
   if (!out['user-agent'] && !out['User-Agent']) {
     out['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   }
@@ -267,6 +293,25 @@ function originOf(u) {
   } catch (e) {
     return '';
   }
+}
+
+function hostOf(u) {
+  try {
+    return new URL(u).hostname.toLowerCase();
+  } catch (e) {
+    return '';
+  }
+}
+
+// 粗略判断两个主机名是否同属一个注册域（www.a.com 与 img.a.com 视为同站）。
+// 只做两级后缀比较，不引入公共后缀表——此处仅用于 sec-fetch-site 的一致性提示。
+function sameSiteDomain(a, b) {
+  function base(host) {
+    var parts = String(host || '').split('.');
+    if (parts.length <= 2) return host;
+    return parts.slice(-2).join('.');
+  }
+  return !!a && !!b && base(a) === base(b);
 }
 
 // ---- 响应头处理 ----
@@ -928,6 +973,16 @@ function createServer() {
   server.on('upgrade', function (req, socket, head) {
     state.requests++;
     try {
+      // 兼容模式：无头渲染会话通道（不转发到上游站点）
+      if (String(req.url || '').split('?')[0] === '/__render__') {
+        if (!renderEngine) {
+          try { socket.destroy(); } catch (e) {}
+          return;
+        }
+        try { socket.setNoDelay(true); } catch (e) {}
+        renderEngine.handleUpgrade(req, socket, head);
+        return;
+      }
       var target = parseTarget(req.url);
       if (!target) {
         socket.destroy();
@@ -1045,11 +1100,22 @@ function status() {
   };
 }
 
+// 兼容模式（无头渲染）能力探测：仅供状态接口使用，未加载时报告不可用
+function renderStatus() {
+  if (!renderEngine) return { available: false, reason: '渲染引擎未加载' };
+  try {
+    return renderEngine.status();
+  } catch (e) {
+    return { available: false, reason: e.message };
+  }
+}
+
 module.exports = {
   DEFAULT_PORT: DEFAULT_PORT,
   start: start,
   stop: stop,
   status: status,
+  renderStatus: renderStatus,
   parseTarget: parseTarget,
   unproxyUrl: unproxyUrl
 };
