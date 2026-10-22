@@ -46,6 +46,16 @@ var AUDIO_MAX_BUFFER = 2 * 1024 * 1024;
 // 画面帧积压上限：超过说明客户端解码 / 网络跟不上，直接丢弃当前帧（仍回 ACK 让浏览器继续渲染），
 // 避免旧帧在服务端内存里排队，造成「越看延迟越大」。
 var FRAME_MAX_BUFFER = 1.5 * 1024 * 1024;
+// 自适应画质档位：弱网 / 低端手机上持续丢帧时自动降帧率与画质，
+// 稳定一段时间后再逐档回升，既不卡也不长期糊。
+var QUALITY_LEVELS = [
+  { quality: SCREENCAST_QUALITY, everyNthFrame: 1 },
+  { quality: 48, everyNthFrame: 2 },
+  { quality: 40, everyNthFrame: 3 }
+];
+var ADAPT_WINDOW_MS = 2000;    // 观察窗口长度
+var ADAPT_DROP_RATIO = 0.25;   // 窗口内丢帧占比达到该值就降一档
+var ADAPT_UPGRADE_MS = 12000;  // 连续多久不丢帧后回升一档
 
 var AUDIO_INJECT = '';
 try {
@@ -310,7 +320,13 @@ function createSession(url, out, opts, cb) {
           // 音频默认关闭：前端点开后才开始采集回传
           audioEnabled: false,
           // 页面不可见时暂停帧流与采集（前端 visibilitychange 控制）
-          paused: false
+          paused: false,
+          // 自适应画质：窗口内统计收发与丢弃，持续丢帧则降档
+          qualityLevel: 0,
+          framesSent: 0,
+          framesDropped: 0,
+          adaptStart: Date.now(),
+          lastDropAt: 0
         };
         state.sessions[id] = sess;
         var chain = Promise.resolve();
@@ -351,13 +367,7 @@ function createSession(url, out, opts, cb) {
           })
           .then(function () {
             // 帧尺寸按物理像素下发（dpr 缩放），前端画布等比显示，文字更清晰
-            return cdp.send('Page.startScreencast', {
-              format: 'jpeg',
-              quality: SCREENCAST_QUALITY,
-              maxWidth: Math.round(vw * dpr),
-              maxHeight: Math.round(vh * dpr),
-              everyNthFrame: 1
-            }, sessionId);
+            return cdp.send('Page.startScreencast', screencastParams(sess), sessionId);
           })
           .then(function () {
             return navigate(sess, url);
@@ -386,6 +396,18 @@ function navigate(sess, url) {
   return state.cdp.send('Page.navigate', { url: url }, sess.cdpSession);
 }
 
+// 当前会话档位对应的 screencast 参数（尺寸按物理像素下发）
+function screencastParams(sess) {
+  var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
+  return {
+    format: 'jpeg',
+    quality: lv.quality,
+    maxWidth: Math.round(sess.width * sess.dpr),
+    maxHeight: Math.round(sess.height * sess.dpr),
+    everyNthFrame: lv.everyNthFrame
+  };
+}
+
 // 按当前会话视口重开 screencast：改过视口后必须重开，否则帧尺寸仍是旧的
 function restartScreencast(sess) {
   if (!state.cdp || !sess) return Promise.resolve();
@@ -393,15 +415,43 @@ function restartScreencast(sess) {
   var start = function () {
     // 暂停期间（页面隐藏）不重开帧流，恢复时由 resume 统一启动
     if (sess.paused) return Promise.resolve();
-    return state.cdp.send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: SCREENCAST_QUALITY,
-      maxWidth: Math.round(sess.width * sess.dpr),
-      maxHeight: Math.round(sess.height * sess.dpr),
-      everyNthFrame: 1
-    }, sid);
+    return state.cdp.send('Page.startScreencast', screencastParams(sess), sid);
   };
   return state.cdp.send('Page.stopScreencast', {}, sid).then(start, start);
+}
+
+// 自适应画质：每隔一个窗口看丢帧比例，持续跟不上就降一档；长时间稳定再回升
+function adaptScreencast(sess) {
+  var now = Date.now();
+  if (now - sess.adaptStart < ADAPT_WINDOW_MS) return;
+  var total = sess.framesSent + sess.framesDropped;
+  var ratio = total ? sess.framesDropped / total : 0;
+  sess.framesSent = 0;
+  sess.framesDropped = 0;
+  sess.adaptStart = now;
+  // 页面几乎不动时样本太少，不做判断，避免误降档
+  if (total < 10) return;
+  if (ratio >= ADAPT_DROP_RATIO && sess.qualityLevel < QUALITY_LEVELS.length - 1) {
+    sess.qualityLevel++;
+    sendQualityLevel(sess);
+    restartScreencast(sess);
+    return;
+  }
+  if (ratio === 0 && sess.qualityLevel > 0 && now - sess.lastDropAt > ADAPT_UPGRADE_MS) {
+    sess.qualityLevel--;
+    sendQualityLevel(sess);
+    restartScreencast(sess);
+  }
+}
+
+// 档位变化时通知前端一次（前端可忽略）：便于诊断与后续按档位提示
+function sendQualityLevel(sess) {
+  sendJson(sess.out, {
+    type: 'quality',
+    level: sess.qualityLevel,
+    quality: QUALITY_LEVELS[sess.qualityLevel].quality,
+    fps: Math.round(60 / QUALITY_LEVELS[sess.qualityLevel].everyNthFrame)
+  });
 }
 
 function closeSession(sess, notify) {
@@ -449,6 +499,7 @@ function dispatchEvent(method, params, cdpSessionId) {
     var backlog = 0;
     try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
     if (backlog < FRAME_MAX_BUFFER) {
+      sess.framesSent++;
       sendJson(sess.out, {
         type: 'frame',
         data: params.data,
@@ -459,10 +510,15 @@ function dispatchEvent(method, params, cdpSessionId) {
         viewWidth: sess.width,
         viewHeight: sess.height
       });
+    } else {
+      sess.framesDropped++;
+      sess.lastDropAt = Date.now();
     }
+    // 无论是否丢弃都要回 ACK，否则 Chromium 会停止继续出帧
     try {
       state.cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, cdpSessionId).catch(function () {});
     } catch (e) {}
+    adaptScreencast(sess);
     return;
   }
   if (method === 'Page.frameNavigated') {

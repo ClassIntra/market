@@ -26,8 +26,10 @@ try {
   console.log('[web-proxy] 兼容模式不可用: ' + e.message);
 }
 
-var DEFAULT_PORT = 9005;
-var PORT_FALLBACKS = [9005, 9006, 9007, 9008, 9009];
+// 端口只从配置读（R3），不写死。默认 9101 属「ClassIntra 第三方应用段」
+// （9100–9199，见 docs/PORT-REGISTRY.md §2.3）；被占用时在段内顺延 4 个位。
+var DEFAULT_PORT = Number(process.env.WEB_PROXY_PORT) || 9101;
+var PORT_FALLBACKS = [DEFAULT_PORT, DEFAULT_PORT + 1, DEFAULT_PORT + 2, DEFAULT_PORT + 3, DEFAULT_PORT + 4];
 
 // 上游 TLS 证书校验开关：默认「校验」（安全优先）。
 // 仅在目标站点使用自签证书 / 证书异常导致无法代理时，显式设置

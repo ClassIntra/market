@@ -23,8 +23,8 @@ web-proxy/
 
 ## 工作原理
 
-1. 超能岛浏览器以 `http://<host>:9005/https/example.com/page` 作为 iframe src
-2. `routes.js` 被 require 时自动启动 `proxy-server`（默认 `0.0.0.0:9005`）
+1. 超能岛浏览器以 `http://<host>:9101/https/example.com/page` 作为 iframe src
+2. `routes.js` 被 require 时自动启动 `proxy-server`（默认 `0.0.0.0:9101`）
 3. 服务端转发请求到真实目标，响应经 `rewrite.js` 改写所有资源链接为代理地址
 4. `hook.js` 注入到 HTML 中，拦截客户端请求（XHR/fetch/WebSocket/window.open/history）
 5. `frontend/bridge.js` 通过 postMessage 与 `web-proxy-client.js` 同步代理状态
@@ -64,5 +64,5 @@ web-proxy/
 ## 注意事项
 
 - 客户端入口 `web-proxy-client.js` 需在 ClassIntra 主项目的 `client/src/integrations/` 中维护
-- 默认监听端口 `9005`，可在 `routes.js` 顶部通过 `CFG.PORT` 调整
+- 默认监听端口 `9101`（ClassIntra 第三方应用段），可用环境变量 `WEB_PROXY_PORT` 覆盖，勿写死在源码
 - 代理仅处理完整 URL（`http://` / `https://`），不拦截相对路径
