@@ -152,13 +152,13 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **自适应视口**：视口按前端可用区域下发（宽 320–1600、高 320–1200）；触摸设备自动切移动 UA + 触摸仿真 + `mobile` 布局
 - **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1`，首帧前下发 `{type:'ready'}`（含实际视口尺寸与触摸标记）
 - **会话上限**：默认 3 个（单浏览器实测约 1.8GB 内存）；无会话空闲 5 分钟后自动关闭浏览器进程
-- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
+- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`pinch`（双指缩放，增量倍率）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
 - **页内导航**：兼容模式内跳转复用同一会话（保留页内历史，比重新建会话快）；服务端回传 `{type:'history'}` 告知前进/后退是否可用，顶部返回到首站后才退出浏览
 - **刷新**：地址栏地址未变化时「转到」按钮自动变为「刷新」，不额外占用工具栏；`reload` 保留会话与历史
 - **视口自适应**：前端监听可用区域尺寸（手机旋转 / 窗口缩放），防抖后下发 `resize`；服务端重设视口并重开帧流，回传 `{type:'resized'}`
 - **标题同步**：页面加载后回传 `{type:'title'}`（及 `history.title`），分享到聊天 / 社区时带上真实标题
 - **移动端文字输入**：画面流无法唤起系统键盘。点到页面输入框时服务端下发 `{type:'focus'}`，前端自动展开中转输入条；也可点右下角悬浮键盘按钮手动展开（输入法组合结束后一次性插入，空内容退格转发为按键）
-- **声音（1.0.9+）**：兼容模式默认静音。工具栏「声音」按钮开启后，服务端在页面内注入采集脚本，把 `<audio>/<video>` 媒体与 Web Audio 图输出的声音降采样为 16kHz 单声道 PCM（每包约 128ms），经同一 WS 通道以 `{type:'audio', rate, data}` 回传，前端用 Web Audio 排期播放；关闭即停止采集。页面刷新 / 页内跳转后由服务端自动重启采集（`Page.loadEventFired` + 新执行上下文），无需重新点开关
+- **声音（1.0.9+，1.0.13 提升音质）**：兼容模式默认静音。工具栏「声音」按钮开启后，服务端在页面内注入采集脚本，把 `<audio>/<video>` 媒体与 Web Audio 图输出的声音降采样为 **24kHz 单声道 PCM（每包 1024 帧，约 43ms）**，经同一 WS 通道以 `{type:'audio', rate, data}` 回传，前端用 Web Audio 排期播放；关闭即停止采集。页面刷新 / 页内跳转后由服务端自动重启采集（`Page.loadEventFired` + 新执行上下文），无需重新点开关
 - **声音协议**：客户端发 `{type:'audio', enabled:true|false}`；服务端回 `{type:'audio-state', enabled, available, rate}`，`available:false` 表示当前页面环境采集不可用，前端按钮自动置灰
 - **后台暂停**：页面切到后台 / 手机锁屏时前端下发 `pause`，服务端停止 screencast 与声音采集；回到前台下发 `resume` 自动恢复，避免后台空转编码帧；后台被回收后回到前台会自动重建会话
 - **帧积压丢弃（1.0.12+）**：客户端 WS 缓冲超过 1.5MB 时直接丢弃当前帧（触摸会话降到 700KB），仍回 ACK 让浏览器继续渲染；宁可丢中段帧也保证最新画面到达，避免旧帧排队造成「越看越延迟 / 滑不动」
@@ -167,6 +167,9 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **画面帧二进制传输（1.0.12+）**：服务端把 screencast 的 base64 JPEG 解码一次后以二进制 WS 帧下发，前端直接 `createImageBitmap`，省掉客户端逐字节 `atob` 转换——这是此前大帧阻塞主线程、触摸事件排队的主因
 - **宿主静音（1.0.12+）**：渲染浏览器带 `--mute-audio` 启动，页面声音只经采集管道回传给学生的手机，教室电脑扬声器不出声。该开关只静音输出设备，页面媒体解码与 `captureStream` 采集不受影响（已用 660Hz 振荡器端到端验证）
 - **后台标签不节流（1.0.12+）**：`--disable-background-timer-throttling` / `--disable-backgrounding-occluded-windows` / `--disable-renderer-backgrounding` 保证多会话共存时每个标签持续合成，不再出现「画面停在上一帧」
+- **GPU 合成与焦点仿真（1.0.13+）**：渲染浏览器不再强制 `--disable-gpu`（headless=new 支持 GPU 合成，驱动不可用时 Chromium 自动回退软件渲染），并开启 `Emulation.setFocusEmulationEnabled`——无头标签默认被视为「未聚焦」会压低动画 / 定时器频率，开启后页面跑满帧率。实测动画页稳定 59fps
+- **丢帧后主动补拍（1.0.13+）**：积压时丢的是旧帧，页面停手后不再出帧，屏幕会停在滑动中途的旧位置（主观就是「卡住」）。服务端标记 `needRefresh`，等发送缓冲回落到低水位后用 `Page.captureScreenshot` 补拍一张最新 JPEG，保证松手 / 动画结束后的最终画面一定到达
+- **双指捏合缩放（1.0.13+）**：前端识别两指距离变化并按增量下发 `{type:'pinch', x, y, scaleFactor}`（累计变化 <2% 或间隔 <50ms 不下发）；服务端累计为绝对倍率后用 `Emulation.setPageScaleFactor` 应用（1–3 倍）。无头环境里 `Input.synthesizePinchGesture` 实测不改变 `visualViewport.scale`，故不采用
 - **断线重连**：通道异常断开（切网 / 服务端回收）时自动重建会话（间隔 0.6s，最多两次），无需手动刷新
 - **能力探测**：`GET /api/web-proxy/status` 的 `data.render.available` 为 `true` 时前端才展示入口
 - **浏览器启动发现（1.0.12+）**：先按 profile 下的 `DevToolsActivePort` 探活并复用仍存活的渲染浏览器，探活失败才冷启动。新版 Edge/Chrome 在已有实例时会把启动请求转交给子进程并立即退出（code 0），且不再向 stderr 输出 `DevTools listening on`——只解析日志会把这种情况误判成启动失败
@@ -184,7 +187,7 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
   少数强依赖 `localStorage` 的站点可能出现串号；同时登录多个站点不建议
 - 目标站点使用自签证书 / 证书链异常时默认会代理失败；此时可设置 `WEB_PROXY_INSECURE_TLS=1` 降级（降低安全性）
 - 页面自带的"禁止被 iframe 嵌入"脚本（framebuster）无法完全绕过，个别站点仍会跳转
-- 兼容模式声音为 16kHz 单声道 PCM 回传，存在约 0.15–0.35 秒延迟，音画同步要求高的场景体验有限
+- 兼容模式声音为 24kHz 单声道 PCM 回传，延迟约 0.1–0.25 秒，音画同步要求极高的场景体验有限
 - 受 DRM（Widevine 等）保护的音视频无法采集：无头浏览器不具备受保护媒体解码能力
 
 ## 出处与致谢

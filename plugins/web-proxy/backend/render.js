@@ -37,11 +37,17 @@ var MAX_WIDTH = 1600;
 var MIN_HEIGHT = 320;
 var MAX_HEIGHT = 1200;
 var MAX_DPR = 2;
+// 兼容模式双指缩放倍率范围（页面缩放，与浏览器 Ctrl+滚轮同一套机制）。
+// 下限取 1：无头环境里 setPageScaleFactor 低于 1 会被浏览器夹回 1，
+// 若不在本地同步夹紧，前端记录的状态就会与真实画面脱节。
+var PINCH_MIN_SCALE = 1;
+var PINCH_MAX_SCALE = 3;
 var SCREENCAST_QUALITY = 55;
 
-// 音频回传：页面内采集脚本把 16kHz 单声道 PCM（base64）经 Runtime.addBinding 送回。
+// 音频回传：页面内采集脚本把 24kHz 单声道 PCM（base64）经 Runtime.addBinding 送回。
+// 24kHz 比 16kHz 保留更多高频细节（音乐 / 人声更自然），每包约 43ms，延迟更低。
 // 客户端发送缓冲积压时直接丢音频包，避免声音把画面帧挤在队列里。
-var AUDIO_RATE = 16000;
+var AUDIO_RATE = 24000;
 var AUDIO_MAX_BUFFER = 2 * 1024 * 1024;
 // 画面帧积压上限：超过说明客户端解码 / 网络跟不上，直接丢弃当前帧（仍回 ACK 让浏览器继续渲染），
 // 避免旧帧在服务端内存里排队，造成「越看延迟越大」。
@@ -234,7 +240,9 @@ function launchBrowser(exe) {
 
   var args = [
     '--headless=new',
-    '--disable-gpu',
+    // 不再强制关闭 GPU：headless=new 支持 GPU 合成，滚动 / 动画的合成由 GPU 完成，
+    // 明显更顺滑；显卡驱动不可用时 Chromium 会自动回退软件渲染，不会启动失败。
+    '--force-color-profile=srgb',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-extensions',
@@ -440,7 +448,13 @@ function createSession(url, out, opts, cb) {
           framesSent: 0,
           framesDropped: 0,
           adaptStart: Date.now(),
-          lastDropAt: 0
+          lastDropAt: 0,
+          // 双指缩放：记录当前页面缩放倍率，捏合时按增量累计
+          pageScale: 1,
+          // 画面帧因积压被丢弃后，页面静止就不会再出帧，需要主动补拍一张最新画面
+          needRefresh: false,
+          refreshTimer: null,
+          refreshTries: 0
         };
         state.sessions[id] = sess;
         var chain = Promise.resolve();
@@ -461,6 +475,12 @@ function createSession(url, out, opts, cb) {
         })
           .then(function () {
             return cdp.send('Runtime.enable', {}, sessionId);
+          })
+          // 无头标签页默认被当作「未聚焦」，页面会压低动画 / 定时器频率；
+          // 开启焦点仿真后页面以正常帧率运行，滚动与动画更顺滑。
+          .then(function () {
+            // 老版本浏览器可能没有该命令：失败不影响会话，按普通无头模式继续
+            return cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId).catch(function () {});
           })
           // 音频分片回传通道：页面脚本调用 window.__ciAudioChunk(base64) 即触发 bindingCalled
           .then(function () {
@@ -507,6 +527,8 @@ function navigate(sess, url) {
   if (!/^https?:\/\//i.test(url)) return Promise.reject(new Error('仅支持 http/https 地址'));
   sess.url = url;
   sess.lastActive = Date.now();
+  // 换页面后回到 100%：上一个站点放大的倍率不该带到下一个站点
+  sess.pageScale = 1;
   return state.cdp.send('Page.navigate', { url: url }, sess.cdpSession);
 }
 
@@ -568,9 +590,52 @@ function sendQualityLevel(sess) {
   });
 }
 
+// 补拍最新画面：丢帧后等客户端缓冲回落到低水位，再主动截一张当前画面，
+// 保证「滑动结束 / 动画停止」后屏幕一定停在最终状态，而不是旧帧。
+function scheduleRefresh(sess) {
+  if (!sess || sess.refreshTimer || sess.paused) return;
+  sess.refreshTimer = setTimeout(function () {
+    sess.refreshTimer = null;
+    if (!sess.needRefresh || sess.paused) return;
+    if (!state.cdp || !state.sessions[sess.id]) return;
+    var limit = sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
+    var backlog = 0;
+    try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
+    // 缓冲仍高说明网络 / 解码没跟上，稍后再补拍，避免继续堆帧
+    if (backlog > limit / 3) {
+      if (sess.refreshTries < 20) {
+        sess.refreshTries++;
+        scheduleRefresh(sess);
+      }
+      return;
+    }
+    sess.refreshTries = 0;
+    sess.needRefresh = false;
+    var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
+    state.cdp.send('Page.captureScreenshot', {
+      format: 'jpeg',
+      quality: lv.quality,
+      fromSurface: true
+    }, sess.cdpSession).then(function (r) {
+      if (!r || !r.data) return;
+      var jpeg = null;
+      try { jpeg = Buffer.from(r.data, 'base64'); } catch (e) { return; }
+      if (!jpeg || !jpeg.length) return;
+      if (sess.out.readyState !== WS.OPEN) return;
+      sendBinary(sess.out, jpeg);
+    }).catch(function () {});
+  }, 300);
+  if (sess.refreshTimer.unref) sess.refreshTimer.unref();
+}
+
 function closeSession(sess, notify) {
   if (!sess) return;
   delete state.sessions[sess.id];
+  // 会话关闭时清掉补拍定时器，避免对已关闭的连接继续截图
+  if (sess.refreshTimer) {
+    clearTimeout(sess.refreshTimer);
+    sess.refreshTimer = null;
+  }
   if (state.cdp) {
     try { state.cdp.send('Target.closeTarget', { targetId: sess.targetId }).catch(function () {}); } catch (e) {}
   }
@@ -626,6 +691,10 @@ function dispatchEvent(method, params, cdpSessionId) {
     } else {
       sess.framesDropped++;
       sess.lastDropAt = Date.now();
+      // 积压时丢的是「旧帧」，但页面停手后不再出帧，最新画面就永远到不了，
+      // 用户看到的是滑动中途的旧位置（主观就是「卡住」）。标记后由补拍兜底。
+      sess.needRefresh = true;
+      scheduleRefresh(sess);
     }
     // 无论是否丢弃都要回 ACK，否则 Chromium 会停止继续出帧
     try {
@@ -779,6 +848,20 @@ function handleInput(sess, msg) {
         }).catch(function () {});
       }, 120);
     }
+    return;
+  }
+  // 双指捏合：直接调页面缩放倍率。
+  // 无头环境里 Input.synthesizePinchGesture 不改变 visualViewport.scale（实测 scale 恒为 1），
+  // 而 Emulation.setPageScaleFactor 是确定生效的：前端按增量下发，这里累计成绝对倍率。
+  if (msg.type === 'pinch') {
+    var cur = Number(sess.pageScale) || 1;
+    var next = cur * (Number(msg.scaleFactor) || 1);
+    if (next < PINCH_MIN_SCALE) next = PINCH_MIN_SCALE;
+    if (next > PINCH_MAX_SCALE) next = PINCH_MAX_SCALE;
+    // 变化太小时不发，避免高频命令把渲染端输入队列打满
+    if (Math.abs(next - cur) < 0.01) return;
+    sess.pageScale = next;
+    guard(cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: next }, sid), 'pinch');
     return;
   }
   if (msg.type === 'wheel') {

@@ -2,11 +2,11 @@
 // 兼容模式音频采集脚本（由 render.js 通过 Page.addScriptToEvaluateOnNewDocument 注入页面）。
 //
 // 背景：无头浏览器没有可听的音频输出通道，screencast 画面流里也不含声音。
-// 这里在页面内把两类声源汇到同一条 16kHz 单声道 PCM 管道：
+// 这里在页面内把两类声源汇到同一条 24kHz 单声道 PCM 管道：
 //   1. <audio> / <video> 元素 —— 用 captureStream() 拿到音轨
 //   2. 页面自身创建的 WebAudio —— 旁路 hook AudioNode.connect，
 //      把最终接到扬声器（destination）的节点同时接一份到 MediaStreamDestination
-// 每 256ms 编码一包 int16 PCM，base64 后调用 Runtime.addBinding 暴露的 __ciAudioChunk 回传服务端，
+// 每 1024 帧编码一包 int16 PCM（24kHz 下约 43ms），base64 后调用 Runtime.addBinding 暴露的 __ciAudioChunk 回传服务端，
 // 前端再用 Web Audio 按 PCM 直接播放（无需 MSE，延迟更低、兼容性更稳）。
 //
 // 已知限制：
@@ -20,8 +20,8 @@
   if (window.__ciAudioInstalled) return;
   window.__ciAudioInstalled = true;
 
-  var RATE = 16000;   // 回传采样率（单声道）
-  var BLOCK = 2048;   // ScriptProcessor 缓冲（16kHz 下约 128ms 一包，比 256ms 延迟更低）
+  var RATE = 24000;   // 回传采样率（单声道）
+  var BLOCK = 1024;   // ScriptProcessor 缓冲（24kHz 下约 43ms 一包，延迟更低）
 
   var state = {
     enabled: false,

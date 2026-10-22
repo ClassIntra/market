@@ -13,6 +13,7 @@
 - `index.json` 升至 `5`，更新 `netease-music` 版本号。
 - `web-proxy` 升至 `1.0.1`：`canDisable` 改为 `true`，插件不再强制常开——管理员可在应用市场「服务端插件」中随时暂停或恢复，暂停后插件后端接口即时下线、无需重启。
 - `index.json` 升至 `6`，更新 `web-proxy` 版本号。
+- `web-proxy` 升至 `1.0.13`：兼容模式体验优化——启用 GPU 合成与焦点仿真（动画页实测 60fps）、丢帧后主动补拍避免「停在中途旧画面」、双指缩放改用 `Emulation.setPageScaleFactor`、声音升为 24kHz（约 43ms 一包）。
 
 ## 1.1.0
 
