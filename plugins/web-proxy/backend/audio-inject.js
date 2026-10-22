@@ -21,7 +21,7 @@
   window.__ciAudioInstalled = true;
 
   var RATE = 16000;   // 回传采样率（单声道）
-  var BLOCK = 4096;   // ScriptProcessor 缓冲（16kHz 下约 256ms 一包）
+  var BLOCK = 2048;   // ScriptProcessor 缓冲（16kHz 下约 128ms 一包，比 256ms 延迟更低）
 
   var state = {
     enabled: false,
@@ -150,6 +150,17 @@
 
   function scan() {
     if (!state.enabled) return;
+    // 先清理已移除 / 音轨已结束的媒体：SPA 反复换播放器时采集节点不能无限堆积
+    for (var k = state.media.length - 1; k >= 0; k--) {
+      var rec = state.media[k];
+      var tracks = rec.stream.getAudioTracks ? rec.stream.getAudioTracks() : [];
+      var alive = tracks.length > 0 && tracks[0].readyState === 'live' &&
+        rec.el && rec.el.isConnected !== false;
+      if (!alive) {
+        try { rec.node.disconnect(); } catch (e) {}
+        state.media.splice(k, 1);
+      }
+    }
     var i;
     var audios = document.getElementsByTagName('audio');
     for (i = 0; i < audios.length; i++) attachMedia(audios[i]);

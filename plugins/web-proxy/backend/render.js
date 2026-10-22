@@ -43,6 +43,9 @@ var SCREENCAST_QUALITY = 55;
 // 客户端发送缓冲积压时直接丢音频包，避免声音把画面帧挤在队列里。
 var AUDIO_RATE = 16000;
 var AUDIO_MAX_BUFFER = 2 * 1024 * 1024;
+// 画面帧积压上限：超过说明客户端解码 / 网络跟不上，直接丢弃当前帧（仍回 ACK 让浏览器继续渲染），
+// 避免旧帧在服务端内存里排队，造成「越看延迟越大」。
+var FRAME_MAX_BUFFER = 1.5 * 1024 * 1024;
 
 var AUDIO_INJECT = '';
 try {
@@ -305,7 +308,9 @@ function createSession(url, out, opts, cb) {
           dpr: dpr,
           touch: touch,
           // 音频默认关闭：前端点开后才开始采集回传
-          audioEnabled: false
+          audioEnabled: false,
+          // 页面不可见时暂停帧流与采集（前端 visibilitychange 控制）
+          paused: false
         };
         state.sessions[id] = sess;
         var chain = Promise.resolve();
@@ -386,6 +391,8 @@ function restartScreencast(sess) {
   if (!state.cdp || !sess) return Promise.resolve();
   var sid = sess.cdpSession;
   var start = function () {
+    // 暂停期间（页面隐藏）不重开帧流，恢复时由 resume 统一启动
+    if (sess.paused) return Promise.resolve();
     return state.cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality: SCREENCAST_QUALITY,
@@ -439,16 +446,20 @@ function dispatchEvent(method, params, cdpSessionId) {
   var sess = findSessionByCdp(cdpSessionId);
   if (!sess) return;
   if (method === 'Page.screencastFrame') {
-    sendJson(sess.out, {
-      type: 'frame',
-      data: params.data,
-      // viewWidth/viewHeight 是坐标换算的唯一依据（Input.* 用 CSS 像素）；
-      // 帧的实际像素以 JPEG 为准，前端按 naturalWidth 校正画布，避免高 dpr 下裁切。
-      width: (params.metadata && params.metadata.deviceWidth) || sess.width,
-      height: (params.metadata && params.metadata.deviceHeight) || sess.height,
-      viewWidth: sess.width,
-      viewHeight: sess.height
-    });
+    var backlog = 0;
+    try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
+    if (backlog < FRAME_MAX_BUFFER) {
+      sendJson(sess.out, {
+        type: 'frame',
+        data: params.data,
+        // viewWidth/viewHeight 是坐标换算的唯一依据（Input.* 用 CSS 像素）；
+        // 帧的实际像素以 JPEG 为准，前端按 naturalWidth 校正画布，避免高 dpr 下裁切。
+        width: (params.metadata && params.metadata.deviceWidth) || sess.width,
+        height: (params.metadata && params.metadata.deviceHeight) || sess.height,
+        viewWidth: sess.width,
+        viewHeight: sess.height
+      });
+    }
     try {
       state.cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, cdpSessionId).catch(function () {});
     } catch (e) {}
@@ -467,7 +478,7 @@ function dispatchEvent(method, params, cdpSessionId) {
     sendJson(sess.out, { type: 'loaded' });
     sendHistoryState(sess);
     // 新文档是全新的脚本环境：音频开启状态下要重新启动页面内采集
-    if (sess.audioEnabled && AUDIO_INJECT) {
+    if (sess.audioEnabled && !sess.paused && AUDIO_INJECT) {
       try {
         state.cdp.send('Runtime.evaluate', {
           expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
@@ -503,7 +514,7 @@ function dispatchEvent(method, params, cdpSessionId) {
   if (method === 'Runtime.executionContextCreated') {
     // 新文档 / 子 iframe 的脚本环境建立后，若音频正在开启则同步启动该环境的采集
     var ctxInfo = params.context || {};
-    if (sess.audioEnabled && ctxInfo.id && AUDIO_INJECT) {
+    if (sess.audioEnabled && !sess.paused && ctxInfo.id && AUDIO_INJECT) {
       state.cdp.send('Runtime.evaluate', {
         expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
         contextId: ctxInfo.id,
@@ -662,6 +673,33 @@ function handleInput(sess, msg) {
       sendJson(sess.out, { type: 'resized', width: nw, height: nh });
       sendHistoryState(sess);
     }), 'resize');
+    return;
+  }
+  // 页面不可见（手机锁屏 / 切到其他应用）时暂停帧流与声音采集：
+  // 否则无头浏览器仍在渲染、编码 JPEG 并占用带宽，纯属浪费。
+  if (msg.type === 'pause') {
+    if (sess.paused) return;
+    sess.paused = true;
+    guard(cdp.send('Page.stopScreencast', {}, sid), 'pause');
+    if (sess.audioEnabled) {
+      cdp.send('Runtime.evaluate', {
+        expression: 'window.__ciAudioStop&&window.__ciAudioStop()',
+        returnByValue: true
+      }, sid).catch(function () {});
+    }
+    return;
+  }
+  if (msg.type === 'resume') {
+    if (!sess.paused) return;
+    sess.paused = false;
+    guard(restartScreencast(sess), 'resume');
+    if (sess.audioEnabled) {
+      cdp.send('Runtime.evaluate', {
+        expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
+        userGesture: true,
+        returnByValue: true
+      }, sid).catch(function () {});
+    }
     return;
   }
   if (msg.type === 'back') {
