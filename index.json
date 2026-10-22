@@ -1,6 +1,6 @@
 {
   "version": 6,
-  "updated_at": "2026-10-18T23:43:09.983Z",
+  "updated_at": "2026-10-22T08:20:00.000Z",
   "apps": [
     {
       "name": "chess",
@@ -92,8 +92,8 @@
     {
       "name": "web-proxy",
       "label": "网页代理",
-      "version": "1.0.8",
-      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）：把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可打开被防盗链、跨域或 iframe 限制的站点；代理默认随 ClassIntra 启动自动运行（默认 9005，被占用自动顺延 9006–9009），管理员可在应用市场「服务端插件」中随时暂停或恢复，兼容 iFlyCompass 的 getassets/<scheme>/<host>/<path> 地址形态",
+      "version": "1.0.9",
+      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）：把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可打开被防盗链、跨域或 iframe 限制的站点；代理默认随 ClassIntra 启动自动运行（默认 9101，被占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复，兼容 iFlyCompass 的 getassets/<scheme>/<host>/<path> 地址形态；兼容模式（无头渲染兜底）支持网页声音开关，声音以 16kHz PCM 回传",
       "author": "yujing0208",
       "files": [
         "plugins/web-proxy/manifest.json",
@@ -104,6 +104,7 @@
         "plugins/web-proxy/backend/rewrite.js",
         "plugins/web-proxy/backend/hook.js",
         "plugins/web-proxy/backend/render.js",
+        "plugins/web-proxy/backend/audio-inject.js",
         "plugins/web-proxy/frontend/bridge.js",
         "plugins/web-proxy/shared/contract.js"
       ]

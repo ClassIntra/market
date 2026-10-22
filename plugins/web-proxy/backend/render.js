@@ -39,6 +39,18 @@ var MAX_HEIGHT = 1200;
 var MAX_DPR = 2;
 var SCREENCAST_QUALITY = 55;
 
+// 音频回传：页面内采集脚本把 16kHz 单声道 PCM（base64）经 Runtime.addBinding 送回。
+// 客户端发送缓冲积压时直接丢音频包，避免声音把画面帧挤在队列里。
+var AUDIO_RATE = 16000;
+var AUDIO_MAX_BUFFER = 2 * 1024 * 1024;
+
+var AUDIO_INJECT = '';
+try {
+  AUDIO_INJECT = fs.readFileSync(path.join(__dirname, 'audio-inject.js'), 'utf8');
+} catch (e) {
+  AUDIO_INJECT = '';
+}
+
 // 移动端 UA：与触摸仿真、窄视口配合，让站点返回移动版布局而不是被强行塞进桌面版
 var MOBILE_UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
@@ -162,7 +174,13 @@ function ensureBrowser(cb) {
     '--no-default-browser-check',
     '--disable-extensions',
     '--disable-background-networking',
-    '--mute-audio',
+    // 兼容模式支持声音：不再静音（音频由页面内 captureStream 采集回传），
+    // 同时放开自动播放，避免页面脚本创建的音频上下文被手势策略挂起。
+    // --disable-web-security：跨域媒体（CDN 音源）默认在 Web Audio 里会被判为
+    // 「受污染」而输出静音，关掉同源策略后才能采集。渲染浏览器使用独立的临时
+    // profile，与用户真实浏览器完全隔离，风险仅限于该兜底模式内部（见 README 安全说明）。
+    '--autoplay-policy=no-user-gesture-required',
+    '--disable-web-security',
     '--hide-scrollbars',
     '--remote-debugging-port=0',
     '--user-data-dir=' + PROFILE_DIR,
@@ -285,7 +303,9 @@ function createSession(url, out, opts, cb) {
           width: vw,
           height: vh,
           dpr: dpr,
-          touch: touch
+          touch: touch,
+          // 音频默认关闭：前端点开后才开始采集回传
+          audioEnabled: false
         };
         state.sessions[id] = sess;
         var chain = Promise.resolve();
@@ -304,6 +324,18 @@ function createSession(url, out, opts, cb) {
         return chain.then(function () {
           return cdp.send('Page.enable', {}, sessionId);
         })
+          .then(function () {
+            return cdp.send('Runtime.enable', {}, sessionId);
+          })
+          // 音频分片回传通道：页面脚本调用 window.__ciAudioChunk(base64) 即触发 bindingCalled
+          .then(function () {
+            return cdp.send('Runtime.addBinding', { name: '__ciAudioChunk' }, sessionId);
+          })
+          // 采集脚本在每次文档加载前注入，页面刷新/站内跳转后依然生效
+          .then(function () {
+            if (!AUDIO_INJECT) return null;
+            return cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: AUDIO_INJECT }, sessionId);
+          })
           .then(function () {
             return cdp.send('Emulation.setDeviceMetricsOverride', {
               width: vw,
@@ -434,6 +466,19 @@ function dispatchEvent(method, params, cdpSessionId) {
   if (method === 'Page.loadEventFired') {
     sendJson(sess.out, { type: 'loaded' });
     sendHistoryState(sess);
+    // 新文档是全新的脚本环境：音频开启状态下要重新启动页面内采集
+    if (sess.audioEnabled && AUDIO_INJECT) {
+      try {
+        state.cdp.send('Runtime.evaluate', {
+          expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
+          userGesture: true,
+          returnByValue: true
+        }, cdpSessionId).then(function (r) {
+          var ok = !!(r && r.result && r.result.value === true);
+          if (!ok) sendJson(sess.out, { type: 'audio-state', enabled: false, available: false, rate: AUDIO_RATE });
+        }).catch(function () {});
+      } catch (e) {}
+    }
     // 标题在 load 之后才稳定（SPA 还会异步改写），单独回传一次供分享使用
     try {
       state.cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, cdpSessionId)
@@ -442,6 +487,30 @@ function dispatchEvent(method, params, cdpSessionId) {
           if (title) sendJson(sess.out, { type: 'title', title: title });
         }).catch(function () {});
     } catch (e) {}
+    return;
+  }
+  if (method === 'Runtime.bindingCalled') {
+    // 页面采集脚本回传的音频分片（base64 编码的 16kHz 单声道 PCM）
+    if (params.name === '__ciAudioChunk' && sess.audioEnabled && params.payload) {
+      var queued = 0;
+      try { queued = sess.out.bufferedAmount || 0; } catch (e) {}
+      if (queued < AUDIO_MAX_BUFFER) {
+        sendJson(sess.out, { type: 'audio', rate: AUDIO_RATE, data: params.payload });
+      }
+    }
+    return;
+  }
+  if (method === 'Runtime.executionContextCreated') {
+    // 新文档 / 子 iframe 的脚本环境建立后，若音频正在开启则同步启动该环境的采集
+    var ctxInfo = params.context || {};
+    if (sess.audioEnabled && ctxInfo.id && AUDIO_INJECT) {
+      state.cdp.send('Runtime.evaluate', {
+        expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
+        contextId: ctxInfo.id,
+        userGesture: true,
+        returnByValue: true
+      }, cdpSessionId).catch(function () {});
+    }
     return;
   }
   if (method === 'Page.javascriptDialogOpening') {
@@ -601,6 +670,25 @@ function handleInput(sess, msg) {
   }
   if (msg.type === 'forward') {
     guard(cdp.send('Runtime.evaluate', { expression: 'history.forward()' }, sid), 'forward');
+    return;
+  }
+  // 音频开关：开启后由页面内脚本采集媒体元素 / WebAudio 声音，分片经 binding 回传；
+  // 关闭即断开采集，服务端不再有音频流量。
+  if (msg.type === 'audio') {
+    var audioOn = !!msg.enabled;
+    var expr = audioOn
+      ? '(function(){try{return !!(window.__ciAudioStart&&window.__ciAudioStart());}catch(e){return false;}})()'
+      : '(function(){try{if(window.__ciAudioStop)window.__ciAudioStop();}catch(e){}return true;})()';
+    sess.audioEnabled = audioOn;
+    guard(cdp.send('Runtime.evaluate', {
+      expression: expr,
+      userGesture: true,
+      returnByValue: true
+    }, sid).then(function (r) {
+      var ok = !!(r && r.result && r.result.value);
+      if (audioOn && !ok) sess.audioEnabled = false;
+      sendJson(sess.out, { type: 'audio-state', enabled: audioOn && ok, available: ok, rate: AUDIO_RATE });
+    }), 'audio');
     return;
   }
   if (msg.type === 'click-text') {

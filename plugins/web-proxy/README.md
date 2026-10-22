@@ -11,9 +11,9 @@
 
 ```
 超能岛浏览器 iframe
-        │  src = http://<classintra-host>:9005/https/example.com/page
+        │  src = http://<classintra-host>:9101/https/example.com/page
         ▼
-web-proxy (Node http server, 0.0.0.0:9005)
+web-proxy (Node http server, 0.0.0.0:9101)
         │  Node https 客户端发起真实请求（不做 TLS 拦截）
         ▼
      目标站点 example.com
@@ -58,9 +58,9 @@ web-proxy/
 代理本身不经过 `/api` 前缀，直接监听独立端口：
 
 ```
-http://<host>:9005/                    代理首页（状态页）
-http://<host>:9005/https/example.com/  经代理访问 example.com
-http://<host>:9005/http/example.com/   经代理访问 http 站点
+http://<host>:9101/                    代理首页（状态页）
+http://<host>:9101/https/example.com/  经代理访问 example.com
+http://<host>:9101/http/example.com/   经代理访问 http 站点
 ```
 
 兼容 iFlyCompass 的 `getassets/<scheme>/<host>/<path>` 形态。
@@ -122,19 +122,23 @@ http://<host>:9005/http/example.com/   经代理访问 http 站点
 
 ## 端口
 
-默认 `9005`，被占用时自动顺延到 `9006`–`9009`。局域网内其他设备访问时，
+默认 `9101`，被占用时自动顺延到 `9102`–`9105`。可用环境变量 `WEB_PROXY_PORT` 覆盖。
+该段（`9100–9199`）是 ClassIntra 第三方应用/插件专用段，从 `9101` 起分配，
+不得占用 `9000–9099` 自研主服务段（见仓库 `docs/PORT-REGISTRY.md` §2.3）。
+局域网内其他设备访问时，
 需在宿主机手动放行该端口（本插件包内不含防火墙配置脚本）。
 
 ## 安全说明
 
-- **监听范围**：代理默认监听 `0.0.0.0:9005`，即对**本机所在局域网内的所有主机**开放。
-  这样同网段的其他设备也能经代理访问外网；请**勿把 9005 端口映射到公网**，
+- **监听范围**：代理默认监听 `0.0.0.0:9101`，即对**本机所在局域网内的所有主机**开放。
+  这样同网段的其他设备也能经代理访问外网；请**勿把 9101 端口映射到公网**，
   必要时可在防火墙层限制来源网段。
 - **上游 TLS 校验**：默认**开启**（`rejectUnauthorized: true`），HTTPS 站点由 Node 客户端
   直连上游并校验证书链，不拦截、不解密。仅在目标站点使用自签证书 / 证书异常导致无法代理时，
   才可显式设置 `WEB_PROXY_INSECURE_TLS=1` 降级为不校验——这是异常场景的兼容降级，
   正常环境不生效，请勿长期开启。
 - **凭据风险**：页面经代理渲染，**请勿用"记住密码"的方式登录银行 / 支付类站点**。
+- **渲染浏览器隔离**：兼容模式使用独立的临时 profile（`%TEMP%\classintra-render-profile`），与用户日常浏览器完全隔离。为采集跨域 CDN 音源，渲染实例开启了 `--disable-web-security`（关闭同源策略），因此该无头实例内**不保证同源隔离**——仅用于渲染兜底页面，请勿在该模式内登录敏感账号。
 - **运行控制**：推荐在应用市场「服务端插件」中暂停/恢复（即时生效、无需重启）；亦可用 `WEB_PROXY_AUTOSTART=0` 关闭随启动自动运行（改为经管理接口手动启动）。
 
 ## 兼容模式（无头渲染，1.0.6+）
@@ -154,6 +158,8 @@ http://<host>:9005/http/example.com/   经代理访问 http 站点
 - **视口自适应**：前端监听可用区域尺寸（手机旋转 / 窗口缩放），防抖后下发 `resize`；服务端重设视口并重开帧流，回传 `{type:'resized'}`
 - **标题同步**：页面加载后回传 `{type:'title'}`（及 `history.title`），分享到聊天 / 社区时带上真实标题
 - **移动端文字输入**：画面流无法唤起系统键盘。点到页面输入框时服务端下发 `{type:'focus'}`，前端自动展开中转输入条；也可点右下角悬浮键盘按钮手动展开（输入法组合结束后一次性插入，空内容退格转发为按键）
+- **声音（1.0.9+）**：兼容模式默认静音。工具栏「声音」按钮开启后，服务端在页面内注入采集脚本，把 `<audio>/<video>` 媒体与 Web Audio 图输出的声音降采样为 16kHz 单声道 PCM（每包约 256ms），经同一 WS 通道以 `{type:'audio', rate, data}` 回传，前端用 Web Audio 排期播放；关闭即停止采集。页面刷新 / 页内跳转后由服务端自动重启采集（`Page.loadEventFired` + 新执行上下文），无需重新点开关
+- **声音协议**：客户端发 `{type:'audio', enabled:true|false}`；服务端回 `{type:'audio-state', enabled, available, rate}`，`available:false` 表示当前页面环境采集不可用，前端按钮自动置灰
 - **能力探测**：`GET /api/web-proxy/status` 的 `data.render.available` 为 `true` 时前端才展示入口
 - **不影响主链路**：渲染引擎加载失败或浏览器缺失时只在日志提示，普通代理照常工作
 
@@ -169,6 +175,8 @@ http://<host>:9005/http/example.com/   经代理访问 http 站点
   少数强依赖 `localStorage` 的站点可能出现串号；同时登录多个站点不建议
 - 目标站点使用自签证书 / 证书链异常时默认会代理失败；此时可设置 `WEB_PROXY_INSECURE_TLS=1` 降级（降低安全性）
 - 页面自带的"禁止被 iframe 嵌入"脚本（framebuster）无法完全绕过，个别站点仍会跳转
+- 兼容模式声音为 16kHz 单声道 PCM 回传，存在约 0.25–0.5 秒延迟，音画同步要求高的场景体验有限
+- 受 DRM（Widevine 等）保护的音视频无法采集：无头浏览器不具备受保护媒体解码能力
 
 ## 出处与致谢
 
