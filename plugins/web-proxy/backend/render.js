@@ -46,6 +46,10 @@ var AUDIO_MAX_BUFFER = 2 * 1024 * 1024;
 // 画面帧积压上限：超过说明客户端解码 / 网络跟不上，直接丢弃当前帧（仍回 ACK 让浏览器继续渲染），
 // 避免旧帧在服务端内存里排队，造成「越看延迟越大」。
 var FRAME_MAX_BUFFER = 1.5 * 1024 * 1024;
+// 触摸会话的积压上限更小：手指滑动时屏幕内容变化大、帧也大，
+// 队列一旦堆到 1MB 以上用户看到的就是「几秒前的画面」，主观感受就是卡住。
+// 宁可丢掉中段帧，也要保证最新一帧尽快到达。
+var FRAME_MAX_BUFFER_TOUCH = 700 * 1024;
 // 自适应画质档位：弱网 / 低端手机上持续丢帧时自动降帧率与画质，
 // 稳定一段时间后再逐档回升，既不卡也不长期糊。
 var QUALITY_LEVELS = [
@@ -79,6 +83,9 @@ var state = {
 };
 
 var PROFILE_DIR = path.join(os.tmpdir(), 'classintra-render-profile');
+// 浏览器把 DevTools 端口写在该文件里（首行端口、次行 ws 路径），
+// 比解析 stderr 更可靠：新版 Edge/Chrome 会把启动请求转交给子进程，stderr 不再输出。
+var DEVTOOLS_PORT_FILE = path.join(PROFILE_DIR, 'DevToolsActivePort');
 
 function findBrowser() {
   for (var i = 0; i < BROWSER_PATHS.length; i++) {
@@ -161,6 +168,9 @@ CdpClient.prototype.close = function () {
 
 // ---- 浏览器进程管理 ----
 
+// 先复用上一轮遗留但仍活着的渲染浏览器（pm2 重启、异常退出时常见）：
+// 旧实例占着 profile 时，新实例只会「转交启动」然后立刻退出，端口文件也不再刷新，
+// 表现就是兼容模式一直连不上。这里按端口文件探活，探活失败才冷启动。
 function ensureBrowser(cb) {
   if (state.cdp && !state.cdp.closed) return cb(null, state.cdp);
   if (state.starting) {
@@ -178,7 +188,49 @@ function ensureBrowser(cb) {
     return;
   }
 
+  var existing = readExistingPortUrl();
+  if (!existing) return launchBrowser(exe);
+
+  var probe = new CdpClient(existing);
+  var settled = false;
+  var timer = setTimeout(function () {
+    if (settled) return;
+    settled = true;
+    try { probe.close(); } catch (e) {}
+    try { fs.unlinkSync(DEVTOOLS_PORT_FILE); } catch (e) {}
+    launchBrowser(exe);
+  }, 2000);
+  probe.send('Browser.getVersion', {}).then(function () {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    state.cdpUrl = existing;
+    state.cdp = probe;
+    probe.on(dispatchEvent);
+    scheduleIdleKill();
+    console.log('[web-proxy] 兼容模式复用已有浏览器: ' + existing);
+    var pending = state.starting || [];
+    state.starting = null;
+    pending.forEach(function (fn) { fn(null, probe); });
+  }, function () {
+    // 连接失败由上面的定时器统一兜底
+  });
+}
+
+function readExistingPortUrl() {
+  var text = '';
+  try { text = fs.readFileSync(DEVTOOLS_PORT_FILE, 'utf8'); } catch (e) { return ''; }
+  var lines = String(text).split(/\r?\n/);
+  var port = parseInt(lines[0], 10);
+  var wsPath = (lines[1] || '').trim();
+  if (!port || !wsPath) return '';
+  return 'ws://127.0.0.1:' + port + wsPath;
+}
+
+function launchBrowser(exe) {
   try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) {}
+  // 清掉残留的端口文件：否则可能连到一个已经退出的浏览器端口
+  try { fs.unlinkSync(DEVTOOLS_PORT_FILE); } catch (e) {}
 
   var args = [
     '--headless=new',
@@ -187,14 +239,22 @@ function ensureBrowser(cb) {
     '--no-default-browser-check',
     '--disable-extensions',
     '--disable-background-networking',
-    // 兼容模式支持声音：不再静音（音频由页面内 captureStream 采集回传），
-    // 同时放开自动播放，避免页面脚本创建的音频上下文被手势策略挂起。
+    // 放开自动播放，避免页面脚本创建的音频上下文被手势策略挂起。
     // --disable-web-security：跨域媒体（CDN 音源）默认在 Web Audio 里会被判为
     // 「受污染」而输出静音，关掉同源策略后才能采集。渲染浏览器使用独立的临时
     // profile，与用户真实浏览器完全隔离，风险仅限于该兜底模式内部（见 README 安全说明）。
     '--autoplay-policy=no-user-gesture-required',
     '--disable-web-security',
+    // 老师机保持静音：页面声音只经采集管道回传给学生的手机，
+    // 不落到宿主机扬声器（headless=new 默认仍可能占用系统音频输出）。
+    // 该开关只静音输出设备，页面内的媒体解码与 captureStream 采集不受影响。
+    '--mute-audio',
     '--hide-scrollbars',
+    // 多个渲染标签页共存时，后台标签会被节流 / 停止合成，
+    // 表现为「画面停在上一帧、手指滑不动」；这三个开关保证每个会话都持续渲染。
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
     '--remote-debugging-port=0',
     '--user-data-dir=' + PROFILE_DIR,
     '--window-size=' + VIEW_WIDTH + ',' + VIEW_HEIGHT,
@@ -206,18 +266,22 @@ function ensureBrowser(cb) {
 
   var resolved = false;
   var output = '';
+  var portFile = DEVTOOLS_PORT_FILE;
 
   function finish(err, cdpUrl) {
     if (resolved) return;
     resolved = true;
+    clearPortPoll();
     var waiting = state.starting || [];
     state.starting = null;
     if (err) {
       state.lastError = err.message;
+      console.log('[web-proxy] 兼容模式浏览器启动失败: ' + err.message);
       waiting.forEach(function (fn) { fn(err); });
       return;
     }
     state.cdpUrl = cdpUrl;
+    console.log('[web-proxy] 兼容模式浏览器就绪: ' + cdpUrl);
     var client = new CdpClient(cdpUrl);
     state.cdp = client;
     client.on(dispatchEvent);
@@ -232,15 +296,51 @@ function ensureBrowser(cb) {
     if (m) finish(null, m[1]);
   }
 
+  // 已有 Edge 后台实例时，启动器会把请求转交出去并立即退出（code 0），
+  // 真正的无头浏览器作为独立进程继续运行，DevTools 地址只写进 profile 下的
+  // DevToolsActivePort 文件（首行端口、次行 ws 路径），stdout/stderr 不再输出。
+  // 只监听 stderr 会把这种情况误判成「启动失败」，因此同时轮询该文件。
+  function readPortFile() {
+    if (resolved) return;
+    var text = '';
+    try { text = fs.readFileSync(portFile, 'utf8'); } catch (e) { return; }
+    var lines = String(text).split(/\r?\n/);
+    var port = parseInt(lines[0], 10);
+    var wsPath = (lines[1] || '').trim();
+    if (!port || !wsPath) return;
+    finish(null, 'ws://127.0.0.1:' + port + wsPath);
+  }
+
+  var portTimer = setInterval(readPortFile, 150);
+  if (portTimer.unref) portTimer.unref();
+
+  function clearPortPoll() {
+    if (portTimer) {
+      clearInterval(portTimer);
+      portTimer = null;
+    }
+  }
+
   try { proc.stderr.on('data', onData); } catch (e) {}
   try { proc.stdout.on('data', onData); } catch (e) {}
+  readPortFile();
 
   proc.on('error', function (e) { finish(e); });
-  proc.on('exit', function () {
-    if (!resolved) finish(new Error('浏览器进程启动失败'));
+  proc.on('exit', function (code) {
+    if (!resolved) {
+      if (code === 0) {
+        // 转交启动：启动器已退出，真正的浏览器仍在运行，继续等端口文件
+        state.proc = null;
+        return;
+      }
+      finish(new Error('浏览器进程启动失败'));
+      state.proc = null;
+      return;
+    }
     state.proc = null;
     state.cdp = null;
     state.cdpUrl = '';
+    clearPortPoll();
     Object.keys(state.sessions).forEach(function (id) {
       var s = state.sessions[id];
       try { sendJson(s.out, { type: 'error', message: '浏览器进程已退出' }); } catch (e) {}
@@ -259,6 +359,10 @@ function ensureBrowser(cb) {
 
 function killBrowser() {
   if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
+  // 转交启动时拿不到真正的浏览器进程句柄，用 CDP 让浏览器自己退出，避免留下孤儿进程
+  try {
+    if (state.cdp && !state.cdp.closed) state.cdp.send('Browser.close', {}).catch(function () {});
+  } catch (e) {}
   try { if (state.cdp) state.cdp.close(); } catch (e) {}
   state.cdp = null;
   try { if (state.proc) state.proc.kill(); } catch (e) {}
@@ -270,7 +374,7 @@ function killBrowser() {
 function scheduleIdleKill() {
   if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
   state.idleTimer = setTimeout(function () {
-    if (Object.keys(state.sessions).length === 0 && state.proc) killBrowser();
+    if (Object.keys(state.sessions).length === 0 && state.cdp) killBrowser();
   }, IDLE_KILL_MS);
   if (state.idleTimer.unref) state.idleTimer.unref();
 }
@@ -280,6 +384,16 @@ function scheduleIdleKill() {
 function sendJson(ws, obj) {
   try {
     if (ws.readyState === WS.OPEN) ws.send(JSON.stringify(obj));
+  } catch (e) {}
+}
+
+// 画面帧走二进制：服务端把 CDP 的 base64 一次性解码成 JPEG 字节直接发出，
+// 客户端不再需要在主线程上逐字符 atob + 拷贝（大帧时这段循环会占满主线程，
+// 触摸事件排在其后处理，表现就是「画面在动、手指滑不动」），
+// 同时通道传输量也比 JSON + base64 少约 25%。
+function sendBinary(ws, buf) {
+  try {
+    if (ws.readyState === WS.OPEN) ws.send(buf);
   } catch (e) {}
 }
 
@@ -498,18 +612,17 @@ function dispatchEvent(method, params, cdpSessionId) {
   if (method === 'Page.screencastFrame') {
     var backlog = 0;
     try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
-    if (backlog < FRAME_MAX_BUFFER) {
+    var frameLimit = sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
+    if (backlog < frameLimit) {
       sess.framesSent++;
-      sendJson(sess.out, {
-        type: 'frame',
-        data: params.data,
-        // viewWidth/viewHeight 是坐标换算的唯一依据（Input.* 用 CSS 像素）；
-        // 帧的实际像素以 JPEG 为准，前端按 naturalWidth 校正画布，避免高 dpr 下裁切。
-        width: (params.metadata && params.metadata.deviceWidth) || sess.width,
-        height: (params.metadata && params.metadata.deviceHeight) || sess.height,
-        viewWidth: sess.width,
-        viewHeight: sess.height
-      });
+      var jpeg = null;
+      try { jpeg = Buffer.from(params.data, 'base64'); } catch (e) { jpeg = null; }
+      if (jpeg && jpeg.length) {
+        sendBinary(sess.out, jpeg);
+      } else {
+        // 兜底：极端情况下解码失败仍走 JSON + base64（前端两种格式都兼容）
+        sendJson(sess.out, { type: 'frame', data: params.data });
+      }
     } else {
       sess.framesDropped++;
       sess.lastDropAt = Date.now();
@@ -823,6 +936,7 @@ function handleUpgrade(req, socket, head) {
       touch: params.touch === '1'
     }, function (err, sess) {
       if (err) {
+        console.log('[web-proxy] 兼容模式会话创建失败: ' + err.message);
         sendJson(client, { type: 'error', message: err.message });
         try { client.close(); } catch (e) {}
         return;
