@@ -32,6 +32,7 @@
     taps: [],       // [{ ctx, dest }] 页面 WebAudio 上下文的采集口
     pending: [],    // [{ ctx, node }] 页面里连到扬声器的节点（开启前的连线也要补采）
     edges: [],      // [{ node, dest }] 已经旁路接过的连线，避免重复连接导致音量叠加
+    sinks: [],      // [{ ctx, gain }] 页面 WebAudio 的 0 增益出口（宿主静音用）
     timer: null
   };
 
@@ -42,16 +43,16 @@
   }
 
   // 采集上下文与处理后端：所有声源都接到 processor，processor 经 0 增益节点连到 destination
-  // 只为让音频图被驱动（无头环境没有声卡，不会真的出声）。
+  // 只为让音频图被驱动（这个 0 增益出口不发声，宿主扬声器保持安静）。
+  //
+  // 采样率用系统默认值而不是强制 24kHz：强制非原生采样率会让 Windows 音频端点
+  // 重新协商格式，在部分 Realtek / 蓝牙驱动上会把默认播放设备拉哑（整机失声）。
+  // 降采样到回传用的 24kHz 在 collect() 里完成，与上下文采样率无关。
   function ensureCtx() {
     if (state.ctx) return state.ctx;
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
-    try {
-      state.ctx = new AC({ sampleRate: RATE });
-    } catch (e) {
-      try { state.ctx = new AC(); } catch (e2) { return null; }
-    }
+    try { state.ctx = new AC(); } catch (e) { return null; }
     var proc = null;
     try {
       proc = state.ctx.createScriptProcessor(BLOCK, 1, 1);
@@ -114,9 +115,12 @@
   }
 
   // ---- 媒体元素：captureStream 拿音轨，接入采集管道 ----
+  // 注意：媒体元素已由 installSilence() 在属性层强制 muted，宿主扬声器不会出声；
+  // 实测 muted / volume=0 均不影响 captureStream 采集（Chromium 采集的是解码后的音轨），
+  // 所以这里不再跳过 muted 元素，否则页面自己静音过的播放器就永远采不到声音。
   function attachMedia(el) {
     if (!state.enabled || !el) return;
-    if (el.muted) return;
+    try { if (el.muted !== true) el.muted = true; } catch (e) {}
     var ctx = ensureCtx();
     if (!ctx || !state.processor) return;
 
@@ -168,12 +172,34 @@
     for (i = 0; i < videos.length; i++) attachMedia(videos[i]);
   }
 
-  // 媒体元素的 play 事件不冒泡，但捕获阶段能看到
+  // 媒体元素的 play 事件不冒泡，但捕获阶段能看到。
+  // 这里同时做两件事：1) 播放开始即强制静音（覆盖 autoplay 属性这类不走 JS play() 的情况）；
+  // 2) 声音开关打开时接入采集管道——静音不影响采集音量。
   document.addEventListener('play', function (ev) {
+    try { if (ev.target && ev.target.muted !== true) ev.target.muted = true; } catch (e) {}
     if (state.enabled && ev.target) attachMedia(ev.target);
   }, true);
 
   // ---- WebAudio：把最终连到 destination 的节点旁路接一份到采集口 ----
+  // 页面 WebAudio 的扬声器出口统一改接 0 增益节点（见 patchedConnect）：
+  // 声音照常进入采集旁路，宿主扬声器一点声音都不出。
+  function silentSinkFor(pageCtx) {
+    var i;
+    for (i = 0; i < state.sinks.length; i++) {
+      if (state.sinks[i].ctx === pageCtx) return state.sinks[i].gain;
+    }
+    var gain = null;
+    try {
+      gain = pageCtx.createGain();
+      gain.gain.value = 0;
+    } catch (e) { return null; }
+    // 打标记：这个节点自己接 destination 时不能再被改接，否则会接成自己
+    gain.__ciSink = true;
+    state.sinks.push({ ctx: pageCtx, gain: gain });
+    try { gain.connect(pageCtx.destination); } catch (e) {}
+    return gain;
+  }
+
   function tapFor(pageCtx, node) {
     if (!pageCtx || !node) return;
     var ctx = ensureCtx();
@@ -189,7 +215,7 @@
         var src = ctx.createMediaStreamSource(dest.stream);
         src.connect(state.processor);
       } catch (e) { return; }
-      state.taps.push({ ctx: pageCtx, dest: dest });
+      state.taps.push({ ctx: pageCtx, dest: dest, src: src });
     }
     for (i = 0; i < state.edges.length; i++) {
       if (state.edges[i].node === node && state.edges[i].dest === dest) return;
@@ -205,11 +231,12 @@
     if (AudioNode.prototype.connect.__ciHooked) return;
     var origConnect = AudioNode.prototype.connect;
     var patchedConnect = function (dest) {
-      var ret = origConnect.apply(this, arguments);
+      var args = Array.prototype.slice.call(arguments);
       try {
         if (dest && typeof AudioDestinationNode !== 'undefined' &&
-            dest instanceof AudioDestinationNode && this.context && this.context !== state.ctx) {
-          // 先登记：页面可能在用户开声音之前就把音频图接好了，开启时再补采
+            dest instanceof AudioDestinationNode && this.context && this.context !== state.ctx &&
+            !this.__ciSink) {
+          // 1) 先登记：页面可能在用户开声音之前就把音频图接好了，开启时再补采
           var i;
           var known = false;
           for (i = 0; i < state.pending.length; i++) {
@@ -219,29 +246,93 @@
             }
           }
           if (!known) state.pending.push({ ctx: this.context, node: this });
+          // 2) 宿主静音：把「接扬声器」改成接 0 增益出口。页面照常播放、照常解码，
+          //    但宿主扬声器不出声；采集旁路仍然拿到完整音量。
+          //    不再依赖浏览器启动参数 --mute-audio——该参数会让 Chromium 以「静音会话」
+          //    占用系统音频端点，在部分 Windows 驱动 / 蓝牙耳机上会把整台电脑的音频拉哑。
+          var sink = silentSinkFor(this.context);
+          if (sink) args[0] = sink;
           if (state.enabled) tapFor(this.context, this);
         }
       } catch (e) {}
-      return ret;
+      return origConnect.apply(this, args);
     };
     patchedConnect.__ciHooked = true;
     AudioNode.prototype.connect = patchedConnect;
 
-    // 页面整体断开（disconnect() 无参）时同步清掉我们的旁路记录，否则重连后不再补采
+    // 页面整体断开（disconnect() 无参）时同步清掉我们的旁路记录，否则重连后不再补采。
+    // disconnect(destination) 也要映射到静音出口，否则页面按原 destination 断开时
+    // 找不到实际连线会抛 InvalidAccessError，打断页面自己的音频逻辑。
     var origDisconnect = AudioNode.prototype.disconnect;
-    AudioNode.prototype.disconnect = function () {
-      var ret = origDisconnect.apply(this, arguments);
+    AudioNode.prototype.disconnect = function (dest) {
+      var args = Array.prototype.slice.call(arguments);
       try {
+        if (dest && typeof AudioDestinationNode !== 'undefined' &&
+            dest instanceof AudioDestinationNode && this.context && this.context !== state.ctx &&
+            !this.__ciSink) {
+          var sink = silentSinkFor(this.context);
+          if (sink) args[0] = sink;
+        }
         if (!arguments.length) {
           for (var i = state.edges.length - 1; i >= 0; i--) {
             if (state.edges[i].node === this) state.edges.splice(i, 1);
           }
         }
       } catch (e) {}
-      return ret;
+      return origDisconnect.apply(this, args);
     };
   }
 
+  // ---- 宿主静音：页面媒体元素统一强制 muted ----
+  // 为什么不用浏览器启动参数 --mute-audio：该参数会让 Chromium 以「静音会话」占用
+  // 系统音频端点，在部分 Windows 驱动 / 蓝牙耳机上会把整台电脑的音频一起拉哑
+  // （用户反馈「静音后整个电脑都没声音」就出在这里）。改为页面内属性层静音，
+  // 声音只经采集管道回传给手机，完全不碰系统音频会话状态。
+  // 实测 muted / volume=0 都不影响 captureStream 采集（采集的是解码后的音轨）。
+  function installSilence() {
+    try {
+      var proto = window.HTMLMediaElement ? HTMLMediaElement.prototype : null;
+      if (!proto || proto.__ciMutedHooked) return;
+      proto.__ciMutedHooked = true;
+      var desc = Object.getOwnPropertyDescriptor(proto, 'muted');
+      if (desc && desc.get && desc.set) {
+        Object.defineProperty(proto, 'muted', {
+          configurable: true,
+          enumerable: desc.enumerable,
+          get: function () { return desc.get.call(this); },
+          set: function () { desc.set.call(this, true); }
+        });
+      }
+      // 已存在的元素（页内跳转 / 复用文档）立即补静音
+      muteWithin(document);
+      // 页面运行中新建的元素：插入即静音，避免解析器创建的元素在 play 事件前出声
+      try {
+        if (window.MutationObserver && document.documentElement) {
+          new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) {
+              var added = records[i].addedNodes;
+              for (var j = 0; j < added.length; j++) muteWithin(added[j]);
+            }
+          }).observe(document.documentElement, { childList: true, subtree: true });
+        }
+      } catch (e) {}
+    } catch (e) {}
+  }
+
+  // 把一个节点自身及其子节点里的 audio/video 全部静音
+  function muteWithin(node) {
+    try {
+      if (!node || node.nodeType !== 1) return;
+      var tag = node.tagName;
+      if (tag === 'AUDIO' || tag === 'VIDEO') node.muted = true;
+      var list = node.querySelectorAll ? node.querySelectorAll('audio,video') : null;
+      if (list) {
+        for (var i = 0; i < list.length; i++) list[i].muted = true;
+      }
+    } catch (e) {}
+  }
+
+  installSilence();
   hookAudioGraph();
 
   // ---- 对外开关：由服务端 Runtime.evaluate 调用 ----
@@ -272,7 +363,19 @@
       try { state.media[i].node.disconnect(); } catch (e) {}
     }
     state.media = [];
-    try { if (state.ctx && state.ctx.state === 'running') state.ctx.suspend(); } catch (e) {}
+    // 断开 WebAudio 旁路：页面声音不再进入采集口
+    for (var j = 0; j < state.edges.length; j++) {
+      try { state.edges[j].node.disconnect(state.edges[j].dest); } catch (e) {}
+    }
+    state.edges = [];
+    for (var k = 0; k < state.taps.length; k++) {
+      try { if (state.taps[k].src) state.taps[k].src.disconnect(); } catch (e) {}
+    }
+    state.taps = [];
+    // 关键：不调用 ctx.suspend()。挂起会让浏览器关闭这条系统音频输出流，
+    // 部分 Windows 音频驱动在频繁开关流后会把默认播放设备卡在「无声」状态
+    // （用户主观感受就是整台电脑没声音）。上下文保持运行，出口 0 增益天然无声，
+    // 再次开启时直接复用，全程不再触碰系统音频端点的开关。
   }
 
   window.__ciAudioStart = start;

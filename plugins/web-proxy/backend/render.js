@@ -263,10 +263,10 @@ function launchBrowser(exe) {
     // profile，与用户真实浏览器完全隔离，风险仅限于该兜底模式内部（见 README 安全说明）。
     '--autoplay-policy=no-user-gesture-required',
     '--disable-web-security',
-    // 老师机保持静音：页面声音只经采集管道回传给学生的手机，
-    // 不落到宿主机扬声器（headless=new 默认仍可能占用系统音频输出）。
-    // 该开关只静音输出设备，页面内的媒体解码与 captureStream 采集不受影响。
-    '--mute-audio',
+    // 老师机保持静音：页面声音只经采集管道回传给学生的手机，不落到宿主机扬声器。
+    // 静音改由页面内的 audio-inject 完成（媒体元素强制 muted、WebAudio 出口接 0 增益），
+    // 这里刻意不再传 --mute-audio：该参数会让 Chromium 以「静音会话」占用系统音频端点，
+    // 在部分 Windows 驱动 / 蓝牙耳机上会把整台电脑的音频一起拉哑（用户反馈过该故障）。
     '--hide-scrollbars',
     // 多个渲染标签页共存时，后台标签会被节流 / 停止合成，
     // 表现为「画面停在上一帧、手指滑不动」；这三个开关保证每个会话都持续渲染。
