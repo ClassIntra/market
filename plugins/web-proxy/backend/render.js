@@ -28,7 +28,9 @@ var BROWSER_PATHS = [
 ];
 
 var MAX_SESSIONS = 3;              // 同时存活的渲染会话上限（实测单浏览器约 1.8GB）
-var IDLE_KILL_MS = 5 * 60 * 1000;  // 无会话空闲多久后关闭浏览器进程
+// 无会话时尽快回收渲染浏览器（约 500MB 常驻）：兼容模式是兜底功能，冷启动 2–3 秒可接受，
+// 让内存和后台进程尽早归还给宿主，而不是白白挂 5 分钟。
+var IDLE_KILL_MS = 90 * 1000;
 var SESSION_IDLE_MS = 3 * 60 * 1000; // 单会话无操作多久后回收
 var VIEW_WIDTH = 1280;
 var VIEW_HEIGHT = 800;
@@ -56,13 +58,21 @@ var FRAME_MAX_BUFFER = 1.5 * 1024 * 1024;
 // 队列一旦堆到 1MB 以上用户看到的就是「几秒前的画面」，主观感受就是卡住。
 // 宁可丢掉中段帧，也要保证最新一帧尽快到达。
 var FRAME_MAX_BUFFER_TOUCH = 700 * 1024;
-// 自适应画质档位：弱网 / 低端手机上持续丢帧时自动降帧率与画质，
-// 稳定一段时间后再逐档回升，既不卡也不长期糊。
+// 自适应画质档位：弱网 / 低端手机上持续丢帧时自动降画质，
+// 稳定一段时间后再逐档回升。帧率不在这里控制——见下面的「按需帧率」。
 var QUALITY_LEVELS = [
-  { quality: SCREENCAST_QUALITY, everyNthFrame: 1 },
-  { quality: 48, everyNthFrame: 2 },
-  { quality: 40, everyNthFrame: 3 }
+  { quality: SCREENCAST_QUALITY },
+  { quality: 48 },
+  { quality: 40 }
 ];
+// 按需帧率：用户操作期间跑满 60fps（滑动跟手），静置 1.5 秒后降到 30fps。
+// 页面自播动画 / 视频在没人碰时不需要 60fps；这一档能实打实省掉约一半的编码 CPU 与带宽。
+var ACTIVE_EVERY_NTH = 1;
+var IDLE_EVERY_NTH = 2;
+var ACTIVE_BOOST_MS = 1500;
+// 媒体检测：在播时把高帧率窗口续到 5 秒，每 3 秒复查一次
+var MEDIA_CHECK_MS = 3000;
+var MEDIA_KEEP_MS = 5000;
 var ADAPT_WINDOW_MS = 2000;    // 观察窗口长度
 var ADAPT_DROP_RATIO = 0.25;   // 窗口内丢帧占比达到该值就降一档
 var ADAPT_UPGRADE_MS = 12000;  // 连续多久不丢帧后回升一档
@@ -365,17 +375,46 @@ function launchBrowser(exe) {
   }, 15000);
 }
 
+// 回收渲染浏览器：优先让浏览器自己退出（转交启动时拿不到真实进程句柄，proc 是已退出的启动器），
+// 兜底再按独立 profile 结束残留的 msedge 进程。
+// 注意：Browser.close 必须等浏览器回包或超时后才能断开 CDP 连接，
+// 否则紧跟着的 close() 会把这条消息吞掉，浏览器就一直挂着不退。
 function killBrowser() {
+  console.log('[web-proxy] 回收渲染浏览器（无活跃会话）');
   if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
-  // 转交启动时拿不到真正的浏览器进程句柄，用 CDP 让浏览器自己退出，避免留下孤儿进程
-  try {
-    if (state.cdp && !state.cdp.closed) state.cdp.send('Browser.close', {}).catch(function () {});
-  } catch (e) {}
-  try { if (state.cdp) state.cdp.close(); } catch (e) {}
+  var cdp = state.cdp;
+  var proc = state.proc;
   state.cdp = null;
-  try { if (state.proc) state.proc.kill(); } catch (e) {}
   state.proc = null;
   state.cdpUrl = '';
+
+  var settled = false;
+  function settle(closed) {
+    if (settled) return;
+    settled = true;
+    try { if (cdp) cdp.close(); } catch (e) {}
+    try { if (proc) proc.kill(); } catch (e) {}
+    if (!closed) killByProfile();
+  }
+  if (cdp && !cdp.closed) {
+    try {
+      cdp.send('Browser.close', {}).then(function () { settle(true); }, function () { settle(false); });
+    } catch (e) { settle(false); }
+    setTimeout(function () { settle(false); }, 1500);
+  } else {
+    settle(true);
+  }
+}
+
+// 只结束使用独立渲染 profile 的 msedge 进程，绝不触碰用户日常浏览器的进程
+function killByProfile() {
+  if (process.platform !== 'win32') return;
+  var script = "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | "
+    + "Where-Object { $_.CommandLine -like '*classintra-render-profile*' } | "
+    + "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }";
+  try {
+    cp.execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true }, function () {});
+  } catch (e) {}
 }
 
 // 没有活跃会话时，空闲一段时间后回收浏览器内存
@@ -451,10 +490,16 @@ function createSession(url, out, opts, cb) {
           lastDropAt: 0,
           // 双指缩放：记录当前页面缩放倍率，捏合时按增量累计
           pageScale: 1,
+          // 按需帧率：输入后的一小段时间内视为「操作中」，跑满 60fps；
+          // frameNth 记录当前实际下发的抽帧步长，用于判断是否需要重开帧流
+          activeUntil: 0,
+          frameNth: IDLE_EVERY_NTH,
           // 画面帧因积压被丢弃后，页面静止就不会再出帧，需要主动补拍一张最新画面
           needRefresh: false,
           refreshTimer: null,
-          refreshTries: 0
+          refreshTries: 0,
+          // 操作窗口结束的一次性判定定时器（降帧 / 媒体续期）
+          activeTimer: null
         };
         state.sessions[id] = sess;
         var chain = Promise.resolve();
@@ -540,8 +585,73 @@ function screencastParams(sess) {
     quality: lv.quality,
     maxWidth: Math.round(sess.width * sess.dpr),
     maxHeight: Math.round(sess.height * sess.dpr),
-    everyNthFrame: lv.everyNthFrame
+    // 有人操作时 60fps，静置后 30fps（省约一半编码 CPU 与带宽）
+    everyNthFrame: isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH
   };
+}
+
+// 是否处于「操作中」窗口：触摸 / 滚轮 / 键盘等输入后的一小段时间内跑满帧率
+function isActive(sess) {
+  return !!(sess && sess.activeUntil && Date.now() < sess.activeUntil);
+}
+
+// 输入到达时标记为操作中：立刻升到 60fps，1.5 秒后按需降回 30fps
+function markActive(sess) {
+  if (!sess || sess.paused) return;
+  sess.activeUntil = Date.now() + ACTIVE_BOOST_MS;
+  applyFrameMode(sess);
+  scheduleActiveEnd(sess);
+}
+
+// 操作窗口结束时立刻判断一次（不必等周期巡检），让降帧在 1.6 秒内生效
+function scheduleActiveEnd(sess) {
+  if (sess.activeTimer) clearTimeout(sess.activeTimer);
+  sess.activeTimer = setTimeout(function () {
+    sess.activeTimer = null;
+    if (!state.sessions[sess.id] || sess.paused) return;
+    mediaPlaying(sess).then(function (playing) {
+      if (!state.sessions[sess.id] || sess.paused) return;
+      if (playing) sess.activeUntil = Date.now() + MEDIA_KEEP_MS;
+      applyFrameMode(sess);
+    });
+  }, ACTIVE_BOOST_MS + 100);
+  if (sess.activeTimer.unref) sess.activeTimer.unref();
+}
+
+// 只有帧率档位真正变化时才重开帧流，避免每次输入都 stop/start
+function applyFrameMode(sess) {
+  if (!sess || sess.paused || !state.cdp) return;
+  var nth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
+  if (sess.frameNth === nth) return;
+  sess.frameNth = nth;
+  restartScreencast(sess);
+}
+
+// 页面有媒体在播放时降帧会明显顿（视频 / 音乐需要连续帧）：
+// 每 3 秒做一次轻量 DOM 查询，在播就把「操作中」窗口续期，播完自然回落到 30fps。
+function watchMedia() {
+  Object.keys(state.sessions).forEach(function (id) {
+    var sess = state.sessions[id];
+    if (!sess || sess.paused || !state.cdp) return;
+    mediaPlaying(sess).then(function (playing) {
+      if (!state.sessions[sess.id] || sess.paused) return;
+      if (playing) sess.activeUntil = Date.now() + MEDIA_KEEP_MS;
+      applyFrameMode(sess);
+    });
+  });
+}
+setInterval(watchMedia, MEDIA_CHECK_MS).unref();
+
+function mediaPlaying(sess) {
+  if (!state.cdp) return Promise.resolve(false);
+  return state.cdp.send('Runtime.evaluate', {
+    expression: '(function(){var m=document.querySelectorAll("video,audio");'
+      + 'for(var i=0;i<m.length;i++){var e=m[i];'
+      + 'if(!e.paused&&!e.ended&&e.readyState>2)return true;}return false;})()',
+    returnByValue: true
+  }, sess.cdpSession).then(function (r) {
+    return !!(r && r.result && r.result.value);
+  }, function () { return false; });
 }
 
 // 按当前会话视口重开 screencast：改过视口后必须重开，否则帧尺寸仍是旧的
@@ -551,6 +661,7 @@ function restartScreencast(sess) {
   var start = function () {
     // 暂停期间（页面隐藏）不重开帧流，恢复时由 resume 统一启动
     if (sess.paused) return Promise.resolve();
+    sess.frameNth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
     return state.cdp.send('Page.startScreencast', screencastParams(sess), sid);
   };
   return state.cdp.send('Page.stopScreencast', {}, sid).then(start, start);
@@ -586,7 +697,7 @@ function sendQualityLevel(sess) {
     type: 'quality',
     level: sess.qualityLevel,
     quality: QUALITY_LEVELS[sess.qualityLevel].quality,
-    fps: Math.round(60 / QUALITY_LEVELS[sess.qualityLevel].everyNthFrame)
+    fps: 60 / (isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH)
   });
 }
 
@@ -631,10 +742,14 @@ function scheduleRefresh(sess) {
 function closeSession(sess, notify) {
   if (!sess) return;
   delete state.sessions[sess.id];
-  // 会话关闭时清掉补拍定时器，避免对已关闭的连接继续截图
+  // 会话关闭时清掉补拍与降帧定时器，避免对已关闭的连接继续截图 / 查询
   if (sess.refreshTimer) {
     clearTimeout(sess.refreshTimer);
     sess.refreshTimer = null;
+  }
+  if (sess.activeTimer) {
+    clearTimeout(sess.activeTimer);
+    sess.activeTimer = null;
   }
   if (state.cdp) {
     try { state.cdp.send('Target.closeTarget', { targetId: sess.targetId }).catch(function () {}); } catch (e) {}
@@ -796,6 +911,12 @@ function handleInput(sess, msg) {
   sess.lastActive = Date.now();
   var cdp = state.cdp;
   var sid = sess.cdpSession;
+  // 有输入即视为「操作中」：帧率临时升到 60fps，松手静置 1.5 秒后回落 30fps。
+  // 只对真正的交互类型升帧：暂停 / 恢复 / 导航等控制消息不改变画面流畅度需求。
+  if (msg.type === 'mouse' || msg.type === 'touch' || msg.type === 'wheel' ||
+      msg.type === 'key' || msg.type === 'text' || msg.type === 'pinch') {
+    markActive(sess);
+  }
   // 输入事件失败只需记一次，避免把日志刷爆
   function guard(promise, label) {
     promise.catch(function (e) {
