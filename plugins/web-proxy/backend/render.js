@@ -478,6 +478,10 @@ function createSession(url, out, opts, cb) {
           height: vh,
           dpr: dpr,
           touch: touch,
+          // 使用该会话的用户标识：由前端在 WS 握手时带上，仅供班管查看使用情况
+          uid: o.uid ? String(o.uid) : '',
+          uname: o.uname ? String(o.uname) : '',
+          startedAt: Date.now(),
           // 音频默认关闭：前端点开后才开始采集回传
           audioEnabled: false,
           // 页面不可见时暂停帧流与采集（前端 visibilitychange 控制）
@@ -1137,7 +1141,9 @@ function handleUpgrade(req, socket, head) {
       width: params.w,
       height: params.h,
       dpr: params.dpr,
-      touch: params.touch === '1'
+      touch: params.touch === '1',
+      uid: params.uid,
+      uname: params.uname
     }, function (err, sess) {
       if (err) {
         console.log('[web-proxy] 兼容模式会话创建失败: ' + err.message);
@@ -1185,8 +1191,52 @@ function status() {
   };
 }
 
+// 列出当前所有兼容模式会话（仅暴露班管做使用管理所需的最小字段）
+function listSessions() {
+  var now = Date.now();
+  return Object.keys(state.sessions).map(function (id) {
+    var s = state.sessions[id];
+    return {
+      id: s.id,
+      url: s.url,
+      user: { id: s.uid || '', name: s.uname || '' },
+      startedAt: s.startedAt || 0,
+      lastActive: s.lastActive || 0,
+      // 前端直接展示时长，省去两端时钟不一致带来的偏差
+      duration: now - (s.startedAt || now),
+      audioEnabled: !!s.audioEnabled,
+      paused: !!s.paused,
+      touch: !!s.touch,
+      width: s.width,
+      height: s.height,
+      framesSent: s.framesSent || 0,
+      framesDropped: s.framesDropped || 0
+    };
+  });
+}
+
+// 按会话 ID 断开：返回是否确实关掉了一个会话
+function closeSessionById(id) {
+  var sess = state.sessions[String(id || '')];
+  if (!sess) return false;
+  closeSession(sess, true);
+  return true;
+}
+
+// 断开全部会话：返回实际断开的数量
+function closeAllSessions() {
+  var ids = Object.keys(state.sessions);
+  for (var i = 0; i < ids.length; i++) {
+    closeSession(state.sessions[ids[i]], true);
+  }
+  return ids.length;
+}
+
 module.exports = {
   handleUpgrade: handleUpgrade,
   status: status,
+  listSessions: listSessions,
+  closeSessionById: closeSessionById,
+  closeAllSessions: closeAllSessions,
   kill: killBrowser
 };

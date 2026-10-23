@@ -19,6 +19,8 @@
 - `index.json` 升至 `7`，更新 `web-proxy` 版本号。
 - `web-proxy` 升至 `1.0.15`：修复「关闭声音后整台电脑失声」——宿主静音不再用浏览器启动参数 `--mute-audio`（该参数会让 Chromium 以静音会话占用系统音频端点，部分 Windows 驱动 / 蓝牙设备下会把整机音频一起拉哑），改为页面级静音（媒体元素强制 `muted` + 页面 WebAudio 出口接 0 增益）；采集上下文改用设备默认采样率，关闭声音时只断开采集接线、不再挂起 `AudioContext`，避免反复开关音频流把默认播放设备卡在无声。
 - `index.json` 升至 `8`，更新 `web-proxy` 版本号。
+- `web-proxy` 升至 `1.0.16`：兼容模式使用管理——应用市场「已安装插件」的网页代理卡片新增班管 / 管理员专用「管理」按钮，浮窗展示当前所有兼容会话（使用者、站点、已用时长、声音状态），支持单个或全部断开；会话身份由前端 WS 握手携带 `uid` / `uname`，新增 `GET /api/web-proxy/sessions`、`POST /api/web-proxy/sessions/:id/close`、`POST /api/web-proxy/sessions/close-all` 三个班管接口。
+- `index.json` 升至 `9`，更新 `web-proxy` 版本号。
 
 ## 1.1.0
 

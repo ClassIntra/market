@@ -117,4 +117,39 @@ router.post('/stop', auth.requireAuth, auth.requireAdmin, function (req, res) {
   });
 });
 
+// ---- 兼容模式使用管理（仅班管 / 管理员）----
+
+// 当前兼容模式会话列表：谁在用哪个站点、用了多久、声音是否打开
+router.get('/sessions', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  var s = proxy.status();
+  var render = proxy.renderStatus ? proxy.renderStatus() : { available: false };
+  res.json({
+    code: 200,
+    data: {
+      running: !!s.running,
+      port: s.port || proxy.DEFAULT_PORT,
+      available: !!render.available,
+      browser: render.browser || '',
+      maxSessions: render.maxSessions || 0,
+      lastError: render.lastError || render.reason || '',
+      sessions: proxy.listRenderSessions ? proxy.listRenderSessions() : []
+    }
+  });
+});
+
+// 断开全部会话
+router.post('/sessions/close-all', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  var count = proxy.closeAllRenderSessions ? proxy.closeAllRenderSessions() : 0;
+  res.json({ code: 200, data: { closed: count } });
+});
+
+// 断开单个会话
+router.post('/sessions/:id/close', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  var ok = proxy.closeRenderSession ? proxy.closeRenderSession(req.params.id) : false;
+  if (!ok) {
+    return res.status(404).json({ code: 404, message: '会话不存在或已结束' });
+  }
+  res.json({ code: 200, data: { closed: 1 } });
+});
+
 module.exports = router;

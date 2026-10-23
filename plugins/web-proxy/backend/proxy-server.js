@@ -1112,12 +1112,45 @@ function renderStatus() {
   }
 }
 
+// 兼容模式会话列表（班管管理用）：引擎未加载时返回空数组
+function listRenderSessions() {
+  if (!renderEngine || typeof renderEngine.listSessions !== 'function') return [];
+  try {
+    return renderEngine.listSessions() || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+// 断开指定兼容模式会话：返回是否成功
+function closeRenderSession(id) {
+  if (!renderEngine || typeof renderEngine.closeSessionById !== 'function') return false;
+  try {
+    return !!renderEngine.closeSessionById(id);
+  } catch (e) {
+    return false;
+  }
+}
+
+// 断开全部兼容模式会话：返回断开数量
+function closeAllRenderSessions() {
+  if (!renderEngine || typeof renderEngine.closeAllSessions !== 'function') return 0;
+  try {
+    return renderEngine.closeAllSessions() || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
 module.exports = {
   DEFAULT_PORT: DEFAULT_PORT,
   start: start,
   stop: stop,
   status: status,
   renderStatus: renderStatus,
+  listRenderSessions: listRenderSessions,
+  closeRenderSession: closeRenderSession,
+  closeAllRenderSessions: closeAllRenderSessions,
   parseTarget: parseTarget,
   unproxyUrl: unproxyUrl
 };
