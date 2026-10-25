@@ -10,13 +10,25 @@
   'use strict';
   var NAME = 'pet';
   var DIM = 16;          // 网格
-  // 编辑画布每格 px：按视口自适应（平板 ~34px 大格，窄屏不低于 22px）
-  var CELL = Math.max(22, Math.min(34, Math.floor((Math.min(window.innerWidth || 360, 760) - 56) / DIM / 2) * 2));
+  // 编辑画布每格 px：按「宠物屋容器实际宽度」自适应，而不是 window.innerWidth ——
+  // 宿主（AppShell → MarketRuntime）给应用的是 height:100% 的受限盒子，视口再宽也照
+  // 容器算，否则 16 格 × 大格宽会把画布顶出可视区且又没有横向滚动。
+  // 预算 = 容器宽 − root 左右 padding(32) − 画布容器 padding(16) − 安全余量(8)
+  function availWidth() {
+    var w = (root && root.clientWidth) ? root.clientWidth : Math.min(window.innerWidth || 360, 720);
+    return w - 56;
+  }
+  function computeCell() {
+    var raw = Math.floor(availWidth() / DIM / 2) * 2; // 取偶数，避免半像素发丝缝
+    return Math.max(16, Math.min(30, raw));
+  }
+  var CELL = computeCell();
   var palette = [];
   var templates = [];
   var state = null;      // 服务端状态
   var root = null;
   var api = null;
+  var storage = null;    // SDK 本地存档（手作稿，供「换回拼豆」时复原）
 
   // ---- 编辑器状态 ----
   var edit = null;       // { data: '256字符', color: idx, tool: 'pen|eraser|fill', mirror: bool }
@@ -75,7 +87,7 @@
     whale.appendChild(h('div', 'ci-pet-tpl-emoji', '🐳'));
     whale.appendChild(h('div', 'ci-pet-tpl-name', '大肥鱼'));
     whale.appendChild(h('div', 'ci-pet-tpl-desc', '100 多种动作：吃火锅、玩魔方、拆礼物…推荐！'));
-    whale.addEventListener('click', function() { renderNaming(null); });
+    whale.addEventListener('click', function() { renderNaming('video'); });
     grid.appendChild(whale);
     templates.forEach(function(t) {
       var card = h('div', 'ci-pet-tpl');
@@ -170,6 +182,7 @@
 
   function renderEditor() {
     clearRoot();
+    CELL = computeCell();   // 每次进编辑器按当期容器宽度重算（旋转/分屏后也准）
     root.appendChild(h('h2', null, '拼豆工作台'));
     root.appendChild(h('p', 'ci-pethome-sub', '一格一格拼出它。对称模式适合画脸，画完点「就它了」。'));
 
@@ -215,7 +228,7 @@
 
     // 完成行
     var row2 = h('div', 'ci-pet-btnrow');
-    var doneBtn = btn('就它了 →', false, function() { renderNaming(); });
+    var doneBtn = btn('就它了 →', false, function() { renderNaming('pixel'); });
     row2.appendChild(doneBtn);
     if (state && state.adopted) {
       var backBtn = btn('先不换了', true, function() { renderHome(); });
@@ -252,11 +265,15 @@
     redrawEditor();
   }
 
-  // ================= 起名 =================
-  function renderNaming() {
+  // ================= 起名 / 定形象 =================
+  // kind: 'video' 大肥鱼 | 'pixel' 手作拼豆 | 缺省按是否有草稿判定（向后兼容）
+  // ⚠️ 必须显式传：模块级 edit 是跨页面常驻的，靠它"猜"会让「改名字」把上次
+  //    编辑器里的草稿当成 design 提交（真实现象：改个名字，宠物形象被换掉）。
+  function renderNaming(kind) {
     clearRoot();
-    root.appendChild(h('h2', null, '给它起个名字'));
-    var isPixelNaming = !!(edit && edit.data);
+    var isPixelNaming = kind === 'pixel' ? true : (kind === 'video' ? false : !!(edit && edit.data));
+    var existingName = (state && state.name) || '';
+    root.appendChild(h('h2', null, existingName ? '改个名字' : '给它起个名字'));
     var preview = document.createElement('canvas');
     if (isPixelNaming) {
       paint(preview, { w: DIM, h: DIM, data: edit.data }, 6);
@@ -274,10 +291,16 @@
     input.type = 'text';
     input.maxLength = 12;
     input.placeholder = '最多 12 个字';
+    if (existingName) input.value = existingName;
     info.appendChild(input);
     var row = h('div', 'ci-pet-btnrow');
-    var save = h('button', 'ci-pet-btn', isPixelNaming ? '领养它！' : '领养大肥鱼！');
+    var save = h('button', 'ci-pet-btn', isPixelNaming ? (existingName ? '保存造型与名字' : '领养它！') : (existingName ? '换成大肥鱼' : '领养大肥鱼！'));
     row.appendChild(save);
+    if (existingName) {
+      var cancel = h('button', 'ci-pet-btn ci-pet-btn--ghost', '取消');
+      cancel.addEventListener('click', function() { renderHome(); });
+      row.appendChild(cancel);
+    }
     info.appendChild(row);
     card.appendChild(info);
     root.appendChild(card);
@@ -289,8 +312,10 @@
       save.textContent = '保存中…';
       var payload = { adopt: true, name: name };
       if (isPixelNaming) payload.design = { v: 1, w: DIM, h: DIM, pal: 'p16', data: edit.data };
+      else payload.design = { type: 'video', character: 'dsh-whale' }; // 显式覆盖：从手作切回大肥鱼
       api.put('/pet/state', payload).then(function(res) {
         state = (res.data && res.data.data && res.data.data.state) || state;
+        edit = null;  // 草稿用完即弃，别让它在后续「改名字」里复活
         notifyChanged();
         renderHome();
       }).catch(function(err) {
@@ -302,6 +327,35 @@
       });
     });
     setTimeout(function() { input.focus(); }, 60);
+  }
+
+  // ================= 换形象（共用）=================
+  // 手作稿存档：从"拼豆 → 大肥鱼"时留一份，之后「换成手作拼豆」能原样换回去
+  function savePixelDraft() {
+    try {
+      if (storage && state && state.design && state.design.type !== 'video') {
+        storage.set('lastPixel', state.design);
+      }
+    } catch (e) {}
+  }
+
+  // 只换 design，名字/羁绊/开关全部保留（切换前后都通知悬浮层按新形态重建）
+  function switchDesign(design, btn, label) {
+    if (!api || !design) return;
+    if (btn) { btn.disabled = true; btn.textContent = '切换中…'; }
+    api.put('/pet/state', { design: design }).then(function(res) {
+      state = (res.data && res.data.data && res.data.data.state) || state;
+      notifyChanged();
+      renderHome();
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = label || '换形象'; }
+      if (context && context.system && context.system.toast) {
+        context.system.toast({
+          message: '切换失败：' + ((err && err.response && err.response.data && err.response.data.message) || '请重试'),
+          type: 'error'
+        });
+      }
+    });
   }
 
   // ================= 我的宠物 =================
@@ -392,11 +446,34 @@
       });
     });
     row.appendChild(feedBtn);
-    var reBtn = h('button', 'ci-pet-btn ci-pet-btn--ghost', state.design.type === 'video' ? '换成手作拼豆' : '重新打扮');
-    reBtn.addEventListener('click', function() { startEditor(state.design.data); });
-    row.appendChild(reBtn);
+    // 换形象：双向可切（大肥鱼 ⇄ 手作拼豆），切换前把手作稿存档，随时能换回去
+    if (isVideoPet) {
+      var toPixel = h('button', 'ci-pet-btn ci-pet-btn--ghost', '换成手作拼豆');
+      toPixel.addEventListener('click', function() {
+        var saved = null;
+        try { saved = storage && storage.get('lastPixel', null); } catch (e) {}
+        startEditor(saved && saved.data ? saved.data : '');
+      });
+      row.appendChild(toPixel);
+    } else {
+      var toVideo = h('button', 'ci-pet-btn ci-pet-btn--ghost', '换成大肥鱼');
+      toVideo.addEventListener('click', function() {
+        savePixelDraft();
+        switchDesign({ type: 'video', character: 'dsh-whale' }, toVideo, '换成大肥鱼');
+      });
+      row.appendChild(toVideo);
+      var reBtn = h('button', 'ci-pet-btn ci-pet-btn--ghost', '重新打扮');
+      reBtn.addEventListener('click', function() { startEditor(state.design && state.design.data); });
+      row.appendChild(reBtn);
+    }
+    // 改名字：保留当前形态（pixel 时把现稿塞进 edit，避免 preview 空白/串稿）
     var rename = h('button', 'ci-pet-btn ci-pet-btn--ghost', '改名字');
-    rename.addEventListener('click', function() { renderNaming(); });
+    rename.addEventListener('click', function() {
+      if (!isVideoPet && state.design) {
+        edit = { data: state.design.data, color: 2, tool: 'pen', mirror: false };
+      }
+      renderNaming(isVideoPet ? 'video' : 'pixel');
+    });
     row.appendChild(rename);
     info.appendChild(row);
     card.appendChild(info);
@@ -436,16 +513,33 @@
     try { window.dispatchEvent(new CustomEvent('ci-pet-state-changed')); } catch (e) {}
   }
 
+  // 容器宽度变了（平板旋转 / 窗口缩放）→ 重算格子并重绘画布，保证画布永远在可视区内
+  var resizeTimer = null;
+  function onResize() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      resizeTimer = null;
+      if (!root || !editCanvas) return;      // 只有编辑器在台上才需要重绘
+      var next = computeCell();
+      if (next !== CELL) { CELL = next; redrawEditor(); }
+    }, 150);
+  }
+
   // ================= 挂载契约 =================
   var context = null;
   function mount(container, ctx) {
     context = ctx;
     api = ctx && ctx.data && ctx.data.api;
+    storage = ctx && ctx.data && ctx.data.storage;
     root = h('div', 'ci-pethome');
     container.appendChild(root);
     if (ctx && ctx.app && typeof ctx.app.onDestroy === 'function') {
-      ctx.app.onDestroy(function() { root = null; });
+      ctx.app.onDestroy(function() {
+        window.removeEventListener('resize', onResize);
+        root = null;
+      });
     }
+    window.addEventListener('resize', onResize);
     root.appendChild(h('p', 'ci-pethome-sub', '加载中…'));
     api.get('/pet/state').then(function(res) {
       var d = (res.data && res.data.data) || {};
@@ -461,7 +555,10 @@
     });
   }
   function unmount(container) {
+    window.removeEventListener('resize', onResize);
+    if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
     if (root && root.parentNode) root.parentNode.removeChild(root);
+    editCanvas = null;
     root = null;
   }
 

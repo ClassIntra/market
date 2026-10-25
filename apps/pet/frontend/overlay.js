@@ -52,6 +52,10 @@
   var poolsV = null;
   var poolsLoaded = false;
   var menuEl = null;
+  // 切换防闪：换源期间盖住 video 的"定格幕布"（把当前帧截图到 canvas）
+  var freezeEl = null;
+  var revealToken = 0;
+  var failedAnims = {};
 
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
   function every(fn, ms) { timers.push(setInterval(fn, ms)); }
@@ -273,7 +277,7 @@
       if (mode !== 'sleep' && idleMs > SLEEP_AFTER_MS) {
         setMode('sleep');
         say('sleep', 2200);
-        if (isVideo) { videoEl.loop = true; playVideo('原地小憩沉眠'); }
+        if (isVideo) { playVideo('原地小憩沉眠', true); }
         return;
       }
       if (mode === 'idle') {
@@ -612,7 +616,7 @@
           springActive = true;
           requestAnimationFrame(springLoop);
         }
-        if (isVideo && videoEl.paused) { videoEl.loop = true; playVideo('被鼠标拖拽悬空反馈'); }
+        if (isVideo && videoEl.paused) { playVideo('被鼠标拖拽悬空反馈', true); }
         setMode('idle');
         el.style.transition = '';
         springTx = ox + dx;
@@ -643,7 +647,7 @@
         if (sp > 500) {
           setMode('fly');
           say('throwFast', 1300);
-          if (isVideo) { videoEl.loop = true; playVideo('被鼠标拖拽悬空反馈'); }
+          if (isVideo) { playVideo('被鼠标拖拽悬空反馈', true); }
           ballistic(vx, vy - 260);
         } else {
           var b = bounds();
@@ -721,24 +725,106 @@
   function poolUrl(name) {
     return '/market-static/pet/assets/webm/' + encodeURIComponent(name) + '.webm';
   }
-  function playVideo(name) {
+
+  // ---- 切换防闪幕布 ----
+  // 病根：直接改 video.src 会让媒体元素进入 load 算法，渲染退化成"空白/透明"，
+  //       直到新素材首帧解码完成 —— 这一两帧到几百毫秒的空窗就是"切换时闪一下"。
+  // 解法：换源前把当前帧 drawImage 到一张 canvas 幕布上盖住 video，
+  //      等新素材 loadeddata/playing（已握有首帧）再撤幕布。全程屏幕上都有像素。
+  function ensureFreeze() {
+    if (freezeEl && freezeEl.parentNode === body && document.body.contains(freezeEl)) return freezeEl;
+    if (freezeEl && freezeEl.parentNode) { try { freezeEl.parentNode.removeChild(freezeEl); } catch (e) {} }
+    freezeEl = document.createElement('canvas');
+    freezeEl.className = 'ci-pet-freeze';
+    if (body) body.appendChild(freezeEl);
+    return freezeEl;
+  }
+  function freezeFrame() {
+    if (!isVideo || !videoEl || !videoEl.videoWidth || !body) return false;
+    var vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+    if (!vw || !vh) return false;
+    var c = ensureFreeze();
+    if (c.width !== vw || c.height !== vh) { c.width = vw; c.height = vh; }
+    try {
+      var g = c.getContext('2d');
+      g.clearRect(0, 0, vw, vh);
+      g.drawImage(videoEl, 0, 0, vw, vh);
+    } catch (e) { return false; }
+    // 几何必须与 video 完全一致（fitVideo 用的是百分比，直接照抄内联值，包含块相同）
+    c.style.position = 'absolute';
+    c.style.width = videoEl.style.width;
+    c.style.height = videoEl.style.height;
+    c.style.left = videoEl.style.left;
+    c.style.top = videoEl.style.top;
+    c.style.opacity = '1';
+    videoEl.style.opacity = '0';
+    return true;
+  }
+  function revealVideo() {
+    revealToken++; // 让尚未落地的兜底计时失效
+    if (freezeEl) freezeEl.style.opacity = '0';
+    if (videoEl) videoEl.style.opacity = '1';
+  }
+  // 首帧就绪即撤幕布；1.2s 兜底（素材慢/缺失也不能永久定格）
+  function armReveal() {
+    var my = ++revealToken;
+    function once() {
+      if (my !== revealToken) return;
+      revealToken++;
+      if (videoEl) {
+        videoEl.removeEventListener('loadeddata', once);
+        videoEl.removeEventListener('playing', once);
+      }
+      revealVideo();
+    }
+    if (videoEl) {
+      videoEl.addEventListener('loadeddata', once);
+      videoEl.addEventListener('playing', once);
+    }
+    later(function() { if (my === revealToken) once(); }, 1200);
+  }
+
+  function playVideo(name, loop) {
     if (!videoEl || !name) return;
-    // 同动画去重：正在播同名片且未结束则跳过（拖拽 pointermove 每帧调用的防闪关键）
+    if (failedAnims[name]) name = idleName(); // 素材缺失：回落到待机，别再闪一次
+    var url = poolUrl(name);
+    // 同名且就是当前源：倒回去重播（不重载）—— 循环待机/被反复触发时零空窗
+    if (name === currentAnim && videoEl.getAttribute('src') === url && videoEl.readyState >= 2) {
+      try { videoEl.currentTime = 0; } catch (e) {}
+      var p0 = videoEl.play();
+      if (p0 && p0.catch) p0.catch(function() {});
+      revealVideo();
+      return;
+    }
+    // 同名且仍在播（拖拽 pointermove 每帧调用）：跳过
     if (name === currentAnim && !videoEl.paused && !videoEl.ended) return;
     currentAnim = name;
-    videoEl.loop = false;
+    videoEl.loop = !!loop;
+    freezeFrame();          // 幕布先就位，再动 src
     videoEl.removeAttribute('src'); // 强制浏览器重载（同 URL 时不移除会卡在末帧）
-    videoEl.src = poolUrl(name);
+    videoEl.src = url;
     var pr = videoEl.play();
     if (pr && pr.catch) pr.catch(function() {});
+    armReveal();
+  }
+
+  // 素材拉取失败：撤幕布 + 记黑，避免"白 box 卡住 + 反复重试"
+  function onVideoError() {
+    if (!isVideo || !videoEl) return;
+    if (currentAnim) failedAnims[currentAnim] = 1;
+    revealVideo();
+    if (currentAnim !== idleName()) {
+      currentAnim = '';
+      later(function() { playVideo(idleName()); }, 120);
+    }
   }
   function onVideoEnded() {
     if (!isVideo || !videoEl) return;
     currentAnim = '';
-    if (mode === 'sleep') { videoEl.loop = true; playVideo(idleName()); return; }
+    if (mode === 'sleep') { playVideo(idleName(), true); return; }
     if (mode === 'walk' || mode === 'dash') return;
     if (Date.now() - lastInteract > SLEEP_AFTER_MS) { setMode('sleep'); }
-    if (mode === 'sleep') { videoEl.loop = true; playVideo(idleName()); return; }
+    if (mode === 'sleep') { playVideo(idleName(), true); return; }
     if (Math.random() < 0.55 || !poolsV) playVideo(idleName());
     else playVideo(pickWeighted());
   }
@@ -789,6 +875,7 @@
       fitVideo();
       body.appendChild(videoEl);
       videoEl.addEventListener('ended', onVideoEnded);
+      videoEl.addEventListener('error', onVideoError);
       afterBuild(false);
       return;
     }
@@ -827,6 +914,9 @@
     timers = [];
     if (offExp) { offExp(); offExp = null; }
     if (el && el.parentNode) el.parentNode.removeChild(el);
+    if (freezeEl && freezeEl.parentNode) { try { freezeEl.parentNode.removeChild(freezeEl); } catch (e) {} }
+    freezeEl = null;
+    failedAnims = {}; currentAnim = '';
     if (videoEl) { try { videoEl.pause(); videoEl.removeAttribute('src'); } catch (e) {} }
     videoEl = null; isVideo = false; builtVisual = null;
     el = null; bubble = null; canvas = null; body = null;

@@ -1,7 +1,7 @@
 {
   "name": "pet",
   "type": "app",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "label": "桌宠",
   "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。",
   "author": "ClassIntra",

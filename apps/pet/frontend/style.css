@@ -118,11 +118,20 @@
 }
 
 /* ===== 宠物屋（entry.js 页面）===== */
+/* ⚠️ 宿主链路（AppShell → .app-shell-host → .market-runtime-container）整条都是
+   overflow:hidden + height:100%，直接子元素会被强制 height:100%。
+   不给 root 自己开滚动，超出一屏的内容就既看不见也滑不到（表现为"页面划不动"、
+   底部按钮永远够不着）。与 gomoku 应用的 .gomoku-app 保持同一套处理。 */
 .ci-pethome {
   padding: 20px 16px 40px;
   max-width: 720px;
   margin: 0 auto;
   color: var(--ci-color-text-primary, #1B1B1F);
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 .ci-pethome h2 { font-size: 17px; margin: 18px 0 10px; }
 .ci-pethome .ci-pethome-sub { font-size: 13px; color: var(--ci-color-text-secondary, #6b6b70); margin: 0 0 14px; line-height: 1.6; }
@@ -148,10 +157,14 @@
 .ci-pet-tpl:active { transform: scale(0.96); }
 
 /* 编辑器 */
+/* 编辑器：画布列固定宽（由 JS 按容器算 CELL），工具列可伸缩。
+   两列都夹上限，任何宽度下都不会把布局顶出容器 */
 .ci-pet-editor { display: -webkit-flex; display: flex; flex-wrap: wrap; margin: -8px; }
-.ci-pet-editor > * { margin: 8px; }
+.ci-pet-editor > * { margin: 8px; max-width: 100%; }
 .ci-pet-canvaswrap {
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 8px;
   border-radius: var(--ci-shape-lg, 16px);
   background: var(--ci-color-surface, #fff);
@@ -361,3 +374,12 @@
 
 /* 视频形态：body 不做呼吸动画（webm 自带动作），拖拽倾斜由 JS 写 body.transform */
 .ci-pet--video .ci-pet-body { animation: none; }
+
+/* 切换防闪幕布：换 video.src 的加载空窗期顶上去显示当前帧。
+   不加 transition —— 硬切最干净，交叉淡化会让两个不同动作半透明叠在一起发糊。 */
+.ci-pet-freeze {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+}
