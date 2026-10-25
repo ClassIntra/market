@@ -409,7 +409,7 @@
 
   function landed() {
     setMode('idle');
-    if (isVideo) { videoEl.loop = false; playVideo('原地重力下蹲压缩'); }
+    if (isVideo) { playVideo('原地重力下蹲压缩'); }
     else anim('ci-pet-squash', 450);
     if (Math.random() < 0.5) say('land', 1300);
     savePos();
