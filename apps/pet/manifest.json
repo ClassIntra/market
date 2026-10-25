@@ -1,0 +1,31 @@
+{
+  "name": "pet",
+  "type": "app",
+  "version": "0.3.1",
+  "label": "桌宠",
+  "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。",
+  "author": "ClassIntra",
+  "icon": "./icon.svg",
+  "color": "#FF9EBB",
+  "category": "desktop",
+  "order": 20,
+  "frontend": {
+    "route": "/pet",
+    "entry": "./frontend/entry.js",
+    "overlay": "./frontend/overlay.js",
+    "style": "./frontend/style.css"
+  },
+  "backend": {
+    "mountPath": "/api/pet",
+    "entry": "./backend/routes.js",
+    "rateLimit": {
+      "max": 60,
+      "windowMs": 60000
+    }
+  },
+  "sdk": "1",
+  "capabilities": [
+    "data.storage",
+    "data.http"
+  ]
+}

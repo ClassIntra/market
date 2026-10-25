@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- 桌宠图标：像素团子（与默认模板同款造型） -->
+  <rect x="40" y="24" width="48" height="8" fill="#FFD60A"/>
+  <rect x="32" y="32" width="64" height="8" fill="#FFD60A"/>
+  <rect x="24" y="40" width="80" height="8" fill="#FFD60A"/>
+  <rect x="16" y="48" width="96" height="24" fill="#FFD60A"/>
+  <rect x="24" y="72" width="80" height="8" fill="#FF7B92"/>
+  <rect x="32" y="56" width="8" height="8" fill="#1B1B1F"/>
+  <rect x="88" y="56" width="8" height="8" fill="#1B1B1F"/>
+  <rect x="60" y="72" width="8" height="8" fill="#1B1B1F"/>
+  <rect x="16" y="72" width="96" height="16" fill="#FFD60A"/>
+  <rect x="24" y="88" width="80" height="8" fill="#FFD60A"/>
+  <rect x="40" y="96" width="48" height="8" fill="#FFD60A"/>
+</svg>
