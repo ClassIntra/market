@@ -196,7 +196,9 @@
     if (isVideo) {
       var vh2 = Number(window.innerHeight) || 787;
       var h = Math.max(180, Math.min(330, Math.round(vh2 * 0.34)));
-      return { w: Math.round(h * 16 / 9), h: h };
+      var w = Math.round(h * 16 / 9);
+      // 人物包围盒（与 fitVideo 完全一致）：活动边界按人物大小算，不是画幅
+      return { w: Math.round(w * 0.4), h: Math.round(h * 0.65) };
     }
     return { w: SIZE, h: SIZE };
   }
@@ -274,21 +276,24 @@
         if (isVideo) { videoEl.loop = true; playVideo('原地小憩沉眠'); }
         return;
       }
-      if (mode === 'idle' && !isVideo) {
+      if (mode === 'idle') {
         var roll = Math.random();
-        if (roll < 0.2) anim('ci-pet-blink', 300);
-        else if (roll < 0.36) anim('ci-pet-hop', 700);
-        else if (roll < 0.52) startWalk();
-        else if (roll < 0.62) startDash();
-        else if (roll < 0.72) tryClimb();
-        else if (roll < 0.82) propAction();
-        else if (roll < 0.87) maybeGift();
-        else if (roll < 0.91) cloneEvent();
+        // 节奏设计：多数时候安静待着（呼吸/眨眼），偶尔才移动或表演 —— "活泼但不闹"
+        if (roll < 0.34) { /* 什么都不做：让待机动画自然播放 */ }
+        else if (roll < 0.48) anim('ci-pet-blink', 300);
+        else if (roll < 0.58) anim('ci-pet-hop', 700);
+        else if (roll < 0.72) startWalk();
+        else if (roll < 0.78) startDash();
+        else if (roll < 0.82) tryClimb();
+        else if (roll < 0.92) propAction();
+        else if (roll < 0.95) maybeGift();
+        else if (roll < 0.97) cloneEvent();
         else if (Math.random() < 0.4) say('walk', 1500);
       }
       scheduleIdle();
     };
-    idleTimer = setTimeout(tick, 5000 + Math.random() * 7000);
+    // 空闲检查间隔：14-26 秒（原来 5-12 秒太频繁，显得一直在动）
+    idleTimer = setTimeout(tick, 14000 + Math.random() * 12000);
     timers.push(idleTimer);
   }
 
@@ -311,18 +316,16 @@
     var dist = 60 + Math.random() * 180;
     var tx = Math.max(b.minX, Math.min(b.maxX, pos.x + (Math.random() < 0.5 ? -dist : dist)));
     if (isVideo) {
-      var mv = poolsV && poolsV.moves && poolsV.moves.actions ? pick(poolsV.moves.actions) : null;
-      if (!mv) { setMode('idle'); scheduleIdle(); return; }
-      playVideo(mv.name);
-      var onMeta = function() {
-        videoEl.removeEventListener('loadedmetadata', onMeta);
-        var d = (videoEl.duration || 4) * 1000;
-        moveByTransition(tx, b.floorY, Math.abs(tx - pos.x) / (d / 1000), function() {
-          if (mode === 'walk') setMode('idle');
-          scheduleIdle();
-        });
-      };
-      videoEl.addEventListener('loadedmetadata', onMeta);
+      // 池未加载时保底用固定动作名；池加载后从 moves 池随机
+      var mv = poolsV && poolsV.moves && poolsV.moves.actions && poolsV.moves.actions.length
+        ? pick(poolsV.moves.actions) : null;
+      var animName = mv ? mv.name : '螃蟹走路';
+      playVideo(animName);
+      // 移动速度固定（不依赖 loadedmetadata——部分环境不触发）
+      moveByTransition(tx, b.floorY, WALK_SPEED * 1.5, function() {
+        if (mode === 'walk') setMode('idle');
+        scheduleIdle();
+      });
       return;
     }
     moveByTransition(tx, b.floorY, WALK_SPEED, function() {
@@ -675,7 +678,6 @@
     bindDrag();
     if (isPixel) {
       anim('ci-pet-squash', 500);
-      every(function() { if (mode === 'idle') randomIdleTick(); }, 8000);
       every(function() { if (mode === 'sleep' && Math.random() < 0.4) bubbleSay(pick(LINES.dream), 2000); }, 11000);
       later(function() { if (mode === 'idle') randomIdleTick(); }, 2200);
       if (!sp) later(function() { say('greet', 2000); }, 900);
@@ -691,14 +693,16 @@
     var vh2 = Number(window.innerHeight) || 787;
     var videoVH = Math.max(180, Math.min(330, Math.round(vh2 * 0.34)));
     var videoVW = Math.round(videoVH * 16 / 9);
-    // el = 视频盒：视频充满 el，命中/边界/锚定全部按视频盒计算——零特例
-    el.style.width = videoVW + 'px';
-    el.style.height = videoVH + 'px';
-    videoEl.style.width = '100%';
-    videoEl.style.height = '100%';
+    // 素材规范：人物在 16:9 画幅内约占 水平 30%~70%、垂直 20%~85%。
+    // el = 人物包围盒（不是画幅！）：视频放大 2.5x 并把人物区域对齐到 el。
+    // 这样命中区、移动边界、活动范围都按"人物实际大小"算 —— 活动空间从 24px 恢复到 ~500px。
+    el.style.width = Math.round(videoVW * 0.4) + 'px';
+    el.style.height = Math.round(videoVH * 0.65) + 'px';
     videoEl.style.position = 'absolute';
-    videoEl.style.left = '0px';
-    videoEl.style.top = '0px';
+    videoEl.style.width = '250%';       // 1 / 0.4
+    videoEl.style.height = '153.85%';   // 1 / 0.65
+    videoEl.style.left = '-75%';        // -(30% × 2.5)
+    videoEl.style.top = '-30.77%';      // -(20% × 1.5385)
     videoEl.style.transform = 'none';
   }
   function loadPoolsOnce() {
@@ -723,6 +727,7 @@
     if (name === currentAnim && !videoEl.paused && !videoEl.ended) return;
     currentAnim = name;
     videoEl.loop = false;
+    videoEl.removeAttribute('src'); // 强制浏览器重载（同 URL 时不移除会卡在末帧）
     videoEl.src = poolUrl(name);
     var pr = videoEl.play();
     if (pr && pr.catch) pr.catch(function() {});
@@ -753,17 +758,6 @@
   function idleName() {
     return poolsV ? pick(poolsV.idle) : '待机呼吸休闲';
   }
-  function onVideoEnded() {
-    if (!isVideo) return;
-    currentAnim = '';
-    if (mode === 'sleep') { videoEl.loop = true; playVideo(idleName()); return; }
-    if (mode === 'walk' || mode === 'dash') return; // 移动自驱
-    if (Date.now() - lastInteract > SLEEP_AFTER_MS) { setMode('sleep'); }
-    if (mode === 'sleep') { videoEl.loop = true; playVideo(idleName()); return; }
-    if (Math.random() < 0.55 || !poolsV) { playVideo(idleName()); }
-    else { playVideo(pickWeighted()); }
-  }
-  function chainNext() { if (isVideo && videoEl) onVideoEnded(); }
 
   // ---- 构建 ----
   function build(visual) {

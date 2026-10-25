@@ -1,6 +1,6 @@
 {
   "version": 9,
-  "updated_at": "2026-10-25T03:03:29.467Z",
+  "updated_at": "2026-10-25T05:04:09.928Z",
   "apps": [
     {
       "name": "chess",
@@ -63,7 +63,7 @@
     {
       "name": "pet",
       "label": "桌宠",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。",
       "author": "ClassIntra",
       "icon": "apps/pet/icon.svg",
@@ -209,8 +209,6 @@
         "apps/pet/frontend/entry.js",
         "apps/pet/frontend/overlay.js",
         "apps/pet/frontend/style.css",
-        "apps/pet/frontend/_fix4.mjs",
-        "apps/pet/frontend/_fix5.mjs",
         "apps/pet/icon.svg",
         "apps/pet/manifest.json"
       ],
@@ -354,12 +352,10 @@
         "backend/cleanup.js": "00d23a8fe99161c37d5a2256674e4c3030242ba0077f549c0b19176d276f76b3",
         "backend/routes.js": "3c9e6f3c10756e9ef85a7d792b2d5d130be4b599ea7093205db1040c9f3289f2",
         "frontend/entry.js": "ad42cbdd69ab27ca72d1fdf34e668d40bea73074a146d0241817045fdb283405",
-        "frontend/overlay.js": "40dd42ba7a43d02174bc5f4acf92537db5f99a400acc049be96ef526d651f952",
+        "frontend/overlay.js": "5e188f5b4c96e360d4e34f04e69bf116d09a4d46782cb45e7507d78cd0bff7b1",
         "frontend/style.css": "410c26dc6ee1a2abc8b0649f33438ac7ea149fbeb2b7a1538e1511ca7f6b23ba",
-        "frontend/_fix4.mjs": "2d1b431feb0f4f215bf6cad26f14c4ef66651be3eb3596b20011a7e29d6a18d1",
-        "frontend/_fix5.mjs": "a1952a58c1fa35b8f2dc27fa6547a4cfe6bb4d1f4575e180a5a4ed1100e622bb",
         "icon.svg": "428a12ac4ec6f6dee430811187ec9015eeb52beaa36d5c93ea5c34a33fa8bcf5",
-        "manifest.json": "721c3bd058d13ad609fdb06e21f730f3168cade5d9fdfa5fb2b3d64ec7b1174f"
+        "manifest.json": "d6573707c10fd02b4cf346ad407bfdc3a37b1eae12628e575b4f23422be490f1"
       }
     }
   ],
