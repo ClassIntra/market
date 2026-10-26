@@ -162,7 +162,7 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1&uid=<用户ID>&uname=<昵称>&token=<登录令牌>&mode=normal|game`，首帧前下发 `{type:'ready'}`（含实际视口尺寸 `width/height`、画布尺寸 `baseWidth/baseHeight`、触摸标记、`game` 与 `dpr`）。`token` 由服务端 `jwtUtil.verifyToken` 校验后取**真实** `user_id`，用于「可使用者」白名单判断；渲染通道在独立端口，浏览器不会自动带 cookie，只能放在 query 里。`uid` 决定使用哪个账号的浏览器 profile（缺省为 guest），`uname` 仅用于班管查看使用情况；无 token 的旧客户端回退使用 `uid`（1.0.18+）
 - **会话上限**：默认 3 个（单个渲染实例实测约 500MB）；无会话空闲 90 秒后自动关闭对应账号的浏览器进程（1.0.14+，尽早归还内存与后台进程，冷启动 2–3 秒）
 - **按账号隔离 profile（1.0.17+）**：每个账号一个独立 `--user-data-dir` 的浏览器实例，账号内多标签页共用同一实例；不同账号的 Cookie / 登录态 / 本地存储互相隔离。同时保留的实例数上限 3（`MAX_PROFILES`），超限时优先回收最久未用且无会话的实例。profile 目录跨服务重启保留，同一账号下次打开仍保持登录态
-- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`pinch`（双指缩放，增量倍率）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
+- **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end/cancel，**支持多指**：`points` 数组每根手指一个稳定 `id`，服务端按 id 集合差集合成各指动作）、`pinch`（页面缩放，增量倍率）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
 - **页内导航**：兼容模式内跳转复用同一会话（保留页内历史，比重新建会话快）；服务端回传 `{type:'history'}` 告知前进/后退是否可用，顶部返回到首站后才退出浏览
 - **刷新**：地址栏地址未变化时「转到」按钮自动变为「刷新」，不额外占用工具栏；`reload` 保留会话与历史
 - **视口自适应**：前端监听可用区域尺寸（手机旋转 / 窗口缩放），防抖后下发 `resize`；服务端重设视口并重开帧流，回传 `{type:'resized'}`
@@ -176,14 +176,15 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **按需帧率（1.0.14+）**：触摸 / 鼠标 / 滚轮 / 键盘输入后 1.5 秒内以 60fps（`everyNthFrame=1`）出帧保证跟手，静置后降到 30fps（`everyNthFrame=2`）；只在档位真正变化时才重开 screencast，切换实测最大帧间隔约 50ms，无可见卡帧。静置时帧数与带宽减半（30 秒动画页实测 1756→880 帧）
 - **媒体在播保持高帧率（1.0.14+）**：每 3 秒轻量查询页面 `video,audio` 是否在播（`!paused && !ended && readyState>2`），在播则把高帧率窗口续期 5 秒，避免视频 / 音乐被抽帧成 15fps；播完自然回落 30fps
 - **云游戏画质（1.0.18+，1.0.19 修正清晰度）**：工具栏「云游戏」按钮**热切换**，不重建会话（保留页面与滚动位置）。开启后 JPEG 质量 92（普通 55）、恒定 60fps（不再静置降帧）、在途帧缓冲放宽到 6MB，并跳过自适应降档（避免画面忽清忽糊）。**清晰度来自放大视口**：Chromium 的 screencast 帧尺寸恒等于视口 CSS 像素，`deviceScaleFactor` 只影响 `Page.captureScreenshot` 与页面光栅化、不放大帧流（实测 DSF 1/2/3 帧尺寸均为 1000×700），因此云游戏模式下把视口按画布尺寸放大 2 倍（夹在 3840×2160 内等比收缩），前端按 `compatViewW/H` 等比缩小显示，坐标与滚轮增量自动换算。代价是页面按更宽的视口排版（手机上文字会偏小，游戏 / 视频画面会铺满，正是该模式的用途），且编码 CPU 与带宽明显上升，弱网下反而更卡，因此默认关闭、只在用户显式打开时启用。切换协议：客户端 `{type:'mode', game:true|false, dpr}`，服务端回 `{type:'mode-state', game, dpr, width, height, baseWidth, baseHeight, quality, fps}`（`width/height` 为实际编码视口，`baseWidth/baseHeight` 为画布尺寸）
-- **输入按帧合并**：指针移动与滚轮增量按 `requestAnimationFrame` 合并，高频触控板采样不再逐事件过通道；触摸移动改为**逐条直发**（位移阈值 1px），松手后按最近 120ms 采样速度补 6 步衰减位移模拟原生惯性，解决「慢速滑动无响应 / 抬手即停」
+- **输入按帧合并**：指针移动与滚轮增量按 `requestAnimationFrame` 合并，高频触控板采样不再逐事件过通道；触摸移动改为**逐条直发**（单指位移阈值 1px，多指每帧全量上报），松手后按最近 120ms 采样速度补 6 步衰减位移模拟原生惯性（仅单指序列），解决「慢速滑动无响应 / 抬手即停」
 - **画面帧二进制传输（1.0.12+）**：服务端把 screencast 的 base64 JPEG 解码一次后以二进制 WS 帧下发，前端直接 `createImageBitmap`，省掉客户端逐字节 `atob` 转换——这是此前大帧阻塞主线程、触摸事件排队的主因
 - **宿主静音（1.0.12+，1.0.15 重做）**：页面声音只经采集管道回传给学生的手机，教室电脑扬声器不出声。1.0.15 起不再用浏览器启动参数 `--mute-audio`（该参数会让 Chromium 以「静音会话」占用系统音频端点，在部分 Windows 驱动 / 蓝牙耳机上会把**整台电脑**的音频一起拉哑），改为页面内静音：媒体元素在属性层强制 `muted`，页面 WebAudio 的扬声器出口改接 0 增益节点。实测两者都不影响 `captureStream` / 旁路采集（已用 440Hz 音源 + 660Hz 振荡器端到端验证，采集电平不变）
 - **不再触碰系统音频端点（1.0.15+）**：采集上下文使用设备默认采样率（不再强制 24kHz，避免驱动重新协商格式），关闭声音时只断开采集接线、**不挂起 AudioContext**（挂起会让浏览器关闭音频输出流，部分驱动反复开关流后会把默认播放设备卡在无声状态）。降采样到 24kHz 回传在采集脚本内完成
 - **后台标签不节流（1.0.12+）**：`--disable-background-timer-throttling` / `--disable-backgrounding-occluded-windows` / `--disable-renderer-backgrounding` 保证多会话共存时每个标签持续合成，不再出现「画面停在上一帧」
 - **GPU 合成与焦点仿真（1.0.13+）**：渲染浏览器不再强制 `--disable-gpu`（headless=new 支持 GPU 合成，驱动不可用时 Chromium 自动回退软件渲染），并开启 `Emulation.setFocusEmulationEnabled`——无头标签默认被视为「未聚焦」会压低动画 / 定时器频率，开启后页面跑满帧率。实测动画页稳定 59fps
 - **丢帧后主动补拍（1.0.13+）**：积压时丢的是旧帧，页面停手后不再出帧，屏幕会停在滑动中途的旧位置（主观就是「卡住」）。服务端标记 `needRefresh`，等发送缓冲回落到低水位后用 `Page.captureScreenshot` 补拍一张最新 JPEG，保证松手 / 动画结束后的最终画面一定到达
-- **双指捏合缩放（1.0.13+）**：前端识别两指距离变化并按增量下发 `{type:'pinch', x, y, scaleFactor}`（累计变化 <2% 或间隔 <50ms 不下发）；服务端累计为绝对倍率后用 `Emulation.setPageScaleFactor` 应用（1–3 倍）。无头环境里 `Input.synthesizePinchGesture` 实测不改变 `visualViewport.scale`，故不采用
+- **多指直通（1.0.20+）**：**1~2 指原样转发**给页面（每根手指独立 `id`），云游戏「左手摇杆 + 右手按键」可以同时按住；**3 指及以上**才转为页面缩放。此前 2 指就被吞成捏合，页面从未收到第二根手指，表现为「不支持多点触摸」。部分抬起时只上报剩余手指，服务端按 id 差集只抬起离开的那根；多指序列不做甩动惯性（避免两指交替滑动把页面甩飞）
+- **页面缩放（1.0.13+，1.0.20 起改为三指及以上）**：前端识别指距变化并按增量下发 `{type:'pinch', x, y, scaleFactor}`（累计变化 <2% 或间隔 <50ms 不下发）；服务端累计为绝对倍率后用 `Emulation.setPageScaleFactor` 应用（1–3 倍）。无头环境里 `Input.synthesizePinchGesture` 实测不改变 `visualViewport.scale`，故不采用
 - **断线重连**：通道异常断开（切网 / 服务端回收）时自动重建会话（间隔 0.6s，最多两次），无需手动刷新
 - **能力探测**：`GET /api/web-proxy/status` 的 `data.render.available` 为 `true` 时前端才展示入口
 - **浏览器启动发现（1.0.12+）**：先按 profile 下的 `DevToolsActivePort` 探活并复用仍存活的渲染浏览器，探活失败才冷启动。新版 Edge/Chrome 在已有实例时会把启动请求转交给子进程并立即退出（code 0），且不再向 stderr 输出 `DevTools listening on`——只解析日志会把这种情况误判成启动失败
