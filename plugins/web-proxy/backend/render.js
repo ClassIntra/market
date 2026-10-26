@@ -7,8 +7,9 @@
 //
 // 设计取舍：
 //   - 复用系统浏览器，不下载任何 Chromium（零额外体积）；不引入新依赖（ws 已在 server 依赖中）
-//   - 单浏览器进程、多标签页会话；会话数有上限（默认 3），超限直接拒绝而不是排队卡死
-//   - 无会话空闲 5 分钟后自动杀掉浏览器进程，回收约 1.8GB 内存
+//   - 每个账号一个独立浏览器 profile（Cookie / 登录态互不串号），账号内多标签页会话；
+//     会话总数仍有上限（默认 3），超限直接拒绝而不是排队卡死
+//   - 某账号无会话空闲 90 秒后自动杀掉对应浏览器进程，回收约 500MB 内存
 //   - 该模式是「少数站点兜底」，不作为默认浏览方式
 //
 // 代码风格遵循 ClassIntra 约定：var / function / 单引号 / 2 空格缩进。
@@ -87,21 +88,62 @@ try {
 // 移动端 UA：与触摸仿真、窄视口配合，让站点返回移动版布局而不是被强行塞进桌面版
 var MOBILE_UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
+// 每个账号一份独立的浏览器 profile：站点 Cookie / 登录态 / 本地存储互不串号。
+// 同一账号的多个会话共用一个浏览器进程（多标签页），不同账号各起一个。
+// 兼容模式是兜底功能，同时保留的实例数设上限，超出时优先回收没有会话的实例。
+var MAX_PROFILES = 3;
+var GUEST_KEY = 'guest';
+var PROFILE_ROOT = path.join(os.tmpdir(), 'classintra-render-profile');
+
 var state = {
-  proc: null,
-  cdpUrl: '',
-  cdp: null,
-  starting: null,
   sessions: {},
   seq: 0,
-  idleTimer: null,
   lastError: ''
 };
 
-var PROFILE_DIR = path.join(os.tmpdir(), 'classintra-render-profile');
-// 浏览器把 DevTools 端口写在该文件里（首行端口、次行 ws 路径），
-// 比解析 stderr 更可靠：新版 Edge/Chrome 会把启动请求转交给子进程，stderr 不再输出。
-var DEVTOOLS_PORT_FILE = path.join(PROFILE_DIR, 'DevToolsActivePort');
+// key -> profile；profile 结构见 createProfile()
+var profiles = {};
+
+function profileKeyOf(uid) {
+  var s = String(uid || '').replace(/[^0-9a-zA-Z_-]/g, '').substring(0, 40);
+  return s ? 'u' + s : GUEST_KEY;
+}
+
+// 未登录 / 老版本客户端不带 uid 时沿用旧目录名，避免已有的登录态作废
+function profileDirOf(key) {
+  return key === GUEST_KEY ? PROFILE_ROOT : PROFILE_ROOT + '-' + key;
+}
+
+function createProfile(key) {
+  var dir = profileDirOf(key);
+  return {
+    key: key,
+    dir: dir,
+    // 浏览器把 DevTools 端口写在该文件里（首行端口、次行 ws 路径），
+    // 比解析 stderr 更可靠：新版 Edge/Chrome 会把启动请求转交给子进程，stderr 不再输出。
+    portFile: path.join(dir, 'DevToolsActivePort'),
+    proc: null,
+    cdpUrl: '',
+    cdp: null,
+    starting: null,
+    idleTimer: null,
+    lastError: '',
+    lastUsedAt: Date.now()
+  };
+}
+
+function getProfile(key) {
+  if (!profiles[key]) profiles[key] = createProfile(key);
+  return profiles[key];
+}
+
+function profileSessionCount(profile) {
+  var n = 0;
+  Object.keys(state.sessions).forEach(function (id) {
+    if (state.sessions[id].profile === profile) n++;
+  });
+  return n;
+}
 
 function findBrowser() {
   for (var i = 0; i < BROWSER_PATHS.length; i++) {
@@ -184,28 +226,28 @@ CdpClient.prototype.close = function () {
 
 // ---- 浏览器进程管理 ----
 
-// 先复用上一轮遗留但仍活着的渲染浏览器（pm2 重启、异常退出时常见）：
+// 先复用该账号上一轮遗留但仍活着的渲染浏览器（pm2 重启、异常退出时常见）：
 // 旧实例占着 profile 时，新实例只会「转交启动」然后立刻退出，端口文件也不再刷新，
 // 表现就是兼容模式一直连不上。这里按端口文件探活，探活失败才冷启动。
-function ensureBrowser(cb) {
-  if (state.cdp && !state.cdp.closed) return cb(null, state.cdp);
-  if (state.starting) {
-    state.starting.push(cb);
+function ensureBrowser(profile, cb) {
+  if (profile.cdp && !profile.cdp.closed) return cb(null, profile.cdp);
+  if (profile.starting) {
+    profile.starting.push(cb);
     return;
   }
-  state.starting = [cb];
+  profile.starting = [cb];
 
   var exe = findBrowser();
   if (!exe) {
-    state.lastError = '未找到系统 Edge / Chrome，无法启用兼容模式';
-    var waiting = state.starting;
-    state.starting = null;
-    waiting.forEach(function (fn) { fn(new Error(state.lastError)); });
+    profile.lastError = '未找到系统 Edge / Chrome，无法启用兼容模式';
+    state.lastError = profile.lastError;
+    failStarting(profile, new Error(profile.lastError));
     return;
   }
 
-  var existing = readExistingPortUrl();
-  if (!existing) return launchBrowser(exe);
+  trimProfiles(profile.key);
+  var existing = readPortUrl(profile.portFile);
+  if (!existing) return launchBrowser(exe, profile);
 
   var probe = new CdpClient(existing);
   var settled = false;
@@ -213,29 +255,47 @@ function ensureBrowser(cb) {
     if (settled) return;
     settled = true;
     try { probe.close(); } catch (e) {}
-    try { fs.unlinkSync(DEVTOOLS_PORT_FILE); } catch (e) {}
-    launchBrowser(exe);
+    try { fs.unlinkSync(profile.portFile); } catch (e) {}
+    launchBrowser(exe, profile);
   }, 2000);
   probe.send('Browser.getVersion', {}).then(function () {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    state.cdpUrl = existing;
-    state.cdp = probe;
-    probe.on(dispatchEvent);
-    scheduleIdleKill();
-    console.log('[web-proxy] 兼容模式复用已有浏览器: ' + existing);
-    var pending = state.starting || [];
-    state.starting = null;
-    pending.forEach(function (fn) { fn(null, probe); });
+    profile.cdpUrl = existing;
+    profile.cdp = probe;
+    profile.lastError = '';
+    probe.on(dispatchListener(profile));
+    scheduleIdleKill(profile);
+    console.log('[web-proxy] 兼容模式复用已有浏览器[' + profile.key + ']: ' + existing);
+    resolveStarting(profile, null, probe);
   }, function () {
     // 连接失败由上面的定时器统一兜底
   });
 }
 
-function readExistingPortUrl() {
+// 每个 profile 的 CDP 事件监听器（事件里同时带上 profile 归属，便于选择正确的连接）
+function dispatchListener(profile) {
+  return function (method, params, cdpSessionId) {
+    dispatchEvent(profile, method, params, cdpSessionId);
+  };
+}
+
+function failStarting(profile, err) {
+  var waiting = profile.starting || [];
+  profile.starting = null;
+  waiting.forEach(function (fn) { fn(err); });
+}
+
+function resolveStarting(profile, err, client) {
+  var waiting = profile.starting || [];
+  profile.starting = null;
+  waiting.forEach(function (fn) { fn(err, client); });
+}
+
+function readPortUrl(portFile) {
   var text = '';
-  try { text = fs.readFileSync(DEVTOOLS_PORT_FILE, 'utf8'); } catch (e) { return ''; }
+  try { text = fs.readFileSync(portFile, 'utf8'); } catch (e) { return ''; }
   var lines = String(text).split(/\r?\n/);
   var port = parseInt(lines[0], 10);
   var wsPath = (lines[1] || '').trim();
@@ -243,10 +303,10 @@ function readExistingPortUrl() {
   return 'ws://127.0.0.1:' + port + wsPath;
 }
 
-function launchBrowser(exe) {
-  try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch (e) {}
+function launchBrowser(exe, profile) {
+  try { fs.mkdirSync(profile.dir, { recursive: true }); } catch (e) {}
   // 清掉残留的端口文件：否则可能连到一个已经退出的浏览器端口
-  try { fs.unlinkSync(DEVTOOLS_PORT_FILE); } catch (e) {}
+  try { fs.unlinkSync(profile.portFile); } catch (e) {}
 
   var args = [
     '--headless=new',
@@ -274,38 +334,39 @@ function launchBrowser(exe) {
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
     '--remote-debugging-port=0',
-    '--user-data-dir=' + PROFILE_DIR,
+    // 账号隔离的关键：每个账号使用自己的用户数据目录，Cookie / 登录态互不可见
+    '--user-data-dir=' + profile.dir,
     '--window-size=' + VIEW_WIDTH + ',' + VIEW_HEIGHT,
     'about:blank'
   ];
 
   var proc = cp.spawn(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
-  state.proc = proc;
+  profile.proc = proc;
 
   var resolved = false;
   var output = '';
-  var portFile = DEVTOOLS_PORT_FILE;
+  var portFile = profile.portFile;
 
   function finish(err, cdpUrl) {
     if (resolved) return;
     resolved = true;
     clearPortPoll();
-    var waiting = state.starting || [];
-    state.starting = null;
     if (err) {
+      profile.lastError = err.message;
       state.lastError = err.message;
-      console.log('[web-proxy] 兼容模式浏览器启动失败: ' + err.message);
-      waiting.forEach(function (fn) { fn(err); });
+      console.log('[web-proxy] 兼容模式浏览器启动失败[' + profile.key + ']: ' + err.message);
+      failStarting(profile, err);
       return;
     }
-    state.cdpUrl = cdpUrl;
-    console.log('[web-proxy] 兼容模式浏览器就绪: ' + cdpUrl);
+    profile.cdpUrl = cdpUrl;
+    profile.lastError = '';
+    console.log('[web-proxy] 兼容模式浏览器就绪[' + profile.key + ']: ' + cdpUrl);
     var client = new CdpClient(cdpUrl);
-    state.cdp = client;
-    client.on(dispatchEvent);
+    profile.cdp = client;
+    client.on(dispatchListener(profile));
     try { proc.stdout.resume(); } catch (e) {}
-    scheduleIdleKill();
-    waiting.forEach(function (fn) { fn(null, client); });
+    scheduleIdleKill(profile);
+    resolveStarting(profile, null, client);
   }
 
   function onData(chunk) {
@@ -348,23 +409,18 @@ function launchBrowser(exe) {
     if (!resolved) {
       if (code === 0) {
         // 转交启动：启动器已退出，真正的浏览器仍在运行，继续等端口文件
-        state.proc = null;
+        profile.proc = null;
         return;
       }
       finish(new Error('浏览器进程启动失败'));
-      state.proc = null;
+      profile.proc = null;
       return;
     }
-    state.proc = null;
-    state.cdp = null;
-    state.cdpUrl = '';
+    profile.proc = null;
+    profile.cdp = null;
+    profile.cdpUrl = '';
     clearPortPoll();
-    Object.keys(state.sessions).forEach(function (id) {
-      var s = state.sessions[id];
-      try { sendJson(s.out, { type: 'error', message: '浏览器进程已退出' }); } catch (e) {}
-      try { s.out.close(); } catch (e) {}
-      delete state.sessions[id];
-    });
+    closeProfileSessions(profile, '浏览器进程已退出');
   });
 
   setTimeout(function () {
@@ -375,18 +431,19 @@ function launchBrowser(exe) {
   }, 15000);
 }
 
-// 回收渲染浏览器：优先让浏览器自己退出（转交启动时拿不到真实进程句柄，proc 是已退出的启动器），
-// 兜底再按独立 profile 结束残留的 msedge 进程。
+// 回收某个账号的渲染浏览器：优先让浏览器自己退出（转交启动时拿不到真实进程句柄，
+// proc 是已退出的启动器），兜底再按该账号的 profile 结束残留进程。
 // 注意：Browser.close 必须等浏览器回包或超时后才能断开 CDP 连接，
 // 否则紧跟着的 close() 会把这条消息吞掉，浏览器就一直挂着不退。
-function killBrowser() {
-  console.log('[web-proxy] 回收渲染浏览器（无活跃会话）');
-  if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
-  var cdp = state.cdp;
-  var proc = state.proc;
-  state.cdp = null;
-  state.proc = null;
-  state.cdpUrl = '';
+function killProfile(profile) {
+  if (!profile) return;
+  console.log('[web-proxy] 回收渲染浏览器[' + profile.key + ']（无活跃会话）');
+  if (profile.idleTimer) { clearTimeout(profile.idleTimer); profile.idleTimer = null; }
+  var cdp = profile.cdp;
+  var proc = profile.proc;
+  profile.cdp = null;
+  profile.proc = null;
+  profile.cdpUrl = '';
 
   var settled = false;
   function settle(closed) {
@@ -394,7 +451,7 @@ function killBrowser() {
     settled = true;
     try { if (cdp) cdp.close(); } catch (e) {}
     try { if (proc) proc.kill(); } catch (e) {}
-    if (!closed) killByProfile();
+    if (!closed) killByProfile(profile);
   }
   if (cdp && !cdp.closed) {
     try {
@@ -406,24 +463,70 @@ function killBrowser() {
   }
 }
 
-// 只结束使用独立渲染 profile 的 msedge 进程，绝不触碰用户日常浏览器的进程
-function killByProfile() {
-  if (process.platform !== 'win32') return;
-  var script = "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | "
-    + "Where-Object { $_.CommandLine -like '*classintra-render-profile*' } | "
+// 只结束使用该账号独立 profile 的渲染浏览器进程，绝不触碰其他账号或用户日常浏览器
+function killByProfile(profile) {
+  if (process.platform !== 'win32' || !profile) return;
+  // 精确匹配 --user-data-dir 参数（后面紧跟空格），避免把前缀相同的其他账号一起杀掉
+  var needle = '--user-data-dir=' + profile.dir;
+  var script = "Get-CimInstance Win32_Process | Where-Object { "
+    + "($_.Name -eq 'msedge.exe' -or $_.Name -eq 'chrome.exe') -and "
+    + "$_.CommandLine -like '*" + needle + " *' } | "
     + "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }";
   try {
     cp.execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true }, function () {});
   } catch (e) {}
 }
 
-// 没有活跃会话时，空闲一段时间后回收浏览器内存
-function scheduleIdleKill() {
-  if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
-  state.idleTimer = setTimeout(function () {
-    if (Object.keys(state.sessions).length === 0 && state.cdp) killBrowser();
+// 服务退出时回收所有账号的渲染浏览器
+function killAllProfiles() {
+  Object.keys(profiles).forEach(function (key) {
+    killProfile(profiles[key]);
+  });
+}
+
+// 某个账号没有活跃会话时，空闲一段时间后回收它的浏览器内存
+function scheduleIdleKill(profile) {
+  if (!profile) return;
+  if (profile.idleTimer) { clearTimeout(profile.idleTimer); profile.idleTimer = null; }
+  profile.idleTimer = setTimeout(function () {
+    if (profileSessionCount(profile) === 0 && profile.cdp) killProfile(profile);
   }, IDLE_KILL_MS);
-  if (state.idleTimer.unref) state.idleTimer.unref();
+  if (profile.idleTimer.unref) profile.idleTimer.unref();
+}
+
+// 同时保留的浏览器实例数超限时，优先回收最早使用且没有会话的实例
+function trimProfiles(keepKey) {
+  var keys = Object.keys(profiles);
+  var live = 0;
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i] === keepKey) continue;
+    var p = profiles[keys[i]];
+    if (p.cdp || p.proc || p.starting) live++;
+  }
+  while (live >= MAX_PROFILES) {
+    var victimKey = '';
+    var oldest = Infinity;
+    for (var j = 0; j < keys.length; j++) {
+      if (keys[j] === keepKey) continue;
+      var q = profiles[keys[j]];
+      if (!q.cdp && !q.proc && !q.starting) continue;
+      if (profileSessionCount(q) > 0) continue;
+      if (q.lastUsedAt < oldest) { oldest = q.lastUsedAt; victimKey = keys[j]; }
+    }
+    if (!victimKey) return;
+    killProfile(profiles[victimKey]);
+    live--;
+  }
+}
+
+// 浏览器进程意外退出时，只关闭属于该 profile 的会话
+function closeProfileSessions(profile, message) {
+  Object.keys(state.sessions).forEach(function (id) {
+    var s = state.sessions[id];
+    if (s.profile !== profile) return;
+    try { sendJson(s.out, { type: 'error', message: message }); } catch (e) {}
+    closeSession(s, false);
+  });
 }
 
 // ---- 会话 ----
@@ -455,12 +558,15 @@ function createSession(url, out, opts, cb) {
     return cb(new Error('兼容模式同时最多 ' + MAX_SESSIONS + ' 个会话，请稍后再试'));
   }
   var o = opts || {};
+  // 同一账号复用同一个浏览器 profile；不同账号完全隔离 Cookie / 登录态 / 本地存储
+  var profile = getProfile(profileKeyOf(o.uid));
+  profile.lastUsedAt = Date.now();
   var vw = clampSize(o.width, VIEW_WIDTH, MIN_WIDTH, MAX_WIDTH);
   var vh = clampSize(o.height, VIEW_HEIGHT, MIN_HEIGHT, MAX_HEIGHT);
   var dpr = clampSize(o.dpr, 1, 1, MAX_DPR);
   var touch = !!o.touch;
 
-  ensureBrowser(function (err, cdp) {
+  ensureBrowser(profile, function (err, cdp) {
     if (err) return cb(err);
     cdp.send('Target.createTarget', { url: 'about:blank' }).then(function (r) {
       var targetId = r.targetId;
@@ -469,6 +575,8 @@ function createSession(url, out, opts, cb) {
         var id = String(++state.seq);
         var sess = {
           id: id,
+          // 归属的账号 profile：后续所有 CDP 命令都走这个连接
+          profile: profile,
           targetId: targetId,
           cdpSession: sessionId,
           out: out,
@@ -572,13 +680,14 @@ function clampSize(value, fallback, min, max) {
 }
 
 function navigate(sess, url) {
-  if (!state.cdp) return Promise.reject(new Error('渲染引擎未就绪'));
+  var cdp = sess && sess.profile && sess.profile.cdp;
+  if (!cdp) return Promise.reject(new Error('渲染引擎未就绪'));
   if (!/^https?:\/\//i.test(url)) return Promise.reject(new Error('仅支持 http/https 地址'));
   sess.url = url;
   sess.lastActive = Date.now();
   // 换页面后回到 100%：上一个站点放大的倍率不该带到下一个站点
   sess.pageScale = 1;
-  return state.cdp.send('Page.navigate', { url: url }, sess.cdpSession);
+  return cdp.send('Page.navigate', { url: url }, sess.cdpSession);
 }
 
 // 当前会话档位对应的 screencast 参数（尺寸按物理像素下发）
@@ -624,7 +733,7 @@ function scheduleActiveEnd(sess) {
 
 // 只有帧率档位真正变化时才重开帧流，避免每次输入都 stop/start
 function applyFrameMode(sess) {
-  if (!sess || sess.paused || !state.cdp) return;
+  if (!sess || sess.paused || !sess.profile || !sess.profile.cdp) return;
   var nth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
   if (sess.frameNth === nth) return;
   sess.frameNth = nth;
@@ -636,7 +745,7 @@ function applyFrameMode(sess) {
 function watchMedia() {
   Object.keys(state.sessions).forEach(function (id) {
     var sess = state.sessions[id];
-    if (!sess || sess.paused || !state.cdp) return;
+    if (!sess || sess.paused || !sess.profile || !sess.profile.cdp) return;
     mediaPlaying(sess).then(function (playing) {
       if (!state.sessions[sess.id] || sess.paused) return;
       if (playing) sess.activeUntil = Date.now() + MEDIA_KEEP_MS;
@@ -647,8 +756,9 @@ function watchMedia() {
 setInterval(watchMedia, MEDIA_CHECK_MS).unref();
 
 function mediaPlaying(sess) {
-  if (!state.cdp) return Promise.resolve(false);
-  return state.cdp.send('Runtime.evaluate', {
+  var cdp = sess && sess.profile && sess.profile.cdp;
+  if (!cdp) return Promise.resolve(false);
+  return cdp.send('Runtime.evaluate', {
     expression: '(function(){var m=document.querySelectorAll("video,audio");'
       + 'for(var i=0;i<m.length;i++){var e=m[i];'
       + 'if(!e.paused&&!e.ended&&e.readyState>2)return true;}return false;})()',
@@ -660,15 +770,16 @@ function mediaPlaying(sess) {
 
 // 按当前会话视口重开 screencast：改过视口后必须重开，否则帧尺寸仍是旧的
 function restartScreencast(sess) {
-  if (!state.cdp || !sess) return Promise.resolve();
+  var cdp = sess && sess.profile && sess.profile.cdp;
+  if (!cdp) return Promise.resolve();
   var sid = sess.cdpSession;
   var start = function () {
     // 暂停期间（页面隐藏）不重开帧流，恢复时由 resume 统一启动
     if (sess.paused) return Promise.resolve();
     sess.frameNth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
-    return state.cdp.send('Page.startScreencast', screencastParams(sess), sid);
+    return cdp.send('Page.startScreencast', screencastParams(sess), sid);
   };
-  return state.cdp.send('Page.stopScreencast', {}, sid).then(start, start);
+  return cdp.send('Page.stopScreencast', {}, sid).then(start, start);
 }
 
 // 自适应画质：每隔一个窗口看丢帧比例，持续跟不上就降一档；长时间稳定再回升
@@ -712,7 +823,8 @@ function scheduleRefresh(sess) {
   sess.refreshTimer = setTimeout(function () {
     sess.refreshTimer = null;
     if (!sess.needRefresh || sess.paused) return;
-    if (!state.cdp || !state.sessions[sess.id]) return;
+    var cdp = sess.profile && sess.profile.cdp;
+    if (!cdp || !state.sessions[sess.id]) return;
     var limit = sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
     var backlog = 0;
     try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
@@ -727,7 +839,7 @@ function scheduleRefresh(sess) {
     sess.refreshTries = 0;
     sess.needRefresh = false;
     var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
-    state.cdp.send('Page.captureScreenshot', {
+    cdp.send('Page.captureScreenshot', {
       format: 'jpeg',
       quality: lv.quality,
       fromSurface: true
@@ -755,12 +867,13 @@ function closeSession(sess, notify) {
     clearTimeout(sess.activeTimer);
     sess.activeTimer = null;
   }
-  if (state.cdp) {
-    try { state.cdp.send('Target.closeTarget', { targetId: sess.targetId }).catch(function () {}); } catch (e) {}
+  var cdp = sess.profile && sess.profile.cdp;
+  if (cdp) {
+    try { cdp.send('Target.closeTarget', { targetId: sess.targetId }).catch(function () {}); } catch (e) {}
   }
   if (notify) sendJson(sess.out, { type: 'closed' });
   try { sess.out.close(); } catch (e) {}
-  scheduleIdleKill();
+  scheduleIdleKill(sess.profile);
 }
 
 function findSessionByCdp(cdpSessionId) {
@@ -772,8 +885,9 @@ function findSessionByCdp(cdpSessionId) {
 
 // 查询页面自身的导航历史，让前端的「返回 / 前进」按钮反映真实可用状态
 function sendHistoryState(sess) {
-  if (!state.cdp || !sess) return;
-  state.cdp.send('Page.getNavigationHistory', {}, sess.cdpSession).then(function (r) {
+  var cdp = sess && sess.profile && sess.profile.cdp;
+  if (!cdp) return;
+  cdp.send('Page.getNavigationHistory', {}, sess.cdpSession).then(function (r) {
     var entries = r.entries || [];
     var idx = Number(r.currentIndex) || 0;
     var entry = entries[idx] || {};
@@ -790,7 +904,8 @@ function sendHistoryState(sess) {
 
 // ---- CDP 事件分发 ----
 
-function dispatchEvent(method, params, cdpSessionId) {
+function dispatchEvent(profile, method, params, cdpSessionId) {
+  var cdp = profile && profile.cdp;
   var sess = findSessionByCdp(cdpSessionId);
   if (!sess) return;
   if (method === 'Page.screencastFrame') {
@@ -817,7 +932,7 @@ function dispatchEvent(method, params, cdpSessionId) {
     }
     // 无论是否丢弃都要回 ACK，否则 Chromium 会停止继续出帧
     try {
-      state.cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, cdpSessionId).catch(function () {});
+      if (cdp) cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }, cdpSessionId).catch(function () {});
     } catch (e) {}
     adaptScreencast(sess);
     return;
@@ -835,9 +950,9 @@ function dispatchEvent(method, params, cdpSessionId) {
     sendJson(sess.out, { type: 'loaded' });
     sendHistoryState(sess);
     // 新文档是全新的脚本环境：音频开启状态下要重新启动页面内采集
-    if (sess.audioEnabled && !sess.paused && AUDIO_INJECT) {
+    if (cdp && sess.audioEnabled && !sess.paused && AUDIO_INJECT) {
       try {
-        state.cdp.send('Runtime.evaluate', {
+        cdp.send('Runtime.evaluate', {
           expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
           userGesture: true,
           returnByValue: true
@@ -848,13 +963,15 @@ function dispatchEvent(method, params, cdpSessionId) {
       } catch (e) {}
     }
     // 标题在 load 之后才稳定（SPA 还会异步改写），单独回传一次供分享使用
-    try {
-      state.cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, cdpSessionId)
-        .then(function (r) {
-          var title = r && r.result ? String(r.result.value || '') : '';
-          if (title) sendJson(sess.out, { type: 'title', title: title });
-        }).catch(function () {});
-    } catch (e) {}
+    if (cdp) {
+      try {
+        cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }, cdpSessionId)
+          .then(function (r) {
+            var title = r && r.result ? String(r.result.value || '') : '';
+            if (title) sendJson(sess.out, { type: 'title', title: title });
+          }).catch(function () {});
+      } catch (e) {}
+    }
     return;
   }
   if (method === 'Runtime.bindingCalled') {
@@ -871,8 +988,8 @@ function dispatchEvent(method, params, cdpSessionId) {
   if (method === 'Runtime.executionContextCreated') {
     // 新文档 / 子 iframe 的脚本环境建立后，若音频正在开启则同步启动该环境的采集
     var ctxInfo = params.context || {};
-    if (sess.audioEnabled && !sess.paused && ctxInfo.id && AUDIO_INJECT) {
-      state.cdp.send('Runtime.evaluate', {
+    if (cdp && sess.audioEnabled && !sess.paused && ctxInfo.id && AUDIO_INJECT) {
+      cdp.send('Runtime.evaluate', {
         expression: 'window.__ciAudioStart&&window.__ciAudioStart()',
         contextId: ctxInfo.id,
         userGesture: true,
@@ -883,7 +1000,7 @@ function dispatchEvent(method, params, cdpSessionId) {
   }
   if (method === 'Page.javascriptDialogOpening') {
     try {
-      state.cdp.send('Page.handleJavaScriptDialog', { accept: true }, cdpSessionId).catch(function () {});
+      if (cdp) cdp.send('Page.handleJavaScriptDialog', { accept: true }, cdpSessionId).catch(function () {});
     } catch (e) {}
     return;
   }
@@ -911,9 +1028,10 @@ var KEY_CODES = {
 };
 
 function handleInput(sess, msg) {
-  if (!state.cdp || !sess) return;
+  if (!sess) return;
+  var cdp = sess.profile && sess.profile.cdp;
+  if (!cdp) return;
   sess.lastActive = Date.now();
-  var cdp = state.cdp;
   var sid = sess.cdpSession;
   // 有输入即视为「操作中」：帧率临时升到 60fps，松手静置 1.5 秒后回落 30fps。
   // 只对真正的交互类型升帧：暂停 / 恢复 / 导航等控制消息不改变画面流畅度需求。
@@ -1181,13 +1299,24 @@ setInterval(function () {
 }, 30000).unref();
 
 function status() {
+  // 聚合所有账号 profile：只要有一个实例活着就算运行中
+  var running = 0;
+  var lastError = state.lastError;
+  Object.keys(profiles).forEach(function (key) {
+    var p = profiles[key];
+    if (p.cdp && !p.cdp.closed) running++;
+    if (p.lastError) lastError = p.lastError;
+  });
   return {
     available: !!findBrowser(),
     browser: findBrowser(),
-    running: !!(state.cdp && !state.cdp.closed),
+    running: running > 0,
+    browsers: running,
+    profiles: Object.keys(profiles).length,
     sessions: sessionCount(),
     maxSessions: MAX_SESSIONS,
-    lastError: state.lastError
+    maxProfiles: MAX_PROFILES,
+    lastError: lastError
   };
 }
 
@@ -1238,5 +1367,5 @@ module.exports = {
   listSessions: listSessions,
   closeSessionById: closeSessionById,
   closeAllSessions: closeAllSessions,
-  kill: killBrowser
+  kill: killAllProfiles
 };

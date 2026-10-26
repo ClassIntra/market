@@ -21,6 +21,8 @@
 - `index.json` 升至 `8`，更新 `web-proxy` 版本号。
 - `web-proxy` 升至 `1.0.16`：兼容模式使用管理——应用市场「已安装插件」的网页代理卡片新增班管 / 管理员专用「管理」按钮，浮窗展示当前所有兼容会话（使用者、站点、已用时长、声音状态），支持单个或全部断开；会话身份由前端 WS 握手携带 `uid` / `uname`，新增 `GET /api/web-proxy/sessions`、`POST /api/web-proxy/sessions/:id/close`、`POST /api/web-proxy/sessions/close-all` 三个班管接口。
 - `index.json` 升至 `9`，更新 `web-proxy` 版本号。
+- `web-proxy` 升至 `1.0.17`：兼容模式按账号隔离浏览器 profile——每个账号使用独立 `--user-data-dir` 的渲染实例，不同账号的 Cookie / 登录态 / 本地存储互不相通，账号内多标签页仍共用同一实例；同时保留实例数上限 3（LRU 回收无会话实例），空闲 90 秒回收对应账号进程，profile 目录跨重启保留以延续登录态。
+- `index.json` 升至 `10`，更新 `web-proxy` 版本号。
 
 ## 1.1.0
 
