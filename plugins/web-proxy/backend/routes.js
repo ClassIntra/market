@@ -15,6 +15,7 @@ var os = require('os');
 
 var proxy = require('./proxy-server');
 var access = require('./access');
+var browserData = require('./browser-data');
 
 // 插件加载即启动代理（可通过环境变量 WEB_PROXY_AUTOSTART=0 关闭）
 var startError = null;
@@ -207,6 +208,25 @@ router.post('/sessions/:id/close', auth.requireAuth, auth.requireAdmin, function
     return res.status(404).json({ code: 404, message: '会话不存在或已结束' });
   }
   res.json({ code: 200, data: { closed: 1 } });
+});
+
+// ---- 浏览器数据同步（登录用户自己的历史 / 收藏 / 首页）----
+// 同一账号在不同设备登录后读写同一份数据；未登录（guest）不调用，仍走设备本地存储。
+
+router.get('/browser-data', auth.requireAuth, function (req, res) {
+  var uid = req.user && req.user.user_id;
+  if (!uid) return res.status(401).json({ code: 401, message: '未登录' });
+  res.json({ code: 200, data: browserData.getData(uid) });
+});
+
+router.post('/browser-data', auth.requireAuth, function (req, res) {
+  var uid = req.user && req.user.user_id;
+  if (!uid) return res.status(401).json({ code: 401, message: '未登录' });
+  try {
+    res.json({ code: 200, data: browserData.mergeData(uid, req.body || {}) });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '保存失败: ' + e.message });
+  }
 });
 
 module.exports = router;
