@@ -27,6 +27,10 @@
 
   var el = null;
   var body = null;
+  // 翻转层：只包住「身体」，朝向 scaleX 写在这里。
+  // ⚠️ 不能写在 el 上 —— el 里还住着气泡/爱心/Zzz/道具 emoji，跟着 scaleX(-1)
+  //    一起镜像，台词就会变成反字（桌宠朝左时尤其明显）。
+  var flipEl = null;
   var bubble = null;
   var canvas = null;
   var palette = [];
@@ -99,6 +103,7 @@
     hang: ['（倒挂）嗨~', '看我的绝活！', '血液涌上头了…'],
     gift: ['捡到宝贝！', '给你看我的收藏', '这颗豆子送你！'],
     clone: ['（分身！）', '我不是一个人在战斗！', '影分身之术！'],
+    call: ['哎——来啦！', '叫我吗？', '（小跑过来）', '在呢在呢！'],
     cube: ['魔方又乱了…', '转过来…再转过去…', '快好了快好了！'],
     ball: ['拍球时间！', '看我的球技！', '咚、咚、咚'],
     bowl: ['开饭啦！', '一颗一颗吃', '好好吃…'],
@@ -221,7 +226,9 @@
   function applyPos() {
     if (!el) return;
     if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return; // 坏坐标拒绝上屏
-    el.style.transform = 'translate3d(' + pos.x + 'px,' + pos.y + 'px,0) scaleX(' + facing + ')';
+    // el 只负责位移；朝向交给翻转层，UI 文本保持正读
+    el.style.transform = 'translate3d(' + pos.x + 'px,' + pos.y + 'px,0)';
+    if (flipEl) flipEl.style.transform = 'scaleX(' + facing + ')';
   }
   function setPos(x, y) {
     var b = bounds();
@@ -425,10 +432,13 @@
     twin.style.opacity = '0.4';
     twin.style.transition = 'transform 1.4s linear, opacity 1.4s linear';
     var dir = Math.random() < 0.5 ? -1 : 1;
-    twin.style.transform = 'translate3d(' + (dir === 1 ? -SIZE : window.innerWidth) + 'px,' + pos.y + 'px,0) scaleX(' + (-dir) + ')';
+    // 顶层只做位移；朝向按新结构写在分身的翻转层里，避免 UI 元素跟着镜像
+    var twinFlip = twin.querySelector('.ci-pet-flip');
+    if (twinFlip) twinFlip.style.transform = 'scaleX(' + (-dir) + ')';
+    twin.style.transform = 'translate3d(' + (dir === 1 ? -SIZE : window.innerWidth) + 'px,' + pos.y + 'px,0)';
     document.body.appendChild(twin);
     later(function() {
-      twin.style.transform = 'translate3d(' + (dir === 1 ? window.innerWidth + SIZE : -SIZE * 2) + 'px,' + pos.y + 'px,0) scaleX(' + (-dir) + ')';
+      twin.style.transform = 'translate3d(' + (dir === 1 ? window.innerWidth + SIZE : -SIZE * 2) + 'px,' + pos.y + 'px,0)';
       twin.style.opacity = '0';
     }, 60);
     later(function() { if (twin.parentNode) twin.parentNode.removeChild(twin); }, 1600);
@@ -531,6 +541,7 @@
     if (mode === 'sleep') { wake(); reportInteract('poke'); return; }
     if (isVideo && poolsV && poolsV.clicks && poolsV.clicks.length) {
       lastInteract = Date.now();
+      say('poke', 1500);          // 视频形态以前只播动画不说话，戳上去像在戳石头
       playVideo(pick(poolsV.clicks));
       // 双保险：250ms 后若仍 paused 再推一次（部分环境 play() promise 静默失败）
       later(function() {
@@ -570,6 +581,16 @@
     anim('ci-pet-hop', 700);
     later(function() { anim('ci-pet-hop', 700); }, 750);
     bubbleSay(pick(LINES.levelup) + (level ? ' Lv' + level : ''), 2400);
+  }
+
+  // 宠物屋「呼唤」：悬浮桌宠就在应用页面之上，当场应一声可见可感
+  function callPet() {
+    if (!el) return;
+    wake('silent');
+    heart(2);
+    say('call', 1900);
+    if (isVideo && poolsV && poolsV.clicks && poolsV.clicks.length) playVideo(pick(poolsV.clicks));
+    reportInteract('poke');
   }
 
   function bindDrag() {
@@ -857,6 +878,9 @@
     var shadow = document.createElement('div');
     shadow.className = 'ci-pet-shadow';
     el.appendChild(shadow);
+    flipEl = document.createElement('div');
+    flipEl.className = 'ci-pet-flip';
+    el.appendChild(flipEl);
     if (isVideo) {
       // 视频形态同样创建 body 容器：拖拽倾斜（body.style.transform）与松手清倾斜都读写它，
       // 缺了 body 会在每次 pointermove/释放时抛 TypeError（真机日志实锤）
@@ -864,7 +888,7 @@
       body.className = 'ci-pet-body';
       body.style.width = '100%';
       body.style.height = '100%';
-      el.appendChild(body);
+      flipEl.appendChild(body);
       videoEl = document.createElement('video');
       videoEl.className = 'ci-pet-video';
       videoEl.muted = true;
@@ -886,7 +910,7 @@
     canvas = document.createElement('canvas');
     canvas.className = 'ci-pet-canvas';
     body.appendChild(canvas);
-    el.appendChild(body);
+    flipEl.appendChild(body);
     var z = document.createElement('div');
     z.className = 'ci-pet-zzz';
     z.textContent = 'Z z z';
@@ -919,7 +943,7 @@
     failedAnims = {}; currentAnim = '';
     if (videoEl) { try { videoEl.pause(); videoEl.removeAttribute('src'); } catch (e) {} }
     videoEl = null; isVideo = false; builtVisual = null;
-    el = null; bubble = null; canvas = null; body = null;
+    el = null; bubble = null; canvas = null; body = null; flipEl = null;
     mode = 'idle';
     kills += 1;
   }
@@ -1052,8 +1076,15 @@
     ctx = context;
     storage = context && context.data && context.data.storage;
     realtime = context && context.data && context.data.realtime;
+    // ⚠️ 注册与移除必须用同一个函数引用：之前 feed 的是匿名包装、移除的是裸 feed，
+    //    removeEventListener 静默失效，事件监听跨挂载周期累积。
+    var onFeedEvent = function() { feed(); };
+    var onPokeEvent = function() { poke(null); };
+    var onCallEvent = function() { callPet(); };
     window.addEventListener('ci-pet-state-changed', onPetChanged);
-    window.addEventListener('ci-pet-feed', function() { feed(); });
+    window.addEventListener('ci-pet-feed', onFeedEvent);
+    window.addEventListener('ci-pet-poke', onPokeEvent);
+    window.addEventListener('ci-pet-call', onCallEvent);
     window.addEventListener('resize', clamp);
     document.addEventListener('visibilitychange', onVisibility);
     if (realtime && typeof realtime.on === 'function') {
@@ -1071,7 +1102,9 @@
     if (context && context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
         window.removeEventListener('ci-pet-state-changed', onPetChanged);
-        window.removeEventListener('ci-pet-feed', feed);
+        window.removeEventListener('ci-pet-feed', onFeedEvent);
+        window.removeEventListener('ci-pet-poke', onPokeEvent);
+        window.removeEventListener('ci-pet-call', onCallEvent);
         window.removeEventListener('resize', clamp);
         document.removeEventListener('visibilitychange', onVisibility);
         destroy();

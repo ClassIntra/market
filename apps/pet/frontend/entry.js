@@ -329,6 +329,81 @@
     setTimeout(function() { input.focus(); }, 60);
   }
 
+  // ================= 状态推导（纯前端，不加后端字段）=================
+  var TIER = [0, 20, 60, 120, 200];
+  var TIER_NAMES = ['初识', '熟悉', '亲密', '形影不离', '灵魂伙伴'];
+  function tierOf(b) { var t = 0; for (var i = 0; i < TIER.length; i++) { if (b >= TIER[i]) t = i; } return t; }
+
+  // 饱食度：一次喂食顶 4 小时，线性衰减（与后端 20 分钟冷却、每日 3 次上限不冲突，只是观感）
+  function fedPct() {
+    var t = state && state.last_fed_at ? new Date(state.last_fed_at).getTime() : 0;
+    if (!t) return 0;
+    return Math.round(Math.max(0, Math.min(1, 1 - (Date.now() - t) / (4 * 3600 * 1000))) * 100);
+  }
+  function todayInteracts() {
+    return state ? (state.poked_today || 0) + (state.fed_today || 0) : 0;
+  }
+  function daysTogether() {
+    if (!state || !state.adopted_at) return 1;
+    var n = Math.floor((Date.now() - new Date(state.adopted_at).getTime()) / 86400000) + 1;
+    return Math.max(1, n);
+  }
+  function petMood() {
+    if (!state) return { emoji: '🐚', text: '…' };
+    if (state.enabled === false) return { emoji: '💤', text: '正在桌面上休息' };
+    var n = todayInteracts();
+    if (n === 0) return { emoji: '😢', text: '今天还没被摸过，有点想你' };
+    if (fedPct() >= 80 && n >= 4) return { emoji: '😍', text: '今天被宠坏啦！' };
+    if (fedPct() <= 10) return { emoji: '🍚', text: '肚子有点空空的…' };
+    return { emoji: '😊', text: '乖乖待在桌面上等你' };
+  }
+
+  // hero 区的活预览：从动画池挑一个待机动作循环播（池拉不到就用固定名）
+  var heroPool = null;
+  function heroIdleName() {
+    return (heroPool && heroPool.idle && heroPool.idle.length) ? heroPool.idle[0] : '待机呼吸休闲';
+  }
+  function loadHeroPool() {
+    if (heroPool) return;
+    try {
+      fetch('/market-static/pet/assets/anim-pools.json').then(function(r) { return r.json(); }).then(function(j) {
+        heroPool = j;
+        var v = root && root.querySelector('.ci-pet-hero-video');
+        if (v && !v.getAttribute('src')) v.src = poolUrl(heroIdleName());
+      }).catch(function() {});
+    } catch (e) {}
+  }
+  function poolUrl(name) {
+    return '/market-static/pet/assets/webm/' + encodeURIComponent(name) + '.webm';
+  }
+
+  // 小构件：状态条 / 大按钮 / 分区标题
+  function statRow(label, pct, color, note) {
+    var row = h('div', 'ci-pet-statrow');
+    var head = h('div', 'ci-pet-stathead');
+    head.appendChild(h('span', null, label));
+    if (note) head.appendChild(h('span', 'ci-pet-statnote', note));
+    row.appendChild(head);
+    var bar = h('div', 'ci-pet-statbar');
+    var fill = document.createElement('span');
+    fill.style.width = Math.max(4, Math.min(100, pct)) + '%';
+    fill.style.background = color;
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    return row;
+  }
+  function bigBtn(emoji, label, sub, fn) {
+    var b = h('button', 'ci-pet-bigbtn');
+    b.appendChild(h('span', 'ci-pet-bigbtn-emoji', emoji));
+    b.appendChild(h('span', 'ci-pet-bigbtn-label', label));
+    b.appendChild(h('span', 'ci-pet-bigbtn-sub', sub));
+    b.addEventListener('click', fn);
+    return b;
+  }
+  function sectionTitle(text) {
+    return h('div', 'ci-pet-section', text);
+  }
+
   // ================= 换形象（共用）=================
   // 手作稿存档：从"拼豆 → 大肥鱼"时留一份，之后「换成手作拼豆」能原样换回去
   function savePixelDraft() {
@@ -359,72 +434,90 @@
   }
 
   // ================= 我的宠物 =================
+  function buildDiag() {
+    var lines = [];
+    lines.push('1 服务端状态: ' + (state && state.adopted ? '已领养（' + (state.name || '') + '，显示开关=' + (state.enabled !== false ? '开' : '关') + '）' : '未领养'));
+    var host = window.ClassIntraMarket;
+    lines.push('2 宿主SDK: ' + (host ? '在' : '缺失'));
+    lines.push('3 悬浮脚本已注册: ' + (typeof window.__ciPetDebug === 'function' ? '是' : '否（悬浮脚本未加载/未执行）'));
+    if (typeof window.__ciPetDebug === 'function') {
+      try {
+        var d = window.__ciPetDebug();
+        lines.push('4 桌宠DOM: ' + (d.domMounted ? '在桌面上（位置 ' + d.pos.x + ',' + d.pos.y + '）' : '未创建（状态 adopted=' + d.adopted + ' enabled=' + d.enabled + '）'));
+        lines.push('5 画布: ' + (d.hasCanvas ? '正常' : '缺失'));
+        lines.push('6 行为模式: ' + (d.mode || '?') + ' · 羁绊档: ' + (d.bondTier === undefined ? '?' : d.bondTier) + ' · 被销毁次数: ' + (d.kills === undefined ? '?' : d.kills));
+        if (d.lastError) lines.push('!! 最近异常: ' + d.lastError);
+      } catch (e) {
+        lines.push('4 诊断异常: ' + e.message);
+      }
+    }
+    return lines.join('\n');
+  }
+
   function renderHome() {
     clearRoot();
     if (!state || !state.adopted) { renderAdopt(); return; }
-    root.appendChild(h('h2', null, '我的宠物'));
     var isVideoPet = state.design && state.design.type === 'video';
-    var card = h('div', 'ci-pet-card');
-    if (isVideoPet) {
-      card.appendChild(h('div', 'ci-pet-tpl-emoji', '🐳'));
-    } else {
-      var preview = document.createElement('canvas');
-      paint(preview, state.design, 6);
-      card.appendChild(preview);
-    }
-    var info = h('div', 'ci-pet-card-info');
-    info.appendChild(h('div', 'ci-pet-name', state.name || '小家伙'));
-
-    // 羁绊：称号 + 进度到下一档
-    var TIER = [0, 20, 60, 120, 200];
-    var TIER_NAMES = ['初识', '熟悉', '亲密', '形影不离', '灵魂伙伴'];
     var bond = state.bond || 0;
-    var tier = 0;
-    for (var ti = 0; ti < TIER.length; ti++) { if (bond >= TIER[ti]) tier = ti; }
+    var tier = tierOf(bond);
     var next = tier + 1 < TIER.length ? TIER[tier + 1] : null;
-    var tierText = TIER_NAMES[tier] + (next ? '（距离「' + TIER_NAMES[tier + 1] + '」还差 ' + (next - bond) + '）' : '（满级羁绊！）');
-    info.appendChild(h('div', 'ci-pet-hint', '羁绊 · ' + tierText));
-    var bar = h('div', 'ci-pet-bondbar');
-    var fill = document.createElement('span');
-    var pct = next ? Math.round((bond - TIER[tier]) / (next - TIER[tier]) * 100) : 100;
-    fill.style.width = Math.max(6, Math.min(100, pct)) + '%';
-    bar.appendChild(fill);
-    info.appendChild(bar);
+    var mood = petMood();
 
-    // 等级联动阶段（读 /api/level/info，随 exp_updated 刷新）
-    var stageEl = h('div', 'ci-pet-hint', '成长阶段：读取中…');
-    info.appendChild(stageEl);
+    // ---- hero：活的预览（视频形态播真待机动画）+ 名字 + 徽章 ----
+    var hero = h('div', 'ci-pet-hero');
+    var stage = h('div', 'ci-pet-hero-stage');
+    if (isVideoPet) {
+      var v = document.createElement('video');
+      v.className = 'ci-pet-hero-video';
+      v.muted = true;
+      v.loop = true;
+      v.autoplay = true;
+      v.setAttribute('playsinline', 'playsinline');
+      v.setAttribute('webkit-playsinline', 'webkit-playsinline');
+      v.src = poolUrl(heroIdleName());
+      loadHeroPool();
+      stage.appendChild(v);
+    } else {
+      var pv = document.createElement('canvas');
+      paint(pv, state.design, 7);
+      stage.appendChild(pv);
+    }
+    stage.appendChild(h('div', 'ci-pet-hero-mood', mood.emoji + ' ' + mood.text));
+    hero.appendChild(stage);
+
+    var heroInfo = h('div', 'ci-pet-hero-info');
+    heroInfo.appendChild(h('div', 'ci-pet-name', state.name || '小家伙'));
+    var badges = h('div', 'ci-pet-badges');
+    badges.appendChild(h('span', 'ci-pet-badge', TIER_NAMES[tier]));
+    var lvBadge = h('span', 'ci-pet-badge ci-pet-badge--lv', 'Lv ·');
+    badges.appendChild(lvBadge);
+    heroInfo.appendChild(badges);
+    heroInfo.appendChild(h('div', 'ci-pet-hint',
+      '相伴 ' + daysTogether() + ' 天 · 今日互动 ' + todayInteracts() + ' 次'));
+    hero.appendChild(heroInfo);
+    root.appendChild(hero);
+
     if (api) {
       api.get('/level/info').then(function(res) {
         var d = (res.data && res.data.data) || {};
-        var lv = d.level || 0;
-        var stage = lv >= 4 ? '成年' : lv >= 2 ? '成长期' : '幼年期';
-        stageEl.textContent = 'Lv' + lv + ' · ' + stage + ' —— 你升级，它也会长大。';
-      }).catch(function() { stageEl.textContent = ''; });
+        lvBadge.textContent = 'Lv ' + (d.level || 0);
+      }).catch(function() { lvBadge.textContent = 'Lv ?'; });
     }
 
-    info.appendChild(h('div', 'ci-pet-hint',
-      '它现在就住在你的桌面上。戳它会开心，可以拖到任何角落。'));
-    // 桌面开关
-    var toggleRow = h('div', 'ci-pet-toggle-row');
-    toggleRow.appendChild(h('span', null, '在桌面显示'));
-    var sw = h('button', 'ci-pet-switch' + (state.enabled !== false ? ' ci-pet-switch--on' : ''));
-    sw.addEventListener('click', function() {
-      var next = state.enabled === false;
-      sw.classList.toggle('ci-pet-switch--on', next);
-      api.put('/pet/state', { enabled: next }).then(function(res) {
-        state = (res.data && res.data.data && res.data.data.state) || state;
-        notifyChanged();
-      });
-    });
-    toggleRow.appendChild(sw);
-    info.appendChild(toggleRow);
-    // 重新打扮
-    var row = h('div', 'ci-pet-btnrow');
-    var feedBtn = h('button', 'ci-pet-btn', '喂食（+4 羁绊）');
-    feedBtn.addEventListener('click', function() {
+    // ---- 状态条 ----
+    var stats = h('div', 'ci-pet-stats');
+    var fedNote = fedPct() >= 80 ? '吃得很饱' : fedPct() >= 30 ? '还不错' : '有点饿';
+    stats.appendChild(statRow('饱食', fedPct(), '#FF9500', fedNote));
+    var tierPct = next ? Math.round((bond - TIER[tier]) / (next - TIER[tier]) * 100) : 100;
+    stats.appendChild(statRow('羁绊', tierPct, '#FF6482',
+      next ? (TIER_NAMES[tier] + ' → ' + TIER_NAMES[tier + 1] + ' 还差 ' + (next - bond)) : '满级羁绊！'));
+    root.appendChild(stats);
+
+    // ---- 互动（摸摸/呼唤直接驱动桌面上的那只）----
+    root.appendChild(sectionTitle('互动'));
+    var acts = h('div', 'ci-pet-actions');
+    var feedBtn = bigBtn('🍎', '喂食', '+4 羁绊', function() {
       feedBtn.disabled = true;
-      feedBtn.textContent = '投喂中…';
       api.post('/pet/interact', { type: 'feed' }).then(function(res) {
         var d = (res.data && res.data.data) || {};
         state = d.state || state;
@@ -438,75 +531,112 @@
         renderHome();
       }).catch(function(err) {
         feedBtn.disabled = false;
-        feedBtn.textContent = '喂食（+4 羁绊）';
         var msg = (err && err.response && err.response.data && err.response.data.message) || '投喂失败';
         if (context && context.system && context.system.toast) {
           context.system.toast({ message: msg, type: 'error' });
         }
       });
     });
-    row.appendChild(feedBtn);
-    // 换形象：双向可切（大肥鱼 ⇄ 手作拼豆），切换前把手作稿存档，随时能换回去
+    acts.appendChild(feedBtn);
+    acts.appendChild(bigBtn('👋', '摸摸', '它会当场撒娇', function() {
+      try { window.dispatchEvent(new CustomEvent('ci-pet-poke')); } catch (e) {}
+    }));
+    acts.appendChild(bigBtn('📣', '呼唤', '让它应你一声', function() {
+      try { window.dispatchEvent(new CustomEvent('ci-pet-call')); } catch (e) {}
+    }));
+    root.appendChild(acts);
+
+    // ---- 形象（双向卡片式切换）----
+    root.appendChild(sectionTitle('形象'));
+    var styles = h('div', 'ci-pet-styles');
+    var cWhale = h('div', 'ci-pet-stylecard' + (isVideoPet ? ' is-active' : ''));
+    cWhale.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🐳'));
+    cWhale.appendChild(h('div', 'ci-pet-stylecard-name', '大肥鱼'));
+    cWhale.appendChild(h('div', 'ci-pet-stylecard-desc', '100+ 个动作，会跳舞'));
     if (isVideoPet) {
-      var toPixel = h('button', 'ci-pet-btn ci-pet-btn--ghost', '换成手作拼豆');
-      toPixel.addEventListener('click', function() {
-        var saved = null;
-        try { saved = storage && storage.get('lastPixel', null); } catch (e) {}
-        startEditor(saved && saved.data ? saved.data : '');
-      });
-      row.appendChild(toPixel);
+      cWhale.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
     } else {
-      var toVideo = h('button', 'ci-pet-btn ci-pet-btn--ghost', '换成大肥鱼');
-      toVideo.addEventListener('click', function() {
+      var useWhale = h('button', 'ci-pet-stylecard-btn', '使用');
+      useWhale.addEventListener('click', function() {
         savePixelDraft();
-        switchDesign({ type: 'video', character: 'dsh-whale' }, toVideo, '换成大肥鱼');
+        switchDesign({ type: 'video', character: 'dsh-whale' }, useWhale, '使用');
       });
-      row.appendChild(toVideo);
-      var reBtn = h('button', 'ci-pet-btn ci-pet-btn--ghost', '重新打扮');
-      reBtn.addEventListener('click', function() { startEditor(state.design && state.design.data); });
-      row.appendChild(reBtn);
+      cWhale.appendChild(useWhale);
     }
-    // 改名字：保留当前形态（pixel 时把现稿塞进 edit，避免 preview 空白/串稿）
-    var rename = h('button', 'ci-pet-btn ci-pet-btn--ghost', '改名字');
+    styles.appendChild(cWhale);
+
+    var cPixel = h('div', 'ci-pet-stylecard' + (!isVideoPet ? ' is-active' : ''));
+    var pixelShown = !isVideoPet && state.design ? state.design : null;
+    if (!pixelShown) {
+      var savedDraft = null;
+      try { savedDraft = storage && storage.get('lastPixel', null); } catch (e) {}
+      if (savedDraft && savedDraft.data) pixelShown = savedDraft;
+    }
+    if (pixelShown && pixelShown.data) {
+      var pv2 = document.createElement('canvas');
+      paint(pv2, pixelShown, 5);
+      cPixel.appendChild(pv2);
+    } else {
+      cPixel.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🎨'));
+    }
+    cPixel.appendChild(h('div', 'ci-pet-stylecard-name', '手作拼豆'));
+    cPixel.appendChild(h('div', 'ci-pet-stylecard-desc', '自己画的小家伙'));
+    if (!isVideoPet) {
+      cPixel.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
+      var reBtn = h('button', 'ci-pet-stylecard-btn', '再改改');
+      reBtn.addEventListener('click', function() { startEditor(state.design && state.design.data); });
+      cPixel.appendChild(reBtn);
+    } else {
+      var usePixel = h('button', 'ci-pet-stylecard-btn', pixelShown && pixelShown.data ? '换回来' : '去画一只');
+      usePixel.addEventListener('click', function() {
+        var sv = null;
+        try { sv = storage && storage.get('lastPixel', null); } catch (e) {}
+        startEditor(sv && sv.data ? sv.data : '');
+      });
+      cPixel.appendChild(usePixel);
+    }
+    styles.appendChild(cPixel);
+    root.appendChild(styles);
+
+    // ---- 设置：显示开关 + 改名字 ----
+    root.appendChild(sectionTitle('设置'));
+    var misc = h('div', 'ci-pet-misc');
+    var toggleRow = h('div', 'ci-pet-toggle-row');
+    toggleRow.appendChild(h('span', null, '在桌面显示'));
+    var sw = h('button', 'ci-pet-switch' + (state.enabled !== false ? ' ci-pet-switch--on' : ''));
+    sw.addEventListener('click', function() {
+      var nx = state.enabled === false;
+      sw.classList.toggle('ci-pet-switch--on', nx);
+      api.put('/pet/state', { enabled: nx }).then(function(res) {
+        state = (res.data && res.data.data && res.data.data.state) || state;
+        notifyChanged();
+        renderHome();
+      });
+    });
+    toggleRow.appendChild(sw);
+    misc.appendChild(toggleRow);
+    var renameRow = h('div', 'ci-pet-btnrow');
+    var rename = h('button', 'ci-pet-btn ci-pet-btn--ghost', '✏️ 改名字');
     rename.addEventListener('click', function() {
+      // 保留当前形态（pixel 时把现稿塞进 edit，避免 preview 空白/串稿）
       if (!isVideoPet && state.design) {
         edit = { data: state.design.data, color: 2, tool: 'pen', mirror: false };
       }
       renderNaming(isVideoPet ? 'video' : 'pixel');
     });
-    row.appendChild(rename);
-    info.appendChild(row);
-    card.appendChild(info);
-    root.appendChild(card);
+    renameRow.appendChild(rename);
+    misc.appendChild(renameRow);
+    root.appendChild(misc);
 
-    // 桌宠没出现？一键诊断：五环链路逐环显示（服务端状态/悬浮脚本注册/宿主挂载/DOM/位置）
-    var diagRow = h('div', 'ci-pet-btnrow');
-    var diagBtn = h('button', 'ci-pet-btn ci-pet-btn--ghost', '桌宠没出现？诊断一下');
-    diagRow.appendChild(diagBtn);
-    root.appendChild(diagRow);
-    var diagOut = h('pre', 'ci-pet-hint');
-    diagOut.style.cssText = 'white-space:pre-wrap;background:rgba(128,128,128,0.12);border-radius:12px;padding:12px;margin-top:10px;display:none;';
-    root.appendChild(diagOut);
-    diagBtn.addEventListener('click', function() {
-      var lines = [];
-      lines.push('1 服务端状态: ' + (state && state.adopted ? '已领养（' + (state.name || '') + '，显示开关=' + (state.enabled !== false ? '开' : '关') + '）' : '未领养'));
-      var host = window.ClassIntraMarket;
-      lines.push('2 宿主SDK: ' + (host ? '在' : '缺失'));
-      lines.push('3 悬浮脚本已注册: ' + (typeof window.__ciPetDebug === 'function' ? '是' : '否（悬浮脚本未加载/未执行）'));
-      if (typeof window.__ciPetDebug === 'function') {
-        try {
-          var d = window.__ciPetDebug();
-          lines.push('4 桌宠DOM: ' + (d.domMounted ? '在桌面上（位置 ' + d.pos.x + ',' + d.pos.y + '）' : '未创建（状态 adopted=' + d.adopted + ' enabled=' + d.enabled + '）'));
-          lines.push('5 画布: ' + (d.hasCanvas ? '正常' : '缺失'));
-          lines.push('6 行为模式: ' + (d.mode || '?') + ' · 羁绊档: ' + (d.bondTier === undefined ? '?' : d.bondTier) + ' · 被销毁次数: ' + (d.kills === undefined ? '?' : d.kills));
-          if (d.lastError) lines.push('!! 最近异常: ' + d.lastError);
-        } catch (e) {
-          lines.push('4 诊断异常: ' + e.message);
-        }
-      }
-      diagOut.style.display = 'block';
-      diagOut.textContent = lines.join('\n');
+    // ---- 诊断折叠到底部（平时不占版面）----
+    var adv = h('details', 'ci-pet-adv');
+    adv.appendChild(h('summary', null, '桌宠没出现？点开诊断'));
+    var diagOut = h('pre', 'ci-pet-adv-out');
+    adv.appendChild(diagOut);
+    adv.addEventListener('toggle', function() {
+      if (adv.open) diagOut.textContent = buildDiag();
     });
+    root.appendChild(adv);
   }
 
   function notifyChanged() {
