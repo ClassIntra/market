@@ -59,7 +59,10 @@ var GAME_QUALITY = 92;                 // JPEG 质量（普通模式 55）
 // 注意：Chromium 的 Page.startScreencast 帧尺寸恒等于视口 CSS 像素，
 // deviceScaleFactor 只放大截图（Page.captureScreenshot）与页面光栅化，不会放大帧流。
 // 因此「更高分辨率」只能靠放大视口实现，见下面的 gameViewSize()。
-var GAME_VIEW_FACTOR = 2;              // 云游戏视口放大倍数（帧尺寸随之翻倍，前端等比缩小显示）
+var GAME_VIEW_FACTOR = 2;              // 云游戏视口放大倍数下限（帧尺寸随之翻倍，前端等比缩小显示）
+// 手机屏幕 devicePixelRatio 常见 2~3：只放大 2 倍时帧仍小于物理像素，看起来「开了没变清晰」。
+// 因此按设备真实像素密度放大（上限 3），让帧尽量接近物理像素，做到真正点对点。
+var GAME_MAX_FACTOR = 3;
 var GAME_MAX_DPR = 2;                  // 云游戏下 deviceScaleFactor 上限（不影响帧尺寸，只改善页面自身渲染）
 var GAME_MAX_WIDTH = 3840;             // 帧流编码上限（超出时等比缩小，避免超大帧撑爆内存）
 var GAME_MAX_HEIGHT = 2160;
@@ -584,7 +587,9 @@ function createSession(url, out, opts, cb) {
   // 云游戏模式下真正的编码视口再按 base 放大，帧尺寸随之翻倍
   var vw = clampSize(o.width, VIEW_WIDTH, MIN_WIDTH, MAX_WIDTH);
   var vh = clampSize(o.height, VIEW_HEIGHT, MIN_HEIGHT, MAX_HEIGHT);
-  var view = game ? gameViewSize(vw, vh) : { width: vw, height: vh };
+  // pd：前端设备的真实物理像素密度（dpr），云游戏按它放大视口，手机 dpr 3 时才够清晰
+  var pd = clampSize(o.pd, GAME_VIEW_FACTOR, 1, GAME_MAX_FACTOR);
+  var view = game ? gameViewSize(vw, vh, pd) : { width: vw, height: vh };
   // 云游戏模式允许按设备真实像素密度渲染（上限 2），普通模式仍是 2
   var dpr = clampSize(o.dpr, 1, 1, game ? GAME_MAX_DPR : MAX_DPR);
   var touch = !!o.touch;
@@ -612,6 +617,8 @@ function createSession(url, out, opts, cb) {
           width: view.width,
           height: view.height,
           dpr: dpr,
+          // 设备物理像素密度：模式切换 / 尺寸变化时按它重算云游戏视口
+          pd: pd,
           touch: touch,
           // 云游戏画质：高码率 + 恒 60fps + 高像素密度，不参与自适应降档
           gameMode: game,
@@ -708,11 +715,14 @@ function clampSize(value, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.round(n)));
 }
 
-// 云游戏模式的实际编码视口：按显示区域放大 GAME_VIEW_FACTOR 倍，
+// 云游戏模式的实际编码视口：按显示区域放大（倍数取设备物理像素密度，夹在 2~3 之间），
 // 并夹在 3840×2160 以内（等比收缩），避免超 4K 的超大帧把内存与带宽打爆。
-function gameViewSize(baseW, baseH) {
-  var w = Math.round(baseW * GAME_VIEW_FACTOR);
-  var h = Math.round(baseH * GAME_VIEW_FACTOR);
+function gameViewSize(baseW, baseH, factor) {
+  var f = Number(factor);
+  if (!isFinite(f) || f < GAME_VIEW_FACTOR) f = GAME_VIEW_FACTOR;
+  if (f > GAME_MAX_FACTOR) f = GAME_MAX_FACTOR;
+  var w = Math.round(baseW * f);
+  var h = Math.round(baseH * f);
   var ratio = Math.min(1, GAME_MAX_WIDTH / Math.max(1, w), GAME_MAX_HEIGHT / Math.max(1, h));
   if (ratio < 1) {
     w = Math.max(MIN_WIDTH, Math.round(w * ratio));
@@ -1120,11 +1130,13 @@ function handleInput(sess, msg) {
   if (msg.type === 'mode') {
     var game = !!msg.game;
     var nd = clampSize(msg.dpr, sess.dpr, 1, game ? GAME_MAX_DPR : MAX_DPR);
+    // 设备物理密度（前端可能换到另一台设备 / 旋转后重新下发），决定云游戏放大倍数
+    var pd = clampSize(msg.pd, sess.pd, 1, GAME_MAX_FACTOR);
     // 视口随模式重算：云游戏把视口放大，帧尺寸才会真的翻倍（前端按 compatViewW/H 自动换算坐标）
     var nview = game
-      ? gameViewSize(sess.baseWidth, sess.baseHeight)
+      ? gameViewSize(sess.baseWidth, sess.baseHeight, pd)
       : { width: sess.baseWidth, height: sess.baseHeight };
-    if (sess.gameMode === game && sess.dpr === nd
+    if (sess.gameMode === game && sess.dpr === nd && sess.pd === pd
       && sess.width === nview.width && sess.height === nview.height) {
       sendJson(sess.out, {
         type: 'mode-state',
@@ -1141,6 +1153,7 @@ function handleInput(sess, msg) {
     }
     sess.gameMode = game;
     sess.dpr = nd;
+    sess.pd = pd;
     sess.width = nview.width;
     sess.height = nview.height;
     // 切换档位后重新开始统计，避免把上一模式的丢帧算进自适应窗口
@@ -1280,7 +1293,7 @@ function handleInput(sess, msg) {
     var bw = clampSize(msg.width, sess.baseWidth, MIN_WIDTH, MAX_WIDTH);
     var bh = clampSize(msg.height, sess.baseHeight, MIN_HEIGHT, MAX_HEIGHT);
     var view = sess.gameMode
-      ? gameViewSize(bw, bh)
+      ? gameViewSize(bw, bh, sess.pd)
       : { width: bw, height: bh };
     var viewChanged = view.width !== sess.width || view.height !== sess.height;
     sess.baseWidth = bw;
@@ -1431,6 +1444,8 @@ function handleUpgrade(req, socket, head) {
       width: params.w,
       height: params.h,
       dpr: params.dpr,
+      // 设备物理像素密度：云游戏按它放大视口（缺失时按 2 倍兜底）
+      pd: params.pd,
       touch: params.touch === '1',
       game: params.mode === 'game',
       uid: viewer.uid,
