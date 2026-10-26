@@ -23,6 +23,8 @@
 - `index.json` 升至 `9`，更新 `web-proxy` 版本号。
 - `web-proxy` 升至 `1.0.17`：兼容模式按账号隔离浏览器 profile——每个账号使用独立 `--user-data-dir` 的渲染实例，不同账号的 Cookie / 登录态 / 本地存储互不相通，账号内多标签页仍共用同一实例；同时保留实例数上限 3（LRU 回收无会话实例），空闲 90 秒回收对应账号进程，profile 目录跨重启保留以延续登录态。
 - `index.json` 升至 `10`，更新 `web-proxy` 版本号。
+- `web-proxy` 升至 `1.0.18`：①「可使用者」白名单——兼容模式管理浮窗新增全班可用 / 仅指定成员两种模式，支持按昵称 / 姓名 / 学号搜索勾选，保存立即生效，管理员与班管始终可用；设置存于 `server/database/web-proxy-access.json`（避免市场更新插件时被清掉）；渲染 WS 握手改用 query `token` 校验真实 `user_id` 后放行，未授权直接拒绝（新增 `GET/POST /api/web-proxy/access`、`GET /api/web-proxy/users`）。②云游戏画质——工具栏新增「云游戏」按钮，热切换为 JPEG 92 / 恒 60fps / dpr 上限 3 / 编码上限 3840×2160 / 6MB 帧缓冲，并跳过自适应降档，适合串流游戏与视频。
+- `index.json` 升至 `11`，更新 `web-proxy` 版本号。
 
 ## 1.1.0
 

@@ -36,7 +36,10 @@ web-proxy/
 │   ├── routes.js                 # Express 路由，require 时自动启动代理
 │   ├── proxy-server.js           # 代理服务器（请求转发、响应头处理、编码转换、WebSocket 支持）
 │   ├── rewrite.js                # HTML/CSS/JS 链接改写（含 meta 标签处理、媒体元素、srcdoc 递归）
-│   └── hook.js                   # 注入被代理页面的客户端脚本（拦截 XHR/fetch/WebSocket/window.open/history、MutationObserver）
+│   ├── hook.js                   # 注入被代理页面的客户端脚本（拦截 XHR/fetch/WebSocket/window.open/history、MutationObserver）
+│   ├── render.js                 # 兼容模式渲染引擎（CDP + 系统 Edge/Chrome + JPEG 帧流 + 输入回灌）
+│   ├── audio-inject.js           # 兼容模式页面内音频采集脚本（24kHz 单声道 PCM）
+│   └── access.js                 # 兼容模式「可使用者」设置（全班 / 白名单，存 server/database）
 ├── frontend/
 │   └── bridge.js                 # ClassIntra 侧 postMessage 桥接（状态同步）
 └── shared/
@@ -54,6 +57,12 @@ web-proxy/
 | GET | `/api/web-proxy/resolve?url=` | 公开 | 把真实 URL 转成代理 URL |
 | POST | `/api/web-proxy/start` | 管理员 | 手动启动 |
 | POST | `/api/web-proxy/stop` | 管理员 | 手动停止 |
+| GET | `/api/web-proxy/sessions` | 班管 / 管理员 | 会话列表 + 可使用者设置 |
+| POST | `/api/web-proxy/sessions/:id/close` | 班管 / 管理员 | 断开单个会话 |
+| POST | `/api/web-proxy/sessions/close-all` | 班管 / 管理员 | 断开全部会话 |
+| GET | `/api/web-proxy/access` | 班管 / 管理员 | 读取「可使用者」设置 |
+| POST | `/api/web-proxy/access` | 班管 / 管理员 | 保存「可使用者」设置 |
+| GET | `/api/web-proxy/users?q=` | 班管 / 管理员 | 搜索成员（昵称 / 姓名 / 学号） |
 
 代理本身不经过 `/api` 前缀，直接监听独立端口：
 
@@ -150,7 +159,7 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **零额外体积**：不下载 Chromium，不新增依赖（`ws` 已随 server 提供）
 - **按需启用**：仅当某站点普通模式打不开时，在浏览器工具栏点「兼容」按钮切换
 - **自适应视口**：视口按前端可用区域下发（宽 320–1600、高 320–1200）；触摸设备自动切移动 UA + 触摸仿真 + `mobile` 布局
-- **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1&uid=<用户ID>&uname=<昵称>`，首帧前下发 `{type:'ready'}`（含实际视口尺寸与触摸标记）。`uid` 决定使用哪个账号的浏览器 profile（缺省为 guest），`uname` 仅用于班管查看使用情况；两者都不参与鉴权
+- **通道**：`ws://<host>:<port>/__render__?url=<目标地址>&w=<宽>&h=<高>&dpr=<倍率>&touch=1&uid=<用户ID>&uname=<昵称>&token=<登录令牌>&mode=normal|game`，首帧前下发 `{type:'ready'}`（含实际视口尺寸、触摸标记、`game` 与 `dpr`）。`token` 由服务端 `jwtUtil.verifyToken` 校验后取**真实** `user_id`，用于「可使用者」白名单判断；渲染通道在独立端口，浏览器不会自动带 cookie，只能放在 query 里。`uid` 决定使用哪个账号的浏览器 profile（缺省为 guest），`uname` 仅用于班管查看使用情况；无 token 的旧客户端回退使用 `uid`（1.0.18+）
 - **会话上限**：默认 3 个（单个渲染实例实测约 500MB）；无会话空闲 90 秒后自动关闭对应账号的浏览器进程（1.0.14+，尽早归还内存与后台进程，冷启动 2–3 秒）
 - **按账号隔离 profile（1.0.17+）**：每个账号一个独立 `--user-data-dir` 的浏览器实例，账号内多标签页共用同一实例；不同账号的 Cookie / 登录态 / 本地存储互相隔离。同时保留的实例数上限 3（`MAX_PROFILES`），超限时优先回收最久未用且无会话的实例。profile 目录跨服务重启保留，同一账号下次打开仍保持登录态
 - **输入协议**：`mouse`（mouseMoved/Pressed/Released）、`wheel`、`touch`（start/move/end，单指）、`pinch`（双指缩放，增量倍率）、`text`、`key`、`navigate`、`reload`、`back`、`forward`、`resize`
@@ -166,6 +175,7 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **自适应画质（1.0.11+，1.0.14 起只管画质）**：每 2 秒统计一次丢帧比例，持续丢帧（≥25%）自动降一档（画质 55→48→40），连续 12 秒不丢帧再逐档回升。帧率不再随画质降档，改由下面的按需帧率控制
 - **按需帧率（1.0.14+）**：触摸 / 鼠标 / 滚轮 / 键盘输入后 1.5 秒内以 60fps（`everyNthFrame=1`）出帧保证跟手，静置后降到 30fps（`everyNthFrame=2`）；只在档位真正变化时才重开 screencast，切换实测最大帧间隔约 50ms，无可见卡帧。静置时帧数与带宽减半（30 秒动画页实测 1756→880 帧）
 - **媒体在播保持高帧率（1.0.14+）**：每 3 秒轻量查询页面 `video,audio` 是否在播（`!paused && !ended && readyState>2`），在播则把高帧率窗口续期 5 秒，避免视频 / 音乐被抽帧成 15fps；播完自然回落 30fps
+- **云游戏画质（1.0.18+）**：工具栏「云游戏」按钮**热切换**，不重建会话（保留页面与滚动位置）。开启后 JPEG 质量 92（普通 55）、恒定 60fps（不再静置降帧）、允许按设备真实 dpr 渲染（上限 3，普通 2）、编码尺寸上限 3840×2160、在途帧缓冲放宽到 6MB，并跳过自适应降档（避免画面忽清忽糊）。适合串流游戏 / 视频；代价是编码 CPU 与带宽明显上升，弱网下反而更卡，因此默认关闭、只在用户显式打开时启用。切换协议：客户端 `{type:'mode', game:true|false, dpr}`，服务端回 `{type:'mode-state', game, dpr, quality, fps}`
 - **输入按帧合并**：指针移动与滚轮增量按 `requestAnimationFrame` 合并，高频触控板采样不再逐事件过通道；触摸移动改为**逐条直发**（位移阈值 1px），松手后按最近 120ms 采样速度补 6 步衰减位移模拟原生惯性，解决「慢速滑动无响应 / 抬手即停」
 - **画面帧二进制传输（1.0.12+）**：服务端把 screencast 的 base64 JPEG 解码一次后以二进制 WS 帧下发，前端直接 `createImageBitmap`，省掉客户端逐字节 `atob` 转换——这是此前大帧阻塞主线程、触摸事件排队的主因
 - **宿主静音（1.0.12+，1.0.15 重做）**：页面声音只经采集管道回传给学生的手机，教室电脑扬声器不出声。1.0.15 起不再用浏览器启动参数 `--mute-audio`（该参数会让 Chromium 以「静音会话」占用系统音频端点，在部分 Windows 驱动 / 蓝牙耳机上会把**整台电脑**的音频一起拉哑），改为页面内静音：媒体元素在属性层强制 `muted`，页面 WebAudio 的扬声器出口改接 0 增益节点。实测两者都不影响 `captureStream` / 旁路采集（已用 440Hz 音源 + 660Hz 振荡器端到端验证，采集电平不变）
@@ -186,7 +196,18 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 - **管理动作**：单个「断开」或「全部断开」。断开后对应成员需要重新打开兼容模式；无操作 3 分钟的会话仍由服务端自动回收
 - **刷新**：浮窗打开期间每 3 秒拉取一次，关闭或离开页面即停止
 - **接口与权限**：`GET /api/web-proxy/sessions`、`POST /api/web-proxy/sessions/:id/close`、`POST /api/web-proxy/sessions/close-all`，均要求登录且为班管 / 管理员；未授权返回 401/403
-- **身份来源**：前端建立兼容 WS 时带上 `uid` / `uname`，服务端仅存入会话用于展示。该参数不参与鉴权，渲染通道本身仍只监听本机代理端口
+- **身份来源**：前端建立兼容 WS 时带上 `uid` / `uname`，服务端仅存入会话用于展示
+
+### 可使用者（1.0.18+）
+
+- **入口**：同一个「管理」浮窗内的「可使用者」区域，两种模式：
+  - **全部成员**（默认）：全班都能使用兼容模式
+  - **仅指定成员**：只放行白名单内的成员，支持按昵称 / 姓名 / 学号搜索后勾选，已选成员以标签形式展示、可单个移除
+- **保存即生效**：点「保存」后立即写入，正在使用的会话不受影响（下次连接时校验）；未保存的编辑不会被 3 秒轮询覆盖
+- **管理员与班管始终可用**：即使把白名单设为空，班管 / 管理员仍可进入，避免把自己锁在兼容模式之外
+- **存储位置**：`server/database/web-proxy-access.json`，只保存用户 ID 与昵称，不含凭据。**刻意不放在插件目录内**——应用市场更新插件时会整体替换 `plugins/web-proxy`，目录内配置会被清掉
+- **握手校验**：WS 握手在独立端口、不经过 Express 中间件，因此由 `render.js` 自行校验 query `token`（`jwtUtil.verifyToken` 取真实 `user_id`）再按白名单放行；未授权时下发 `{type:'error'}` 并立即关闭通道。无 token 的旧客户端回退使用 `uid`，此时以 URL 自报身份为准（不可信，仅用于兼容）
+- **相关接口**：`GET` / `POST /api/web-proxy/access`、`GET /api/web-proxy/users?q=`，均要求登录且为班管 / 管理员；白名单上限 200 人
 
 ## 资源占用（实测，40 逻辑核开发机）
 
@@ -205,7 +226,8 @@ http://<host>:9101/http/example.com/   经代理访问 http 站点
 
 - 兼容模式为**少数站点兜底**：画面为帧流（非完整视频），滚动/动画流畅度低于直连；会话总数上限 3
 - **按账号隔离的代价（1.0.17+）**：同时活跃多个账号时，每个账号各占一个渲染实例（约 500MB），内存按活跃账号数线性增长；profile 目录会保留在系统临时目录，长期使用后可定期清理 `%TEMP%\classintra-render-profile*`（清理后对应账号需重新登录目标站点）
-- 画面按视口 CSS 尺寸编码（约为设备像素 1 倍），文字清晰度略低于本地原生渲染
+- 画面按视口 CSS 尺寸 × 像素密度编码：普通模式 dpr 上限 2，云游戏画质上限 3（编码尺寸上限 3840×2160）；超限时等比缩小，避免单帧过大
+- **云游戏画质的代价（1.0.18+）**：JPEG 质量 92 + 恒 60fps，编码 CPU 与带宽随画面复杂度上升（经验值约为普通模式的 3–6 倍）；建议在局域网 / 内网条件下开启，公网弱网更容易积压丢帧
 - GBK/GB2312 页面统一按 UTF-8 输出并同步修正 `charset` 声明
 - 内联脚本只改写 `"https://..."` 字符串字面量，不修改业务逻辑
 - 页面若使用 Service Worker 自行拦截请求，其作用域仍在代理域下，可能影响部分离线站点

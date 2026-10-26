@@ -14,6 +14,7 @@ var auth = require('../../../server/src/middleware/auth');
 var os = require('os');
 
 var proxy = require('./proxy-server');
+var access = require('./access');
 
 // 插件加载即启动代理（可通过环境变量 WEB_PROXY_AUTOSTART=0 关闭）
 var startError = null;
@@ -132,7 +133,63 @@ router.get('/sessions', auth.requireAuth, auth.requireAdmin, function (req, res)
       browser: render.browser || '',
       maxSessions: render.maxSessions || 0,
       lastError: render.lastError || render.reason || '',
+      // 可使用者设置：管理浮窗打开时一并返回，省去一次额外请求
+      access: access.getAccess(),
       sessions: proxy.listRenderSessions ? proxy.listRenderSessions() : []
+    }
+  });
+});
+
+// 谁可以使用兼容模式（班管 / 管理员可读写）
+router.get('/access', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  res.json({ code: 200, data: access.getAccess() });
+});
+
+router.post('/access', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  var body = req.body || {};
+  if (body.mode !== 'all' && body.mode !== 'allowlist') {
+    return res.status(400).json({ code: 400, message: 'mode 只能是 all 或 allowlist' });
+  }
+  if (body.mode === 'allowlist' && Array.isArray(body.users) && body.users.length > access.MAX_USERS) {
+    return res.status(400).json({ code: 400, message: '最多只能指定 ' + access.MAX_USERS + ' 位成员' });
+  }
+  try {
+    var saved = access.setAccess({ mode: body.mode, users: body.users || [] });
+    res.json({ code: 200, data: saved });
+  } catch (e) {
+    res.status(500).json({ code: 500, message: '保存失败: ' + e.message });
+  }
+});
+
+// 搜索可指定的成员：只读 users 表的公开字段，不依赖 manage_users 权限
+router.get('/users', auth.requireAuth, auth.requireAdmin, function (req, res) {
+  var q = String(req.query.q || '').trim().substring(0, 40);
+  var db = require('../../../server/src/utils/db');
+  var rows;
+  try {
+    if (q) {
+      var like = '%' + q + '%';
+      rows = db.prepare(
+        'SELECT user_id, net_name, real_name FROM users '
+        + 'WHERE user_id LIKE ? OR net_name LIKE ? OR real_name LIKE ? '
+        + 'ORDER BY user_id LIMIT 20'
+      ).all(like, like, like);
+    } else {
+      rows = db.prepare('SELECT user_id, net_name, real_name FROM users ORDER BY user_id LIMIT 20').all();
+    }
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '查询成员失败: ' + e.message });
+  }
+  res.json({
+    code: 200,
+    data: {
+      users: (rows || []).map(function (r) {
+        return {
+          id: r.user_id,
+          name: r.net_name || r.real_name || r.user_id,
+          realName: r.real_name || ''
+        };
+      })
     }
   });
 });

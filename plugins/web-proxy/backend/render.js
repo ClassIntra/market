@@ -20,6 +20,11 @@ var os = require('os');
 var path = require('path');
 var WS = require('ws');
 
+// 兼容模式的「可使用者」与登录校验：WS 握手在独立端口上，不经过 express 中间件，
+// 因此这里自行验 token 并按白名单判断是否放行。
+var access = require('./access');
+var jwtUtil = require('../../../server/src/utils/jwt');
+
 // 系统浏览器候选路径（Windows 常见安装位置）
 var BROWSER_PATHS = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -46,6 +51,15 @@ var MAX_DPR = 2;
 var PINCH_MIN_SCALE = 1;
 var PINCH_MAX_SCALE = 3;
 var SCREENCAST_QUALITY = 55;
+
+// 云游戏画质模式：以画质 / 流畅度优先（高分辨率、高码率、恒 60fps），
+// 适合串流游戏与视频。代价是编码 CPU 与带宽明显上升，网络差时反而更卡，
+// 因此只在用户显式打开时启用，且不参与自适应降档。
+var GAME_QUALITY = 92;                 // JPEG 质量（普通模式 55）
+var GAME_MAX_DPR = 3;                  // 允许按设备真实像素密度渲染（普通模式上限 2）
+var GAME_MAX_WIDTH = 3840;             // 帧流编码上限（超出时等比缩小，避免超大帧撑爆内存）
+var GAME_MAX_HEIGHT = 2160;
+var GAME_FRAME_MAX_BUFFER = 6 * 1024 * 1024; // 高码率帧更大，给更多在途空间
 
 // 音频回传：页面内采集脚本把 24kHz 单声道 PCM（base64）经 Runtime.addBinding 送回。
 // 24kHz 比 16kHz 保留更多高频细节（音乐 / 人声更自然），每包约 43ms，延迟更低。
@@ -561,9 +575,11 @@ function createSession(url, out, opts, cb) {
   // 同一账号复用同一个浏览器 profile；不同账号完全隔离 Cookie / 登录态 / 本地存储
   var profile = getProfile(profileKeyOf(o.uid));
   profile.lastUsedAt = Date.now();
+  var game = !!o.game;
   var vw = clampSize(o.width, VIEW_WIDTH, MIN_WIDTH, MAX_WIDTH);
   var vh = clampSize(o.height, VIEW_HEIGHT, MIN_HEIGHT, MAX_HEIGHT);
-  var dpr = clampSize(o.dpr, 1, 1, MAX_DPR);
+  // 云游戏模式允许按设备真实像素密度渲染（上限 3），普通模式仍是 2
+  var dpr = clampSize(o.dpr, 1, 1, game ? GAME_MAX_DPR : MAX_DPR);
   var touch = !!o.touch;
 
   ensureBrowser(profile, function (err, cdp) {
@@ -586,6 +602,8 @@ function createSession(url, out, opts, cb) {
           height: vh,
           dpr: dpr,
           touch: touch,
+          // 云游戏画质：高码率 + 恒 60fps + 高像素密度，不参与自适应降档
+          gameMode: game,
           // 使用该会话的用户标识：由前端在 WS 握手时带上，仅供班管查看使用情况
           uid: o.uid ? String(o.uid) : '',
           uname: o.uname ? String(o.uname) : '',
@@ -605,7 +623,7 @@ function createSession(url, out, opts, cb) {
           // 按需帧率：输入后的一小段时间内视为「操作中」，跑满 60fps；
           // frameNth 记录当前实际下发的抽帧步长，用于判断是否需要重开帧流
           activeUntil: 0,
-          frameNth: IDLE_EVERY_NTH,
+          frameNth: game ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH,
           // 画面帧因积压被丢弃后，页面静止就不会再出帧，需要主动补拍一张最新画面
           needRefresh: false,
           refreshTimer: null,
@@ -692,15 +710,34 @@ function navigate(sess, url) {
 
 // 当前会话档位对应的 screencast 参数（尺寸按物理像素下发）
 function screencastParams(sess) {
+  var maxW = Math.round(sess.width * sess.dpr);
+  var maxH = Math.round(sess.height * sess.dpr);
+  if (sess.gameMode) {
+    // 云游戏：高码率 + 恒定 60fps；尺寸设上限防止 4K 以上超采样把帧撑爆
+    return {
+      format: 'jpeg',
+      quality: GAME_QUALITY,
+      maxWidth: Math.min(maxW, GAME_MAX_WIDTH),
+      maxHeight: Math.min(maxH, GAME_MAX_HEIGHT),
+      everyNthFrame: ACTIVE_EVERY_NTH
+    };
+  }
   var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
   return {
     format: 'jpeg',
     quality: lv.quality,
-    maxWidth: Math.round(sess.width * sess.dpr),
-    maxHeight: Math.round(sess.height * sess.dpr),
+    maxWidth: maxW,
+    maxHeight: maxH,
     // 有人操作时 60fps，静置后 30fps（省约一半编码 CPU 与带宽）
     everyNthFrame: isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH
   };
+}
+
+// 当前会话允许的在途帧积压上限：云游戏帧更大，单独放宽
+function frameLimitOf(sess) {
+  if (!sess) return FRAME_MAX_BUFFER;
+  if (sess.gameMode) return GAME_FRAME_MAX_BUFFER;
+  return sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
 }
 
 // 是否处于「操作中」窗口：触摸 / 滚轮 / 键盘等输入后的一小段时间内跑满帧率
@@ -710,7 +747,8 @@ function isActive(sess) {
 
 // 输入到达时标记为操作中：立刻升到 60fps，1.5 秒后按需降回 30fps
 function markActive(sess) {
-  if (!sess || sess.paused) return;
+  // 云游戏模式已恒定 60fps，无需再维护操作窗口
+  if (!sess || sess.paused || sess.gameMode) return;
   sess.activeUntil = Date.now() + ACTIVE_BOOST_MS;
   applyFrameMode(sess);
   scheduleActiveEnd(sess);
@@ -734,7 +772,8 @@ function scheduleActiveEnd(sess) {
 // 只有帧率档位真正变化时才重开帧流，避免每次输入都 stop/start
 function applyFrameMode(sess) {
   if (!sess || sess.paused || !sess.profile || !sess.profile.cdp) return;
-  var nth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
+  // 云游戏模式固定跑满帧率，不做按需降帧
+  var nth = sess.gameMode ? ACTIVE_EVERY_NTH : (isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH);
   if (sess.frameNth === nth) return;
   sess.frameNth = nth;
   restartScreencast(sess);
@@ -745,7 +784,7 @@ function applyFrameMode(sess) {
 function watchMedia() {
   Object.keys(state.sessions).forEach(function (id) {
     var sess = state.sessions[id];
-    if (!sess || sess.paused || !sess.profile || !sess.profile.cdp) return;
+    if (!sess || sess.paused || sess.gameMode || !sess.profile || !sess.profile.cdp) return;
     mediaPlaying(sess).then(function (playing) {
       if (!state.sessions[sess.id] || sess.paused) return;
       if (playing) sess.activeUntil = Date.now() + MEDIA_KEEP_MS;
@@ -776,7 +815,7 @@ function restartScreencast(sess) {
   var start = function () {
     // 暂停期间（页面隐藏）不重开帧流，恢复时由 resume 统一启动
     if (sess.paused) return Promise.resolve();
-    sess.frameNth = isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH;
+    sess.frameNth = sess.gameMode ? ACTIVE_EVERY_NTH : (isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH);
     return cdp.send('Page.startScreencast', screencastParams(sess), sid);
   };
   return cdp.send('Page.stopScreencast', {}, sid).then(start, start);
@@ -784,6 +823,8 @@ function restartScreencast(sess) {
 
 // 自适应画质：每隔一个窗口看丢帧比例，持续跟不上就降一档；长时间稳定再回升
 function adaptScreencast(sess) {
+  // 云游戏模式不降档：用户主动要画质，自动降档会让画面忽清忽糊
+  if (sess.gameMode) return;
   var now = Date.now();
   if (now - sess.adaptStart < ADAPT_WINDOW_MS) return;
   var total = sess.framesSent + sess.framesDropped;
@@ -825,7 +866,7 @@ function scheduleRefresh(sess) {
     if (!sess.needRefresh || sess.paused) return;
     var cdp = sess.profile && sess.profile.cdp;
     if (!cdp || !state.sessions[sess.id]) return;
-    var limit = sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
+    var limit = frameLimitOf(sess);
     var backlog = 0;
     try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
     // 缓冲仍高说明网络 / 解码没跟上，稍后再补拍，避免继续堆帧
@@ -841,7 +882,7 @@ function scheduleRefresh(sess) {
     var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
     cdp.send('Page.captureScreenshot', {
       format: 'jpeg',
-      quality: lv.quality,
+      quality: sess.gameMode ? GAME_QUALITY : lv.quality,
       fromSurface: true
     }, sess.cdpSession).then(function (r) {
       if (!r || !r.data) return;
@@ -911,7 +952,7 @@ function dispatchEvent(profile, method, params, cdpSessionId) {
   if (method === 'Page.screencastFrame') {
     var backlog = 0;
     try { backlog = sess.out.bufferedAmount || 0; } catch (e) {}
-    var frameLimit = sess.touch ? FRAME_MAX_BUFFER_TOUCH : FRAME_MAX_BUFFER;
+    var frameLimit = frameLimitOf(sess);
     if (backlog < frameLimit) {
       sess.framesSent++;
       var jpeg = null;
@@ -1047,6 +1088,48 @@ function handleInput(sess, msg) {
         console.log('[web-proxy] ' + label + ' 事件失败: ' + e.message);
       }
     });
+  }
+
+  // 画质模式切换：运行中打开/关闭云游戏画质，无需重建会话（保留页面与滚动位置）
+  if (msg.type === 'mode') {
+    var game = !!msg.game;
+    var nd = clampSize(msg.dpr, sess.dpr, 1, game ? GAME_MAX_DPR : MAX_DPR);
+    if (sess.gameMode === game && sess.dpr === nd) {
+      sendJson(sess.out, {
+        type: 'mode-state',
+        game: sess.gameMode,
+        dpr: sess.dpr,
+        quality: sess.gameMode ? GAME_QUALITY : (QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0]).quality,
+        fps: sess.gameMode ? 60 : 30
+      });
+      return;
+    }
+    sess.gameMode = game;
+    sess.dpr = nd;
+    // 切换档位后重新开始统计，避免把上一模式的丢帧算进自适应窗口
+    sess.qualityLevel = 0;
+    sess.framesSent = 0;
+    sess.framesDropped = 0;
+    sess.adaptStart = Date.now();
+    if (!game) sess.activeUntil = 0;
+    // 像素密度变化必须重设设备指标，否则帧尺寸仍是旧的
+    guard(cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: sess.width,
+      height: sess.height,
+      deviceScaleFactor: nd,
+      mobile: sess.touch
+    }, sid).then(function () {
+      return restartScreencast(sess);
+    }).then(function () {
+      sendJson(sess.out, {
+        type: 'mode-state',
+        game: sess.gameMode,
+        dpr: sess.dpr,
+        quality: game ? GAME_QUALITY : (QUALITY_LEVELS[0] || { quality: SCREENCAST_QUALITY }).quality,
+        fps: game ? 60 : 30
+      });
+    }), 'mode');
+    return;
   }
 
   if (msg.type === 'mouse') {
@@ -1232,6 +1315,26 @@ function handleInput(sess, msg) {
 
 // ---- 对外入口：接管 WebSocket 升级 ----
 
+// 校验握手身份：优先用 token 取真实 user_id（uid 参数可被伪造），
+// 再按「可使用者」设置决定放行。旧版前端不带 token 时退回 uid，保持兼容。
+function resolveViewer(params) {
+  var uid = String(params.uid || '');
+  var uname = String(params.uname || '');
+  var token = String(params.token || '');
+  if (token) {
+    var result = null;
+    try { result = jwtUtil.verifyToken(token); } catch (e) { result = null; }
+    if (!result || !result.valid || !result.data || !result.data.user_id) {
+      return { error: '登录状态已失效，请重新登录后再使用兼容模式' };
+    }
+    uid = String(result.data.user_id);
+  }
+  if (!access.isAllowed(uid)) {
+    return { error: '管理员尚未授权你使用兼容模式' };
+  }
+  return { uid: uid, uname: uname };
+}
+
 function handleUpgrade(req, socket, head) {
   var query = '';
   var idx = String(req.url || '').indexOf('?');
@@ -1255,13 +1358,20 @@ function handleUpgrade(req, socket, head) {
       try { client.close(); } catch (e) {}
       return;
     }
+    var viewer = resolveViewer(params);
+    if (viewer.error) {
+      sendJson(client, { type: 'error', message: viewer.error });
+      try { client.close(); } catch (e) {}
+      return;
+    }
     createSession(url, client, {
       width: params.w,
       height: params.h,
       dpr: params.dpr,
       touch: params.touch === '1',
-      uid: params.uid,
-      uname: params.uname
+      game: params.mode === 'game',
+      uid: viewer.uid,
+      uname: viewer.uname
     }, function (err, sess) {
       if (err) {
         console.log('[web-proxy] 兼容模式会话创建失败: ' + err.message);
@@ -1274,7 +1384,10 @@ function handleUpgrade(req, socket, head) {
         session: sess.id,
         width: sess.width,
         height: sess.height,
-        touch: sess.touch
+        touch: sess.touch,
+        // 供前端恢复云游戏开关状态
+        game: !!sess.gameMode,
+        dpr: sess.dpr
       });
       client.on('message', function (raw) {
         var msg;
@@ -1336,6 +1449,7 @@ function listSessions() {
       audioEnabled: !!s.audioEnabled,
       paused: !!s.paused,
       touch: !!s.touch,
+      game: !!s.gameMode,
       width: s.width,
       height: s.height,
       framesSent: s.framesSent || 0,

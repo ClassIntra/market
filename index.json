@@ -1,6 +1,6 @@
 {
-  "version": 10,
-  "updated_at": "2026-10-26T00:08:54.876Z",
+  "version": 11,
+  "updated_at": "2026-10-26T09:40:00.000Z",
   "apps": [
     {
       "name": "chess",
@@ -446,10 +446,11 @@
     {
       "name": "web-proxy",
       "label": "网页代理",
-      "version": "1.0.17",
+      "version": "1.0.18",
       "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。",
       "author": "",
       "files": [
+        "plugins/web-proxy/backend/access.js",
         "plugins/web-proxy/backend/audio-inject.js",
         "plugins/web-proxy/backend/hook.js",
         "plugins/web-proxy/backend/proxy-server.js",
@@ -463,16 +464,17 @@
         "plugins/web-proxy/shared/contract.js"
       ],
       "hashes": {
+        "backend/access.js": "8dbfb29f83eff2ad7c568d4d590fbb8c4c58bde305b4ef838fd1b5de0fa414c4",
         "backend/audio-inject.js": "be16c260263e7672101fe61c875aa868384a48546a75dd23b649dccfd50e1faf",
         "backend/hook.js": "f7c26305cd1fc1779037d7f6926839aa95ab75cbee8cc3e023834c03f9fc2f61",
         "backend/proxy-server.js": "ff2453d43b9aca6513a30e70d6ee101c7ef0f25e9b95ab8afbab9c70f3634f05",
-        "backend/render.js": "3e146903f3ba6c2fb731a66ee83bb93cc39f120aaacec993bfcfb04114dd8e93",
+        "backend/render.js": "c09355de0ea383124c670976a0c4d7b128db080b30e8cc6c73481c9fc848a4a6",
         "backend/rewrite.js": "44caac146ac82997716ced44c96a1c6c10f94e88065a173509d28b449de08856",
-        "backend/routes.js": "5b6be28db5a24908e1189c7ee3459135422e67c88849a440e3e687f9d865ffe8",
+        "backend/routes.js": "f9986596adc5998eac65abae1567fa20de213e228f10b44b7921a56cc6416530",
         "CONTRIBUTING.md": "ebbd6fccc44cfc26d23d9a328576b864c563057e6537089bb7ca9edc0df00cd5",
         "frontend/bridge.js": "9b501a04dd2a5d76deeafe1505f6ba0e4068c44ebcf1525f85432e08c567c73f",
-        "manifest.json": "6578f9dbf4b80e2d47b008b942ee11ee0028a6b1b6bde1c2462c8b69d9d31163",
-        "README.md": "1a8f75b7197849dd544705261cc47c41334dc93763059b5d2e236d10bdea6ba0",
+        "manifest.json": "09472bda2a5d6656d2c9c523aa207d52fa754d2d684112635212150cdb76798d",
+        "README.md": "ceef9f33f56080c58a8989e22ab9eb226b36fb9b2f776c40cba2e377bfa9c610",
         "shared/contract.js": "fe9916a2bfa71e9d5ec40a3ce8618d120b09dcd0ddd5505e2f994ddec6246a4a"
       }
     }
