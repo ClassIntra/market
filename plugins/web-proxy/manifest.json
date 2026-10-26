@@ -1,7 +1,7 @@
 {
   "name": "web-proxy",
   "type": "plugin",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "label": "网页代理",
   "category": "hidden",
   "order": 98,

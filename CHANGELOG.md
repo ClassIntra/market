@@ -25,6 +25,8 @@
 - `index.json` 升至 `10`，更新 `web-proxy` 版本号。
 - `web-proxy` 升至 `1.0.18`：①「可使用者」白名单——兼容模式管理浮窗新增全班可用 / 仅指定成员两种模式，支持按昵称 / 姓名 / 学号搜索勾选，保存立即生效，管理员与班管始终可用；设置存于 `server/database/web-proxy-access.json`（避免市场更新插件时被清掉）；渲染 WS 握手改用 query `token` 校验真实 `user_id` 后放行，未授权直接拒绝（新增 `GET/POST /api/web-proxy/access`、`GET /api/web-proxy/users`）。②云游戏画质——工具栏新增「云游戏」按钮，热切换为 JPEG 92 / 恒 60fps / dpr 上限 3 / 编码上限 3840×2160 / 6MB 帧缓冲，并跳过自适应降档，适合串流游戏与视频。
 - `index.json` 升至 `11`，更新 `web-proxy` 版本号。
+- `web-proxy` 升至 `1.0.19`：修复云游戏画质「开了但画面没变清晰」——Chromium 的 `Page.startScreencast` 帧尺寸恒等于视口 CSS 像素，`deviceScaleFactor` 只影响截图与页面光栅化、不放大帧流（实测 DSF 1/2/3 帧尺寸均为 1000×700）。改为云游戏模式下把视口按画布尺寸放大 2 倍（夹在 3840×2160 内等比收缩），前端按 `compatViewW/H` 等比缩小显示，鼠标坐标与滚轮增量自动换算；新增 `baseWidth/baseHeight` 协议字段区分画布尺寸与实际编码视口，热切换与窗口 resize 均按 base 口径重算。实测云游戏帧由 1000×700 提升到 2000×1400，切回普通模式恢复原尺寸。
+- `index.json` 升至 `12`，更新 `web-proxy` 版本号。
 
 ## 1.1.0
 
