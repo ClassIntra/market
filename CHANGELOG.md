@@ -37,6 +37,8 @@
 - `web-proxy` 1.0.22 补充：删除同步——删历史 / 取消收藏时提交「删后的完整列表」并带 `replaceHistory` / `replaceBookmarks`，服务端按整表替换而不是并集合并，否则刚删的条目会被并集重新合回来；拉取时用服务端 `updatedAt` 判断别处是否改过，改过则以服务端为准、只保留本机在那之后新产生的记录，实现删除在多设备间生效；本机已有的旧记录首次同步时一次性补传上云。
 - `index.json` 升至 `16`，更新 `web-proxy` 文件哈希（`backend/browser-data.js`）。
 - `index.json` 升至 `17`，更新 `web-proxy` README 哈希（补充删除同步与首次补传说明）。
+- `web-proxy` 升至 `1.0.23`：修复「云游戏画质开启后页面内容变小」——此前为提升清晰度把无头浏览器视口按设备像素密度（`pd`）放大 2–3 倍，站点因此按更宽视口排版、切到桌面版，文字整体变小，前端再把帧缩回画布，观感是「开了更高画质反而看不清」。改为渲染浏览器以启动参数 `--force-device-scale-factor=2` 运行，合成表面恒为视口 CSS 像素的 2 倍：**排版宽度 / 媒体查询 / 字号 / 输入坐标与普通模式完全一致**，云游戏模式只把 screencast 的 `maxWidth/maxHeight` 给到 2 倍，帧由 400×700 提升到 800×1400（已端到端实测：两种模式下 `innerWidth / clientWidth / 正文 14px / max-width:400px 媒体查询` 全部相同，帧尺寸翻倍）。同时移除 `pd` 协议字段与视口放大逻辑；普通模式取帧时 Chromium 自动把 2 倍表面缩回 1 倍（实测带宽基本不变），丢帧补拍改用 `clip.scale` 保证与帧同尺寸，避免画布尺寸跳变闪烁。
+- `index.json` 升至 `18`，更新 `web-proxy` 版本号与 `backend/render.js` / `manifest.json` / `README.md` 哈希。
 
 ## 1.1.0
 

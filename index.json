@@ -1,6 +1,6 @@
 {
-  "version": 17,
-  "updated_at": "2026-10-26T22:39:01.000Z",
+  "version": 18,
+  "updated_at": "2026-10-27T00:30:00.000Z",
   "apps": [
     {
       "name": "chess",
@@ -446,8 +446,8 @@
     {
       "name": "web-proxy",
       "label": "网页代理",
-      "version": "1.0.22",
-      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。1.0.22 起浏览器的历史 / 收藏 / 首页按账号存到服务端，同一账号换设备登录后自动同步。",
+      "version": "1.0.23",
+      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。1.0.22 起浏览器的历史 / 收藏 / 首页按账号存到服务端，同一账号换设备登录后自动同步。1.0.23 起云游戏画质不再放大页面视口，改为浏览器进程 2 倍合成表面 + 帧按 2 倍像素输出：画面更清晰，但排版大小、字号、媒体查询与普通模式完全一致（此前开启后页面会切成桌面版、文字变小）。",
       "author": "",
       "files": [
         "plugins/web-proxy/backend/access.js",
@@ -470,13 +470,13 @@
         "backend/browser-data.js": "dd80888461f8ba224b9d61b9064f04845d478fda379223ce132814c1a3dea8da",
         "backend/hook.js": "f7c26305cd1fc1779037d7f6926839aa95ab75cbee8cc3e023834c03f9fc2f61",
         "backend/proxy-server.js": "ff2453d43b9aca6513a30e70d6ee101c7ef0f25e9b95ab8afbab9c70f3634f05",
-        "backend/render.js": "bdaad2c4b96493b855fdbf26d2a58f68260698a78c95cd661081e59c0c51cf7e",
+        "backend/render.js": "4a6e3d05822666c65228168963c4664ea316ebc9ad0c1474b04fbac1aa210045",
         "backend/rewrite.js": "44caac146ac82997716ced44c96a1c6c10f94e88065a173509d28b449de08856",
         "backend/routes.js": "24e7007c67d24850ec8166b31734f15eb819ca7c4fbb7ca33ef36c929d55e990",
         "CONTRIBUTING.md": "ebbd6fccc44cfc26d23d9a328576b864c563057e6537089bb7ca9edc0df00cd5",
         "frontend/bridge.js": "9b501a04dd2a5d76deeafe1505f6ba0e4068c44ebcf1525f85432e08c567c73f",
-        "manifest.json": "d3f7d8bafec8a09db881018e12ee1d75979a5962ba981e546c8f036bc46f17b7",
-        "README.md": "e38765ebd46e2daa8b9ca219e11d8238e591f661de2ae0d6f926c6345523e1d6",
+        "manifest.json": "d4c120bb29b3fbf819b90866ef50d472e9bf912f69122e7b3402cc074b23024b",
+        "README.md": "55b63fed29347c63cbcc63bfe1af0e14e241288ba13a00f1c546fb87cfe18612",
         "shared/contract.js": "fe9916a2bfa71e9d5ec40a3ce8618d120b09dcd0ddd5505e2f994ddec6246a4a"
       }
     }

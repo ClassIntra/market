@@ -56,14 +56,19 @@ var SCREENCAST_QUALITY = 55;
 // 适合串流游戏与视频。代价是编码 CPU 与带宽明显上升，网络差时反而更卡，
 // 因此只在用户显式打开时启用，且不参与自适应降档。
 var GAME_QUALITY = 92;                 // JPEG 质量（普通模式 55）
-// 注意：Chromium 的 Page.startScreencast 帧尺寸恒等于视口 CSS 像素，
-// deviceScaleFactor 只放大截图（Page.captureScreenshot）与页面光栅化，不会放大帧流。
-// 因此「更高分辨率」只能靠放大视口实现，见下面的 gameViewSize()。
-var GAME_VIEW_FACTOR = 2;              // 云游戏视口放大倍数下限（帧尺寸随之翻倍，前端等比缩小显示）
-// 手机屏幕 devicePixelRatio 常见 2~3：只放大 2 倍时帧仍小于物理像素，看起来「开了没变清晰」。
-// 因此按设备真实像素密度放大（上限 3），让帧尽量接近物理像素，做到真正点对点。
-var GAME_MAX_FACTOR = 3;
-var GAME_MAX_DPR = 2;                  // 云游戏下 deviceScaleFactor 上限（不影响帧尺寸，只改善页面自身渲染）
+// 高清云游戏的关键（实测结论，改动前先读）：
+//   · Page.startScreencast 的帧尺寸上限 = 浏览器合成表面尺寸，而表面尺寸 = 视口 CSS 像素 × 浏览器进程 DSF；
+//     会话级 Emulation.setDeviceMetricsOverride 的 deviceScaleFactor 只影响页面光栅化，不会放大表面
+//     （实测视口 400×700 + dpr 1/2/3，帧恒为 400×700；把 maxWidth 提到 800 也还是 400×700）。
+//   · 唯一有效的是浏览器进程启动参数 --force-device-scale-factor=2：视口仍是 400×700，
+//     页面排版 / 媒体查询 / 输入坐标与普通模式完全一致，但表面变成 800×1400，
+//     maxWidth/maxHeight 给到 2 倍就能拿到原生 2 倍帧（实测 400×700 视口 → 800×1400 帧）。
+//   · 普通模式仍按视口尺寸取帧，Chromium 自动把 2 倍表面缩回 1 倍，带宽基本不变（实测 JPEG 体积相当）。
+//   历史教训：早期版本为了「高清」把视口按 pd 放大到 800×1400，站点因此切到桌面版排版、
+//   字全部变小，前端再把帧缩回画布 —— 等于先撑大再缩回，观感就是「开了更高画质反而看不清」。
+var BROWSER_SCALE_FACTOR = 2;          // 浏览器合成表面倍数（进程级启动参数，所有会话共享）
+var GAME_FRAME_SCALE = 2;              // 云游戏帧像素 = 视口 CSS 像素 × 该倍数（超过表面尺寸不会放大，只做上限约束）
+var GAME_MAX_DPR = 2;                  // 云游戏下 deviceScaleFactor 上限（让站点按 2 倍图渲染，不影响帧尺寸）
 var GAME_MAX_WIDTH = 3840;             // 帧流编码上限（超出时等比缩小，避免超大帧撑爆内存）
 var GAME_MAX_HEIGHT = 2160;
 var GAME_FRAME_MAX_BUFFER = 6 * 1024 * 1024; // 高码率帧更大，给更多在途空间
@@ -331,6 +336,9 @@ function launchBrowser(exe, profile) {
 
   var args = [
     '--headless=new',
+    // 2 倍合成表面：让云游戏模式能取到 2 倍像素的帧，而页面排版宽度不变（详见文件顶部常量注释）。
+    // 普通模式取帧时按视口尺寸缩小，带宽不受影响。
+    '--force-device-scale-factor=' + BROWSER_SCALE_FACTOR,
     // 不再强制关闭 GPU：headless=new 支持 GPU 合成，滚动 / 动画的合成由 GPU 完成，
     // 明显更顺滑；显卡驱动不可用时 Chromium 会自动回退软件渲染，不会启动失败。
     '--force-color-profile=srgb',
@@ -573,7 +581,7 @@ function sessionCount() {
 }
 
 // 建立一次渲染会话：新建标签页 → 视口/触摸仿真 → 开启 screencast → 导航到目标地址
-// opts: { width, height, dpr, touch } —— 由前端按自身可用区域传入，缺省用桌面尺寸
+// opts: { width, height, dpr, touch, game } —— 由前端按自身可用区域传入，缺省用桌面尺寸
 function createSession(url, out, opts, cb) {
   if (sessionCount() >= MAX_SESSIONS) {
     return cb(new Error('兼容模式同时最多 ' + MAX_SESSIONS + ' 个会话，请稍后再试'));
@@ -583,13 +591,12 @@ function createSession(url, out, opts, cb) {
   var profile = getProfile(profileKeyOf(o.uid));
   profile.lastUsedAt = Date.now();
   var game = !!o.game;
-  // base 是前端画布的实际可用尺寸（CSS 像素），决定页面排版宽度；
-  // 云游戏模式下真正的编码视口再按 base 放大，帧尺寸随之翻倍
+  // vw/vh 是前端画布的实际可用尺寸（CSS 像素），也是页面排版视口宽度。
+  // 云游戏模式不再放大视口：排版宽度必须与普通模式一致，否则站点切到桌面版、字号整体变小。
+  // 清晰度改由「浏览器 2 倍合成表面 + 帧按 2 倍像素输出」实现，见 screencastParams()。
   var vw = clampSize(o.width, VIEW_WIDTH, MIN_WIDTH, MAX_WIDTH);
   var vh = clampSize(o.height, VIEW_HEIGHT, MIN_HEIGHT, MAX_HEIGHT);
-  // pd：前端设备的真实物理像素密度（dpr），云游戏按它放大视口，手机 dpr 3 时才够清晰
-  var pd = clampSize(o.pd, GAME_VIEW_FACTOR, 1, GAME_MAX_FACTOR);
-  var view = game ? gameViewSize(vw, vh, pd) : { width: vw, height: vh };
+  var view = { width: vw, height: vh };
   // 云游戏模式允许按设备真实像素密度渲染（上限 2），普通模式仍是 2
   var dpr = clampSize(o.dpr, 1, 1, game ? GAME_MAX_DPR : MAX_DPR);
   var touch = !!o.touch;
@@ -613,14 +620,12 @@ function createSession(url, out, opts, cb) {
           // base：前端画布可用尺寸（resize 消息按这个口径上报）
           baseWidth: vw,
           baseHeight: vh,
-          // width/height：实际编码视口，云游戏下是 base 的放大结果
+          // width/height：实际编码视口（CSS 像素），恒等于 base —— 云游戏只提高帧像素，不改排版宽度
           width: view.width,
           height: view.height,
           dpr: dpr,
-          // 设备物理像素密度：模式切换 / 尺寸变化时按它重算云游戏视口
-          pd: pd,
           touch: touch,
-          // 云游戏画质：高码率 + 恒 60fps + 高像素密度，不参与自适应降档
+          // 云游戏画质：高码率 + 恒 60fps + 2 倍帧像素，不参与自适应降档
           gameMode: game,
           // 使用该会话的用户标识：由前端在 WS 握手时带上，仅供班管查看使用情况
           uid: o.uid ? String(o.uid) : '',
@@ -715,20 +720,22 @@ function clampSize(value, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.round(n)));
 }
 
-// 云游戏模式的实际编码视口：按显示区域放大（倍数取设备物理像素密度，夹在 2~3 之间），
-// 并夹在 3840×2160 以内（等比收缩），避免超 4K 的超大帧把内存与带宽打爆。
-function gameViewSize(baseW, baseH, factor) {
-  var f = Number(factor);
-  if (!isFinite(f) || f < GAME_VIEW_FACTOR) f = GAME_VIEW_FACTOR;
-  if (f > GAME_MAX_FACTOR) f = GAME_MAX_FACTOR;
-  var w = Math.round(baseW * f);
-  var h = Math.round(baseH * f);
-  var ratio = Math.min(1, GAME_MAX_WIDTH / Math.max(1, w), GAME_MAX_HEIGHT / Math.max(1, h));
-  if (ratio < 1) {
-    w = Math.max(MIN_WIDTH, Math.round(w * ratio));
-    h = Math.max(MIN_HEIGHT, Math.round(h * ratio));
-  }
-  return { width: w, height: h };
+// 当前模式下的帧像素倍数：普通 1 倍，云游戏 2 倍（受浏览器合成表面倍数上限约束）
+function frameScaleOf(sess) {
+  return sess && sess.gameMode ? GAME_FRAME_SCALE : 1;
+}
+
+// 当前模式下的帧像素尺寸：视口 CSS 像素 × 倍数，并夹在 3840×2160 以内（等比收缩），
+// 避免超大画布的超大帧把内存与带宽打爆。超过浏览器合成表面尺寸时不会放大，只是上限。
+function frameSizeOf(sess) {
+  var w = Math.max(1, Number(sess && sess.width) || 1);
+  var h = Math.max(1, Number(sess && sess.height) || 1);
+  var f = frameScaleOf(sess);
+  var ratio = Math.min(1, GAME_MAX_WIDTH / (w * f), GAME_MAX_HEIGHT / (h * f));
+  return {
+    width: Math.max(1, Math.round(w * f * ratio)),
+    height: Math.max(1, Math.round(h * f * ratio))
+  };
 }
 
 function navigate(sess, url) {
@@ -742,19 +749,18 @@ function navigate(sess, url) {
   return cdp.send('Page.navigate', { url: url }, sess.cdpSession);
 }
 
-// 当前会话档位对应的 screencast 参数（尺寸按物理像素下发）
+// 当前会话档位对应的 screencast 参数（maxWidth/maxHeight 按帧像素给，普通模式会自动缩回视口尺寸）
 function screencastParams(sess) {
-  // screencast 帧尺寸等于视口 CSS 像素（deviceScaleFactor 不参与），
-  // 所以 maxWidth/maxHeight 直接取实际视口即可，云游戏的高分辨率来自放大的视口。
-  var maxW = sess.width;
-  var maxH = sess.height;
+  // 帧像素上限按模式计算：云游戏 2 倍（原生高清），普通模式 1 倍。
+  // maxWidth/maxHeight 只是上限，浏览器合成表面是 2 倍，所以云游戏能拿到 2 倍帧。
+  var size = frameSizeOf(sess);
   if (sess.gameMode) {
-    // 云游戏：高码率 + 恒定 60fps；尺寸设上限防止超 4K 的超大帧把内存撑爆
+    // 云游戏：高码率 + 恒定 60fps
     return {
       format: 'jpeg',
       quality: GAME_QUALITY,
-      maxWidth: Math.min(maxW, GAME_MAX_WIDTH),
-      maxHeight: Math.min(maxH, GAME_MAX_HEIGHT),
+      maxWidth: size.width,
+      maxHeight: size.height,
       everyNthFrame: ACTIVE_EVERY_NTH
     };
   }
@@ -762,8 +768,8 @@ function screencastParams(sess) {
   return {
     format: 'jpeg',
     quality: lv.quality,
-    maxWidth: maxW,
-    maxHeight: maxH,
+    maxWidth: size.width,
+    maxHeight: size.height,
     // 有人操作时 60fps，静置后 30fps（省约一半编码 CPU 与带宽）
     everyNthFrame: isActive(sess) ? ACTIVE_EVERY_NTH : IDLE_EVERY_NTH
   };
@@ -916,10 +922,19 @@ function scheduleRefresh(sess) {
     sess.refreshTries = 0;
     sess.needRefresh = false;
     var lv = QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0];
+    // 截图必须与 screencast 帧同尺寸，否则画布会被短暂改成另一种尺寸、闪一下。
+    // clip 用排版 CSS 像素，scale 用帧倍数：普通 1 倍 / 云游戏 2 倍。
     cdp.send('Page.captureScreenshot', {
       format: 'jpeg',
       quality: sess.gameMode ? GAME_QUALITY : lv.quality,
-      fromSurface: true
+      fromSurface: true,
+      clip: {
+        x: 0,
+        y: 0,
+        width: sess.width,
+        height: sess.height,
+        scale: frameScaleOf(sess)
+      }
     }, sess.cdpSession).then(function (r) {
       if (!r || !r.data) return;
       var jpeg = null;
@@ -1130,14 +1145,10 @@ function handleInput(sess, msg) {
   if (msg.type === 'mode') {
     var game = !!msg.game;
     var nd = clampSize(msg.dpr, sess.dpr, 1, game ? GAME_MAX_DPR : MAX_DPR);
-    // 设备物理密度（前端可能换到另一台设备 / 旋转后重新下发），决定云游戏放大倍数
-    var pd = clampSize(msg.pd, sess.pd, 1, GAME_MAX_FACTOR);
-    // 视口随模式重算：云游戏把视口放大，帧尺寸才会真的翻倍（前端按 compatViewW/H 自动换算坐标）
-    var nview = game
-      ? gameViewSize(sess.baseWidth, sess.baseHeight, pd)
-      : { width: sess.baseWidth, height: sess.baseHeight };
-    if (sess.gameMode === game && sess.dpr === nd && sess.pd === pd
-      && sess.width === nview.width && sess.height === nview.height) {
+    // 视口保持不变（排版宽度 / 字号 / 输入坐标都不动），只改帧像素倍数与页面光栅化密度，
+    // 因此不需要重算尺寸，也不要重新导航。
+    var fsize = frameSizeOf({ gameMode: game, width: sess.width, height: sess.height });
+    if (sess.gameMode === game && sess.dpr === nd) {
       sendJson(sess.out, {
         type: 'mode-state',
         game: sess.gameMode,
@@ -1146,6 +1157,8 @@ function handleInput(sess, msg) {
         height: sess.height,
         baseWidth: sess.baseWidth,
         baseHeight: sess.baseHeight,
+        frameWidth: fsize.width,
+        frameHeight: fsize.height,
         quality: sess.gameMode ? GAME_QUALITY : (QUALITY_LEVELS[sess.qualityLevel] || QUALITY_LEVELS[0]).quality,
         fps: sess.gameMode ? 60 : 30
       });
@@ -1153,24 +1166,22 @@ function handleInput(sess, msg) {
     }
     sess.gameMode = game;
     sess.dpr = nd;
-    sess.pd = pd;
-    sess.width = nview.width;
-    sess.height = nview.height;
     // 切换档位后重新开始统计，避免把上一模式的丢帧算进自适应窗口
     sess.qualityLevel = 0;
     sess.framesSent = 0;
     sess.framesDropped = 0;
     sess.adaptStart = Date.now();
     if (!game) sess.activeUntil = 0;
-    // 视口 / 像素密度变化必须重设设备指标，否则帧尺寸仍是旧的
+    // 像素密度变化要重设设备指标（只改光栅化密度，宽高仍是排版视口），再按新档位重开帧流
     guard(cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: nview.width,
-      height: nview.height,
+      width: sess.width,
+      height: sess.height,
       deviceScaleFactor: nd,
       mobile: sess.touch
     }, sid).then(function () {
       return restartScreencast(sess);
     }).then(function () {
+      var size = frameSizeOf(sess);
       sendJson(sess.out, {
         type: 'mode-state',
         game: sess.gameMode,
@@ -1179,6 +1190,8 @@ function handleInput(sess, msg) {
         height: sess.height,
         baseWidth: sess.baseWidth,
         baseHeight: sess.baseHeight,
+        frameWidth: size.width,
+        frameHeight: size.height,
         quality: game ? GAME_QUALITY : (QUALITY_LEVELS[0] || { quality: SCREENCAST_QUALITY }).quality,
         fps: game ? 60 : 30
       });
@@ -1289,27 +1302,27 @@ function handleInput(sess, msg) {
   // 前端可用区域变化（手机旋转 / 窗口拖拽）时同步无头浏览器视口，
   // 否则页面会按旧尺寸排版，出现留白或滚动条。
   if (msg.type === 'resize') {
-    // 前端上报的是画布可用尺寸（base）：云游戏下实际编码视口要按倍数放大
+    // 前端上报的是画布可用尺寸（base），它同时就是排版视口：云游戏不放大视口，只提高帧像素
     var bw = clampSize(msg.width, sess.baseWidth, MIN_WIDTH, MAX_WIDTH);
     var bh = clampSize(msg.height, sess.baseHeight, MIN_HEIGHT, MAX_HEIGHT);
-    var view = sess.gameMode
-      ? gameViewSize(bw, bh, sess.pd)
-      : { width: bw, height: bh };
-    var viewChanged = view.width !== sess.width || view.height !== sess.height;
+    var viewChanged = bw !== sess.width || bh !== sess.height;
     sess.baseWidth = bw;
     sess.baseHeight = bh;
+    var fsize = frameSizeOf({ gameMode: sess.gameMode, width: bw, height: bh });
     if (!viewChanged) {
       sendJson(sess.out, {
         type: 'resized',
         width: sess.width,
         height: sess.height,
         baseWidth: sess.baseWidth,
-        baseHeight: sess.baseHeight
+        baseHeight: sess.baseHeight,
+        frameWidth: fsize.width,
+        frameHeight: fsize.height
       });
       return;
     }
-    sess.width = view.width;
-    sess.height = view.height;
+    sess.width = bw;
+    sess.height = bh;
     guard(cdp.send('Emulation.setDeviceMetricsOverride', {
       width: sess.width,
       height: sess.height,
@@ -1323,7 +1336,9 @@ function handleInput(sess, msg) {
         width: sess.width,
         height: sess.height,
         baseWidth: sess.baseWidth,
-        baseHeight: sess.baseHeight
+        baseHeight: sess.baseHeight,
+        frameWidth: fsize.width,
+        frameHeight: fsize.height
       });
       sendHistoryState(sess);
     }), 'resize');
@@ -1444,8 +1459,6 @@ function handleUpgrade(req, socket, head) {
       width: params.w,
       height: params.h,
       dpr: params.dpr,
-      // 设备物理像素密度：云游戏按它放大视口（缺失时按 2 倍兜底）
-      pd: params.pd,
       touch: params.touch === '1',
       game: params.mode === 'game',
       uid: viewer.uid,
@@ -1457,15 +1470,19 @@ function handleUpgrade(req, socket, head) {
         try { client.close(); } catch (e) {}
         return;
       }
+      var readySize = frameSizeOf(sess);
       sendJson(client, {
         type: 'ready',
         session: sess.id,
-        // width/height 是实际编码视口（云游戏下已放大），前端据此换算输入坐标
+        // width/height 是排版视口（CSS 像素，云游戏与普通模式一致），前端据此换算输入坐标
         width: sess.width,
         height: sess.height,
         // base 是前端画布可用尺寸，用于判断是否需要下发 resize
         baseWidth: sess.baseWidth,
         baseHeight: sess.baseHeight,
+        // frameWidth/Height 是帧的真实像素（云游戏为 2 倍），仅供前端展示画质信息
+        frameWidth: readySize.width,
+        frameHeight: readySize.height,
         touch: sess.touch,
         // 供前端恢复云游戏开关状态
         game: !!sess.gameMode,
