@@ -30,10 +30,13 @@
   var api = null;
   var storage = null;    // SDK 本地存档（手作稿，供「换回拼豆」时复原）
   var uiTab = 'home';    // 当前页：home / battle / dex / rank（v0.8.0 分区）
+  var tabAnim = false;   // 只给「切页」这一次上入场动画，普通刷新不重播
   var elements = [];     // 属性表（服务端 /pet/state 下发，失败时用兜底）
   var wildCatalog = [];  // 野生精灵图鉴（服务端下发）
   var buddyInfo = null;  // 当前随行伙伴
   var evolutionInfo = null; // 当前进化阶段
+  var weatherInfo = null;   // 今日天气（v0.10.0，按日期哈希，全班一致）
+  var questInfo = null;     // 今日任务（v0.10.0，uid + 日期确定性抽 3 个）
 
   // /pet/state 没返回属性表时的兜底：只保证页面能画出来，数值以服务端为准。
   var ELEMENT_FALLBACK = {
@@ -67,6 +70,17 @@
     if (d.wild && d.wild.length) wildCatalog = d.wild;
     buddyInfo = d.buddy || null;
     evolutionInfo = d.evolution || null;
+    // 天气 / 任务和存档一起下发：首页不用等战斗档案就能画出天气条与任务卡。
+    if (d.weather) weatherInfo = d.weather;
+    if (d.quests) questInfo = d.quests;
+  }
+
+  // 对战 / 爬塔 / 野怪三种响应都带 weather + quests：打完一场顺手更新，
+  // 回到首页时任务进度与天气就已经是新的，不用再等一次 /battle/profile。
+  function absorbProgress(d) {
+    if (!d) return;
+    if (d.weather) weatherInfo = d.weather;
+    if (d.quests) questInfo = d.quests;
   }
 
   // ---- 编辑器状态 ----
@@ -114,6 +128,23 @@
     while (root && root.firstChild) root.removeChild(root.firstChild);
   }
 
+  // 骨架屏：第一帧数据还没回来时，先用灰条撑出 HUD 和卡片的形状。
+  // 比一行「加载中…」稳当 —— 数据到位时是「形状不变、内容填入」，
+  // 而不是一条细字突然换成一整页卡片，闪一下再跳版。
+  function skeletonCard(lines, tall) {
+    var box = h('div', 'ci-pet-skel-card' + (tall ? ' is-tall' : ''));
+    for (var i = 0; i < lines; i++) {
+      box.appendChild(h('span', 'ci-pet-skel-line' + (i === 0 ? ' is-title' : '')));
+    }
+    return box;
+  }
+  function renderSkeleton() {
+    root.appendChild(h('div', 'ci-pet-skel-hud'));
+    root.appendChild(skeletonCard(2, true));
+    root.appendChild(skeletonCard(3));
+    root.appendChild(skeletonCard(2));
+  }
+
   // 统一 toast 出口：宿主没给 system.toast 时静默降级，不抛异常
   function sysToast(message, type) {
     try {
@@ -155,6 +186,7 @@
       if (d.type) pendingReply[d.type] = true;
       else { pendingReply.feed = true; pendingReply.poke = true; }
       if (d.state) state = d.state;
+      if (d.quests) questInfo = d.quests;
       if (d.gained > 0) {
         var bondNow = (state && state.bond) || 0;
         sysToast(interactVerb(d.type) + '成功，羁绊 +' + d.gained + '（现在 ' + bondNow + '）', 'success');
@@ -637,7 +669,9 @@
     hud.appendChild(who);
 
     var chips = h('div', 'ci-pet-hud-chips');
-    var pow = h('span', 'ci-pet-hud-power', '⚔ —');
+    // ⚔ 后面必须跟一个 U+FE0F：光秃秃的 U+2694 在 Windows 上会掉进黑白字形，
+    // 11px 下细得像一道划痕；带变体选择符才是和 dock 上同一枚彩色图标。
+    var pow = h('span', 'ci-pet-hud-power', '⚔️ —');
     pow.setAttribute('data-hud', 'power');
     chips.appendChild(pow);
     var ty = h('span', 'ci-pet-hud-type', '🌿 草');
@@ -656,7 +690,7 @@
     var pow = root.querySelector('.ci-pet-hud [data-hud="power"]');
     if (pow) {
       var c = battle && battle.combat;
-      pow.textContent = c ? ('⚔ ' + (c.power || 0)) : '⚔ —';
+      pow.textContent = c ? ('⚔️ ' + (c.power || 0)) : '⚔️ —';
     }
     var ty = root.querySelector('.ci-pet-hud [data-hud="type"]');
     if (ty) {
@@ -725,7 +759,11 @@
     // 离开对战页时把回放定时器停掉：否则动画会在看不见的 DOM 上继续跑
     if (uiTab === 'battle') stopFight();
     uiTab = id;
+    tabAnim = true;
     renderHome();
+    // 切页必须回到顶部：从小家滚到一半再点图鉴，不重置就会落在图鉴中间，
+    // 用户以为是「没反应」。放在 render 之后设，才不会被新内容的高度顶回去。
+    if (root && root.scrollTop) root.scrollTop = 0;
     if (id !== 'home' && !battle) {
       loadBattle(function() { if (uiTab === id) renderHome(); });
     }
@@ -764,7 +802,10 @@
     clearRoot();
     if (!state || !state.adopted) { renderAdopt(); return; }
     // v0.9.0：HUD 常驻顶部，导航沉到底部（像手游的 dock），中间才是页面内容。
+    // ⚠️ 先挂进 root 再 fillHud：gameHud() 内部的 fillHud 用 root.querySelector 找人，
+    // 节点还没上树时查到的是 null，战力就永远停在占位符「⚔ —」，属性胶囊也丢了配色。
     root.appendChild(gameHud());
+    fillHud();
     if (uiTab === 'battle') renderBattleTab();
     else if (uiTab === 'dex') renderDexTab();
     else if (uiTab === 'rank') renderRankTab();
@@ -772,6 +813,15 @@
     // 导航必须最后挂：它用 position: sticky; bottom: 0 贴底，
     // 放在内容前面的话 sticky 会在滚到顶部时被「顶」回文档流里。
     root.appendChild(tabBar());
+    // 切页入场：整块内容从下方淡入上浮，撑住「换了一页」的空间感。
+    // 只认 switchTab 设的那一次标记，日常刷新（喂食、打完一场）不重播动画。
+    if (tabAnim) {
+      tabAnim = false;
+      root.classList.add('is-tabswitch');
+      setTimeout(function() {
+        if (root) root.classList.remove('is-tabswitch');
+      }, 320);
+    }
   }
 
   // 首页的「冒险入口」：把对战/图鉴/排行从长页面里提出来，各给一张可点的卡。
@@ -815,6 +865,145 @@
         sub.textContent = '已收服 ' + battle.dex.ownedCount + ' / ' + battle.dex.total + ' 只';
       }
     }
+  }
+
+  // ================= 今日天气 / 每日任务 / 最近战报（v0.10.0）====================
+  // 这三块补的是同一个缺口：以前首页只能「喂饭 + 摸摸」，打开页面不知道今天还该做什么。
+  // 数据全部来自 /pet/state（weather / quests）与 /pet/battle/profile（history），
+  // 拿不到就整块不画 —— 探针桩环境没有这些字段时，页面照样是完整的 v0.9 样子。
+
+  // 天气条：一句「今天适合谁上场」+ 加成说明 + 自己的本命是否吃到。
+  // 刻意不做成卡片标题层级：它是一条横幅，看一眼前提就够。
+  function weatherCard() {
+    var w = weatherInfo || (battle && battle.weather);
+    if (!w || !w.id) return null;
+    var myType = (battle && (battle.battleType || (battle.types && battle.types.me))) || 'grass';
+    var fit = w.type === myType;
+    var box = h('div', 'ci-pet-weather' + (fit ? ' is-fit' : ''));
+
+    box.appendChild(h('span', 'ci-pet-weather-icon', w.icon || '☀️'));
+    var main = h('div', 'ci-pet-weather-main');
+    var top = h('div', 'ci-pet-weather-top');
+    top.appendChild(h('span', 'ci-pet-weather-name', '今日' + (w.name || '天气')));
+    top.appendChild(elementChip(w.type, w.typeName));
+    top.appendChild(h('span', 'ci-pet-weather-bonus', w.bonusText || ''));
+    main.appendChild(top);
+    main.appendChild(h('div', 'ci-pet-weather-desc', w.desc || ''));
+    main.appendChild(h('div', 'ci-pet-weather-fit',
+      fit ? '本命契合 · 属性加成已生效' : ('本命是' + elementOf(myType).name + '，今天换成' + (w.typeName || '') + '系更划算')));
+    box.appendChild(main);
+    return box;
+  }
+
+  // 任务卡：三行清单。进度条只做「看清还差多少」，不做动画 —— 任务是一天一次的事。
+  function questCard() {
+    var q = questInfo || (battle && battle.quests);
+    if (!q || !q.list || !q.list.length) return null;
+    var box = h('div', 'ci-pet-quests');
+
+    var head = h('div', 'ci-pet-quests-head');
+    head.appendChild(h('span', 'ci-pet-quests-title',
+      '今日任务 ' + (q.claimed || 0) + ' / ' + (q.total || q.list.length)));
+    head.appendChild(h('span', 'ci-pet-quests-bonus',
+      q.allClaimed ? '今天的都领完了' : (q.bonusText || '')));
+    box.appendChild(head);
+
+    for (var i = 0; i < q.list.length; i++) {
+      (function(item) {
+        var done = !!item.done;
+        var claimed = !!item.claimed;
+        var row = h('div', 'ci-pet-quest' + (done ? ' is-done' : '') + (claimed ? ' is-claimed' : ''));
+        row.setAttribute('data-quest', item.id);
+
+        row.appendChild(h('span', 'ci-pet-quest-icon', item.icon || '·'));
+        var body = h('div', 'ci-pet-quest-body');
+        var titleRow = h('div', 'ci-pet-quest-titlerow');
+        titleRow.appendChild(h('span', 'ci-pet-quest-title', item.title || ''));
+        titleRow.appendChild(h('span', 'ci-pet-quest-reward', item.rewardText || ''));
+        body.appendChild(titleRow);
+        body.appendChild(h('div', 'ci-pet-quest-desc', item.desc || ''));
+
+        var bar = h('div', 'ci-pet-quest-bar');
+        var fill = document.createElement('span');
+        var pct = item.goal > 0 ? Math.round(Math.min(1, (item.progress || 0) / item.goal) * 100) : 0;
+        fill.style.width = Math.max(claimed || done ? 100 : 0, pct) + '%';
+        bar.appendChild(fill);
+        body.appendChild(bar);
+        row.appendChild(body);
+
+        var right = h('div', 'ci-pet-quest-right');
+        right.appendChild(h('span', 'ci-pet-quest-prog',
+          Math.min(item.progress || 0, item.goal || 0) + ' / ' + (item.goal || 0)));
+        if (claimed) {
+          right.appendChild(h('span', 'ci-pet-quest-tag', '已领'));
+        } else if (done) {
+          var btn = h('button', 'ci-pet-quest-claim', '领取');
+          btn.addEventListener('click', function() { claimQuest(item.id, btn); });
+          right.appendChild(btn);
+        } else {
+          right.appendChild(h('span', 'ci-pet-quest-tag ci-pet-quest-tag--todo', '进行中'));
+        }
+        row.appendChild(right);
+        box.appendChild(row);
+      })(q.list[i]);
+    }
+    return box;
+  }
+
+  // 领奖：服务端是唯一裁判（今天抽到 + 已完成 + 没领过），前端只负责把结果画回去。
+  function claimQuest(id, btn) {
+    if (!api || !id) return;
+    if (btn) { btn.disabled = true; btn.textContent = '领取中…'; }
+    api.post('/pet/quest/claim', { id: id }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (d.state) state = d.state;
+      if (d.quests) questInfo = d.quests;
+      // 本地跟着改一次积分，回对战页时不会先看到旧分数再跳一下；
+      // 随后的 loadBattle 会从服务端拿准确值。
+      if (battle) {
+        if (d.quests) battle.quests = d.quests;
+        if (battle.record && d.gained) {
+          battle.record.points = (battle.record.points || 0) + (d.gained.points || 0) + (d.bonus || 0);
+        }
+      }
+      if (d.bonus > 0) sysToast('三项任务都领完了，额外 +' + d.bonus + ' 积分', 'success');
+      else sysToast((d.rewardText || '任务奖励') + ' 已领取', 'success');
+      renderHome();
+      loadBattle();   // 羁绊/积分变了：HUD 与首页入口文案顺手刷新
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '领取失败';
+      sysToast(msg, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '领取'; }
+    });
+  }
+
+  // 最近战报：只回答「刚才发生了什么」。最多 6 条，多了就不可读。
+  function historyBox() {
+    var list = (battle && battle.history) || [];
+    var box = h('div', 'ci-pet-hist');
+    var head = h('div', 'ci-pet-hist-head');
+    head.appendChild(h('span', 'ci-pet-hist-title', '最近战报'));
+    if (list.length) head.appendChild(h('span', 'ci-pet-hist-sub', '保留最近 ' + list.length + ' 场'));
+    box.appendChild(head);
+
+    if (!list.length) {
+      box.appendChild(h('div', 'ci-pet-hist-empty', '还没有记录。挑一个对手开打，这里会留下最近 8 场。'));
+      return box;
+    }
+    var rows = h('div', 'ci-pet-hist-rows');
+    for (var i = 0; i < list.length && i < 6; i++) {
+      var it = list[i] || {};
+      var row = h('div', 'ci-pet-hist-row' + (it.win ? ' is-win' : ' is-lose'));
+      row.appendChild(h('span', 'ci-pet-hist-mark', it.win ? '胜' : '负'));
+      var body = h('div', 'ci-pet-hist-body');
+      body.appendChild(h('span', 'ci-pet-hist-name', it.title || '对战'));
+      body.appendChild(h('span', 'ci-pet-hist-meta', it.sub || ''));
+      row.appendChild(body);
+      if (it.gain > 0) row.appendChild(h('span', 'ci-pet-hist-gain', '+' + it.gain));
+      rows.appendChild(row);
+    }
+    box.appendChild(rows);
+    return box;
   }
 
   function renderHomeBody() {
@@ -896,6 +1085,16 @@
     stats.appendChild(statRow('羁绊', tierPct, '#FF6482', bondNote, bond));
     root.appendChild(stats);
 
+    // ---- 今日天气 + 每日任务（v0.10.0）----
+    // 位置在状态条之后、互动之前：先看「今天什么情况」，再决定动手做什么。
+    var wcard = weatherCard();
+    if (wcard) root.appendChild(wcard);
+    var qcard = questCard();
+    if (qcard) {
+      root.appendChild(sectionTitle('每日任务'));
+      root.appendChild(qcard);
+    }
+
     // ---- 互动（摸摸/呼唤直接驱动桌面上的那只）----
     root.appendChild(sectionTitle('互动'));
     var acts = h('div', 'ci-pet-actions');
@@ -920,6 +1119,7 @@
         api.post('/pet/interact', { type: 'feed' }).then(function(res) {
           var d = (res.data && res.data.data) || {};
           state = d.state || state;
+          absorbProgress(d);
           if (d.tierUp) sysToast('羁绊升级了！', 'success');
           else if (d.capped) sysToast(capMessage('feed'), 'info');
           renderHome();
@@ -945,6 +1145,7 @@
         api.post('/pet/interact', { type: 'poke' }).then(function(res) {
           var d = (res.data && res.data.data) || {};
           state = d.state || state;
+          absorbProgress(d);
           if (d.gained > 0) sysToast('摸摸成功，羁绊 +' + d.gained + '（现在 ' + (state.bond || 0) + '）', 'success');
           else if (d.capped) sysToast(capMessage('poke'), 'info');
           renderHome();
@@ -1357,6 +1558,7 @@
     api.post('/pet/wild/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (!d.steps || !dexBox) { btn.disabled = false; btn.textContent = txt; return; }
+      absorbProgress(d);
       battle = null;    // 图鉴 / 战力都可能变了，回来重新取
       clearEl(dexBox);
       playFight(dexBox, d, { wild: true, creature: d.creature });
@@ -1426,6 +1628,9 @@
       // 否则当成失败，避免把 {state:...} 当成战斗档案渲染出一片 0。
       battle = (d && d.combat) ? d : null;
       battleFailed = !battle;
+      // 战斗档案里也带天气与任务：首页先到的那一份可能已经过期（跨天 / 刚领过奖）。
+      if (d && d.weather) weatherInfo = d.weather;
+      if (d && d.quests) questInfo = d.quests;
     }, function() {
       battle = null;
       battleFailed = true;
@@ -1532,6 +1737,8 @@
     sec.appendChild(head);
 
     sec.appendChild(typeBar(sec));
+    var bWeather = weatherCard();
+    if (bWeather) sec.appendChild(bWeather);
     sec.appendChild(inboxBox(sec));
     sec.appendChild(tacticBar(sec));
     sec.appendChild(skillBar(sec));
@@ -1561,6 +1768,7 @@
       '不限次数随时能打；当天打得越多，每场积分越少（前 5 场全额）。'));
 
     sec.appendChild(towerSection(sec));
+    sec.appendChild(historyBox());
     sec.appendChild(achBox());
     sec.appendChild(titleBox());
     sec.appendChild(rankBox());
@@ -1713,6 +1921,7 @@
     api.post('/pet/tower/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (!d.steps) { btn.disabled = false; btn.textContent = btnText; return; }
+      absorbProgress(d);
       battle = null;    // 层数/次数都变了，回来时重新取
       playTowerFight(sec, d);
     }, function(err) {
@@ -1924,6 +2133,7 @@
     api.post('/pet/battle/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (!d.steps) { btn.disabled = false; btn.textContent = btnText; return; }
+      absorbProgress(d);
       battle = null;                      // 战绩与今日次数都变了，回列表时重新取
       playFight(sec, d);
     }, function(err) {
@@ -2148,7 +2358,7 @@
       });
     }
     window.addEventListener('resize', onResize);
-    root.appendChild(h('p', 'ci-pethome-sub', '加载中…'));
+    renderSkeleton();
     api.get('/pet/state').then(function(res) {
       var d = (res.data && res.data.data) || {};
       palette = d.palette || [];

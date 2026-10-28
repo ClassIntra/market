@@ -188,6 +188,8 @@ router.post('/interact', requireAuth, function(req, res) {
     state.bond_today = 0;
     state.poked_today = 0;
     state.fed_today = 0;
+    state.gift_today = 0;
+    state.gift_date = today;
     state.visited_date = '';
   }
 
@@ -203,7 +205,12 @@ router.post('/interact', requireAuth, function(req, res) {
     return res.status(429).json({ code: 429, message: '它刚吃过，' + waitMin + ' 分钟后再喂吧' });
   }
 
-  var used = type === 'poke' ? (state.poked_today || 0) : (type === 'feed' ? (state.fed_today || 0) : (state.visited_date === today ? 1 : 0));
+  // 送礼原本借用 visited_date 计数，但那个字段只标记「今天来过」，从来不累加，
+  // 等于 gift 的每日上限形同虚设（可以无限刷羁绊）。这里给它独立的日期 + 计数。
+  var used = type === 'poke' ? (state.poked_today || 0)
+    : (type === 'feed' ? (state.fed_today || 0)
+    : (type === 'gift' ? (state.gift_date === today ? (state.gift_today || 0) : 0)
+    : (state.visited_date === today ? 1 : 0)));
   if (used >= rule.dailyCap) {
     capped = true;
   } else {
@@ -212,6 +219,7 @@ router.post('/interact', requireAuth, function(req, res) {
     state.bond_today = (state.bond_today || 0) + gained;
     if (type === 'poke') state.poked_today = used + 1;
     if (type === 'feed') { state.fed_today = used + 1; state.last_fed_at = new Date().toISOString(); }
+    if (type === 'gift') { state.gift_date = today; state.gift_today = used + 1; }
     if (type === 'visit') state.visited_date = today;
   }
   state.updated_at = new Date().toISOString();
@@ -220,7 +228,10 @@ router.post('/interact', requireAuth, function(req, res) {
     .run(uid, KV_KEY, JSON.stringify(state));
 
   var tierUp = tierOf(state.bond) > tierOf(tierBefore);
-  res.json({ code: 200, data: { state: state, gained: gained, tierUp: tierUp, capped: capped } });
+  res.json({ code: 200, data: {
+    state: state, gained: gained, tierUp: tierUp, capped: capped,
+    quests: questsView(uid, state)
+  } });
 });
 
 // 读状态
@@ -237,7 +248,11 @@ router.get('/state', requireAuth, function(req, res) {
     elements: elementList(),
     wild: WILD,
     buddy: buddyPublic(state),
-    evolution: evolutionOf(state)
+    evolution: evolutionOf(state),
+    // v0.10.0：天气与每日任务和「当前存档」一起下发，
+    // 首页不必先拉战斗档案就能渲染天气条 / 任务卡。
+    weather: weatherOf(todayKey()),
+    quests: (state && state.adopted) ? questsView(userId(req), state) : null
   } });
 });
 
@@ -1250,6 +1265,142 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
   return { win: win, rounds: round, steps: steps, hpMe: a.hp, hpFoe: b.hp, maxMe: a.max, maxFoe: b.max };
 }
 
+// ==================== 天气 / 每日任务 / 最近战报（v0.10.0）====================
+// 这三样解决同一个问题：每天打开页面只有「喂饭 + 摸头」，没有「今天该干点什么」。
+//   - 天气：给当天一个「今天适合带谁上场」的理由。按日期哈希，全班一致，不是个人随机。
+//   - 每日任务：把已有的动作（摸摸 / 喂食 / 练习赛 / 爬塔 / 野怪）串成一张当天的小清单。
+//   - 战报：让「打过什么」留在页面上，而不是结算完就消失。
+//
+// ⚠️ 天气不改战斗 seed，也不改「谁先手」的随机流：
+//    它在战术之后叠固定加成，同一场重放仍然一致，不会把胜负变成运气游戏。
+var WEATHERS = {
+  sunny: { id: 'sunny', name: '晴天', icon: '☀️', type: 'fire',     desc: '阳光正好，火属性的孩子格外有劲' },
+  rain:  { id: 'rain',  name: '细雨', icon: '🌧️', type: 'water',    desc: '雨声助眠，水属性的孩子更沉得住气' },
+  wind:  { id: 'wind',  name: '微风', icon: '🍃', type: 'grass',    desc: '风穿过草地，草属性的孩子脚步更轻' },
+  sand:  { id: 'sand',  name: '沙尘', icon: '🌪️', type: 'earth',    desc: '尘土飞扬，土属性的孩子站得更稳' },
+  storm: { id: 'storm', name: '雷暴', icon: '⛈️', type: 'electric', desc: '云层带电，电属性的孩子快得看不清' }
+};
+var WEATHER_IDS = ['sunny', 'rain', 'wind', 'sand', 'storm'];
+var WEATHER_ATK = 2;
+var WEATHER_SPD = 1;
+
+function weatherOf(dateKey) {
+  var key = dateKey || todayKey();
+  var pick = WEATHER_IDS[fnv1a('weather|' + key) % WEATHER_IDS.length];
+  var w = WEATHERS[pick];
+  var e = ELEMENTS[w.type];
+  return {
+    id: w.id, name: w.name, icon: w.icon, desc: w.desc,
+    type: w.type, typeName: e.name, typeIcon: e.icon, typeColor: e.color,
+    bonus: { atk: WEATHER_ATK, spd: WEATHER_SPD },
+    bonusText: '攻 +' + WEATHER_ATK + ' · 速 +' + WEATHER_SPD
+  };
+}
+
+// 只有「本命属性与今日天气同系」的一方吃加成。双方同规则：
+// 对手也能吃到，所以这不是白送，而是「今天带谁上场更划算」。
+function applyWeather(c, type, w) {
+  if (!w || normType(type) !== w.type) return c;
+  return {
+    bond: c.bond, tier: c.tier, tierName: c.tierName,
+    hp: c.hp, atk: c.atk + WEATHER_ATK, def: c.def,
+    spd: c.spd + WEATHER_SPD, crit: c.crit
+  };
+}
+
+// 任务池：陪伴组 2 个、对战相关 4 个。每天固定抽「陪伴 1 + 对战 1 + 剩下随机 1」，
+// 保证任务里永远有一件「不打架也能做」的事，否则不爱对战的孩子每天都领不到奖励。
+var QUESTS = [
+  { id: 'care',  group: 'care',   icon: '🫶', title: '陪它一会儿', desc: '摸摸 + 喂食累计 5 次', goal: 5, reward: { bond: 2 } },
+  { id: 'feed',  group: 'care',   icon: '🍚', title: '按时开饭',   desc: '喂食 2 次',           goal: 2, reward: { bond: 2 } },
+  { id: 'spar',  group: 'battle', icon: '⚔️', title: '活动筋骨',   desc: '练习赛打满 3 场',     goal: 3, reward: { points: 4 } },
+  { id: 'win',   group: 'battle', icon: '🏆', title: '赢回来',     desc: '练习赛赢 2 场',       goal: 2, reward: { points: 5 } },
+  { id: 'tower', group: 'battle', icon: '🗼', title: '往上爬一层', desc: '挑战试炼塔 1 次',     goal: 1, reward: { points: 3 } },
+  { id: 'wild',  group: 'battle', icon: '🌿', title: '去野外看看', desc: '挑战野生精灵 2 次',   goal: 2, reward: { points: 3 } }
+];
+var QUEST_MAP = {};
+for (var qIdx = 0; qIdx < QUESTS.length; qIdx++) QUEST_MAP[QUESTS[qIdx].id] = QUESTS[qIdx];
+var QUEST_COUNT = 3;
+var QUEST_BONUS = 6;      // 三个全领完的额外奖励，用来收尾「今天都做完了」
+
+function questIdsFor(uid, dateKey) {
+  var today = dateKey || todayKey();
+  var rnd = rngFrom(fnv1a(['quest', String(uid), today].join('|')));
+  var carePool = [], battlePool = [];
+  for (var i = 0; i < QUESTS.length; i++) {
+    if (QUESTS[i].group === 'care') carePool.push(QUESTS[i].id);
+    else battlePool.push(QUESTS[i].id);
+  }
+  var pickCare = carePool[Math.floor(rnd() * carePool.length) % carePool.length];
+  var pickBattle = battlePool[Math.floor(rnd() * battlePool.length) % battlePool.length];
+  var rest = [];
+  for (var j = 0; j < QUESTS.length; j++) {
+    if (QUESTS[j].id !== pickCare && QUESTS[j].id !== pickBattle) rest.push(QUESTS[j].id);
+  }
+  var pickRest = rest[Math.floor(rnd() * rest.length) % rest.length];
+  return [pickCare, pickBattle, pickRest];
+}
+
+// 进度全部从「当天计数」现推，不额外存一份进度表：
+// 存档里多一个需要加减的字段，就多一处能对不上的地方。
+function dayCountOf(st, dateField, countField, today) {
+  return (st && st[dateField] === today) ? (st[countField] || 0) : 0;
+}
+function questProgressOf(st, id, today) {
+  var d = today || todayKey();
+  var s = st || {};
+  if (id === 'care') return s.bond_date === d ? ((s.poked_today || 0) + (s.fed_today || 0)) : 0;
+  if (id === 'feed') return s.bond_date === d ? (s.fed_today || 0) : 0;
+  if (id === 'spar') return dayCountOf(s, 'battle_date', 'battle_today', d);
+  if (id === 'win') return dayCountOf(s, 'battle_date', 'battle_win_today', d);
+  if (id === 'tower') return dayCountOf(s, 'tower_date', 'tower_today', d);
+  if (id === 'wild') return dayCountOf(s, 'wild_date', 'wild_today', d);
+  return 0;
+}
+function questRewardText(def) {
+  if (def.reward && def.reward.bond) return '羁绊 +' + def.reward.bond;
+  return '积分 +' + ((def.reward && def.reward.points) || 0);
+}
+function questsView(uid, st) {
+  var today = todayKey();
+  var ids = questIdsFor(uid, today);
+  var claimed = (st && st.quest_date === today && st.quest_claimed) ? st.quest_claimed : [];
+  var list = [];
+  var doneCount = 0, claimedCount = 0, pendingCount = 0;
+  for (var i = 0; i < ids.length; i++) {
+    var def = QUEST_MAP[ids[i]];
+    var cur = Math.min(def.goal, questProgressOf(st, def.id, today));
+    var done = cur >= def.goal;
+    var isClaimed = claimed.indexOf(def.id) >= 0;
+    if (done) doneCount++;
+    if (isClaimed) claimedCount++;
+    if (done && !isClaimed) pendingCount++;
+    list.push({
+      id: def.id, icon: def.icon, title: def.title, desc: def.desc,
+      goal: def.goal, progress: cur, done: done, claimed: isClaimed,
+      reward: def.reward, rewardText: questRewardText(def)
+    });
+  }
+  return {
+    date: today, list: list, total: ids.length,
+    done: doneCount, claimed: claimedCount, pending: pendingCount,
+    allDone: doneCount >= ids.length,
+    allClaimed: claimedCount >= ids.length,
+    bonus: QUEST_BONUS,
+    bonusText: '三个都领完再 +' + QUEST_BONUS + ' 积分',
+    bonusClaimed: claimedCount >= ids.length
+  };
+}
+
+// 最近战报只留 8 条：它是「刚才发生了什么」的回顾，不是完整历史。
+// 存成纯展示结构（标题 / 副标题 / 胜负 / 得分），前端不需要再拿 id 去查表。
+var HISTORY_MAX = 8;
+function pushHistory(st, item) {
+  st.history = st.history || [];
+  st.history.unshift(item);
+  if (st.history.length > HISTORY_MAX) st.history = st.history.slice(0, HISTORY_MAX);
+}
+
 // 对战面板：战力 / 战绩 / 今日次数 / 可挑战的对手 / 战术 / 成就 / 排行榜
 router.get('/battle/profile', requireAuth, function(req, res) {
   var uid = userId(req);
@@ -1293,8 +1444,69 @@ router.get('/battle/profile', requireAuth, function(req, res) {
 
     rank: rank,
     myRank: myRank,
-    last: st.battle_last || null
+    last: st.battle_last || null,
+    weather: weatherOf(today),
+    quests: questsView(uid, st),
+    history: st.history || []
   }});
+});
+
+// 领取每日任务奖励：POST /pet/quest/claim { id }
+// 只有「今天抽到 + 已完成 + 没领过」三个条件同时成立才发奖。
+// 三个全领完额外 +6 分——奖励只发一次，因为它只在第三笔领取时才会被触发。
+router.post('/quest/claim', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var today = todayKey();
+  if (st.quest_date !== today) { st.quest_date = today; st.quest_claimed = []; }
+  st.quest_claimed = st.quest_claimed || [];
+
+  var id = String((req.body && req.body.id) || '');
+  var ids = questIdsFor(uid, today);
+  if (ids.indexOf(id) < 0) return res.status(400).json({ code: 400, message: '今天的任务里没有这一项' });
+  if (st.quest_claimed.indexOf(id) >= 0) return res.status(400).json({ code: 400, message: '这个任务已经领过了' });
+
+  var def = QUEST_MAP[id];
+  var progress = questProgressOf(st, id, today);
+  if (progress < def.goal) {
+    return res.status(400).json({ code: 400, message: '还没做完：' + progress + ' / ' + def.goal });
+  }
+
+  var gotBond = 0, gotPoints = 0;
+  var tierBefore = st.bond || 0;
+  if (def.reward && def.reward.bond) {
+    gotBond = def.reward.bond;
+    st.bond = (st.bond || 0) + gotBond;
+    st.bond_today = (st.bond_today || 0) + gotBond;
+  }
+  if (def.reward && def.reward.points) {
+    gotPoints = def.reward.points;
+    st.battles = st.battles || { total: 0, win: 0, lose: 0, points: 0 };
+    st.battles.points = (st.battles.points || 0) + gotPoints;
+  }
+
+  st.quest_claimed.push(id);
+  var bonus = 0;
+  if (st.quest_claimed.length >= QUEST_COUNT && st.quest_bonus_date !== today) {
+    bonus = QUEST_BONUS;
+    st.battles = st.battles || { total: 0, win: 0, lose: 0, points: 0 };
+    st.battles.points = (st.battles.points || 0) + bonus;
+    st.quest_bonus_date = today;
+  }
+
+  st.updated_at = new Date().toISOString();
+  writePet(uid, st);
+  shadowCache.at = 0;   // 积分变了，榜单缓存要跟着失效
+
+  res.json({ code: 200, data: {
+    state: st,
+    quests: questsView(uid, st),
+    gained: { bond: gotBond, points: gotPoints },
+    rewardText: questRewardText(def),
+    bonus: bonus,
+    tierUp: tierOf(st.bond || 0) > tierOf(tierBefore)
+  } });
 });
 
 // 我在全班排第几：按「积分 → 胜场 → 战力」同一套规则重算一遍。
@@ -1359,7 +1571,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
 
   var today = todayKey();
-  if (st.battle_date !== today) { st.battle_date = today; st.battle_today = 0; }
+  if (st.battle_date !== today) { st.battle_date = today; st.battle_today = 0; st.battle_win_today = 0; }
   // 不设次数上限（BATTLE_DAILY_CAP = 0 表示不限）。
   // 保留这段是为了万一以后要限：改回一个正数就自动生效。
   if (BATTLE_DAILY_CAP > 0 && (st.battle_today || 0) >= BATTLE_DAILY_CAP) {
@@ -1384,10 +1596,13 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   var mySkillIds = equippedSkills(st);
   st.battle_skills = mySkillIds;
 
+  var weather = weatherOf(today);
   var baseMine = combatOf(st);
-  var mine = applyTactic(baseMine, tacticId);
+  var myType = normType(st.battle_type);
+  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
   mine.power = powerOf(mine);
-  var foe = combatOf({ bond: opp.bond });
+  var foeType = normType(opp.type);
+  var foe = applyWeather(combatOf({ bond: opp.bond }), foeType, weather);
   foe.power = powerOf(foe);
   // 对手带的技能：影子会带上他自己的（真实感），NPC 练习赛不带
   var foeSkillIds = (opp.kind === 'shadow') ? equippedSkills(readPet(opp.realId) || {}) : [];
@@ -1405,8 +1620,6 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   // ⚠️ seed 里不带战术：同一对手、同一天、同一场次，换战术要能对比出「是不是这一招更好」。
   // 如果战术进了 seed，每次换战术连运气都换了，玩家永远学不到东西。
   var seed = fnv1a([uid, opp.id, String(rec.total + 1), today].join('|'));
-  var myType = normType(st.battle_type);
-  var foeType = normType(opp.type);
   var r = simulateBattle(mine, foe, seed, mySkillIds, foeSkillIds, 1, { me: myType, foe: foeType });
 
   var gamesToday = st.battle_today || 0;
@@ -1431,7 +1644,17 @@ router.post('/battle/fight', requireAuth, function(req, res) {
 
   st.battles = rec;
   st.battle_today = (st.battle_today || 0) + 1;
+  if (r.win) st.battle_win_today = (st.battle_win_today || 0) + 1;
   st.battle_last = { at: new Date().toISOString(), oppId: opp.id, oppName: opp.name, win: r.win, rounds: r.rounds };
+  pushHistory(st, {
+    at: st.battle_last.at,
+    kind: 'battle',
+    win: r.win,
+    title: (opp.owner ? opp.owner + ' 的 ' : '') + opp.name,
+    sub: '练习赛 · ' + r.rounds + ' 回合',
+    gain: gain,
+    points: rec.points
+  });
   if (opp.kind === 'shadow') st.shadow_fought = (st.shadow_fought || 0) + 1;
 
   // ---- 成就判定（在自己存档上，结算完统一 unlock 一次）----
@@ -1480,7 +1703,9 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     foeSkills: foeSkillIds,
     unlocked: fresh,
     titles: titlesOf(st),
-    defended: defended
+    defended: defended,
+    weather: weather,
+    quests: questsView(uid, st)
   }});
 });
 
@@ -1509,11 +1734,13 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   var mySkillIds = equippedSkills(st);
   st.battle_skills = mySkillIds;
 
+  var weather = weatherOf(today);
   var baseMine = combatOf(st);
-  var mine = applyTactic(baseMine, tacticId);
+  var myType = normType(st.battle_type);
+  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
   mine.power = powerOf(mine);
   var foeBond = towerFoeBond(st, floorDef);
-  var foe = combatOf({ bond: foeBond });
+  var foe = applyWeather(combatOf({ bond: foeBond }), TOWER_TYPE, weather);
   foe.power = powerOf(foe);
   var foeBuff = towerBuffFor(st, floorDef);
 
@@ -1525,7 +1752,6 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   st.tower_tries[String(floorDef.f)] = tries + 1;
 
   var seed = fnv1a([uid, 'tower', String(floorDef.f), String(tries), today].join('|'));
-  var myType = normType(st.battle_type);
   var r = simulateBattle(mine, foe, seed, mySkillIds, floorDef.skills || [], foeBuff, { me: myType, foe: TOWER_TYPE });
 
   st.tower_today = (st.tower_today || 0) + 1;
@@ -1549,6 +1775,15 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     fresh = unlock(st, towerWins);
   }
   st.tower_last = { at: new Date().toISOString(), f: floorDef.f, win: r.win, rounds: r.rounds };
+  pushHistory(st, {
+    at: st.tower_last.at,
+    kind: 'tower',
+    win: r.win,
+    title: '第 ' + floorDef.f + ' 层 · ' + floorDef.name,
+    sub: '试炼塔 · ' + r.rounds + ' 回合',
+    gain: gain,
+    points: st.tower_points || 0
+  });
   writePet(uid, st);
   // 塔积分也会进榜，所以同样要失效缓存
   shadowCache.at = 0;
@@ -1572,7 +1807,9 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     skills: mySkillIds,
     foeSkills: floorDef.skills || [],
     unlocked: fresh,
-    titles: titlesOf(st)
+    titles: titlesOf(st),
+    weather: weather,
+    quests: questsView(uid, st)
   }});
 });
 
@@ -1638,31 +1875,36 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   if (!w) return res.status(400).json({ code: 400, message: '未知的野生精灵' });
   if (ownedMap(st)[w.id]) return res.status(400).json({ code: 400, message: '这只已经在你的图鉴里了' });
 
+  var today = todayKey();
+  if (st.wild_date !== today) { st.wild_date = today; st.wild_today = 0; }
+
   var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
   if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
   st.battle_tactic = tacticId;
   var mySkillIds = equippedSkills(st);
   st.battle_skills = mySkillIds;
 
+  var weather = weatherOf(today);
   var baseMine = combatOf(st);
-  var mine = applyTactic(baseMine, tacticId);
+  var myType = normType(st.battle_type);
+  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
   mine.power = powerOf(mine);
-  var foe = combatOf({ bond: w.bond });
+  var foe = applyWeather(combatOf({ bond: w.bond }), w.type, weather);
   foe.power = powerOf(foe);
 
   st.wild_tries = st.wild_tries || {};
   var tries = st.wild_tries[w.id] || 0;
   // 每次尝试都换一条随机流：同一只怪反复挑战不会永远同一个结果，
   // 但同一次尝试仍可复现（uid + 怪 + 第几次 + 日期）。
-  var seed = fnv1a([uid, 'wild', w.id, String(tries), todayKey()].join('|'));
+  var seed = fnv1a([uid, 'wild', w.id, String(tries), today].join('|'));
   st.wild_tries[w.id] = tries + 1;
 
-  var myType = normType(st.battle_type);
   var spot = spotlightOf(uid, st);
   var chance = captureChanceOf(st, w, spot);
   var r = simulateBattle(mine, foe, seed, mySkillIds, w.skills || [], 1, { me: myType, foe: w.type });
 
   st.wild_fights = (st.wild_fights || 0) + 1;
+  st.wild_today = (st.wild_today || 0) + 1;
   var captured = false;
   var buddySet = false;
   var fresh = [];
@@ -1691,6 +1933,15 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   }
 
   st.wild_last = { at: new Date().toISOString(), id: w.id, win: r.win, captured: captured, rounds: r.rounds };
+  pushHistory(st, {
+    at: st.wild_last.at,
+    kind: 'wild',
+    win: r.win,
+    title: w.name,
+    sub: '野外 · ' + r.rounds + ' 回合' + (captured ? ' · 已收服' : (r.win ? ' · 跑掉了' : ' · 没打过')),
+    gain: 0,
+    points: (st.battles && st.battles.points) || 0
+  });
   writePet(uid, st);
   shadowCache.at = 0;   // 随行会让战力变化，排行榜缓存要跟着失效
 
@@ -1709,7 +1960,9 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     dexCount: (st.dex || []).length,
     dexTotal: WILD.length,
     unlocked: fresh,
-    types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) }
+    types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) },
+    weather: weather,
+    quests: questsView(uid, st)
   }});
 });
 

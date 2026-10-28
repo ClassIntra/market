@@ -2286,3 +2286,408 @@
     transform: none;
   }
 }
+
+/* ============================================================================
+   v0.9.1 手感补完
+   ----------------------------------------------------------------------------
+   1. HUD 常驻：滚到图鉴/对战深处时，名字、等级、战力、本命属性还在手边。
+   2. 切页入场：内容淡入上浮一次，配合 scrollTop 归零，才不会「点了像没反应」。
+   3. 骨架屏：首帧数据没回来先撑出形状，避免细字突然换成整页卡片。
+   ============================================================================ */
+
+/* ---------- J. HUD 常驻顶部 ---------- */
+/* 深色壳不透明才敢 sticky：0.94 的半透明会让卡片从底下透出来。
+   顶部留 0：滚动时贴在视口最上沿，横向仍留 2px 呼吸（与下面卡片对齐）。 */
+/* ⚠️ 这里必须抵消 .ci-pethome 的 padding-top：
+   sticky 的 top 是相对滚动容器的 padding 边算的，top: 0 会让 HUD 停在
+   padding 下沿（离顶部 10px），上面那条缝正好露出滚过去的内容，像没贴住。
+   把 padding-top 提成一个变量、两边共用，改壳的内边距时 sticky 不会失配。 */
+.ci-pethome {
+  --ci-pet-pad-top: 10px;
+  padding-top: var(--ci-pet-pad-top);
+}
+.ci-pet-hud {
+  position: -webkit-sticky;
+  position: sticky;
+  top: calc(-1 * var(--ci-pet-pad-top, 10px));
+  z-index: 7;
+  margin: 0 2px 12px;
+  background: linear-gradient(150deg, rgba(38, 49, 90, 0.985), rgba(20, 27, 54, 0.985));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 10px 22px rgba(4, 7, 18, 0.42);
+}
+
+/* ---------- K. 切页入场 ---------- */
+/* root 上挂 is-tabswitch 时，除底部 dock 外的所有直接子节点各跑一次。
+   子节点是新建的，所以动画在插入当帧就开始，不需要读强制回流。 */
+@keyframes ciPetTabIn {
+  from {
+    opacity: 0;
+    -webkit-transform: translateY(9px);
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    -webkit-transform: none;
+    transform: none;
+  }
+}
+.ci-pethome.is-tabswitch > *:not(.ci-pet-tabs) {
+  -webkit-animation: ciPetTabIn 0.26s cubic-bezier(0.22, 0.68, 0.31, 1) both;
+  animation: ciPetTabIn 0.26s cubic-bezier(0.22, 0.68, 0.31, 1) both;
+}
+
+/* ---------- L. 骨架屏 ---------- */
+/* 灰条本身是深底上的一层浅色玻璃，再叠一条横向高光做「呼吸」
+   （Chrome 80 支持 background-position 动画，不用 mask）。 */
+.ci-pet-skel-hud {
+  height: 66px;
+  margin: 0 2px 12px;
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(40, 52, 94, 0.94), rgba(24, 32, 62, 0.94));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.ci-pet-skel-card {
+  margin-bottom: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.3);
+}
+.ci-pet-skel-card.is-tall { padding: 22px 16px; }
+.ci-pet-skel-line {
+  display: block;
+  height: 10px;
+  margin-top: 10px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, rgba(146, 126, 92, 0.16) 0%, rgba(146, 126, 92, 0.30) 50%, rgba(146, 126, 92, 0.16) 100%);
+  background-size: 260% 100%;
+  -webkit-animation: ciPetSkel 1.4s ease-in-out infinite;
+  animation: ciPetSkel 1.4s ease-in-out infinite;
+}
+.ci-pet-skel-line:first-child { margin-top: 0; }
+.ci-pet-skel-line.is-title {
+  width: 42%;
+  height: 14px;
+  background: linear-gradient(90deg, rgba(146, 126, 92, 0.22) 0%, rgba(146, 126, 92, 0.40) 50%, rgba(146, 126, 92, 0.22) 100%);
+  background-size: 260% 100%;
+}
+@keyframes ciPetSkel {
+  0% { background-position: 130% 0; }
+  100% { background-position: -30% 0; }
+}
+
+/* 图鉴 / 排行的「读取中」：给一句会呼吸的提示，而不是一块死字 */
+.ci-pet-battle-loading {
+  color: rgba(226, 233, 250, 0.72);
+  -webkit-animation: ciPetPulse 1.6s ease-in-out infinite;
+  animation: ciPetPulse 1.6s ease-in-out infinite;
+}
+@keyframes ciPetPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* dock 角标：深底上原来的红点边缘发毛，补一圈底色描边把它「钉」在图标上 */
+.ci-pet-tab-badge {
+  top: 0;
+  margin-right: -25px;
+  box-shadow: 0 0 0 2px #101628;
+}
+
+/* ---------- M. 减少动态效果：新加的三处一起关 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome.is-tabswitch > *:not(.ci-pet-tabs) {
+    -webkit-animation: none !important;
+    animation: none !important;
+  }
+  .ci-pet-skel-line {
+    -webkit-animation: none;
+    animation: none;
+  }
+  .ci-pet-battle-loading {
+    -webkit-animation: none;
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ============================================================================
+   v0.10.0 每天都有一个「今天该干什么」
+   ----------------------------------------------------------------------------
+   1. 天气条：深色横幅，一眼看清今天什么系吃加成、自己吃不吃得到。
+   2. 任务卡：米色纸卡 + 三条清单，进度条只报「还差多少」，领完变绿。
+   3. 战报卡：同为米色纸卡，胜负用左角色块区分，比分与得分靠右。
+   三块都不改既有卡片几何（不用 border、不用 gap），Chrome 80 安全。
+   ============================================================================ */
+
+/* ---------- N. 天气条 ---------- */
+.ci-pet-weather {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 12px 2px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(56, 71, 121, 0.94), rgba(31, 42, 78, 0.94));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 6px 18px rgba(4, 7, 18, 0.3);
+}
+/* 本命与天气同系：整条变绿，不用读文字也知道「今天吃到了」 */
+.ci-pet-weather.is-fit {
+  background: linear-gradient(150deg, rgba(44, 96, 80, 0.95), rgba(26, 60, 55, 0.95));
+  box-shadow: inset 0 0 0 1px rgba(126, 226, 176, 0.2), 0 6px 18px rgba(4, 7, 18, 0.3);
+}
+.ci-pet-weather-icon {
+  -webkit-flex: none; flex: none;
+  width: 36px;
+  height: 36px;
+  margin-right: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 18px;
+  line-height: 36px;
+  text-align: center;
+}
+.ci-pet-weather-main { -webkit-flex: 1; flex: 1; min-width: 0; }
+.ci-pet-weather-top {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: center; align-items: center;
+}
+.ci-pet-weather-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-right: 8px;
+}
+.ci-pet-weather-bonus {
+  font-size: 10px;
+  font-weight: 600;
+  color: #FFD166;
+  margin-left: 6px;
+}
+.ci-pet-weather-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(226, 233, 250, 0.7);
+}
+.ci-pet-weather-fit {
+  margin-top: 3px;
+  font-size: 10px;
+  color: rgba(226, 233, 250, 0.55);
+}
+.ci-pet-weather.is-fit .ci-pet-weather-fit { color: #8FE3A8; }
+
+/* ---------- O. 每日任务 ---------- */
+.ci-pet-quests {
+  margin-top: 2px;
+  padding: 14px 14px 8px;
+  border-radius: 18px;
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.28);
+}
+.ci-pet-quests-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.ci-pet-quests-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-quests-bonus {
+  font-size: 10px;
+  color: #8A6E3A;
+  text-align: right;
+  margin-left: 8px;
+}
+.ci-pet-quest {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid rgba(120, 94, 48, 0.12);
+}
+.ci-pet-quests-head + .ci-pet-quest { border-top: none; }
+.ci-pet-quest-icon {
+  -webkit-flex: none; flex: none;
+  width: 30px;
+  height: 30px;
+  margin-right: 10px;
+  border-radius: 10px;
+  background: rgba(214, 164, 96, 0.18);
+  font-size: 15px;
+  line-height: 30px;
+  text-align: center;
+}
+.ci-pet-quest-body { -webkit-flex: 1; flex: 1; min-width: 0; }
+.ci-pet-quest-titlerow {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+}
+.ci-pet-quest-title {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-primary, #1B1B1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-quest-reward {
+  -webkit-flex: none; flex: none;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #B0701F;
+}
+.ci-pet-quest-desc {
+  margin-top: 1px;
+  font-size: 10px;
+  color: #8A7B60;
+}
+.ci-pet-quest-bar {
+  height: 5px;
+  margin-top: 6px;
+  border-radius: 9999px;
+  background: rgba(146, 126, 92, 0.18);
+  overflow: hidden;
+}
+.ci-pet-quest-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #FFB454, #F08A2C);
+  -webkit-transition: width 0.3s ease;
+  transition: width 0.3s ease;
+}
+/* 做完就变绿：绿色只在「不用再动手」的状态出现，不跟进行中的橙色抢注意力 */
+.ci-pet-quest.is-done .ci-pet-quest-bar > span {
+  background: linear-gradient(90deg, #6FDD8B, #2FA85A);
+}
+.ci-pet-quest-right {
+  -webkit-flex: none; flex: none;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: flex-end; align-items: flex-end;
+  margin-left: 10px;
+  min-width: 54px;
+}
+.ci-pet-quest-prog {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8A7B60;
+}
+.ci-pet-quest-claim {
+  margin-top: 3px;
+  padding: 0 12px;
+  min-height: 30px;
+  border: none;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, #FFC46A, #F0912F);
+  color: #3A1F00;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 2px 0 #D67A22, 0 4px 10px rgba(4, 7, 18, 0.18);
+}
+.ci-pet-quest-claim:active {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+  box-shadow: 0 0 0 #D67A22, 0 2px 6px rgba(4, 7, 18, 0.18);
+}
+.ci-pet-quest-claim[disabled] { opacity: 0.65; }
+.ci-pet-quest-tag {
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4C8A5A;
+}
+.ci-pet-quest-tag--todo { color: #A08E70; }
+.ci-pet-quest.is-claimed .ci-pet-quest-title { color: #8A7B60; }
+
+/* ---------- P. 最近战报 ---------- */
+.ci-pet-hist {
+  margin-top: 12px;
+  padding: 14px 14px 8px;
+  border-radius: 18px;
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.28);
+}
+.ci-pet-hist-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-hist-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-hist-sub {
+  font-size: 10px;
+  color: #8A7B60;
+}
+.ci-pet-hist-empty {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #8A7B60;
+}
+.ci-pet-hist-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid rgba(120, 94, 48, 0.12);
+}
+.ci-pet-hist-mark {
+  -webkit-flex: none; flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 10px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 22px;
+  text-align: center;
+}
+.ci-pet-hist-row.is-win .ci-pet-hist-mark { background: rgba(52, 199, 89, 0.18); color: #1E7A38; }
+.ci-pet-hist-row.is-lose .ci-pet-hist-mark { background: rgba(255, 59, 48, 0.14); color: #B3271C; }
+.ci-pet-hist-body {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+}
+.ci-pet-hist-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-primary, #1B1B1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-hist-meta {
+  margin-top: 1px;
+  font-size: 10px;
+  color: #8A7B60;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-hist-gain {
+  -webkit-flex: none; flex: none;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #B0701F;
+}
+
+/* ---------- Q. 减少动态效果：进度条只改色，不做宽度过渡 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pet-quest-bar > span {
+    -webkit-transition: none;
+    transition: none;
+  }
+}
