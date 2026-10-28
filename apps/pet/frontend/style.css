@@ -2044,7 +2044,10 @@
   z-index: 8;
   margin: auto -12px 0;
   padding: 12px 8px 16px;
-  background: linear-gradient(180deg, rgba(26, 35, 64, 0.97), #0E1324);
+  /* 背景必须不透明：dock 钉在视口底，页面内容会从它底下滚过去，
+     半透明会把滚过的文字透出来（截图里 dock 后面浮着「大肥鱼」就是这个原因）。
+     上下沿的柔和感用同色的 border-top + 阴影来给，不再靠 alpha。 */
+  background: linear-gradient(180deg, #1A2340, #0E1324);
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   border-bottom: 0;
   box-shadow: 0 -10px 26px rgba(4, 7, 18, 0.46);

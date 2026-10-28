@@ -411,8 +411,8 @@ function applyTactic(c, tacticId) {
 //    实测门槛定成 0/0/1/1/2 之后，bond 20 就能选 3 个技能，选择立刻成立。
 var SKILLS = {
   heavy:     { id: 'heavy',     name: '千钧一击', icon: '💥', tier: 0, desc: '每 3 回合打出 1.6 倍伤害' },
-  lifesteal: { id: 'lifesteal', name: '鲸吞',     icon: '🩸', tier: 0, desc: '造成伤害的 12% 回血' },
-  shield:    { id: 'shield',    name: '泡泡护盾', icon: '🫧', tier: 1, desc: '血量快见底时挡下一半伤害（一次）' },
+  lifesteal: { id: 'lifesteal', name: '鲸吞',     icon: '💫', tier: 0, desc: '造成伤害的 12% 回血' },
+  shield:    { id: 'shield',    name: '泡泡护盾', icon: '🔵', tier: 1, desc: '血量快见底时挡下一半伤害（一次）' },
   combo:     { id: 'combo',     name: '连打',     icon: '⚡', tier: 1, desc: '25% 概率追加半次攻击' },
   // ⚠️ 破甲用「无视 40% 防御 + 至少 1 点」而不是纯百分比：
   //    低羁绊时 def 只有 3，`def*0.6*0.6` 取整后和没带一样（实测与不带完全重合），
@@ -530,7 +530,7 @@ var CAPTURE_SPOTLIGHT_BONUS = 0.10;
 
 var WILD = [
   // ---- 常见 ----
-  { id: 'huomiao', name: '火苗狸', type: 'fire', rarity: 'common', bond: 18, icon: '🦊', skills: [],
+  { id: 'huomiao', name: '火苗狸', type: 'fire', rarity: 'common', bond: 18, icon: '🐱', skills: [],
     desc: '尾巴上有一簇不会灭的小火，下雨天会躲进你的口袋' },
   { id: 'caotuan', name: '草团子', type: 'grass', rarity: 'common', bond: 20, icon: '🌱', skills: [],
     desc: '在墙根晒太阳，一碰就滚成球' },
@@ -546,7 +546,7 @@ var WILD = [
     desc: '跑过的地方会留下一串焦黑的小脚印' },
   { id: 'tengman', name: '藤蔓怪', type: 'grass', rarity: 'rare', bond: 58, icon: '🌿', skills: ['lifesteal'],
     desc: '会把你掉在地上的橡皮筋收进自己的窝' },
-  { id: 'yanjia', name: '岩甲兽', type: 'earth', rarity: 'rare', bond: 64, icon: '🪨', skills: ['shield'],
+  { id: 'yanjia', name: '岩甲兽', type: 'earth', rarity: 'rare', bond: 64, icon: '🗿', skills: ['shield'],
     desc: '趴着的时候和操场边的石头一模一样' },
   { id: 'leiming', name: '雷鸟', type: 'electric', rarity: 'rare', bond: 70, icon: '⚡', skills: ['combo', 'pierce'],
     desc: '只在打雷前出现，翅膀上有细小的电弧' },
@@ -554,7 +554,7 @@ var WILD = [
     desc: '能听懂上下课铃，铃声一响就跃出水面' },
 
   // ---- 传说 ----
-  { id: 'fenghuang', name: '不死鸟', type: 'fire', rarity: 'legend', bond: 108, icon: '🦅', skills: ['heavy', 'lifesteal'],
+  { id: 'fenghuang', name: '不死鸟', type: 'fire', rarity: 'legend', bond: 108, icon: '🐦', skills: ['heavy', 'lifesteal'],
     desc: '据说每次考试前都会在教室窗台上重生一次' },
   { id: 'gushu', name: '古树精', type: 'grass', rarity: 'legend', bond: 116, icon: '🌳', skills: ['shield', 'pierce'],
     desc: '比学校还老，树皮里刻着历届学生的名字' },
@@ -809,7 +809,7 @@ var SHADOW_INBOX_MAX = 20;
 // 只做「一次性的里程碑」，不做每日任务——每日任务会变成打卡负担，
 // 而里程碑是「原来我做到了」的回忆。
 var ACHIEVEMENTS = [
-  { id: 'first_win',  name: '第一滴血', icon: '🩸', desc: '赢下第一场对战' },
+  { id: 'first_win',  name: '第一滴血', icon: '🎯', desc: '赢下第一场对战' },
   { id: 'streak_3',   name: '手感火热', icon: '🔥', desc: '拿到 3 连胜' },
   { id: 'streak_5',   name: '势不可挡', icon: '⚡', desc: '拿到 5 连胜' },
   { id: 'beat_boss',  name: '越级者',   icon: '🐙', desc: '击败深海水母' },
@@ -1311,7 +1311,7 @@ function applyWeather(c, type, w) {
 // 任务池：陪伴组 2 个、对战相关 4 个。每天固定抽「陪伴 1 + 对战 1 + 剩下随机 1」，
 // 保证任务里永远有一件「不打架也能做」的事，否则不爱对战的孩子每天都领不到奖励。
 var QUESTS = [
-  { id: 'care',  group: 'care',   icon: '🫶', title: '陪它一会儿', desc: '摸摸 + 喂食累计 5 次', goal: 5, reward: { bond: 2 } },
+  { id: 'care',  group: 'care',   icon: '🤝', title: '陪它一会儿', desc: '摸摸 + 喂食累计 5 次', goal: 5, reward: { bond: 2 } },
   { id: 'feed',  group: 'care',   icon: '🍚', title: '按时开饭',   desc: '喂食 2 次',           goal: 2, reward: { bond: 2 } },
   { id: 'spar',  group: 'battle', icon: '⚔️', title: '活动筋骨',   desc: '练习赛打满 3 场',     goal: 3, reward: { points: 4 } },
   { id: 'win',   group: 'battle', icon: '🏆', title: '赢回来',     desc: '练习赛赢 2 场',       goal: 2, reward: { points: 5 } },
