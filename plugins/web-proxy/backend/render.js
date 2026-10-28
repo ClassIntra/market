@@ -111,6 +111,31 @@ try {
   AUDIO_INJECT = '';
 }
 
+// 长按判定：无头环境里不会凭空产生 contextmenu，触摸序列全由我们派发。
+// 前端按「按住 600ms 且位移不超过原生 slop」判出长按后下发 longpress，
+// 这里先探测页面是否已经自行处理过 contextmenu：已处理就不再补右键，
+// 否则会把页面刚弹出的自定义菜单顶掉（很多站点用 contextmenu 做「重命名/删除」菜单）。
+var CONTEXT_WINDOW_MS = 1500;  // 视为「本次长按已被页面处理」的时间窗口
+
+// 页面内探针：记录真实 contextmenu 的发生时间。
+// 自己补的那次右键也会触发 contextmenu，必须打标记跳过，否则连续两次长按的第二次会被误判成
+// 「页面已经处理过」而不再补右键，表现为菜单时有时无。
+var CONTEXT_PROBE = '(function(){' +
+  'if (window.__ciCtxProbe) return;' +
+  'window.__ciCtxProbe = true;' +
+  'window.__ciCtxAt = 0;' +
+  'window.__ciCtxMark = function(){' +
+    'window.__ciCtxSynthetic = true;' +
+    'setTimeout(function(){ window.__ciCtxSynthetic = false; }, 500);' +
+  '};' +
+  'try {' +
+    'window.addEventListener("contextmenu", function(){' +
+      'if (window.__ciCtxSynthetic) { window.__ciCtxSynthetic = false; return; }' +
+      'window.__ciCtxAt = Date.now();' +
+    '}, true);' +
+  '} catch (e) {}' +
+'})();';
+
 // 移动端 UA：与触摸仿真、窄视口配合，让站点返回移动版布局而不是被强行塞进桌面版
 var MOBILE_UA = 'Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
@@ -684,10 +709,17 @@ function createSession(url, out, opts, cb) {
           .then(function () {
             return cdp.send('Runtime.addBinding', { name: '__ciAudioChunk' }, sessionId);
           })
-          // 采集脚本在每次文档加载前注入，页面刷新/站内跳转后依然生效
+          // 采集脚本与长按探针都在每次文档加载前注入，页面刷新/站内跳转后依然生效
           .then(function () {
-            if (!AUDIO_INJECT) return null;
-            return cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: AUDIO_INJECT }, sessionId);
+            var sources = [CONTEXT_PROBE];
+            if (AUDIO_INJECT) sources.unshift(AUDIO_INJECT);
+            return sources.reduce(function (p, src) {
+              return p.then(function () {
+                // 单个脚本注入失败不影响会话（老版本浏览器可能不支持该命令）
+                return cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: src }, sessionId)
+                  .catch(function () {});
+              });
+            }, Promise.resolve());
           })
           .then(function () {
             return cdp.send('Emulation.setDeviceMetricsOverride', {
@@ -1128,7 +1160,8 @@ function handleInput(sess, msg) {
   // 有输入即视为「操作中」：帧率临时升到 60fps，松手静置 1.5 秒后回落 30fps。
   // 只对真正的交互类型升帧：暂停 / 恢复 / 导航等控制消息不改变画面流畅度需求。
   if (msg.type === 'mouse' || msg.type === 'touch' || msg.type === 'wheel' ||
-      msg.type === 'key' || msg.type === 'text' || msg.type === 'pinch') {
+      msg.type === 'key' || msg.type === 'text' || msg.type === 'pinch' ||
+      msg.type === 'longpress') {
     markActive(sess);
   }
   // 输入事件失败只需记一次，避免把日志刷爆
@@ -1241,6 +1274,49 @@ function handleInput(sess, msg) {
         }).catch(function () {});
       }, 120);
     }
+    return;
+  }
+  // 长按：无头环境不会自己合成手势，页面里靠 contextmenu 弹出的菜单（重命名 / 删除等）永远不出现。
+  // 前端按「按住 600ms 且位移不超过 slop」判出长按后发到这里，由服务端补一次右键。
+  // 页面若已经自己处理了 contextmenu（探针记在 window.__ciCtxAt），就不再补，避免把菜单顶掉。
+  if (msg.type === 'longpress') {
+    var lx = Number(msg.x) || 0;
+    var ly = Number(msg.y) || 0;
+    // 云游戏模式：长按就是按住按键（开火 / 蓄力），弹右键反而会打断游戏
+    if (sess.gameMode) {
+      sendJson(sess.out, { type: 'longpress-state', fired: false, x: lx, y: ly });
+      return;
+    }
+    guard(cdp.send('Runtime.evaluate', {
+      // 顺便打上「这次右键是我们补的」标记，探针会忽略它自己触发的那次 contextmenu
+      expression: '(function(){if(window.__ciCtxMark)window.__ciCtxMark();return Number(window.__ciCtxAt)||0;})()',
+      returnByValue: true
+    }, sid).then(function (r) {
+      var at = (r && r.result && Number(r.result.value)) || 0;
+      if (at && Date.now() - at < CONTEXT_WINDOW_MS) {
+        sendJson(sess.out, { type: 'longpress-state', fired: false, x: lx, y: ly });
+        return null;
+      }
+      return cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: lx,
+        y: ly,
+        button: 'right',
+        buttons: 2,
+        clickCount: 1
+      }, sid).then(function () {
+        return cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x: lx,
+          y: ly,
+          button: 'right',
+          buttons: 0,
+          clickCount: 1
+        }, sid);
+      }).then(function () {
+        sendJson(sess.out, { type: 'longpress-state', fired: true, x: lx, y: ly });
+      });
+    }), 'longpress');
     return;
   }
   // 双指捏合：直接调页面缩放倍率。

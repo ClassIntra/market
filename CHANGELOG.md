@@ -39,6 +39,8 @@
 - `index.json` 升至 `17`，更新 `web-proxy` README 哈希（补充删除同步与首次补传说明）。
 - `web-proxy` 升至 `1.0.23`：修复「云游戏画质开启后页面内容变小」——此前为提升清晰度把无头浏览器视口按设备像素密度（`pd`）放大 2–3 倍，站点因此按更宽视口排版、切到桌面版，文字整体变小，前端再把帧缩回画布，观感是「开了更高画质反而看不清」。改为渲染浏览器以启动参数 `--force-device-scale-factor=2` 运行，合成表面恒为视口 CSS 像素的 2 倍：**排版宽度 / 媒体查询 / 字号 / 输入坐标与普通模式完全一致**，云游戏模式只把 screencast 的 `maxWidth/maxHeight` 给到 2 倍，帧由 400×700 提升到 800×1400（已端到端实测：两种模式下 `innerWidth / clientWidth / 正文 14px / max-width:400px 媒体查询` 全部相同，帧尺寸翻倍）。同时移除 `pd` 协议字段与视口放大逻辑；普通模式取帧时 Chromium 自动把 2 倍表面缩回 1 倍（实测带宽基本不变），丢帧补拍改用 `clip.scale` 保证与帧同尺寸，避免画布尺寸跳变闪烁。
 - `index.json` 升至 `18`，更新 `web-proxy` 版本号与 `backend/render.js` / `manifest.json` / `README.md` 哈希。
+- `web-proxy` 升至 `1.0.24`：修复「滑动会飘移，划一点却移动很多」——前端此前在抬手时按最近 120ms 的采样速度补 6 步衰减位移来「模拟惯性」，而 CDP 触摸序列进页面后浏览器自己也会算惯性，两段叠加就是放大位移。现在触摸严格 1:1 转发，抬手只发 `touchend`。同时补齐**长按手势**：单指按住 600ms 且位移不超过原生 slop（8 CSS px）判为长按，客户端下发 `{type:'longpress', x, y}`，服务端先查注入探针记录的 `window.__ciCtxAt`，1.5 秒内页面已自行响应 `contextmenu` 就不再补，否则补一次右键并回 `{type:'longpress-state', fired}`；触发后本次手势不再转发移动、抬手用 `touchCancel` 收尾，避免合成点击把菜单点掉；云游戏模式不补右键（长按即按住开火 / 蓄力键），连续长按靠页面内 `window.__ciCtxMark()` 区分自发右键，不会出现「第二次长按没反应」。
+- `index.json` 升至 `19`，更新 `web-proxy` 版本号与 `backend/render.js` / `manifest.json` / `README.md` 哈希。
 
 ## 1.1.0
 
