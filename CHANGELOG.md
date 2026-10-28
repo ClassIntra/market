@@ -41,6 +41,8 @@
 - `index.json` 升至 `18`，更新 `web-proxy` 版本号与 `backend/render.js` / `manifest.json` / `README.md` 哈希。
 - `web-proxy` 升至 `1.0.24`：修复「滑动会飘移，划一点却移动很多」——前端此前在抬手时按最近 120ms 的采样速度补 6 步衰减位移来「模拟惯性」，而 CDP 触摸序列进页面后浏览器自己也会算惯性，两段叠加就是放大位移。现在触摸严格 1:1 转发，抬手只发 `touchend`。同时补齐**长按手势**：单指按住 600ms 且位移不超过原生 slop（8 CSS px）判为长按，客户端下发 `{type:'longpress', x, y}`，服务端先查注入探针记录的 `window.__ciCtxAt`，1.5 秒内页面已自行响应 `contextmenu` 就不再补，否则补一次右键并回 `{type:'longpress-state', fired}`；触发后本次手势不再转发移动、抬手用 `touchCancel` 收尾，避免合成点击把菜单点掉；云游戏模式不补右键（长按即按住开火 / 蓄力键），连续长按靠页面内 `window.__ciCtxMark()` 区分自发右键，不会出现「第二次长按没反应」。
 - `index.json` 升至 `19`，更新 `web-proxy` 版本号与 `backend/render.js` / `manifest.json` / `README.md` 哈希。
+- `web-proxy` 升至 `1.0.25`：打磨长按手势细节——①长按触发后不再无限期冻结移动，位移超过 24 CSS px 自动解冻恢复转发（贴近原生「长按后继续拖动仍派发 move」的手感，避免页面「卡到抬手」），24px 内仍冻结以免刚弹出的菜单被 move 拖走；②云游戏模式完全不参与长按（那里长按就是按住开火 / 蓄力键，冻结 600ms 会让摇杆 / 视角出现「黏一下」的顿感），服务端同样兜底不补右键；③长按触发后再落下第二根手指时整体复位（此前 `_compatHoldPending` 残留会把后续移动永久吞掉，表现为「加了第二根手指后页面完全不动」）；④多指序列中剩余手指抬起时不再清 `_compatHoldFired`，保证最后收尾仍用 `touchCancel`，否则合成的 clicked 会把长按菜单点掉；⑤长按触发时加 15ms 触觉反馈（不支持振动的设备静默跳过）。
+- `index.json` 升至 `20`，更新 `web-proxy` 版本号与 `manifest.json` / `README.md` 哈希。
 
 ## 1.1.0
 
