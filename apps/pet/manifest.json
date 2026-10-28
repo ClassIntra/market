@@ -1,9 +1,9 @@
 {
   "name": "pet",
   "type": "app",
-  "version": "0.3.4",
+  "version": "0.9.0",
   "label": "桌宠",
-  "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。",
+  "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。五种属性相生相克，练级会进化，还能去野外收服野生精灵当随行伙伴。",
   "author": "ClassIntra",
   "icon": "./icon.svg",
   "color": "#FF9EBB",

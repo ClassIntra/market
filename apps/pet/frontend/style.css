@@ -337,15 +337,25 @@
   border-radius: var(--ci-shape-xl, 20px);
   background: var(--ci-color-bg-card, #fff);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
+  /* 页面级装饰光晕（.ci-pethome::before/::after）是绝对定位且无 z-index，
+     会画在正常流内容之上 → 卡片右下角出现一块洗不掉的粉色。
+     把卡片抬到 1 层即可：光晕退回背景，卡片恢复干净的白底圆角。
+     （不用 isolation，Chrome 80 基线不支持。） */
+  position: relative;
+  z-index: 1;
 }
+/* 舞台：聚光灯式的光环陪衬 + 内描边，比纯色底更像"小舞台" */
 .ci-pet-hero-stage {
   position: relative;
   width: 132px;
   height: 132px;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  border-radius: 18px;
+  border-radius: 20px;
   overflow: hidden;
-  background: linear-gradient(160deg, rgba(10, 132, 255, 0.10), rgba(191, 90, 242, 0.10));
+  background:
+    radial-gradient(circle at 50% 34%, rgba(10, 132, 255, 0.22), rgba(10, 132, 255, 0.05) 60%),
+    linear-gradient(160deg, rgba(10, 132, 255, 0.14), rgba(191, 90, 242, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 4px 14px rgba(10, 132, 255, 0.16);
 }
 .ci-pet-hero-stage canvas {
   width: 116px;
@@ -365,18 +375,21 @@
   transform: translate(-50%, -52%);
   pointer-events: none;
 }
+/* 心情语：信息区的暖色小胶囊。
+   原来是绝对定位贴 stage 底部（left/right/bottom 6px），宽度只有 132px，
+   既压住宠物下半身、又把文案挤成两行 —— 现在作为信息区第一行，横向空间充足。 */
 .ci-pet-hero-mood {
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 6px;
-  padding: 4px 6px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 11px;
-  line-height: 1.35;
-  text-align: center;
+  display: inline-block;
+  max-width: 100%;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  margin: 0 0 7px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 149, 0, 0.13);
+  color: var(--ci-color-text-secondary, #6b6b70);
+  font-size: 12px;
+  line-height: 1.4;
   pointer-events: none;
 }
 .ci-pet-hero-info {
@@ -515,12 +528,15 @@
 }
 .ci-pet-misc .ci-pet-toggle-row { padding: 12px 0; }
 .ci-pet-misc .ci-pet-btnrow { margin: 0 -4px 12px; }
+/* 诊断：平时几乎不可见，出问题才需要它 —— 弱化到"存在但不打扰" */
 .ci-pet-adv {
-  margin-top: 18px;
+  margin: 14px 2px 0;
   font-size: 12px;
+  opacity: 0.62;
   color: var(--ci-color-text-secondary, #6b6b70);
 }
-.ci-pet-adv summary { cursor: pointer; outline: none; }
+.ci-pet-adv:hover, .ci-pet-adv[open] { opacity: 1; }
+.ci-pet-adv summary { cursor: pointer; outline: none; padding: 4px 0; }
 .ci-pet-adv-out {
   white-space: pre-wrap;
   background: rgba(128, 128, 128, 0.12);
@@ -580,4 +596,1693 @@
   display: block;
   pointer-events: none;
   opacity: 0;
+}
+
+/* ==================================================================
+   2026-10-27 桌宠 UI 改版
+   目标：把「能用的列表」升级成「有氛围、有层次、有呼吸感」的养成页面。
+   约束：Chrome 80 基线（校园平板）—— 不用 flex gap(84+)、不用 aspect-ratio(84+)、
+        不用 backdrop-filter（低端机掉帧）。所有效果均可降级，坏了也只是变朴素。
+   手法：不动 DOM 结构，只加材质 / 光晕 / 主次 / 微动效。
+   ================================================================== */
+
+/* ---- 1. 容器：统一呼吸节奏 + 顶部柔光 ---- */
+.ci-pethome {
+  position: relative;
+  padding: 12px 14px 24px;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+  /* 装饰光晕用了负偏移往外溢，不裁掉会让宿主页面多出一条横向滚动条。
+     ⚠️ 只能写 overflow-x，绝不能写 overflow 简写 ——
+        上面第 139 行有 overflow-y: auto 承担滚动，简写会把它一并改成 hidden，
+        而容器又继承了 height: 100%，于是内容被裁掉且完全滑不动（10-27 踩过）。 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* 两团远离内容的柔光，只做底色氛围；伪元素不参与布局也不吃点击 */
+.ci-pethome::before {
+  content: '';
+  position: absolute;
+  top: -70px;
+  left: -60px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(10, 132, 255, 0.13), rgba(10, 132, 255, 0) 68%);
+  pointer-events: none;
+  z-index: 0;
+}
+.ci-pethome::after {
+  content: '';
+  position: absolute;
+  top: 40px;
+  right: -80px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(191, 90, 242, 0.11), rgba(191, 90, 242, 0) 68%);
+  pointer-events: none;
+  z-index: 0;
+}
+.ci-pethome > * { position: relative; z-index: 1; }
+
+/* ---- 2. 卡片通感：双层阴影做出"浮起来"的立体层次 ---- */
+.ci-pet-stats,
+.ci-pet-stylecard,
+.ci-pet-misc {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.06);
+  -webkit-transition: -webkit-transform 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* ---- 3. Hero：整页的门面，做最足 ----
+   骨架（flex / padding / position / z-index）已在上面 v2 段落定义过，
+   这里只补圆角与阴影层次。不要再重复声明 position/overflow/padding，
+   否则会静默覆盖 v2 的取值（曾因这里重复写 overflow:hidden 和心情胶囊的
+   绝对定位，把已经修好的布局又打回旧版，截图还以为是自己没生效）。 */
+.ci-pet-hero {
+  border-radius: 22px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 12px 30px rgba(16, 24, 40, 0.08);
+}
+/* 卡片内右下角的柔光，避免大片纯色显得单调 */
+.ci-pet-hero::after {
+  content: '';
+  position: absolute;
+  right: -46px;
+  bottom: -56px;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 100, 130, 0.10), rgba(255, 100, 130, 0) 70%);
+  pointer-events: none;
+}
+.ci-pet-hero-info { z-index: 1; }
+
+/* 心情胶囊的几何与配色以 v2 段落为准（暖色小胶囊，排在信息区第一行）。
+   这里只留一点轻微上浮的动态，绝不再写 left/right/bottom——那套绝对定位是
+   「胶囊压在预览画面上」时期的写法，挪进信息区后会把胶囊甩到卡片底部盖住状态区。 */
+.ci-pet-hero-mood {
+  -webkit-animation: ciPetMoodFloat 3.4s ease-in-out infinite;
+  animation: ciPetMoodFloat 3.4s ease-in-out infinite;
+}
+@keyframes ciPetMoodFloat {
+  0%, 100% { -webkit-transform: translateY(0); transform: translateY(0); }
+  50% { -webkit-transform: translateY(-3px); transform: translateY(-3px); }
+}
+/* 名字：够大才撑得起 hero，21px + 700 是「一眼看到它叫什么」的量 */
+.ci-pet-name {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1.25;
+}
+
+/* ---- 4. 分区标题：小色块起手，比纯文字有设计感 ---- */
+.ci-pet-section {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-section::before {
+  content: '';
+  width: 4px;
+  height: 13px;
+  margin-right: 8px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #0A84FF, #BF5AF2);
+}
+
+/* ---- 5. 状态条：三级信息层次 + 渐变填充 ---- */
+.ci-pet-stats { padding: 16px 16px 14px; margin-top: 14px; }
+.ci-pet-statrow { margin-top: 14px; }
+.ci-pet-statrow:first-child { margin-top: 0; }
+.ci-pet-stathead {
+  -webkit-align-items: baseline;
+  align-items: baseline;
+  margin-bottom: 7px;
+}
+.ci-pet-statlabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-statvalue {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ci-color-primary, #0A84FF);
+}
+.ci-pet-statbar {
+  height: 10px;
+  border-radius: 9999px;
+  background: rgba(128, 128, 128, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.ci-pet-statbar > span {
+  border-radius: 9999px;
+  /* --ci-pet-fill 由 JS 注入具体颜色；这里用「实色 + 白色叠层」做出左浅右深，
+     比纯色块更像能量条。注意不能写 currentColor——它等于 fill，渐变会退化成纯色。 */
+  background-color: var(--ci-pet-fill, #0A84FF);
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.02));
+  -webkit-transition: width 0.55s cubic-bezier(0.34, 1.2, 0.64, 1);
+  transition: width 0.55s cubic-bezier(0.34, 1.2, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+/* 填充条上的一道流动高光，让"它在涨"这件事看得见 */
+.ci-pet-statbar > span::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 45%;
+  border-radius: 9999px 9999px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
+}
+.ci-pet-statfoot {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+/* 旧版把 note 塞在标题行右侧；新版已移到脚注，这里把它退回普通字色避免错位 */
+.ci-pet-stathead .ci-pet-statnote { font-size: 11px; }
+
+/* ---- 6. 互动区：主次分明 ---- */
+.ci-pet-actions { margin: -6px; }
+.ci-pet-bigbtn {
+  min-height: 96px;
+  border-radius: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(16, 24, 40, 0.07);
+  -webkit-transition: -webkit-transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ci-pet-bigbtn:active {
+  -webkit-transform: scale(0.955);
+  transform: scale(0.955);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.ci-pet-bigbtn-emoji { font-size: 30px; }
+.ci-pet-bigbtn-label { font-size: 15px; margin-top: 5px; }
+
+/* 主行动（喂食）：给足份量，一眼就该找到谁是今天该点的那个 */
+.ci-pet-bigbtn--primary {
+  /* 饱和度压一档：三张卡并列时要突出的是"谁是主行动"，不是"谁颜色最炸" */
+  background: linear-gradient(150deg, #FF9068, #FF6E92 55%, #FF5F9E);
+  box-shadow: 0 4px 10px rgba(255, 110, 146, 0.26), 0 12px 26px rgba(255, 110, 146, 0.20);
+}
+/* emoji 与其他两张保持同尺寸——差异交给背景色和字号去做，
+   单独放大图标会让三张卡的视觉基线不在一条线上 */
+.ci-pet-bigbtn--primary .ci-pet-bigbtn-label { color: #fff; font-size: 16px; font-weight: 700; }
+.ci-pet-bigbtn--primary .ci-pet-bigbtn-sub { color: rgba(255, 255, 255, 0.92); font-weight: 500; }
+.ci-pet-bigbtn--primary[disabled] { opacity: 0.62; box-shadow: 0 2px 8px rgba(255, 110, 146, 0.16); }
+
+/* ---- 7. 入场：错峰上浮，第一次打开有"活了"的感觉 ---- */
+@keyframes ciPetRiseIn {
+  from { opacity: 0; -webkit-transform: translateY(12px); transform: translateY(12px); }
+  to { opacity: 1; -webkit-transform: translateY(0); transform: translateY(0); }
+}
+.ci-pethome > * {
+  -webkit-animation: ciPetRiseIn 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+  animation: ciPetRiseIn 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+.ci-pethome > *:nth-child(1) { -webkit-animation-delay: 0.02s; animation-delay: 0.02s; }
+.ci-pethome > *:nth-child(2) { -webkit-animation-delay: 0.07s; animation-delay: 0.07s; }
+.ci-pethome > *:nth-child(3) { -webkit-animation-delay: 0.12s; animation-delay: 0.12s; }
+.ci-pethome > *:nth-child(4) { -webkit-animation-delay: 0.17s; animation-delay: 0.17s; }
+.ci-pethome > *:nth-child(5) { -webkit-animation-delay: 0.22s; animation-delay: 0.22s; }
+.ci-pethome > *:nth-child(6) { -webkit-animation-delay: 0.27s; animation-delay: 0.27s; }
+.ci-pethome > *:nth-child(n + 7) { -webkit-animation-delay: 0.32s; animation-delay: 0.32s; }
+
+/* ---- 8. 对战（练习赛）：卡片 + 血条 + 战报 ---- */
+.ci-pet-battle {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.07);
+}
+.ci-pet-battle-loading {
+  padding: 18px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-battle-loading .ci-pet-foe-btn {
+  display: block;
+  margin: 10px auto 0;
+}
+
+/* 头部：左边战力大字，右边三段小字 */
+.ci-pet-battle-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.14);
+}
+.ci-pet-power {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  width: 74px; height: 74px;
+  margin-right: 14px;
+  -webkit-flex: none; flex: none;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #FF9068, #FF6482 60%, #E8467C);
+  box-shadow: 0 6px 16px rgba(255, 100, 130, 0.28);
+  color: #fff;
+}
+.ci-pet-power-num {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.ci-pet-power-label { font-size: 10px; letter-spacing: 2px; opacity: 0.9; }
+.ci-pet-battle-meta { -webkit-flex: 1; flex: 1; min-width: 0; }
+.ci-pet-battle-tier {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-battle-record,
+.ci-pet-battle-quota {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-battle-quota { color: var(--ci-color-text-tertiary, #8E8E93); }
+
+/* 对手列表 */
+.ci-pet-foes { margin: 12px -5px; }
+/* 对手卡：首行放「名字 + 标签 + 挑战」，第二行才是数值 */
+.ci-pet-foe {
+  display: block;
+  margin: 5px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 100, 130, 0.06);
+  border: 1px solid rgba(255, 100, 130, 0.16);
+}
+.ci-pet-foe-top {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+}
+.ci-pet-foe-who {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+}
+.ci-pet-foe-name {
+  -webkit-flex: none; flex: none;
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-foe-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-foe-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-foe-btn {
+  -webkit-flex: none; flex: none;
+  margin-left: 10px;
+  padding: 7px 16px;
+  min-height: 32px;
+  border: none;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #FF9068, #FF6482);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ci-pet-foe-btn:active { opacity: 0.8; }
+.ci-pet-foe-btn[disabled] {
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  cursor: default;
+}
+.ci-pet-battle-tip {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+
+/* 战斗舞台 */
+.ci-pet-arena { margin-top: 4px; }
+.ci-pet-arena-sides {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: flex-start; align-items: flex-start;
+}
+.ci-pet-arena-side {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(128, 128, 128, 0.06);
+}
+.ci-pet-arena-side--me { background: rgba(10, 132, 255, 0.07); }
+.ci-pet-arena-side--foe { background: rgba(255, 100, 130, 0.09); }
+.ci-pet-arena-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-arena-power {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-arena-vs {
+  -webkit-flex: none; flex: none;
+  margin: 18px 6px 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-hpbar {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgba(128, 128, 128, 0.16);
+  overflow: hidden;
+}
+.ci-pet-hpfill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #34C759, #7BE08F);
+  -webkit-transition: width 0.28s ease-out;
+  transition: width 0.28s ease-out;
+}
+.ci-pet-arena-side--foe .ci-pet-hpfill {
+  background: linear-gradient(90deg, #FF6482, #FF9EBB);
+}
+.ci-pet-hptext {
+  margin-top: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-arena-log {
+  margin-top: 12px;
+  padding: 10px 12px;
+  min-height: 62px;
+  border-radius: 12px;
+  background: rgba(27, 27, 31, 0.05);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  white-space: pre-line;
+}
+.ci-pet-arena-skip {
+  margin-top: 10px;
+  padding: 6px 14px;
+  min-height: 30px;
+  border: 1px solid rgba(128, 128, 128, 0.24);
+  border-radius: 9999px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  cursor: pointer;
+}
+
+/* 两组对手列表之间的一句话小标题 */
+.ci-pet-battle-sub {
+  margin: 14px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-battle-none {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(128, 128, 128, 0.06);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+
+/* 真人影子：左边一道暖色竖条，和 NPC 拉开区别 */
+.ci-pet-foe--shadow {
+  background: rgba(255, 149, 0, 0.07);
+  border-color: rgba(255, 149, 0, 0.22);
+  -webkit-box-shadow: inset 3px 0 0 0 #FF9500;
+  box-shadow: inset 3px 0 0 0 #FF9500;
+}
+.ci-pet-foe-owner {
+  -webkit-flex: none; flex: none;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(255, 149, 0, 0.16);
+  font-size: 10px;
+  font-weight: 600;
+  color: #B25000;
+}
+
+/* 挑战留言 */
+.ci-pet-inbox {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 59, 48, 0.06);
+  border: 1px solid rgba(255, 59, 48, 0.18);
+}
+.ci-pet-inbox-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-inbox-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-inbox-hint {
+  font-size: 10px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-inbox-item {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: baseline; align-items: baseline;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-inbox-who {
+  -webkit-flex: none; flex: none;
+  font-weight: 600;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-inbox-what { -webkit-flex: 1; flex: 1; margin-left: 6px; min-width: 0; }
+.ci-pet-inbox-rounds {
+  -webkit-flex: none; flex: none;
+  font-size: 10px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-inbox-clear {
+  display: block;
+  margin: 10px auto 0;
+  padding: 6px 18px;
+  min-height: 30px;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 59, 48, 0.14);
+  font-size: 12px;
+  font-weight: 600;
+  color: #C02A22;
+  cursor: pointer;
+}
+.ci-pet-inbox-clear:active { opacity: 0.8; }
+.ci-pet-result-share {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+
+/* 连胜：唯一会「断」的数值，所以给了暖色 */
+.ci-pet-battle-streak {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #D9480F;
+}
+.ci-pet-battle-streak--idle { color: var(--ci-color-text-tertiary, #8E8E93); font-weight: 400; }
+
+/* 难度标签：放在名字右边，和「谁」同级，而不是塞进战力的括号里 */
+.ci-pet-odds {
+  -webkit-flex: none; flex: none;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.ci-pet-odds--easy { background: rgba(52, 199, 89, 0.16); color: #1E7A38; }
+.ci-pet-odds--even { background: rgba(10, 132, 255, 0.14); color: #0A5FBF; }
+.ci-pet-odds--hard { background: rgba(255, 59, 48, 0.14); color: #C02A22; }
+
+.ci-pet-inbox-hit {
+  -webkit-flex: none; flex: none;
+  margin-left: 8px;
+  padding: 3px 10px;
+  min-height: 24px;
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 9999px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: #C02A22;
+  cursor: pointer;
+}
+.ci-pet-inbox-hit:active { opacity: 0.75; }
+.ci-pet-inbox-hit[disabled] {
+  border-color: rgba(128, 128, 128, 0.2);
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  cursor: default;
+}
+.ci-pet-result-streak {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #D9480F;
+}
+
+/* 战术选择：对战里唯一的决策点，所以要做得像「可选项」而不是装饰 */
+.ci-pet-tactics {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(10, 132, 255, 0.05);
+  border: 1px solid rgba(10, 132, 255, 0.14);
+}
+.ci-pet-tactics-head {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: baseline; align-items: baseline;
+}
+.ci-pet-tactics-title {
+  -webkit-flex: none; flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-tactics-hint {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-tactics-row {
+  display: -webkit-flex; display: flex;
+  margin: 10px -4px 0;
+}
+.ci-pet-tactic {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  margin: 0 4px;
+  padding: 8px 4px;
+  min-height: 52px;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+}
+.ci-pet-tactic-icon { font-size: 16px; line-height: 1.2; }
+.ci-pet-tactic-name {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-tactic.is-on {
+  border-color: var(--ci-color-primary, #0A84FF);
+  background: rgba(10, 132, 255, 0.10);
+  -webkit-box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.28);
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.28);
+}
+.ci-pet-tactic.is-on .ci-pet-tactic-name { color: var(--ci-color-primary, #0A84FF); }
+.ci-pet-tactic:active { opacity: 0.8; }
+
+/* 成就：已解锁的才上色，未解锁留灰底但不写「未解锁」三个字 */
+.ci-pet-ach { margin-top: 16px; }
+.ci-pet-ach-head { display: -webkit-flex; display: flex; -webkit-align-items: baseline; align-items: baseline; }
+.ci-pet-ach-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-ach-row {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 8px -3px 0;
+}
+.ci-pet-ach-chip {
+  margin: 0 3px 6px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 10px;
+  background: rgba(128, 128, 128, 0.10);
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-ach-chip.is-on {
+  background: linear-gradient(135deg, rgba(255, 214, 10, 0.28), rgba(255, 149, 0, 0.20));
+  color: #8A5A00;
+  font-weight: 600;
+}
+
+/* 排行榜 */
+.ci-pet-rank { margin-top: 16px; }
+.ci-pet-rank-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-rank-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-rank-mine { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-rank-list { margin-top: 8px; }
+.ci-pet-rank-item {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-rank-item.is-me {
+  background: rgba(10, 132, 255, 0.08);
+  color: var(--ci-color-text-primary, #1B1B1F);
+  font-weight: 600;
+}
+.ci-pet-rank-no {
+  -webkit-flex: none; flex: none;
+  width: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-rank-name {
+  -webkit-flex: none; flex: none;
+  max-width: 45%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-rank-owner {
+  -webkit-flex: none; flex: none;
+  margin-left: 5px;
+  font-size: 10px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-rank-pts {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ci-color-primary, #0A84FF);
+}
+.ci-pet-result-ach {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  background: rgba(255, 214, 10, 0.22);
+  font-size: 11px;
+  font-weight: 600;
+  color: #8A5A00;
+}
+
+/* 技能：战术决定属性，技能决定战斗过程 */
+.ci-pet-skills {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(191, 90, 242, 0.05);
+  border: 1px solid rgba(191, 90, 242, 0.16);
+}
+.ci-pet-skills-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-skills-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-skills-hint { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-skills-row {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 8px -3px 0;
+}
+.ci-pet-skill {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 0 3px 6px;
+  padding: 6px 10px;
+  min-height: 30px;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  cursor: pointer;
+}
+.ci-pet-skill-icon { margin-right: 4px; font-size: 13px; }
+.ci-pet-skill-name { font-weight: 600; }
+.ci-pet-skill.is-on {
+  border-color: #BF5AF2;
+  background: rgba(191, 90, 242, 0.14);
+  color: #7A2BA8;
+}
+.ci-pet-skill:active { opacity: 0.8; }
+
+/* 试炼塔 */
+.ci-pet-tower {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(10, 132, 255, 0.06), rgba(191, 90, 242, 0.05));
+  border: 1px solid rgba(10, 132, 255, 0.14);
+}
+.ci-pet-tower-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-tower-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-tower-quota { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-tower-pips {
+  display: -webkit-flex; display: flex;
+  margin: 10px -2px;
+}
+.ci-pet-tower-pip {
+  -webkit-flex: 1; flex: 1;
+  margin: 0 2px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.12);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-tower-pip.is-done {
+  background: linear-gradient(135deg, #34C759, #7BE08F);
+  color: #fff;
+}
+.ci-pet-tower-pip.is-next {
+  background: rgba(10, 132, 255, 0.16);
+  color: var(--ci-color-primary, #0A84FF);
+  -webkit-box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(10, 132, 255, 0.4);
+}
+.ci-pet-tower-card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.ci-pet-tower-done {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8A5A00;
+  border-radius: 12px;
+  background: rgba(255, 214, 10, 0.18);
+}
+.ci-pet-tower-tip {
+  margin-top: 10px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+
+/* 称号 */
+.ci-pet-titles { margin-top: 16px; }
+.ci-pet-titles-head { display: -webkit-flex; display: flex; }
+.ci-pet-titles-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-titles-row {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 8px -3px 0;
+}
+.ci-pet-title-chip {
+  margin: 0 3px 6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, rgba(191, 90, 242, 0.16), rgba(10, 132, 255, 0.14));
+  font-size: 10px;
+  font-weight: 600;
+  color: #5B2C86;
+}
+
+/* 胜负横幅 */
+.ci-pet-arena-result {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  text-align: center;
+  -webkit-animation: ciPetRiseIn 0.3s ease both;
+  animation: ciPetRiseIn 0.3s ease both;
+}
+.ci-pet-arena-result.is-win {
+  background: linear-gradient(150deg, rgba(52, 199, 89, 0.14), rgba(52, 199, 89, 0.04));
+}
+.ci-pet-arena-result.is-lose {
+  background: linear-gradient(150deg, rgba(128, 128, 128, 0.14), rgba(128, 128, 128, 0.04));
+}
+.ci-pet-result-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+.ci-pet-result-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-result-quota {
+  margin: 4px 0 12px;
+  font-size: 11px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+
+/* ---- 8.5 分区 / 图鉴 / 属性 / 进化 / 随行（v0.8.0） ---- */
+/* 顶部 tab：把「小家 / 对战 / 图鉴 / 排行」拆成四个独立页面。
+   之前所有东西都堆在一条长页面上，想打一场要滚过形象和设置。 */
+.ci-pet-tabs {
+  position: -webkit-sticky;
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: -webkit-flex; display: flex;
+  margin: -20px -16px 14px;
+  padding: 8px 10px;
+  background: var(--ci-color-bg-page, rgba(242, 242, 247, 0.97));
+  border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+}
+.ci-pet-tab {
+  position: relative;
+  -webkit-flex: 1; flex: 1;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  min-height: 44px;
+  margin: 0 2px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pet-tab.is-on {
+  background: var(--ci-color-bg-card, #fff);
+  color: var(--ci-color-primary, #0A84FF);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 3px 10px rgba(16, 24, 40, 0.06);
+}
+.ci-pet-tab-icon { font-size: 17px; line-height: 1.2; }
+.ci-pet-tab-name { margin-top: 2px; font-weight: 600; }
+.ci-pet-tab-badge {
+  position: absolute;
+  top: 2px;
+  right: 50%;
+  margin-right: -24px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 9999px;
+  background: #FF3B30;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.ci-pet-pagehead { margin: 2px 2px 12px; }
+.ci-pet-pagehead-title { font-size: 19px; font-weight: 800; }
+.ci-pet-pagehead-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+
+/* 首页的冒险入口 */
+.ci-pet-advlinks { display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; }
+.ci-pet-advlink {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.07);
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pet-advlink:active { opacity: 0.85; }
+.ci-pet-advlink-icon { -webkit-flex: none; flex: none; width: 34px; font-size: 22px; line-height: 1; text-align: center; }
+.ci-pet-advlink-text { -webkit-flex: 1; flex: 1; min-width: 0; margin-left: 10px; }
+.ci-pet-advlink-name { display: block; font-size: 14px; font-weight: 700; }
+.ci-pet-advlink-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-advlink-arrow { -webkit-flex: none; flex: none; font-size: 20px; color: var(--ci-color-text-tertiary, #8E8E93); }
+
+/* 属性徽章：颜色直接写死，不依赖主题变量——五个属性必须有稳定的辨识度 */
+.ci-pet-el {
+  display: inline-block;
+  -webkit-flex: none; flex: none;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.ci-pet-el--fire { background: rgba(255, 107, 74, 0.16); color: #C03A1E; }
+.ci-pet-el--grass { background: rgba(52, 199, 89, 0.16); color: #1E7A38; }
+.ci-pet-el--earth { background: rgba(176, 122, 74, 0.18); color: #7A5228; }
+.ci-pet-el--electric { background: rgba(230, 167, 0, 0.18); color: #8A6400; }
+.ci-pet-el--water { background: rgba(10, 132, 255, 0.14); color: #0A5FBF; }
+
+.ci-pet-typetag {
+  -webkit-flex: none; flex: none;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ci-pet-typetag.is-adv { background: rgba(52, 199, 89, 0.16); color: #1E7A38; }
+.ci-pet-typetag.is-dis { background: rgba(255, 59, 48, 0.14); color: #C02A22; }
+
+.ci-pet-badge--evo {
+  background: rgba(191, 90, 242, 0.16);
+  color: #8E44AD;
+}
+
+/* 本命属性选择：五个圆角块，选中用 currentColor 描边 */
+.ci-pet-types {
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.07);
+}
+.ci-pet-types-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-types-title { font-size: 13px; font-weight: 700; }
+.ci-pet-types-hint { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-types-row { display: -webkit-flex; display: flex; margin: 10px -3px 0; }
+.ci-pet-type {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  margin: 0 3px;
+  padding: 6px 2px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: rgba(128, 128, 128, 0.07);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pet-type.is-on {
+  background: #fff;
+  border-color: currentColor;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.08);
+}
+.ci-pet-type-icon { font-size: 17px; line-height: 1.2; }
+.ci-pet-type-name { margin-top: 2px; }
+.ci-pet-types-note {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-types-note .ci-pet-el { margin-left: 0; }
+
+/* 进化卡：进度条从紫到蓝，和「羁绊/战力」的配色区分开 */
+.ci-pet-evo {
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(191, 90, 242, 0.10), rgba(10, 132, 255, 0.07));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.ci-pet-evo-head { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+.ci-pet-evo-icon { -webkit-flex: none; flex: none; font-size: 26px; line-height: 1; }
+.ci-pet-evo-text { -webkit-flex: 1; flex: 1; min-width: 0; margin-left: 10px; }
+.ci-pet-evo-name { font-size: 14px; font-weight: 800; }
+.ci-pet-evo-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-evo-bar {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 9999px;
+  background: rgba(128, 128, 128, 0.16);
+  overflow: hidden;
+}
+.ci-pet-evo-fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #BF5AF2, #0A84FF);
+  transition: width 0.3s ease;
+}
+.ci-pet-evo-desc { margin-top: 6px; font-size: 11px; color: var(--ci-color-text-tertiary, #8E8E93); }
+
+/* 随行伙伴 */
+.ci-pet-buddy {
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.07);
+}
+.ci-pet-buddy-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-buddy-title { font-size: 13px; font-weight: 700; }
+.ci-pet-buddy-hint { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-buddy-line { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin-top: 10px; }
+.ci-pet-buddy-icon { -webkit-flex: none; flex: none; font-size: 26px; line-height: 1; }
+.ci-pet-buddy-text { -webkit-flex: 1; flex: 1; min-width: 0; margin-left: 10px; }
+.ci-pet-buddy-name { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; font-size: 13px; font-weight: 700; }
+.ci-pet-buddy-name .ci-pet-el { margin-left: 6px; }
+.ci-pet-buddy-sub { margin-top: 2px; font-size: 11px; color: var(--ci-color-text-secondary, #6b6b70); }
+.ci-pet-buddy-empty {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(128, 128, 128, 0.3);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  font-family: inherit;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+.ci-pet-buddy--home { margin-top: 12px; }
+
+/* 图鉴进度 */
+.ci-pet-dex-progress {
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.07);
+}
+.ci-pet-dex-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-dex-title { font-size: 15px; font-weight: 800; }
+.ci-pet-dex-hint { font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-dex-types { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: 8px -3px 0; }
+.ci-pet-dex-type {
+  display: -webkit-inline-flex; display: inline-flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 3px;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: rgba(128, 128, 128, 0.09);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ci-pet-dex-type.is-full { background: rgba(52, 199, 89, 0.16); color: #1E7A38; }
+.ci-pet-dex-type-icon { margin-right: 3px; }
+
+/* 今日焦点 */
+.ci-pet-wild-spot {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 214, 10, 0.20), rgba(255, 149, 0, 0.12));
+}
+.ci-pet-wild-spot-tag {
+  -webkit-flex: none; flex: none;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: #FF9500;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ci-pet-wild-spot-icon { margin-left: 8px; font-size: 18px; }
+.ci-pet-wild-spot-name { margin-left: 4px; font-size: 13px; font-weight: 700; }
+.ci-pet-wild-spot-bonus { margin-left: auto; font-size: 11px; font-weight: 700; color: #A85B00; }
+
+/* 野生精灵卡：两列，窄屏自动变一列 */
+.ci-pet-wilds { margin-top: 4px; }
+.ci-pet-wild-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  margin: 14px 2px 8px;
+}
+.ci-pet-wild-head-name { font-size: 13px; font-weight: 700; }
+.ci-pet-wild-head-count { font-size: 11px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-wild-grid { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: -4px; }
+.ci-pet-wild {
+  -webkit-flex: 1 1 calc(50% - 8px); flex: 1 1 calc(50% - 8px);
+  min-width: 150px;
+  margin: 4px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(16, 24, 40, 0.06);
+}
+.ci-pet-wild.is-owned { background: linear-gradient(135deg, rgba(52, 199, 89, 0.10), rgba(255, 255, 255, 0.9)); }
+.ci-pet-wild.is-spot { box-shadow: 0 0 0 2px rgba(255, 149, 0, 0.48), 0 4px 14px rgba(255, 149, 0, 0.18); }
+.ci-pet-wild-top { display: -webkit-flex; display: flex; -webkit-align-items: flex-start; align-items: flex-start; }
+.ci-pet-wild-icon { -webkit-flex: none; flex: none; font-size: 24px; line-height: 1.1; }
+.ci-pet-wild-who { -webkit-flex: 1; flex: 1; min-width: 0; margin-left: 8px; }
+.ci-pet-wild-name { font-size: 13px; font-weight: 700; }
+.ci-pet-wild-meta { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin-top: 2px; }
+.ci-pet-wild-meta .ci-pet-el { margin-left: 0; }
+.ci-pet-wild-bond { margin-left: 6px; font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-wild-owned {
+  -webkit-flex: none; flex: none;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(52, 199, 89, 0.16);
+  color: #1E7A38;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ci-pet-wild-desc {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-wild-foot {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  margin-top: 10px;
+}
+.ci-pet-wild-chance { -webkit-flex: 1; flex: 1; min-width: 0; font-size: 10px; color: var(--ci-color-text-tertiary, #8E8E93); }
+.ci-pet-wild-foot .ci-pet-foe-btn { -webkit-flex: none; flex: none; margin-left: 8px; }
+
+/* 排行页 */
+.ci-pet-rankme {
+  margin-bottom: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(10, 132, 255, 0.10), rgba(191, 90, 242, 0.08));
+}
+.ci-pet-rankme-num { font-size: 20px; font-weight: 800; }
+.ci-pet-rankme-sub { margin-top: 4px; font-size: 12px; color: var(--ci-color-text-secondary, #6b6b70); }
+.ci-pet-rankme-type {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-rankme-type .ci-pet-el { margin-left: 6px; }
+
+/* 对战双方卡上的属性行 */
+.ci-pet-arena-badges { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; margin-top: 3px; }
+.ci-pet-arena-badges .ci-pet-el { margin-left: 0; }
+.ci-pet-arena-badges .ci-pet-arena-power { margin-top: 0; margin-left: 6px; }
+
+/* ---- 9. 尊重「减少动态效果」系统设置 ---- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome > *,
+  .ci-pet-hero-mood {
+    -webkit-animation: none !important;
+    animation: none !important;
+  }
+  .ci-pet-statbar > span { -webkit-transition: none; transition: none; }
+  .ci-pet-hpfill { -webkit-transition: none; transition: none; }
+  .ci-pet-evo-fill { -webkit-transition: none; transition: none; }
+  .ci-pet-arena-result { -webkit-animation: none !important; animation: none !important; }
+}
+
+/* ============================================================================
+   v0.9.0 「游戏化」皮肤
+   ----------------------------------------------------------------------------
+   目标：从「一叠白卡片」变成一个像游戏 HUD 的小世界 —— 深色渐变外壳 + 星点夜空、
+   顶部常驻状态栏、底部停靠栏、米色纸卡承载内容、厚底可按下的按钮、深色的
+   回合制战斗舞台。
+
+   三条硬约束（改这段之前先读）：
+   1. 只追加、不改上面的历史规则。除了本段明确写到的属性，其余一律沿用旧值；
+      Chrome 80 基线：不用 flex gap / aspect-ratio / :is() / inset / backdrop-filter。
+   2. 不覆盖 .ci-pethome 的 color。136 行的深色字墨是「米色卡里能读」的前提；
+      深底上的文字一律靠下面「暗底提亮」那几条显式规则单独点出来。
+   3. 探针依赖的 class 名一个都不能删改（_pet-ui-shot.mjs 直接按名字断言）。
+   ============================================================================ */
+
+/* ---------- A. 外壳：深色渐变 + 星点夜空 ---------- */
+/* 卡片色改成米色纸：所有还在用 var(--ci-color-bg-card) 的卡片（hero / stats /
+   misc / battle / buddy / types / tpl / dex-progress / canvaswrap / stylecard /
+   tab.is-on）一次性跟着换，不必逐个重写。 */
+.ci-pethome {
+  --ci-color-bg-card: #F8F2E4;
+  --ci-color-bg-page: #161C34;
+  padding: 10px 12px 0;
+  background-color: #101628;
+  background-image:
+    radial-gradient(circle 1.6px at 22px 34px, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1.1px at 118px 86px, rgba(200, 220, 255, 0.55), rgba(200, 220, 255, 0) 100%),
+    radial-gradient(circle 1.3px at 61px 166px, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1.2px at 40px 26px, rgba(255, 231, 176, 0.5), rgba(255, 231, 176, 0) 100%),
+    radial-gradient(circle 1.5px at 196px 64px, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1px at 246px 128px, rgba(200, 220, 255, 0.45), rgba(200, 220, 255, 0) 100%),
+    radial-gradient(120% 80% at 50% 0%, #2A3566 0%, #1C2547 38%, #141B33 68%, #0E1324 100%);
+  background-repeat: repeat, repeat, repeat, repeat, repeat, repeat, no-repeat;
+  background-size: 173px 211px, 173px 211px, 173px 211px, 293px 157px, 293px 157px, 293px 157px, 100% 100%;
+}
+/* 旧版那两个彩色光斑是给白底做的，在深底上会糊成一片脏紫 → 直接关掉。
+   夜空改由上面的 background-image 承担（星点 + 顶部冷光，滚动时不动）。 */
+.ci-pethome::before,
+.ci-pethome::after { display: none; }
+
+/* 深底上的文字提亮：只点「确实落在暗底上」的那几个，不写 .ci-pethome 的 color */
+.ci-pethome h2 { color: #F6F1E3; }
+.ci-pethome .ci-pethome-sub { color: rgba(226, 233, 250, 0.66); }
+.ci-pet-pagehead-title { color: #F6F1E3; }
+.ci-pet-pagehead-sub { color: rgba(226, 233, 250, 0.62); }
+.ci-pet-section { color: #FFD166; }
+.ci-pet-section::before { background: linear-gradient(180deg, #FFD166, #FF9F43); }
+.ci-pet-wild-head-name { color: #E8EEFB; }
+.ci-pet-wild-head-count { color: rgba(214, 224, 247, 0.55); }
+.ci-pet-adv { color: rgba(214, 224, 247, 0.58); opacity: 1; }
+.ci-pet-adv[open] { color: rgba(226, 233, 250, 0.82); }
+.ci-pet-adv-out { background: rgba(255, 255, 255, 0.07); color: rgba(226, 233, 250, 0.82); }
+
+/* ---------- B. 顶部 HUD：头像圈 + 名字 + Lv/战力/属性 ---------- */
+.ci-pet-hud {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 2px 2px 12px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(40, 52, 94, 0.94), rgba(24, 32, 62, 0.94));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 8px 22px rgba(4, 7, 18, 0.36);
+}
+.ci-pet-hud-avatar {
+  -webkit-flex: none; flex: none;
+  width: 46px;
+  height: 46px;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 28%, #3C4C84, #1E2748);
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.ci-pet-hud-evo { font-size: 23px; line-height: 1; }
+.ci-pet-hud-who {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+}
+.ci-pet-hud-name-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  min-width: 0;
+}
+.ci-pet-hud-name {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: #F6F1E3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-hud-lv {
+  -webkit-flex: none; flex: none;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #FFD166;
+  font-variant-numeric: tabular-nums;
+}
+.ci-pet-hud-sub {
+  margin-top: 2px;
+  font-size: 10px;
+  color: rgba(226, 233, 250, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-hud-chips {
+  -webkit-flex: none; flex: none;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: flex-end; align-items: flex-end;
+  margin-left: 8px;
+}
+.ci-pet-hud-power {
+  font-size: 11px;
+  font-weight: 700;
+  color: #F6F1E3;
+  font-variant-numeric: tabular-nums;
+}
+/* fillHud 会把 className 重写成「ci-pet-hud-type ci-pet-el--<id>」，
+   底色/字色交给 .ci-pet-el--* 那五条，这里只补几何（否则是块状大标签）。 */
+.ci-pet-hud-type {
+  margin-top: 4px;
+  margin-left: 0;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* ---------- C. 底部停靠栏：tabBar 已挪到 DOM 末尾，钉在视口底部 ---------- */
+/* 停靠栏要「永远贴底」，光靠 sticky 不够：内容不满一屏时（对战 / 排行这种短页）
+   元素自然位置本来就在视口上方，sticky 只会往上推、不会往下拉，结果就是一条
+   悬在半空的 tab 条。改成 flex 纵向排列 + 停靠栏 margin-top:auto，短页也能被
+   顶到底边；长页 free space 为 0 时 auto 归零，不影响正常文档流。
+   底部内边距改由停靠栏自己承担（容器 padding-bottom 置 0）：sticky 的约束矩形
+   会按 margin 内缩，负的 margin-bottom 会把停靠栏允许落到视口下方 16px，
+   露出下面滚过去的卡片边角。 */
+.ci-pethome {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+}
+/* top 必须显式写回 auto：旧规则是 top:0 + sticky，不写会被贴到顶部去夹在
+   HUD 上。 */
+.ci-pet-tabs {
+  position: -webkit-sticky;
+  position: sticky;
+  top: auto;
+  bottom: 0;
+  z-index: 8;
+  margin: auto -12px 0;
+  padding: 12px 8px 16px;
+  background: linear-gradient(180deg, rgba(26, 35, 64, 0.97), #0E1324);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-bottom: 0;
+  box-shadow: 0 -10px 26px rgba(4, 7, 18, 0.46);
+}
+.ci-pet-tab { color: rgba(214, 224, 247, 0.62); }
+.ci-pet-tab.is-on {
+  background: rgba(255, 209, 102, 0.13);
+  color: #FFD166;
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.38);
+}
+
+/* ---------- D. Hero：米色卡 + 小场景舞台 ---------- */
+.ci-pet-hero {
+  padding: 16px;
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.14), 0 10px 26px rgba(4, 7, 18, 0.34);
+}
+.ci-pet-hero::after {
+  background: radial-gradient(circle, rgba(255, 209, 102, 0.22), rgba(255, 209, 102, 0) 70%);
+}
+/* 舞台：天空 → 远山 → 地面 → 脚下投影，宠物站在地上而不是浮在白底里 */
+.ci-pet-hero-stage {
+  border-radius: 18px;
+  background: linear-gradient(180deg, #7FC9F2 0%, #A6DBF6 40%, #CFEAF3 62%, #EAF4E2 78%, #D8ECC2 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6), inset 0 -14px 22px rgba(88, 140, 80, 0.16), 0 4px 14px rgba(16, 24, 40, 0.14);
+}
+.ci-pet-scene-sky,
+.ci-pet-scene-hills,
+.ci-pet-scene-ground,
+.ci-pet-scene-shadow {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+.ci-pet-scene-sky {
+  left: 0; top: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(circle at 78% 16%, rgba(255, 249, 214, 0.95), rgba(255, 249, 214, 0) 34%),
+    linear-gradient(180deg, #7FC9F2 0%, #A6DBF6 40%, #CFEAF3 62%, #EAF4E2 78%, #D8ECC2 100%);
+}
+/* 两座鼓包山：圆心压在底边上，用透明截止做出山脊 */
+.ci-pet-scene-hills {
+  left: 0; right: 0; bottom: 24px; height: 56px;
+  background-image:
+    radial-gradient(circle at 24% 100%, #A2CD90 0, #A2CD90 40px, rgba(162, 205, 144, 0) 41px),
+    radial-gradient(circle at 74% 100%, #8DBE7E 0, #8DBE7E 50px, rgba(141, 190, 126, 0) 51px);
+  background-repeat: no-repeat;
+}
+.ci-pet-scene-ground {
+  left: 0; right: 0; bottom: 0; height: 26px;
+  background: linear-gradient(180deg, #A8D68F, #7FB86A);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+.ci-pet-scene-shadow {
+  display: block;
+  left: 50%;
+  bottom: 6px;
+  width: 84px;
+  height: 14px;
+  margin-left: -42px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(52, 82, 40, 0.34), rgba(52, 82, 42, 0) 72%);
+}
+/* 场景层是绝对定位的，会盖在静态 canvas 之上 → 把宠物抬到 2 层 */
+.ci-pet-hero-stage canvas { position: relative; z-index: 2; }
+.ci-pet-hero-video { z-index: 2; }
+.ci-pet-hero-mood {
+  background: rgba(255, 209, 102, 0.3);
+  color: #7A5A16;
+}
+
+/* ---------- E. 米色纸卡：所有「内容卡」走同一套底 ---------- */
+/* 用 inset 描边而不是 border：border 会加宽盒模型，.ci-pet-wild 的
+   calc(50% - 8px) 两列布局立刻换行。 */
+.ci-pet-stats,
+.ci-pet-misc,
+.ci-pet-canvaswrap,
+.ci-pet-battle,
+.ci-pet-buddy,
+.ci-pet-dex-progress,
+.ci-pet-types,
+.ci-pet-evo,
+.ci-pet-tower,
+.ci-pet-wild,
+.ci-pet-tpl,
+.ci-pet-stylecard,
+.ci-pet-advlink {
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.3);
+}
+/* 本来就有 1px border 的两张卡只换描边色，不动几何 */
+.ci-pet-foe { border-color: rgba(196, 140, 90, 0.28); }
+.ci-pet-tower { border-color: rgba(176, 122, 74, 0.28); }
+/* 对战卡里的浅色内胆：冷色底在米色纸上会发灰，换成暖调 */
+.ci-pet-tactics {
+  background: rgba(214, 164, 96, 0.1);
+  border-color: rgba(196, 140, 90, 0.26);
+}
+.ci-pet-tower-card { background: rgba(255, 255, 255, 0.72); }
+.ci-pet-wild.is-owned {
+  background: linear-gradient(135deg, rgba(52, 199, 89, 0.12), rgba(255, 252, 244, 0.96));
+}
+/* 编辑器工具列原来直接摊在页面底色上，深底 + 深字 = 读不了 */
+.ci-pet-tools {
+  -webkit-box-sizing: border-box; box-sizing: border-box;
+  padding: 10px;
+  border-radius: 16px;
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.3);
+}
+
+/* ---------- F. 按钮：厚底 3D，按下去真的往下沉 ---------- */
+.ci-pet-bigbtn {
+  border-radius: 18px;
+  box-shadow: 0 5px 0 #C9B98F, 0 10px 20px rgba(4, 7, 18, 0.32);
+  -webkit-transition: -webkit-transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ci-pet-bigbtn:active {
+  -webkit-transform: translateY(4px);
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 #C9B98F, 0 4px 10px rgba(4, 7, 18, 0.28);
+}
+/* 主行动：同特异性重声明，必须写 .ci-pet-bigbtn--primary 之后才能压住默认态 */
+.ci-pet-bigbtn--primary {
+  background: linear-gradient(150deg, #FF9068, #FF6E92 55%, #FF5F9E);
+  box-shadow: 0 5px 0 #C13A66, 0 12px 24px rgba(255, 110, 146, 0.26);
+}
+.ci-pet-bigbtn--primary:active {
+  box-shadow: 0 1px 0 #C13A66, 0 6px 14px rgba(255, 110, 146, 0.22);
+}
+.ci-pet-bigbtn--primary[disabled],
+.ci-pet-bigbtn[disabled] {
+  box-shadow: 0 3px 0 rgba(150, 120, 96, 0.4);
+}
+.ci-pet-foe-btn {
+  background: linear-gradient(150deg, #FF9068, #FF6482);
+  box-shadow: 0 3px 0 #C2455F, 0 6px 12px rgba(4, 7, 18, 0.22);
+  -webkit-transition: -webkit-transform 0.12s ease, box-shadow 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.ci-pet-foe-btn:active {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #C2455F;
+  opacity: 1;
+}
+.ci-pet-foe-btn[disabled] { box-shadow: none; }
+
+/* ---------- G. 战斗舞台：整块压暗，做出「回合制对战」的场所感 ---------- */
+.ci-pet-arena {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  background-color: #1A2340;
+  background-image: radial-gradient(120% 90% at 50% 0%, #2B3765 0%, #1D2748 46%, #131A31 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 24px rgba(4, 7, 18, 0.34);
+}
+.ci-pet-arena-side { background: rgba(255, 255, 255, 0.06); }
+.ci-pet-arena-side--me { background: rgba(90, 160, 255, 0.14); }
+.ci-pet-arena-side--foe { background: rgba(255, 110, 140, 0.14); }
+.ci-pet-arena-name { color: #F2F6FF; }
+.ci-pet-arena-power { color: rgba(214, 224, 247, 0.66); }
+.ci-pet-arena-vs { color: rgba(255, 209, 102, 0.85); }
+.ci-pet-hpbar { background: rgba(255, 255, 255, 0.16); }
+.ci-pet-hptext { color: rgba(214, 224, 247, 0.66); }
+.ci-pet-arena-log {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(226, 233, 250, 0.82);
+}
+.ci-pet-arena-skip {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 233, 250, 0.82);
+}
+/* 胜负横幅在暗舞台里必须是「亮起来」的那块，否则深色标题全糊掉 */
+.ci-pet-arena-result { box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.14); }
+.ci-pet-arena-result.is-win { background: linear-gradient(150deg, #EAF9EC, #F7FFFA); }
+.ci-pet-arena-result.is-lose { background: linear-gradient(150deg, #F2F3F6, #FCFCFD); }
+
+/* ---------- H. 图鉴稀有度 / 排行页 ---------- */
+/* 今日焦点条：原来那层金色是「半透明叠白底」，落到深底就成了暗橄榄，
+   名字还是深色的直接读不出来。改成一张实心亮金票根 + 深棕字，
+   跟米色卡一样属于「亮起来」的那类面。 */
+.ci-pet-wild-spot {
+  background: linear-gradient(135deg, #FFEDA8, #FFD473 52%, #FFC65C);
+  box-shadow: inset 0 0 0 1px rgba(190, 126, 10, 0.34), 0 6px 16px rgba(4, 7, 18, 0.28);
+}
+.ci-pet-wild-spot-name { color: #6B3C00; }
+.ci-pet-wild-spot-bonus { color: #8A4B00; }
+/* 顺序不能动：is-owned（底色）→ 稀有度（描边）→ is-spot（今日焦点）。
+   同特异性靠后写覆盖，把 is-spot 挪前面会被稀有度描边吃掉。 */
+.ci-pet-wild.ci-pet-rar--common {
+  box-shadow: inset 0 0 0 1px rgba(140, 116, 80, 0.22), 0 4px 14px rgba(4, 7, 18, 0.22);
+}
+.ci-pet-wild.ci-pet-rar--rare {
+  box-shadow: inset 0 0 0 2px rgba(74, 144, 226, 0.55), 0 4px 14px rgba(4, 7, 18, 0.24);
+}
+.ci-pet-wild.ci-pet-rar--legend {
+  box-shadow: inset 0 0 0 2px rgba(216, 163, 58, 0.75), 0 6px 18px rgba(4, 7, 18, 0.26);
+}
+.ci-pet-wild.is-spot {
+  box-shadow: inset 0 0 0 2px rgba(255, 149, 0, 0.85), 0 0 0 2px rgba(255, 209, 102, 0.35), 0 6px 18px rgba(4, 7, 18, 0.26);
+}
+
+/* 排行页：自己那行是深色高亮卡（金字），榜单/成就/称号回米色纸卡 */
+.ci-pet-rankme {
+  background-color: #1D2748;
+  background-image: radial-gradient(120% 100% at 0% 0%, #2C3A6B 0%, #1C2547 60%, #151C36 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.34), 0 8px 22px rgba(4, 7, 18, 0.34);
+}
+.ci-pet-rankme-num { color: #FFD166; }
+.ci-pet-rankme-sub { color: rgba(226, 233, 250, 0.72); }
+.ci-pet-rankme-type { color: rgba(226, 233, 250, 0.72); }
+.ci-pet-rank,
+.ci-pet-ach,
+.ci-pet-titles {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background-color: #F8F2E4;
+  background-image: linear-gradient(180deg, #FFFCF4, #F5EEDC);
+  box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.13), 0 6px 18px rgba(4, 7, 18, 0.28);
+}
+
+/* ---------- I. 尊重「减少动态效果」：3D 位移也一起关掉 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pet-bigbtn,
+  .ci-pet-foe-btn {
+    -webkit-transition: none;
+    transition: none;
+  }
+  .ci-pet-bigbtn:active,
+  .ci-pet-bigbtn--primary:active,
+  .ci-pet-foe-btn:active {
+    -webkit-transform: none;
+    transform: none;
+  }
 }

@@ -57,9 +57,16 @@
   var poolsLoaded = false;
   var menuEl = null;
   // 切换防闪：换源期间盖住 video 的"定格幕布"（把当前帧截图到 canvas）
+  // ⚠️ 2026-10-27 起主路径已换成双缓冲（见 videoEl2 / startSwap），幕布仅留作回退。
   var freezeEl = null;
   var revealToken = 0;
   var failedAnims = {};
+  // ---- 双缓冲换源（2026-10-27）----
+  // videoEl 永远指"前台"（可见、正在播），videoEl2 指"后台"（预载新素材，被前台遮住）。
+  var videoEl2 = null;
+  var swapping = false;        // 后台正在装料
+  var swapToken = 0;           // 让过期的等待循环自行退场
+  var swapPrevAnim = '';       // 装料失败时要退回的动作名
 
   function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
   function every(fn, ms) { timers.push(setInterval(fn, ms)); }
@@ -71,6 +78,154 @@
     return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
   }
   function busy() { return mode === 'fly' || mode === 'climb' || mode === 'dash'; }
+  function clamp(v) { return Math.max(0, Math.min(100, v)); }
+
+  // ---- 反馈层：连击浮字 / 落地灰尘 / 拖拽拖尾 ----
+  // 全部只动 opacity + transform，且元素用完即删 —— 低端平板上不加持续负担。
+  var comboEl = null;
+  function showCombo(n) {
+    if (!el) return;
+    if (!comboEl) {
+      comboEl = document.createElement('div');
+      comboEl.className = 'ci-pet-combo';
+      el.appendChild(comboEl);   // 挂在 el 上而不是翻转层里，数字不会镜像
+    }
+    comboEl.textContent = '连击 ×' + n;
+    comboEl.classList.remove('ci-pet-combo--pop');
+    void comboEl.offsetWidth;
+    comboEl.classList.add('ci-pet-combo--pop', 'ci-pet-combo--show');
+    later(function() { if (comboEl) comboEl.classList.remove('ci-pet-combo--show'); }, 1500);
+  }
+
+  function puff(n) {
+    if (!el) return;
+    for (var i = 0; i < (n || 5); i++) {
+      (function(i) {
+        var p = document.createElement('span');
+        p.className = 'ci-pet-dust';
+        p.style.left = (8 + i * 18 + Math.random() * 6) + '%';
+        p.style.animationDelay = (i * 28) + 'ms';
+        el.appendChild(p);
+        later(function() { if (p.parentNode) p.parentNode.removeChild(p); }, 720);
+      })(i);
+    }
+  }
+
+  function trail(x, y) {
+    if (!el) return;
+    var t = document.createElement('span');
+    t.className = 'ci-pet-trail';
+    t.style.left = x + 'px';
+    t.style.top = y + 'px';
+    el.appendChild(t);
+    later(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 520);
+  }
+
+  // ---- 连击：连续戳会升级，到了档位给彩蛋 ----
+  var combo = 0;
+  var comboResetTimer = null;
+  var lastPokeAt = 0;
+  function bumpCombo() {
+    var now = Date.now();
+    if (now - lastPokeAt > 1800) combo = 0;   // 停手 1.8s 视为一轮结束
+    lastPokeAt = now;
+    combo += 1;
+    if (comboTimer) { clearTimeout(comboTimer); }
+    comboTimer = setTimeout(function() {
+      if (combo > (save.stats.maxCombo || 0)) {
+        save.stats.maxCombo = combo;
+        pushSave();
+      }
+      combo = 0;
+    }, 1800);
+    return combo;
+  }
+
+  // ---- 进度存档（宠物屋与悬浮层共用同一份键，两侧即时互通）----
+  // 数据结构刻意扁平且小：整包存进 SDK storage（ci:app:pet:progress），
+  // 不做增量 RPC —— 平板弱网下"存得下、读得快"比"服务端权威"重要。
+  var SAVE_KEY = 'progress';
+  var save = null;
+
+  function defaultSave() {
+    return {
+      v: 1,
+      beans: 0,
+      mood: 72,
+      fed: 60,
+      energy: 84,
+      ts: Date.now(),
+      gacha: [],
+      ach: {},
+      stats: { poke: 0, pat: 0, feed: 0, game: 0, gift: 0, maxCombo: 0 }
+    };
+  }
+
+  function loadSave() {
+    var raw = null;
+    try { raw = storage && storage.get(SAVE_KEY, null); } catch (e) {}
+    var s = (raw && typeof raw === 'object') ? raw : defaultSave();
+    var d = defaultSave();
+    if (!s.stats || typeof s.stats !== 'object') s.stats = d.stats;
+    if (!s.ach || typeof s.ach !== 'object') s.ach = {};
+    if (!(s.gacha instanceof Array)) s.gacha = [];
+    if (typeof s.beans !== 'number' || !isFinite(s.beans)) s.beans = 0;
+    if (typeof s.mood !== 'number' || !isFinite(s.mood)) s.mood = d.mood;
+    if (typeof s.fed !== 'number' || !isFinite(s.fed)) s.fed = d.fed;
+    if (typeof s.energy !== 'number' || !isFinite(s.energy)) s.energy = d.energy;
+    if (typeof s.ts !== 'number' || !isFinite(s.ts)) s.ts = Date.now();
+    save = s;
+    return s;
+  }
+
+  // 时间衰减：心情 −1.2/h，饱食 −6/h，活力 −2/h。
+  // 一节课后回来补个互动就有明显回升 —— 这是"养成感"的来源。
+  function decaySave(force) {
+    if (!save) return;
+    var now = Date.now();
+    var hours = (now - (save.ts || now)) / 3600000;
+    if (hours < 0) hours = 0;
+    if (!force && hours < 0.005) return;   // <18s 不结算，省一次写
+    save.mood = clamp(save.mood - hours * 1.2);
+    save.fed = clamp(save.fed - hours * 6);
+    save.energy = clamp(save.energy - hours * 2);
+    save.ts = now;
+  }
+
+  function pushSave() {
+    try {
+      if (storage) { save.ts = Date.now(); storage.set(SAVE_KEY, save); }
+    } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent('ci-pet-progress')); } catch (e) {}
+  }
+
+  // 心情档位：由三值均值决定（影响台词与自动播放的动作池）
+  function moodState() {
+    var avg = (clamp(save.mood) + clamp(save.fed) + clamp(save.energy)) / 3;
+    if (avg >= 82) return { key: 'great', emoji: '🤩', label: '超开心' };
+    if (avg >= 60) return { key: 'happy', emoji: '😊', label: '心情不错' };
+    if (avg >= 38) return { key: 'ok', emoji: '🙂', label: '一般般' };
+    return { key: 'sad', emoji: '😢', label: '有点低落' };
+  }
+
+  // 互动回复（每次戳/喂/玩都有数值变化 → 状态条与台词都动起来）
+  var CARE = {
+    pat: { mood: 3, energy: -0.6, fed: 0 },
+    tickle: { mood: 2, energy: -1, fed: 0 },
+    feed: { mood: 2, energy: 1, fed: 25 },
+    gift: { mood: 2, energy: 0, fed: 0 },
+    game: { mood: 4, energy: -3, fed: 0 }
+  };
+  function care(kind, combo) {
+    decaySave(false);
+    var c = CARE[kind] || { mood: 0, energy: 0, fed: 0 };
+    var bonus = combo && combo >= 5 ? Math.min(2, Math.floor(combo / 5)) : 0;
+    save.mood = clamp(save.mood + c.mood + bonus * 0.5);
+    save.fed = clamp(save.fed + c.fed);
+    save.energy = clamp(save.energy + c.energy);
+    if (c.fed > 0) save.lastFed = Date.now();
+    pushSave();
+  }
 
   function bondTier() {
     var b = (state && state.bond) || 0;
@@ -110,7 +265,9 @@
     book: ['看书充电中…', '这一页好有意思', '嘘，别打扰我'],
     nap: ['小憩一会儿…', '就眯五分钟…'],
     levelup: ['升级啦！！', '我也变强了！', '一起变厉害！'],
-    tierup: ['我们的羁绊变深了！', '（心里暖暖的）', '以后也请多指教！']
+    tierup: ['我们的羁绊变深了！', '（心里暖暖的）', '以后也请多指教！'],
+    // 对战胜利：桌宠在桌面上替你欢呼（页面里打完一场会派发 'ci-pet-win'）
+    win: ['赢啦！', '这一局漂亮！', '看到没，我很能打的！']
   };
   function bubbleSay(text, ms) {
     if (!el || !text) return;
@@ -534,7 +691,22 @@
       var d = (res.data && res.data.data) || {};
       if (d.state) state = d.state;
       if (d.tierUp) later(function() { say('tierup', 2200); confetti(); }, 900);
-    }).catch(function() {});
+      // 回报给宠物屋页面：让它刷新状态条，且自己别再发一次请求（否则撞冷却）
+      try {
+        window.dispatchEvent(new CustomEvent('ci-pet-fed', {
+          detail: { type: type, state: d.state, gained: d.gained || 0, capped: !!d.capped, tierUp: !!d.tierUp }
+        }));
+      } catch (e) {}
+    }, function(err) {
+      // 冷却/上限被拒：把服务端给的原因原样回报，别静默吞掉（用户看到的就是"点了没反应"）
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '互动失败';
+      try {
+        window.dispatchEvent(new CustomEvent('ci-pet-fed', {
+          detail: { type: type, gained: 0, capped: true, message: msg }
+        }));
+      } catch (e) {}
+      say('sad', 1800);
+    });
   }
 
   function poke(e) {
@@ -714,21 +886,26 @@
   }
 
   // ---- 视频形态（默认形象：dsh-pet 大肥鱼，CC BY-NC-SA，见 assets/THIRD-PARTY-LICENSE.md）----
+  // 视频几何：素材规范里人物在 16:9 画幅内约占 水平 30%~70%、垂直 20%~85%，
+  // el 表示"人物包围盒"而非画幅 → 视频放大 2.5x 把人物区域对齐到 el。
+  // 双缓冲的两个元素必须共用同一套几何，否则交换时会看起来"跳一下"。
+  function applyVideoGeom(v) {
+    if (!v) return;
+    v.style.position = 'absolute';
+    v.style.width = '250%';       // 1 / 0.4
+    v.style.height = '153.85%';   // 1 / 0.65
+    v.style.left = '-75%';        // -(30% × 2.5)
+    v.style.top = '-30.77%';      // -(20% × 1.5385)
+    v.style.transform = 'none';
+  }
   function fitVideo() {
     var vh2 = Number(window.innerHeight) || 787;
     var videoVH = Math.max(180, Math.min(330, Math.round(vh2 * 0.34)));
     var videoVW = Math.round(videoVH * 16 / 9);
-    // 素材规范：人物在 16:9 画幅内约占 水平 30%~70%、垂直 20%~85%。
-    // el = 人物包围盒（不是画幅！）：视频放大 2.5x 并把人物区域对齐到 el。
-    // 这样命中区、移动边界、活动范围都按"人物实际大小"算 —— 活动空间从 24px 恢复到 ~500px。
     el.style.width = Math.round(videoVW * 0.4) + 'px';
     el.style.height = Math.round(videoVH * 0.65) + 'px';
-    videoEl.style.position = 'absolute';
-    videoEl.style.width = '250%';       // 1 / 0.4
-    videoEl.style.height = '153.85%';   // 1 / 0.65
-    videoEl.style.left = '-75%';        // -(30% × 2.5)
-    videoEl.style.top = '-30.77%';      // -(20% × 1.5385)
-    videoEl.style.transform = 'none';
+    applyVideoGeom(videoEl);
+    applyVideoGeom(videoEl2);
   }
   function loadPoolsOnce() {
     if (poolsLoaded) return;
@@ -742,6 +919,8 @@
   }
   // 单视频元素方案：一个 <video> 搞定所有动作切换。
   // 浏览器原生处理 src 切换（无 display 操作、无双层），闪屏从结构上被消灭。
+  // 开跑：幕布在下方垫着，video 盖在上面。
+  // 这样"撤幕布"不是把幕布变透明，而是让 video 显形 —— 只要 video 没帧，露出的是幕布。
   var currentAnim = ''; // 当前动作名
   function poolUrl(name) {
     return '/market-static/pet/assets/webm/' + encodeURIComponent(name) + '.webm';
@@ -749,89 +928,257 @@
 
   // ---- 切换防闪幕布 ----
   // 病根：直接改 video.src 会让媒体元素进入 load 算法，渲染退化成"空白/透明"，
-  //       直到新素材首帧解码完成 —— 这一两帧到几百毫秒的空窗就是"切换时闪一下"。
+  //       直到新素材首帧解码完成 —— 那一两帧到几百毫秒的空窗就是"切换时闪一下"。
   // 解法：换源前把当前帧 drawImage 到一张 canvas 幕布上盖住 video，
-  //      等新素材 loadeddata/playing（已握有首帧）再撤幕布。全程屏幕上都有像素。
+  //       等新素材 loadeddata/playing（已握有首帧）再撤幕布。全程屏幕上都有像素。
+  //
+  // ⚠️ 2026-10-26 连点闪烁修复：幕布必须「持久保留最后一张好帧」。
+  //    连点时新动作常在上一次换源还没解码完时被请求，此刻 videoWidth=0，
+  //    drawImage 拿不到像素 —— 旧实现此时静默 return，video.style.opacity 仍是 '1'，
+  //    于是视频图层裸露在 readyState<2 的空白态 = 闪一下。
+  //    现在：快照失败也照样把幕布盖上（用上一张留存的好帧），绝不裸露。
+  //    幕布有帧记忆（hasFrame），不是每次都要现抓。
+  var hasFrame = false;
+  var lastFreezeAt = 0;
+  var lastSwitchAt = 0;        // 上次真正换源的时间（连点冷却用）
+  var pendingAnim = null;      // 冷却期里排队的最新动作
+  var pendingTimer = null;
+
   function ensureFreeze() {
     if (freezeEl && freezeEl.parentNode === body && document.body.contains(freezeEl)) return freezeEl;
     if (freezeEl && freezeEl.parentNode) { try { freezeEl.parentNode.removeChild(freezeEl); } catch (e) {} }
     freezeEl = document.createElement('canvas');
     freezeEl.className = 'ci-pet-freeze';
+    hasFrame = false;
     if (body) body.appendChild(freezeEl);
     return freezeEl;
   }
-  function freezeFrame() {
-    if (!isVideo || !videoEl || !videoEl.videoWidth || !body) return false;
+
+  // 抓当前帧进幕布。返回 true = 幕布上有可用像素。
+  function captureFrame() {
+    if (!isVideo || !videoEl || !body) return false;
     var vw = videoEl.videoWidth, vh = videoEl.videoHeight;
-    if (!vw || !vh) return false;
+    if (!vw || !vh || videoEl.readyState < 2) return false;   // 没数据，抓不到
     var c = ensureFreeze();
-    if (c.width !== vw || c.height !== vh) { c.width = vw; c.height = vh; }
+    if (c.width !== vw || c.height !== vh) { c.width = vw; c.height = vh; hasFrame = false; }
     try {
       var g = c.getContext('2d');
       g.clearRect(0, 0, vw, vh);
       g.drawImage(videoEl, 0, 0, vw, vh);
     } catch (e) { return false; }
-    // 几何必须与 video 完全一致（fitVideo 用的是百分比，直接照抄内联值，包含块相同）
+    hasFrame = true;
+    lastFreezeAt = Date.now();
+    syncFreezeGeometry(c);
+    return true;
+  }
+
+  // 幕布几何必须与 video 完全一致（fitVideo 用百分比内联值，包含块相同 → 照抄即可）
+  function syncFreezeGeometry(c) {
+    if (!c || !videoEl) return;
     c.style.position = 'absolute';
     c.style.width = videoEl.style.width;
     c.style.height = videoEl.style.height;
     c.style.left = videoEl.style.left;
     c.style.top = videoEl.style.top;
+  }
+
+  // ⚠️ 2026-10-26 补：抓不到帧时，旧实现直接 return false = 放弃遮挡 = 裸露。
+  //    桌面 Chrome 解码快所以抓得到；校园平板（Chrome 80 WebView）解码慢，
+  //    readyState 常停在 0/1，抓帧必失败 —— 这正是"探针全绿但真机还在闪"的根因。
+  //    现在分三级兜底，保证幕布上永远有像素：
+  //      1) 本次能抓 → 用新帧
+  //      2) 抓不到但留过好帧 → 复用留存帧
+  //      3) 连留存帧都没有（刚挂载/首帧未到）→ 画一张中性占位底图
+  function drawPlaceholder(c) {
+    var w = c.width || 300, h = c.height || 200;
+    var g = c.getContext('2d');
+    g.clearRect(0, 0, w, h);
+    // 柔和的圆形剪影，颜色取当前主题的次级文字色，任何背景下都不刺眼
+    g.fillStyle = 'rgba(255,255,255,0.16)';
+    g.beginPath();
+    g.arc(w / 2, h * 0.46, Math.min(w, h) * 0.26, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.ellipse(w / 2, h * 0.82, Math.min(w, h) * 0.22, Math.min(w, h) * 0.09, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // 换源瞬间调用：无论如何把幕布盖上（抓帧失败也盖，用留存帧或占位图）
+  function freezeFrame() {
+    if (!isVideo || !videoEl || !body) return false;
+    var c = ensureFreeze();
+    var got = captureFrame();
+    if (!got && !hasFrame) {
+      // 首帧都还没有：至少保证几何正确，再画占位底图
+      if (!c.width) { c.width = 300; c.height = 200; }
+      syncFreezeGeometry(c);
+      drawPlaceholder(c);
+      hasFrame = true;              // 占位图算"有像素"，后续可安全复用
+    } else if (!got) {
+      syncFreezeGeometry(c);        // 有留存帧：仅同步几何，像素保持上次好帧
+    }
     c.style.opacity = '1';
-    videoEl.style.opacity = '0';
+    c.style.zIndex = '3';           // 压在 video 上方 = 遮挡中
     return true;
   }
+
+  // 就绪后把幕布降回 video 之下（内容保留，下次换源还能当"留存帧"用）
   function revealVideo() {
     revealToken++; // 让尚未落地的兜底计时失效
-    if (freezeEl) freezeEl.style.opacity = '0';
-    if (videoEl) videoEl.style.opacity = '1';
+    if (freezeEl) { freezeEl.style.zIndex = '1'; freezeEl.style.opacity = '0'; }
   }
-  // 首帧就绪即撤幕布；1.2s 兜底（素材慢/缺失也不能永久定格）
+
+  // 首帧就绪即撤幕布；兜底按时长重试，不当"到点就撤"用
   function armReveal() {
     var my = ++revealToken;
+    function ready() {
+      return !!(videoEl && videoEl.readyState >= 3 && videoEl.videoWidth > 0);
+    }
     function once() {
       if (my !== revealToken) return;
+      if (!ready()) return;             // 还没好，继续等（别裸露）
       revealToken++;
       if (videoEl) {
         videoEl.removeEventListener('loadeddata', once);
         videoEl.removeEventListener('playing', once);
+        videoEl.removeEventListener('timeupdate', once);
       }
       revealVideo();
     }
     if (videoEl) {
       videoEl.addEventListener('loadeddata', once);
       videoEl.addEventListener('playing', once);
+      // timeupdate：真正在解码推进时才代表有可用帧（hover 到 readyState=1 的那种假就绪不会触发）
+      videoEl.addEventListener('timeupdate', once);
     }
-    later(function() { if (my === revealToken) once(); }, 1200);
+    // 兜底：每 100ms 检查一次，最长守 2.5s。素材缺失时由 error 事件接管回落。
+    var tries = 0;
+    (function watchdog() {
+      if (my !== revealToken) return;
+      if (ready()) { once(); return; }
+      if (++tries > 25) { once(); return; }
+      later(watchdog, 100);
+    })();
+  }
+
+  // ---- 换源：双缓冲（2026-10-27）----
+  // 为什么彻底废掉 canvas 幕布：
+  //   幕布的本质是「遮住空白」，不是「消除空白」。只要画面来自那个正在换 src 的元素，
+  //   就必然有一段没有帧的窗口。真机（Chrome 80 WebView）解码慢，抓帧必然失败，
+  //   三级兜底最后只能画占位剪影 —— 用户看到「宠物 → 白圈 → 宠物」，那还是闪。
+  // 现在：两台 video 前后台分工。前台一直在正常播放（画面从未中断），
+  //   新素材在后台静默装载并 play()，等它真正握有可播帧后原子交换 —— 空白帧不存在。
+  function makeVideoEl() {
+    var v = document.createElement('video');
+    v.className = 'ci-pet-video';
+    v.muted = true;
+    v.setAttribute('playsinline', 'playsinline');
+    v.setAttribute('webkit-playsinline', 'webkit-playsinline');
+    v.style.pointerEvents = 'none';
+    v.addEventListener('ended', onVideoEnded);
+    v.addEventListener('error', onVideoError);
+    return v;
   }
 
   function playVideo(name, loop) {
     if (!videoEl || !name) return;
     if (failedAnims[name]) name = idleName(); // 素材缺失：回落到待机，别再闪一次
     var url = poolUrl(name);
-    // 同名且就是当前源：倒回去重播（不重载）—— 循环待机/被反复触发时零空窗
-    if (name === currentAnim && videoEl.getAttribute('src') === url && videoEl.readyState >= 2) {
-      try { videoEl.currentTime = 0; } catch (e) {}
-      var p0 = videoEl.play();
-      if (p0 && p0.catch) p0.catch(function() {});
-      revealVideo();
+
+    // 前台就是这个源：续播 / 重播，一个元素都不动（零空窗）
+    if (name === currentAnim && videoEl.getAttribute('src') === url) {
+      if (videoEl.paused || videoEl.ended) {
+        try { videoEl.currentTime = 0; } catch (e) {}
+        var p0 = videoEl.play();
+        if (p0 && p0.catch) p0.catch(function() {});
+      }
       return;
     }
-    // 同名且仍在播（拖拽 pointermove 每帧调用）：跳过
-    if (name === currentAnim && !videoEl.paused && !videoEl.ended) return;
+
+    // 后台还在装上一个请求：只记最新意图，装完立刻接手（连点不雪崩）
+    if (swapping) { pendingAnim = { name: name, loop: !!loop }; return; }
+    startSwap(name, url, !!loop);
+  }
+
+  function startSwap(name, url, loop) {
+    if (!videoEl || !videoEl2) return;
+    var back = videoEl2;
+    var my = ++swapToken;
+    swapping = true;
+    swapPrevAnim = currentAnim;
     currentAnim = name;
-    videoEl.loop = !!loop;
-    freezeFrame();          // 幕布先就位，再动 src
-    videoEl.removeAttribute('src'); // 强制浏览器重载（同 URL 时不移除会卡在末帧）
-    videoEl.src = url;
-    var pr = videoEl.play();
+    lastSwitchAt = Date.now();
+
+    back.loop = loop;
+    // 必须 removeAttribute：同 URL 不清 src，浏览器会认为没变，卡在末帧
+    back.removeAttribute('src');
+    back.src = url;
+    var pr = back.play();
     if (pr && pr.catch) pr.catch(function() {});
-    armReveal();
+
+    var tries = 0;
+    (function waitFrame() {
+      if (my !== swapToken) return;
+      // readyState >= 3（HAVE_FUTURE_DATA）：不仅握有当前帧，还够继续播 → 切过去不会立刻卡住
+      if (back.readyState >= 3 && back.videoWidth > 0) { commit(); return; }
+      if (++tries <= 36) { later(waitFrame, 100); return; }
+      // 3.6s 还没就绪：素材有问题。宁可留在旧动作上，也不要把空白推上屏。
+      if (back.readyState < 2 || !back.videoWidth) {
+        if (name) failedAnims[name] = 1;
+        currentAnim = swapPrevAnim;
+        swapping = false;
+        try { back.pause(); } catch (e) {}
+        try { videoEl.play(); } catch (e2) {}
+        return;
+      }
+      commit();
+    })();
+
+    function commit() {
+      if (my !== swapToken) return;
+      // 双 rAF：让后台元素在被「看见」之前先完成一帧光栅化。
+      // 交换本身只改 z-index/opacity，浏览器下一帧统一合成 → 原子，不会出现半张脸。
+      var raf = window.requestAnimationFrame || function(f) { return setTimeout(f, 16); };
+      raf(function() {
+        raf(function() {
+          if (my !== swapToken) return;
+          var old = videoEl;
+          back.style.zIndex = '2';
+          back.style.opacity = '1';
+          videoEl = back;
+          videoEl2 = old;
+          old.style.zIndex = '1';
+          // 用 0.001 而非 0：完全不透明会被「不可见就别解码」的优化盯上，后台就不再备料了
+          old.style.opacity = '0.001';
+          swapping = false;
+          // 换下来的元素稍后才停：确保合成器已完成这次交换
+          later(function() {
+            if (old === videoEl) return;     // 它又被换回来了，别停
+            try { old.pause(); } catch (e) {}
+          }, 160);
+          var p = pendingAnim;
+          pendingAnim = null;
+          if (p && isVideo) startSwap(p.name, poolUrl(p.name), p.loop);
+        });
+      });
+    }
   }
 
   // 素材拉取失败：撤幕布 + 记黑，避免"白 box 卡住 + 反复重试"
-  function onVideoError() {
+  function onVideoError(e) {
     if (!isVideo || !videoEl) return;
+    // 后台装料失败：前台还在正常演，别撤幕布也别打断它，安静退回原动作
+    if (e && e.target && e.target !== videoEl) {
+      if (currentAnim) failedAnims[currentAnim] = 1;
+      currentAnim = swapPrevAnim;
+      swapping = false;
+      var p = pendingAnim;
+      pendingAnim = null;
+      if (p && !failedAnims[p.name]) {
+        later(function() { startSwap(p.name, poolUrl(p.name), p.loop); }, 120);
+      }
+      return;
+    }
     if (currentAnim) failedAnims[currentAnim] = 1;
     revealVideo();
     if (currentAnim !== idleName()) {
@@ -839,8 +1186,10 @@
       later(function() { playVideo(idleName()); }, 120);
     }
   }
-  function onVideoEnded() {
+  function onVideoEnded(e) {
     if (!isVideo || !videoEl) return;
+    // 只有前台元素播完才算数：后台是被换下来的，它的 ended 不该触发换动作
+    if (e && e.target && e.target !== videoEl) return;
     currentAnim = '';
     if (mode === 'sleep') { playVideo(idleName(), true); return; }
     if (mode === 'walk' || mode === 'dash') return;
@@ -889,17 +1238,17 @@
       body.style.width = '100%';
       body.style.height = '100%';
       flipEl.appendChild(body);
-      videoEl = document.createElement('video');
-      videoEl.className = 'ci-pet-video';
-      videoEl.muted = true;
-      videoEl.setAttribute('playsinline', 'playsinline');
-      videoEl.setAttribute('webkit-playsinline', 'webkit-playsinline');
-      videoEl.style.pointerEvents = 'none';
+      // 双缓冲：先挂后台、再挂前台（DOM 顺序 + z-index 双保险，前台永远在最上面）
+      videoEl2 = makeVideoEl();
+      body.appendChild(videoEl2);
+      videoEl = makeVideoEl();
+      body.appendChild(videoEl);
       el.classList.add('ci-pet--video');
       fitVideo();
-      body.appendChild(videoEl);
-      videoEl.addEventListener('ended', onVideoEnded);
-      videoEl.addEventListener('error', onVideoError);
+      videoEl.style.zIndex = '2';
+      videoEl.style.opacity = '1';
+      videoEl2.style.zIndex = '1';
+      videoEl2.style.opacity = '0.001';
       afterBuild(false);
       return;
     }
@@ -942,7 +1291,10 @@
     freezeEl = null;
     failedAnims = {}; currentAnim = '';
     if (videoEl) { try { videoEl.pause(); videoEl.removeAttribute('src'); } catch (e) {} }
-    videoEl = null; isVideo = false; builtVisual = null;
+    if (videoEl2) { try { videoEl2.pause(); videoEl2.removeAttribute('src'); } catch (e) {} }
+    videoEl = null; videoEl2 = null;
+    swapping = false; swapToken++; swapPrevAnim = ''; pendingAnim = null;
+    isVideo = false; builtVisual = null;
     el = null; bubble = null; canvas = null; body = null; flipEl = null;
     mode = 'idle';
     kills += 1;
@@ -1081,10 +1433,17 @@
     var onFeedEvent = function() { feed(); };
     var onPokeEvent = function() { poke(null); };
     var onCallEvent = function() { callPet(); };
+    // 对战胜利：页面（entry.js）结算完派发，桌面这只跟着欢呼一下。
+    // 只做表现，不碰任何数值——战报结算全在服务端。
+    var onWinEvent = function() {
+      say('win', 2200);
+      later(function() { confetti(); }, 260);
+    };
     window.addEventListener('ci-pet-state-changed', onPetChanged);
     window.addEventListener('ci-pet-feed', onFeedEvent);
     window.addEventListener('ci-pet-poke', onPokeEvent);
     window.addEventListener('ci-pet-call', onCallEvent);
+    window.addEventListener('ci-pet-win', onWinEvent);
     window.addEventListener('resize', clamp);
     document.addEventListener('visibilitychange', onVisibility);
     if (realtime && typeof realtime.on === 'function') {
@@ -1105,6 +1464,7 @@
         window.removeEventListener('ci-pet-feed', onFeedEvent);
         window.removeEventListener('ci-pet-poke', onPokeEvent);
         window.removeEventListener('ci-pet-call', onCallEvent);
+        window.removeEventListener('ci-pet-win', onWinEvent);
         window.removeEventListener('resize', clamp);
         document.removeEventListener('visibilitychange', onVisibility);
         destroy();
@@ -1128,7 +1488,16 @@
       kills: kills,
       level: levelInfo ? levelInfo.level : null,
       lastError: lastError || '',
-      pos: { x: pos.x, y: pos.y }
+      pos: { x: pos.x, y: pos.y },
+      // 双缓冲可观测性（探针与真机排查都靠这几项）
+      anim: currentAnim,
+      swapping: swapping,
+      frontReady: videoEl ? videoEl.readyState : -1,
+      backReady: videoEl2 ? videoEl2.readyState : -1,
+      frontSrc: videoEl ? String(videoEl.getAttribute('src') || '').split('/').pop() : '',
+      backSrc: videoEl2 ? String(videoEl2.getAttribute('src') || '').split('/').pop() : '',
+      frontZ: videoEl ? videoEl.style.zIndex : '',
+      backZ: videoEl2 ? videoEl2.style.zIndex : ''
     };
   };
 
