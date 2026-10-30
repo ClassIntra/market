@@ -45,6 +45,8 @@
 - `index.json` 升至 `20`，更新 `web-proxy` 版本号与 `manifest.json` / `README.md` 哈希。
 - `web-proxy` 升至 `1.0.26`：网页代理改为**手动开关**——超能岛浏览器不再自动把外网站点改走代理，默认直连，需要时点工具栏「闪电」按钮才让当前站点经代理转发（偏好按账号记忆，切换后立即重载当前页）；兼容模式本身不经代理改写，故该按钮在兼容模式下隐藏。仍然排除 CampusBili（含 9002 端口）、与 ClassIntra 同主机名的页面、已是代理地址，避免二次包装与桥接失效。同时**局域网 / 内网地址也显示兼容模式入口**——此前 `compatCapable` 与代理判定里的 `isLanHost` 会把 localhost、私有 IP、单标签主机名一律排除，但渲染浏览器本就运行在服务器侧（通常就在同一内网），局域网页面同样可以兼容渲染；`shouldProxyUrl` 相应改名为 `canProxyUrl`，只判断「是否可以代理」，局域网不再强制直连。
 - `index.json` 升至 `21`，更新 `web-proxy` 版本号与 `manifest.json` / `README.md` 哈希。
+- `web-proxy` 升至 `1.0.27`：精简代理排除规则——只排除端口 `9000–9999`（ClassIntra 自研主服务段，CampusBili `9002` 桥接与代理自身 `9101` 都在其中），不再按主机名排除 CampusBili、也不再排除与 ClassIntra 同主机名的页面；其余地址（含局域网 / 内网 / 本机）只要手动开启开关都可走代理。
+- `index.json` 升至 `22`，更新 `web-proxy` 版本号与 `manifest.json` / `README.md` 哈希。
 
 ## 1.1.0
 

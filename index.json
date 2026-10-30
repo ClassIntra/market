@@ -1,6 +1,6 @@
 {
-  "version": 21,
-  "updated_at": "2026-10-30T06:20:00.000Z",
+  "version": 22,
+  "updated_at": "2026-10-30T06:35:00.000Z",
   "apps": [
     {
       "name": "chess",
@@ -446,7 +446,7 @@
     {
       "name": "web-proxy",
       "label": "网页代理",
-      "version": "1.0.26",
+      "version": "1.0.27",
       "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。",
       "author": "",
       "files": [
@@ -475,8 +475,8 @@
         "backend/routes.js": "24e7007c67d24850ec8166b31734f15eb819ca7c4fbb7ca33ef36c929d55e990",
         "CONTRIBUTING.md": "ebbd6fccc44cfc26d23d9a328576b864c563057e6537089bb7ca9edc0df00cd5",
         "frontend/bridge.js": "9b501a04dd2a5d76deeafe1505f6ba0e4068c44ebcf1525f85432e08c567c73f",
-        "manifest.json": "18de4764bab8414516f6f2da149b4b0b86add4ec62543c79bc100ec68fd22747",
-        "README.md": "9dedcd9cba9a6a7b432f9a4fa9b545841f0c2a8df6df8640261d1608e5b3f412",
+        "manifest.json": "3017aae4f0abec6595a5520b758a6509ca13b86a0f0412c57217606116dca6ac",
+        "README.md": "a68178d3e4193b241e3b971ace7abe180753d73ccb2328ab27c116773fcc9148",
         "shared/contract.js": "fe9916a2bfa71e9d5ec40a3ce8618d120b09dcd0ddd5505e2f994ddec6246a4a"
       }
     }
