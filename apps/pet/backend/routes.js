@@ -111,6 +111,228 @@ var TIER = [0, 20, 60, 120, 200];
 var TIER_NAMES = ['初识', '熟悉', '亲密', '形影不离', '灵魂伙伴'];
 function tierOf(b) { var t = 0; for (var i = 0; i < TIER.length; i++) { if (b >= TIER[i]) t = i; } return t; }
 
+// ==================== 性格 / 心情 / 互动反应（v0.15.0）====================
+// 桌宠最常见的死法不是「没事干」，是「每次干都一样」：
+// 喂食 +4、摸摸 +1，点十次就是十个 +4，玩家第三天就摸清了全部规律，
+// 从此这个应用只剩打卡。加功能救不了这件事，加法是「更多一样的动作」。
+//
+// 这里改的是「同一个动作的体感」：
+//   · 性格 —— 领养时定下，恒久影响收益与台词。这只贪吃，那只高冷。
+//   · 心情 —— 由时段 / 饱食 / 今日互动算出来，每次进页面都可能不同。
+//   · 反应 —— 互动时有一定概率触发「大成功」，收益更高、有专门的表现。
+//
+// ⚠️ 三条硬约束（不遵守就会破坏已有平衡）：
+//   1. 性格只加不减：最差也是原值。否则「随机到差性格」= 惩罚，玩家会重开。
+//   2. 每日次数上限一律不动（poke 10 / feed 3 / gift 2 / visit 1），
+//      特殊反应只在「本来就该给收益」的那一次里发生。
+//   3. 全部字段可缺省：老存档没有 personality 就按 uid 现算，不迁移、不报错。
+var PERSONALITIES = {
+  glutton: {
+    id: 'glutton', name: '贪吃', icon: '🍙', desc: '闻到香味就走不动',
+    feedBonus: 2, pokeBonus: 0, critRate: 0.15,
+    lines: ['闻到香味了…是给我带的吗', '刚才梦见一条很大的鱼', '肚子有点空，不过没关系']
+  },
+  clingy: {
+    id: 'clingy', name: '粘人', icon: '💞', desc: '你走到哪它看到哪',
+    feedBonus: 0, pokeBonus: 1, critRate: 0.15,
+    lines: ['你去哪我就跟到哪', '刚刚一直在等你回头', '今天也想被摸很多下']
+  },
+  aloof: {
+    id: 'aloof', name: '高冷', icon: '🌙', desc: '嘴上说不要，尾巴在摇',
+    feedBonus: 0, pokeBonus: 0, critRate: 0.24,
+    lines: ['……我不是在等你', '别摸了。再摸一下也可以', '这里风景还行，我随便站站']
+  },
+  curious: {
+    id: 'curious', name: '好奇', icon: '🔍', desc: '什么都想闻一闻',
+    feedBonus: 0, pokeBonus: 0, critRate: 0.30,
+    lines: ['你桌上那个新东西是什么', '刚才有只虫飞过去，我盯了很久', '今天会发生什么']
+  },
+  sleepy: {
+    id: 'sleepy', name: '贪睡', icon: '😴', desc: '一天能睡二十小时',
+    feedBonus: 1, pokeBonus: 0, critRate: 0.12,
+    lines: ['再睡五分钟…', '刚才打了个盹，梦见自己在打盹', '唔，你回来了']
+  }
+};
+var PERSONALITY_IDS = ['glutton', 'clingy', 'aloof', 'curious', 'sleepy'];
+var DEFAULT_PERSONALITY = 'curious';
+
+// 性格存在 state.personality；缺省时用 uid 现算。
+// 为什么用 uid 而不是 Math.random：性格不该「随机跳变」——
+// 存档迁移、换设备、清缓存之后，它必须还是同一只贪吃的鱼。
+function personalityOf(st, uid) {
+  var id = st && st.personality;
+  if (!PERSONALITIES[id]) {
+    id = PERSONALITY_IDS[fnv1a('p:' + (uid || 0)) % PERSONALITY_IDS.length];
+  }
+  return PERSONALITIES[id];
+}
+
+// 心情：不是随机数，是可以被玩家「照顾出来」的状态。
+// 优先级即这里的顺序 —— 半夜就是困，饿了就是饿，被照顾得多就是满足。
+function moodOf(st, now) {
+  var d = now || new Date();
+  var h = d.getHours();
+  var fed = (st && st.fed_today) || 0;
+  var poked = (st && st.poked_today) || 0;
+  var bondToday = (st && st.bond_today) || 0;
+  if (h >= 23 || h < 6) {
+    return { id: 'sleepy', name: '困了', icon: '😴', tone: 'low',
+             text: '这个点还没睡吗…我趴一会儿，有事叫我' };
+  }
+  if (bondToday >= 15) {
+    return { id: 'bliss', name: '很满足', icon: '😊', tone: 'high',
+             text: '今天被照顾得很好，尾巴一直没放下来' };
+  }
+  if (fed === 0 && h >= 12) {
+    return { id: 'hungry', name: '饿了', icon: '🍚', tone: 'low',
+             text: '肚子叫了一声，你听见了吗' };
+  }
+  if (poked >= 3) {
+    return { id: 'excited', name: '很兴奋', icon: '🤩', tone: 'high',
+             text: '还想再被摸一下！就一下' };
+  }
+  return { id: 'calm', name: '平静', icon: '🌙', tone: 'mid',
+           text: '在桌上待着，听你敲键盘' };
+}
+
+// 一次互动的收益：基础值 + 性格加成，再掷一次「大成功」。
+// 心情好时概率翻 1.7 倍、心情差时压到 0.7 —— 这是「照顾得好会有回报」的唯一体现，
+// 所以它只是概率浮动，不改变任何一种性格的收益下限。
+function rollGain(type, p, mood) {
+  var base = INTERACT_RULES[type].gain;
+  if (type === 'feed') base += (p.feedBonus || 0);
+  if (type === 'poke') base += (p.pokeBonus || 0);
+  var rate = (p.critRate === undefined ? 0.15 : p.critRate);
+  if (mood && mood.tone === 'high') rate *= 1.7;
+  else if (mood && mood.tone === 'low') rate *= 0.7;
+  if (Math.random() < rate) {
+    return { gain: base + Math.max(2, Math.round(base * 0.6)), crit: true };
+  }
+  return { gain: base, crit: false };
+}
+
+// ==================== 专注陪伴 / 小鱼干 / 日记（v0.11.0）====================
+// 桌宠最容易死在「每天点三下就没事可做」。解法不是再加一个每日任务，
+// 而是给它一个和玩家真实生活绑定的产出：
+//
+//   陪它专注 N 分钟 → 掉小鱼干 → 换豪华大餐 → 喂它涨更多羁绊
+//                                      ↓
+//                            晚上自动生成一篇第一人称日记
+//
+// 这条链的关键是「收益必须来自玩家真的坐了 N 分钟」。所以：
+//   - 只接受三种时长，服务端按 minutes 反推秒数上限，客户端虚报 elapsed 拿不到超额收益；
+//   - 专注给的羁绊单独记额度（FOCUS_BOND_DAILY），不与摸摸/喂食抢那 25 点的日上限，
+//     否则「专注 45 分钟」会把当天的互动额度吃光，反而劝退。
+var FOCUS_ALLOWED = [15, 25, 45];
+var FOCUS_COIN_MINUTES = 5;   // 每专注 5 分钟得 1 条小鱼干
+var FOCUS_DONE_BONUS = 1;     // 完整走完（没中途放弃）额外 +1
+var FOCUS_BOND = 2;           // 每完成一轮 +2 羁绊
+var FOCUS_BOND_DAILY = 6;     // 专注羁绊每日上限（3 轮封顶）
+var FEAST_COST = 5;           // 豪华大餐价格（小鱼干）
+var FEAST_GAIN = 10;          // 豪华大餐羁绊（普通鱼干是 4）
+var DIARY_KEEP_DAYS = 14;     // 日记保留天数
+// 离线时光（v0.16.0）：桌宠在你不在时也有自己的生活
+var OFFLINE_CAP_MIN = 480;    // 最多结算 8 小时
+var OFFLINE_MIN_GAP = 30;     // 至少离线 30 分钟才触发
+var OFFLINE_COIN_PER_HOUR = 2;// 每小时 2 条小鱼干
+var OFFLINE_BOND_PER_HOUR = 1;// 每 2 小时 1 羁绊
+var OFFLINE_CAP_COINS = 16;   // 8 小时上限 16 条
+var OFFLINE_CAP_BOND = 4;     // 8 小时上限 4 羁绊
+
+// 日记只存「事件计数」，文案在读取时用模板现算。
+// 好处：① 存储极小（一天几行 JSON）；② 以后改文案，历史日记跟着一起变好；
+// ③ 同一天用日期做种子选模板，刷新多少次都是同一句，不会闪来闪去。
+function diaryPush(st, dateKey, ev) {
+  if (!st) return;
+  if (!st.diary || typeof st.diary !== 'object') st.diary = {};
+  var day = st.diary[dateKey];
+  if (!day || !day.length) day = st.diary[dateKey] = [];
+  var found = null;
+  for (var i = 0; i < day.length; i++) {
+    if (day[i].k === ev.k) { found = day[i]; break; }
+  }
+  if (found) {
+    if (ev.n) found.n = (found.n || 0) + ev.n;
+    if (ev.m) found.m = (found.m || 0) + ev.m;
+  } else {
+    day.push({ k: ev.k, n: ev.n || 0, m: ev.m || 0 });
+  }
+  // 裁剪：只留最近 DIARY_KEEP_DAYS 天
+  var keys = Object.keys(st.diary).sort();
+  while (keys.length > DIARY_KEEP_DAYS) {
+    delete st.diary[keys.shift()];
+  }
+}
+
+function diaryText(dateKey, ev) {
+  var feed = 0, feast = 0, poke = 0, focusMin = 0, wins = 0, caps = 0;
+  for (var i = 0; i < ev.length; i++) {
+    var e = ev[i] || {};
+    if (e.k === 'feed') feed += (e.n || 0);
+    else if (e.k === 'feast') feast += (e.n || 0);
+    else if (e.k === 'poke') poke += (e.n || 0);
+    else if (e.k === 'focus') focusMin += (e.m || 0);
+    else if (e.k === 'win') wins += (e.n || 0);
+    else if (e.k === 'capture') caps += (e.n || 0);
+  }
+  var seed = fnv1a(dateKey);
+  // 每次取模板都推进一次种子：同一天刷新仍然是同一句（确定性），
+  // 但同一篇日记里的几个分句不会共用同一个下标（否则全部第 0 句，读起来像模板）。
+  var pick = function(arr) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return arr[seed % arr.length];
+  };
+  var parts = [];
+
+  if (focusMin > 0) {
+    parts.push(pick([
+      '陪主人安静坐了 ' + focusMin + ' 分钟，我连尾巴都没晃。',
+      '主人忙的时候，我就趴在旁边数呼吸。' + focusMin + ' 分钟，一次都没打扰。',
+      '今天和主人一起专注了 ' + focusMin + ' 分钟，感觉自己也有点用。'
+    ]));
+  }
+  if (feast > 0) {
+    parts.push('还吃到了豪华大餐，是今天最亮的时刻。');
+  } else if (feed > 0) {
+    parts.push(pick([
+      '吃了 ' + feed + ' 顿，肚子圆了一点。',
+      '被喂了 ' + feed + ' 次，心情不错。',
+      '今天有 ' + feed + ' 顿加餐，记在小本本上了。'
+    ]));
+  }
+  if (poke > 0) {
+    parts.push(pick(['被摸了 ' + poke + ' 下，毛都顺了。', '主人今天摸了我 ' + poke + ' 次。']));
+  }
+  if (wins > 0) parts.push('打架赢了 ' + wins + ' 场。');
+  if (caps > 0) parts.push('交到了 ' + caps + ' 个新朋友。');
+
+  if (!parts.length) {
+    return pick([
+      '今天主人在忙，我自己玩了一会儿影子。',
+      '没什么事发生。阳光在桌面上挪了一格，我跟着挪了一格。',
+      '安静的一天。我数了 137 次呼吸，最后数乱了。'
+    ]);
+  }
+  return parts.join('');
+}
+
+// 日记视图：今天一句 + 过去若干天（新的在前）
+function diaryView(st, today) {
+  var diary = (st && st.diary) || {};
+  var keys = Object.keys(diary).sort().reverse();
+  var todayEv = diary[today] || [];
+  var out = {
+    today: { date: today, text: todayEv.length ? diaryText(today, todayEv) : '', count: todayEv.length },
+    history: []
+  };
+  for (var i = 0; i < keys.length && out.history.length < 7; i++) {
+    if (keys[i] === today) continue;
+    out.history.push({ date: keys[i], text: diaryText(keys[i], diary[keys[i]] || []) });
+  }
+  return out;
+}
+
+
 // ==================== 系别（v0.8.0）====================
 // 宝可梦最有用的那层设计不是「一百多种怪」，而是**属性相克**：
 // 它让同一套数值在不同对局里产生不同的意义，玩家才会去想「我该带谁上场」。
@@ -169,7 +391,7 @@ function typeInfo(id) {
   return list[0];
 }
 
-// 羁绊交互：POST /pet/interact { type: 'poke'|'feed'|'visit' }
+// 羁绊交互：POST /pet/interact { type: 'poke'|'feed'|'visit', food?: 'normal'|'feast' }
 // 返回 { state, gained, tierUp, capped }
 router.post('/interact', requireAuth, function(req, res) {
   var uid = userId(req);
@@ -177,10 +399,24 @@ router.post('/interact', requireAuth, function(req, res) {
   var rule = INTERACT_RULES[type];
   if (!rule) return res.status(400).json({ code: 400, message: '未知交互类型' });
 
+  // 豪华大餐：不是另一种「每日次数」，而是同一顿饭的加料。
+  // 所以它共用 feed 的 20 分钟冷却和 3 次日上限，只是单次收益更高、要花小鱼干。
+  // 不这么设计的话，玩家会把「免费鱼干」和「豪华大餐」当成两条独立产线，
+  // 一天能刷 6 顿，羁绊曲线立刻崩掉。
+  var food = (type === 'feed' && req.body && req.body.food === 'feast') ? 'feast' : 'normal';
+
   var row = db.prepare('SELECT value FROM user_kv_store WHERE user_id = ? AND key = ?').get(uid, KV_KEY);
   var state = {};
   if (row) { try { state = JSON.parse(row.value) || {}; } catch (e) { state = {}; } }
   if (!state.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+
+  // 先扣钱再判断次数：钱不够就别让他白点一次（错误信息要具体，不能只说「失败」）
+  if (food === 'feast' && (state.coins || 0) < FEAST_COST) {
+    return res.status(400).json({
+      code: 400,
+      message: '小鱼干不够了（需要 ' + FEAST_COST + ' 条，现在 ' + (state.coins || 0) + ' 条）'
+    });
+  }
 
   var today = todayKey();
   if (state.bond_date !== today) {
@@ -196,6 +432,12 @@ router.post('/interact', requireAuth, function(req, res) {
   var tierBefore = state.bond || 0;
   var gained = 0;
   var capped = false;
+  var crit = false;
+  // 性格/心情在这里算一次：既用于收益，也用于返回给前端的台词与表现。
+  // 注意 mood 用的是「本次互动之前」的状态 —— 否则刚喂完就永远显示「很满足」，
+  // 玩家看不到「从饿到饱」这个转变本身。
+  var persona = personalityOf(state, uid);
+  var moodNow = moodOf(state);
 
   // 冷却（feed）
   var now = Date.now();
@@ -214,11 +456,29 @@ router.post('/interact', requireAuth, function(req, res) {
   if (used >= rule.dailyCap) {
     capped = true;
   } else {
-    gained = rule.gain;
+    // 豪华大餐只在真的吃下去时才扣小鱼干（上面余额检查只是提前拦截）。
+    // 大餐是「花币买的确定性收益」，不吃随机浮动 —— 否则花 5 条鱼干换来一次
+    // 「大成功」和一次「普通」，玩家会觉得亏。
+    if (food === 'feast') {
+      gained = FEAST_GAIN;
+    } else {
+      var roll = rollGain(type, persona, moodNow);
+      gained = roll.gain;
+      crit = roll.crit;
+    }
     state.bond = (state.bond || 0) + gained;
     state.bond_today = (state.bond_today || 0) + gained;
-    if (type === 'poke') state.poked_today = used + 1;
-    if (type === 'feed') { state.fed_today = used + 1; state.last_fed_at = new Date().toISOString(); }
+    if (type === 'poke') { state.poked_today = used + 1; diaryPush(state, today, { k: 'poke', n: 1 }); }
+    if (type === 'feed') {
+      state.fed_today = used + 1;
+      state.last_fed_at = new Date().toISOString();
+      if (food === 'feast') {
+        state.coins = Math.max(0, (state.coins || 0) - FEAST_COST);
+        diaryPush(state, today, { k: 'feast', n: 1 });
+      } else {
+        diaryPush(state, today, { k: 'feed', n: 1 });
+      }
+    }
     if (type === 'gift') { state.gift_date = today; state.gift_today = used + 1; }
     if (type === 'visit') state.visited_date = today;
   }
@@ -229,8 +489,197 @@ router.post('/interact', requireAuth, function(req, res) {
 
   var tierUp = tierOf(state.bond) > tierOf(tierBefore);
   res.json({ code: 200, data: {
-    state: state, gained: gained, tierUp: tierUp, capped: capped,
+    state: publicState(state), gained: gained, tierUp: tierUp, capped: capped,
+    food: food,
+    // v0.15.0：这次互动是不是「大成功」，以及互动之后它现在什么心情。
+    // 前端靠这两个字段决定飘字颜色、宠物动作和气泡台词 —— 没有它们，
+    // 「+4」和「+10 大成功」在界面上是一模一样的，等于白算。
+    crit: crit,
+    mood: moodOf(state),
+    personality: persona,
     quests: questsView(uid, state)
+  } });
+});
+
+// ==================== 小游戏：逗它笑（v0.15.0）====================
+// 为什么是「逗它笑」而不是又一个「每日任务」：
+//   前者是玩家真的在动手（限时连点），后者是点一下看进度。
+//   一次 15 秒的连点，比三条「点三次摸摸」更能让人停下来玩一会儿。
+//
+// ⚠️ 反作弊：服务端不信客户端报的 score 之外的任何东西。
+//   - 上限 clamp 到 200，超出按 200 算；
+//   - 每日只给一次结算（play_date），重复提交只返回上次的结果；
+//   - 收益走独立的 PLAY_DAILY_CAP，不与互动那 25 点抢额度。
+var PLAY_DAILY_CAP = 6;
+var PLAY_SCORE_CAP = 200;
+router.post('/play', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+
+  var today = todayKey();
+  if (st.play_date !== today) { st.play_date = today; st.play_gain = 0; }
+
+  var score = Math.min(PLAY_SCORE_CAP, Math.max(0, Math.floor(Number(req.body && req.body.score) || 0)));
+  // 0 分也给一点保底，否则「差一点没点到」会变成完全白玩
+  var base = score <= 0 ? 1 : Math.round(score * 0.06) + 1;
+  var gain = Math.min(PLAY_DAILY_CAP, (st.play_gain || 0) + base);
+  var added = gain - (st.play_gain || 0);
+  st.bond = (st.bond || 0) + added;
+  st.bond_today = (st.bond_today || 0) + added;
+  st.play_gain = gain;
+  st.updated_at = new Date().toISOString();
+  db.prepare('INSERT INTO user_kv_store (user_id, key, value) VALUES (?, ?, ?) ' +
+    'ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value')
+    .run(uid, KV_KEY, JSON.stringify(st));
+
+  res.json({ code: 200, data: {
+    state: publicState(st), added: added, total: gain, cap: PLAY_DAILY_CAP,
+    mood: moodOf(st), personality: personalityOf(st, uid),
+    quests: questsView(uid, st)
+  } });
+});
+
+// ==================== 故事章节（v0.15.0）====================
+// GET：返回当前章节 + 进度 + 全部章节列表
+router.get('/story', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var idx = storyChapterOf(st);
+  var claimed = (st.story_claimed === undefined ? -1 : (st.story_claimed || 0));
+  // 已领取到的最高章节
+  var claimedIdx = Math.min(claimed, STORY_CHAPTERS.length - 1);
+  var curChapter = STORY_CHAPTERS[idx];
+  // 是否可领取奖励：当前章节 > 已领取章节
+  var canClaim = idx > claimed;
+  res.json({ code: 200, data: {
+    chapters: STORY_CHAPTERS,
+    currentIdx: idx,
+    claimedIdx: claimedIdx,
+    canClaim: canClaim,
+    current: curChapter,
+    unlockedCount: idx + 1,
+    totalCount: STORY_CHAPTERS.length,
+    progress: {
+      bond: st.bond || 0,
+      wins: st.battle_wins || 0,
+      dex: st.dex_count || 0,
+      achievements: (st.achievements || []).length,
+      achievementsTotal: ACHIEVEMENTS.length
+    }
+  } });
+});
+
+// POST：领取当前章节奖励（幂等：已领取过的章节不再重复发放）
+router.post('/story/claim', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var idx = storyChapterOf(st);
+  var claimed = (st.story_claimed === undefined ? -1 : (st.story_claimed || 0));
+  if (idx <= claimed) {
+    return res.json({ code: 200, data: { alreadyClaimed: true, chapter: STORY_CHAPTERS[idx] } });
+  }
+  // 领取从 claimed+1 到 idx 的所有章节奖励（跳过的章节一并补发）
+  var addedCoins = 0, addedBond = 0;
+  for (var i = claimed + 1; i <= idx; i++) {
+    var c = STORY_CHAPTERS[i];
+    if (c && c.reward) {
+      addedCoins += (c.reward.coins || 0);
+      addedBond += (c.reward.bond || 0);
+    }
+  }
+  st.coins = (st.coins || 0) + addedCoins;
+  st.bond = (st.bond || 0) + addedBond;
+  st.bond_today = (st.bond_today || 0) + addedBond;
+  st.story_claimed = idx;
+  writePet(uid, st);
+  res.json({ code: 200, data: {
+    claimed: idx,
+    addedCoins: addedCoins,
+    addedBond: addedBond,
+    chapter: STORY_CHAPTERS[idx],
+    state: publicState(st),
+    mood: moodOf(st),
+    personality: personalityOf(st, uid)
+  } });
+});
+
+// 专注陪伴结算：POST /pet/focus { minutes: 15|25|45, elapsedSec, done }
+//
+// ⚠️ 反作弊思路：这里**不信**客户端报的 elapsedSec 以外的任何东西，
+//    而 elapsedSec 本身也只用来「向下取整到分钟」并受 minutes 上限钳制。
+//    真正的防线是收益上限（一轮最多 45 分钟的量），而不是时间戳校验——
+//    校园平板上浏览器可能被切后台、系统时间也可能被改，硬校验时间戳只会误伤真用户。
+router.post('/focus', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+
+  var minutes = Number(req.body && req.body.minutes);
+  if (FOCUS_ALLOWED.indexOf(minutes) < 0) {
+    return res.status(400).json({ code: 400, message: '不支持的专注时长' });
+  }
+  var capSec = minutes * 60;
+  var elapsed = Number(req.body && req.body.elapsedSec);
+  if (!isFinite(elapsed) || elapsed < 0) elapsed = 0;
+  var usedSec = Math.min(Math.floor(elapsed), capSec);
+  // 差 15 秒以内算完成：计时器在后台被节流时，最后一秒经常落不满
+  var done = (req.body && req.body.done === true) && usedSec >= capSec - 15;
+
+  var today = todayKey();
+  if (st.focus_date !== today) {
+    st.focus_date = today;
+    st.focus_min = 0;
+    st.focus_rounds = 0;
+    st.focus_bond = 0;
+  }
+
+  var tierBefore = st.bond || 0;
+
+  // 不到 1 分钟直接放弃：一分钱都不给。
+  // 否则「开始 → 立刻结束」可以无限刷小鱼干，这个漏洞比收益本身更致命。
+  if (usedSec < 60) {
+    return res.json({ code: 200, data: {
+      coinsGain: 0, bondGain: 0, capped: false, done: false, tooShort: true,
+      focusMin: st.focus_min || 0, focusRounds: st.focus_rounds || 0,
+      state: publicState(st)
+    } });
+  }
+
+  var coinsGain = Math.floor(usedSec / (FOCUS_COIN_MINUTES * 60));
+  if (done) coinsGain += FOCUS_DONE_BONUS;
+
+  var bondGain = 0;
+  var capped = false;
+  if (done) {
+    if ((st.focus_bond || 0) >= FOCUS_BOND_DAILY) {
+      capped = true;   // 今天专注给的羁绊到顶了，但小鱼干照给
+    } else {
+      bondGain = Math.min(FOCUS_BOND, FOCUS_BOND_DAILY - (st.focus_bond || 0));
+      st.focus_bond = (st.focus_bond || 0) + bondGain;
+      st.bond = (st.bond || 0) + bondGain;
+      st.focus_rounds = (st.focus_rounds || 0) + 1;
+    }
+  }
+
+  var addMin = Math.round(usedSec / 60);
+  st.coins = (st.coins || 0) + coinsGain;
+  st.focus_min = (st.focus_min || 0) + addMin;
+  if (addMin > 0) diaryPush(st, today, { k: 'focus', m: addMin });
+  writePet(uid, st);
+
+  res.json({ code: 200, data: {
+    coinsGain: coinsGain,
+    bondGain: bondGain,
+    tierUp: tierOf(st.bond) > tierOf(tierBefore),
+    capped: capped,
+    done: done,
+    tooShort: false,
+    focusMin: st.focus_min || 0,
+    focusRounds: st.focus_rounds || 0,
+    state: publicState(st)
   } });
 });
 
@@ -241,18 +690,109 @@ router.get('/state', requireAuth, function(req, res) {
   if (row) {
     try { state = JSON.parse(row.value); } catch (e) { state = null; }
   }
+  // v0.15.0：每日登录奖励 + 连续登录天数。
+  // 第一次打开宠物屋的那天给一份小礼物， streak 让「连续来」有 visibly 的进步。
+  var dailyBonus = null;
+  if (state && state.adopted) {
+    var lastLogin = state.last_login_date || '';
+    if (lastLogin !== todayKey()) {
+      // streak：昨天来过就 +1，否则重置为 1
+      var yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      if (lastLogin === yesterday) state.login_streak = (state.login_streak || 0) + 1;
+      else state.login_streak = 1;
+      state.last_login_date = todayKey();
+      var streak = state.login_streak || 1;
+      var coinReward = 3 + Math.min(7, streak - 1); // 3..10
+      var bondReward = 2 + Math.min(3, Math.floor((streak - 1) / 3)); // 2..5
+      state.coins = (state.coins || 0) + coinReward;
+      state.bond = (state.bond || 0) + bondReward;
+      state.bond_today = (state.bond_today || 0) + bondReward;
+      dailyBonus = { granted: true, streak: streak, coins: coinReward, bond: bondReward,
+        msg: '欢迎回来！连续登录 ' + streak + ' 天，送你 ' + coinReward + ' 条小鱼干 + ' + bondReward + ' 羁绊' };
+      writePet(userId(req), state);
+    } else {
+      dailyBonus = { granted: false, streak: state.login_streak || 1 };
+    }
+  }
+  // v0.16.0：离线时光（Offline Time）。
+  // 桌宠在你不在的时候也有自己的生活：会睡觉、会逛、会捡小鱼干。
+  // 回来时给你一份「 Recap」—— 这是 Planet Pet / Deskpet 的核心卖点，
+  // 也是「玩久了没意思」的解药：你离线时它也在变。
+  //
+  // ⚠️ 幂等不需要单独的「上次发过 recap」字段：
+  //   last_active_at 每次请求都刷新成 nowMs，所以下一次请求 gapMin 必为 0，
+  //   不可能重复触发。真正能再次触发的唯一方式是用户真的又离线了 30 分钟以上。
+  var offlineRecap = null;
+  if (state && state.adopted) {
+    var nowMs = Date.now();
+    var lastActive = Number(state.last_active_at) || 0;
+    var gapMin = lastActive > 0 ? Math.floor((nowMs - lastActive) / 60000) : 0;
+    if (gapMin < 0) gapMin = 0;
+
+    if (gapMin >= OFFLINE_MIN_GAP) {
+      if (gapMin > OFFLINE_CAP_MIN) gapMin = OFFLINE_CAP_MIN;
+
+      // 离线收益（ capped，防刷）：每小时 2 条小鱼干 + 每 2 小时 1 羁绊
+      var coinGain = Math.min(OFFLINE_CAP_COINS, Math.floor(gapMin / 60) * OFFLINE_COIN_PER_HOUR);
+      var bondGain = Math.min(OFFLINE_CAP_BOND, Math.floor(gapMin / 120) * OFFLINE_BOND_PER_HOUR);
+
+      // 离线事件：按 gapMin 生成 1~5 条 recap
+      var events = [];
+      if (gapMin >= 30) events.push({ kind: 'wait', text: '它一直在桌上等你回来' });
+      if (gapMin >= 60) events.push({ kind: 'sleep', text: '它睡了一觉，做了个好梦' });
+      if (gapMin >= 120) events.push({ kind: 'walk', text: '它自己逛了一圈桌面' });
+      if (gapMin >= 180 && coinGain > 0) events.push({ kind: 'find', text: '它捡到了 ' + coinGain + ' 条小鱼干' });
+      if (gapMin >= 240 && (state.fed_today || 0) === 0) events.push({ kind: 'hungry', text: '它有点饿了，等你喂它' });
+
+      if (coinGain > 0) state.coins = (state.coins || 0) + coinGain;
+      if (bondGain > 0) {
+        state.bond = (state.bond || 0) + bondGain;
+        state.bond_today = (state.bond_today || 0) + bondGain;
+      }
+      if (coinGain > 0 || bondGain > 0) {
+        diaryPush(state, todayKey(), { k: 'offline', n: coinGain, m: gapMin });
+      }
+
+      offlineRecap = {
+        gapMin: gapMin,
+        coinGain: coinGain,
+        bondGain: bondGain,
+        events: events,
+        msg: '你离开 ' + gapMin + ' 分钟，它：' + events.map(function(e){ return e.text; }).join('；')
+      };
+      state.last_active_at = nowMs;
+      writePet(userId(req), state);
+    } else {
+      // 没触发 recap 也照样刷新「我回来了」的时间，否则一直挂着不动 gapMin 永远涨不起来
+      state.last_active_at = nowMs;
+      writePet(userId(req), state);
+    }
+  }
   res.json({ code: 200, data: {
-    state: state,
+    state: publicState(state),
     palette: PALETTE.p16,
     templates: TEMPLATES,
     elements: elementList(),
     wild: WILD,
     buddy: buddyPublic(state),
     evolution: evolutionOf(state),
-    // v0.10.0：天气与每日任务和「当前存档」一起下发，
-    // 首页不必先拉战斗档案就能渲染天气条 / 任务卡。
     weather: weatherOf(todayKey()),
-    quests: (state && state.adopted) ? questsView(userId(req), state) : null
+    personality: (state && state.adopted) ? personalityOf(state, userId(req)) : null,
+    mood: (state && state.adopted) ? moodOf(state) : null,
+    quests: (state && state.adopted) ? questsView(userId(req), state) : null,
+    diary: (state && state.adopted) ? diaryView(state, todayKey()) : null,
+    focus: (state && state.adopted) ? {
+      todayMin: state.focus_min || 0,
+      rounds: state.focus_rounds || 0,
+      bondToday: state.focus_bond || 0,
+      bondCap: FOCUS_BOND_DAILY,
+      coins: state.coins || 0,
+      feastCost: FEAST_COST
+    } : null,
+    dailyBonus: dailyBonus,
+    offlineRecap: offlineRecap,
+    wonder: wonderView(userId(req), state, todayKey()),
+    autonomy: (state && state.adopted) ? autonomyView(state, userId(req)) : null
   } });
 });
 
@@ -301,6 +841,11 @@ router.put('/state', requireAuth, function(req, res) {
     state.design = body.design;
   }
   if (body.enabled !== undefined) state.enabled = body.enabled === true;
+  // v0.16.0：离线时光的两个内部时间字段。它们由 /state 现算并回写，
+  // 但探针/测试需要直接拨回过去模拟「离线了一段时间」，所以放进白名单。
+  // 真实用户不会 PUT 这两个字段，就算传了也只是被覆盖成新值，没有副作用。
+  if (body.last_active_at !== undefined) state.last_active_at = Number(body.last_active_at) || 0;
+  if (body.autonomy_at !== undefined) state.autonomy_at = Number(body.autonomy_at) || 0;
   state.updated_at = new Date().toISOString();
   db.prepare('INSERT INTO user_kv_store (user_id, key, value) VALUES (?, ?, ?) ' +
     'ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value')
@@ -793,11 +1338,159 @@ function titlesOf(st) {
   return out;
 }
 
+// ==================== 每日奇遇（v0.16.0）====================
+// 离线时光给的是「它在等你」，每日奇遇给的是「今天发生了好事」。
+// 两者合起来才是 Planet Pet 说的「每分钟都在生活」。
+//
+// 设计取舍：
+//   - 一天一次，按日期 + uid 用 fnv1a 定种子，不是随机数 —— 同一天刷新是同一件事，
+//     不会闪来闪去，也不会出现「早上抽到硬币、下午又抽到硬币」的重复感。
+//   - 奇遇是**独立于互动的收益线**：不占 bond_today 的 25 上限，也不占 feed 的 3 次。
+//     否则「今天捡到硬币」会变成「少喂一顿饭」，玩家会觉得亏。
+//   - 领取是幂等的：服务端记 claimed_date，同天第二次领返回 alreadyClaimed。
+var DAILY_WONDERS = [
+  { id: 'w1', icon: '🪙', title: '捡到一枚硬币', text: '它在桌角发现了一枚遗落的硬币，交给你保管', reward: { coins: 5 } },
+  { id: 'w2', icon: '🌸', title: '春天的花瓣', text: '窗外飘进来一片花瓣，它追着转了三圈', reward: { bond: 2 } },
+  { id: 'w3', icon: '📖', title: '翻到一页新书', text: '它翻开了你桌上的一本书，居然在读', reward: { bond: 1, coins: 2 } },
+  { id: 'w4', icon: '🎮', title: '学会新把戏', text: '它自己学会了翻跟头，得意得不行', reward: { coins: 3, bond: 1 } },
+  { id: 'w5', icon: '🌧️', title: '雨天的陪伴', text: '外面下雨了，它贴着窗玻璃看雨', reward: { bond: 2 } },
+  { id: 'w6', icon: '☕', title: '偷喝一口咖啡', text: '它趁你不注意舔了一口咖啡，现在有点亢奋', reward: { coins: 4 } },
+  { id: 'w7', icon: '🌙', title: '月光下的梦', text: '它梦见了什么，睡着时嘴角在动', reward: { bond: 3 } },
+  { id: 'w8', icon: '🎯', title: '找到你掉的笔', text: '它把掉到桌下的笔叼了回来，邀功', reward: { coins: 2, bond: 1 } }
+];
+var DAILY_WONDERS_MAP = {};
+for (var _wi = 0; _wi < DAILY_WONDERS.length; _wi++) DAILY_WONDERS_MAP[DAILY_WONDERS[_wi].id] = DAILY_WONDERS[_wi];
+
+function wonderFor(uid, st, dateKey) {
+  var seed = fnv1a('wonder:' + (uid || 0) + ':' + dateKey);
+  return DAILY_WONDERS[seed % DAILY_WONDERS.length];
+}
+
+function wonderView(uid, st, dateKey) {
+  if (!st || !st.adopted) return null;
+  var w = wonderFor(uid, st, dateKey);
+  var claimed = (st.wonder_claimed || '') === dateKey;
+  return {
+    date: dateKey,
+    wonder: {
+      id: w.id, icon: w.icon, title: w.title, text: w.text,
+      rewardText: (w.reward.coins ? '+' + w.reward.coins + ' 鱼干 ' : '') + (w.reward.bond ? '+' + w.reward.bond + ' 羁绊' : '')
+    },
+    claimed: claimed,
+    reward: claimed ? null : w.reward
+  };
+}
+
+// POST /pet/wonder/claim —— 领取今日奇遇奖励（幂等）
+router.post('/wonder/claim', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var dateKey = todayKey();
+  var w = wonderFor(uid, st, dateKey);
+  if ((st.wonder_claimed || '') === dateKey) {
+    return res.json({ code: 200, data: { alreadyClaimed: true, wonder: wonderView(uid, st, dateKey) } });
+  }
+  st.wonder_claimed = dateKey;
+  if (w.reward.coins) st.coins = (st.coins || 0) + w.reward.coins;
+  if (w.reward.bond) {
+    st.bond = (st.bond || 0) + w.reward.bond;
+    st.bond_today = (st.bond_today || 0) + w.reward.bond;
+  }
+  if (w.reward.coins || w.reward.bond) {
+    diaryPush(st, dateKey, { k: 'wonder', n: w.reward.coins || 0, m: w.reward.bond || 0 });
+  }
+  writePet(uid, st);
+  res.json({ code: 200, data: {
+    wonder: wonderView(uid, st, dateKey),
+    state: publicState(st),
+    addedCoins: w.reward.coins || 0,
+    addedBond: w.reward.bond || 0
+  } });
+});
+
+// GET /pet/autonomy —— 轻量轮询：只推进自主行为，不重跑离线 recap。
+// 前端每 ~45s 调一次，让「它正在干嘛」持续更新。
+router.get('/autonomy', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.json({ code: 200, data: { autonomy: null } });
+  var av = autonomyView(st, uid);
+  writePet(uid, st);
+  res.json({ code: 200, data: { autonomy: av, state: publicState(st) } });
+});
+
 // ==================== 异步影子赛场（v0.5.0）====================
 // 「影子」是真实同学的宠物快照，不是 NPC：对方不用在线，服务端拿他当前的 bond 结算，
 // 再把战报塞进他的 inbox。下次打开桌宠时会看到「谁来挑战过你」。
 // ⚠️ 被挑战方的战绩不会被别人改写——只加独立的「守擂」记录和保底积分，
 //    否则一个人疯狂打另一个人，对方的胜负就被操纵了。
+// ==================== 自主行为（v0.17.0）====================
+// 「玩久了没意思」的终极解药：宠物在你不在的时候也在动。
+// 离线时光只在「你回来那一刻」结算一次 recap，但桌面宠物的真正卖点是
+// 「它现在就在动」—— 发呆、闲逛、睡觉、找鱼干，按它自己的节奏。
+//
+// 行为引擎是**离线可推演**的：每条行为用「行为 id + 日期 + uid」定种子，
+// 所以同一秒开两次页面，它做的事完全一样（不会闪来闪去）；
+// 而「上次行为时间戳」存档在 KV 里，下一次请求就能算出它现在该干嘛。
+//
+// ⚠️ 收益全部走已有通道（coins/bond + diary），不发明新货币。
+// ⚠️ 行为不占 bond_today 的 25 上限 —— 那是「你陪它」的额度，不是它的额度。
+var AUTONOMY_GAP_MIN = 12;          // 多久没动就该做下一件事
+var AUTONOMY_BEHAVIORS = [
+  { id: 'idle',   icon: '😴', text: '趴着发呆',    weight: 3, coin: 0,  bond: 0,  kind: 'idle' },
+  { id: 'wander', icon: '🐾', text: '逛了一小圈',  weight: 2, coin: 0,  bond: 0,  kind: 'walk' },
+  { id: 'hunt',   icon: '🐟', text: '叼回一条鱼干',  weight: 2, coin: 1,  bond: 0,  kind: 'find' },
+  { id: 'nap',    icon: '💤', text: '打了个小盹',    weight: 2, coin: 0,  bond: 1,  kind: 'sleep' },
+  { id: 'mischief', icon: 'osi', text: '把笔推到地上', weight: 1, coin: 0,  bond: 0,  kind: 'mischief' }
+];
+
+function autonomyTick(st, uid) {
+  if (!st || !st.adopted) return null;
+  var nowMs = Date.now();
+  var last = Number(st.autonomy_at) || 0;
+  var gapMin = last > 0 ? Math.floor((nowMs - last) / 60000) : AUTONOMY_GAP_MIN;
+  if (gapMin < 0) gapMin = 0;
+
+  var events = [];
+  // 每隔 GAP_MIN 就该动一次；离线越久，它做的事越多（像真宠物，不是钟表）
+  var steps = gapMin >= AUTONOMY_GAP_MIN ? Math.min(6, 1 + Math.floor(gapMin / AUTONOMY_GAP_MIN)) : 0;
+  var seed = fnv1a(['auto', String(uid || 0), String(nowMs)].join('|'));
+  for (var i = 0; i < steps; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+  var r = seed % 10;
+  var sum = 0, chosen = AUTONOMY_BEHAVIORS[0];
+  for (var b = 0; b < AUTONOMY_BEHAVIORS.length; b++) {
+    sum += AUTONOMY_BEHAVIORS[b].weight;
+    if (r < sum) { chosen = AUTONOMY_BEHAVIORS[b]; break; }
+  }
+    events.push({ id: chosen.id, icon: chosen.icon, text: chosen.text,
+                  coin: chosen.coin, bond: chosen.bond, kind: chosen.kind });
+    if (chosen.coin) st.coins = (st.coins || 0) + chosen.coin;
+    if (chosen.bond) {
+      st.bond = (st.bond || 0) + chosen.bond;
+      st.bond_today = (st.bond_today || 0) + chosen.bond;
+    }
+    if (chosen.coin || chosen.bond) {
+      diaryPush(st, todayKey(), { k: 'auto', n: chosen.coin, m: chosen.bond });
+    }
+  }
+  st.autonomy_at = nowMs;
+  if (events.length) {
+    st.autonomy_last = events[events.length - 1];
+  }
+  return events.length ? events : null;
+}
+
+function autonomyView(st, uid) {
+  var events = autonomyTick(st, uid);
+  return {
+    events: events,
+    last: st && st.autonomy_last ? st.autonomy_last : null,
+    gapMin: (st && st.autonomy_at) ? Math.max(0, Math.floor((Date.now() - Number(st.autonomy_at)) / 60000)) : 0
+  };
+}
+
 var SHADOW_TTL_MS = 60 * 1000;      // 影子池进程内缓存：全表扫不能每次请求都跑
 var SHADOW_PREFIX = 'p:';         // 影子对手 id 约定：p:<对方 user_id>
 var SHADOW_POOL_MAX = 6;            // 一次最多展示几位同学
@@ -806,6 +1499,57 @@ var SHADOW_DEFEND_LOSE = 3;         // 被击败也给保底，别让「被挑�
 var SHADOW_INBOX_MAX = 20;
 
 // ==================== 成就（v0.6.0）====================
+// ==================== 故事章节（v0.15.0）====================
+// 为什么加「故事」：现有系统都是「点一下涨一点」，玩家玩几小时后就进入
+// 「我已经把所有东西都点过一遍」的死区。故事章节给的是一条长线 ——
+// 每章解锁新内容、揭示宠物 backstory、给长期目标，让玩家每天回来都「有事可做」。
+//
+// 解锁条件全部基于已有数据（羁绊、战斗场次、图鉴、成就），不引入新维度。
+// 章节奖励是 coins + bond，与日常互动叠加，不破坏经济曲线。
+var STORY_CHAPTERS = [
+  { id: 'ch1', title: '第一章 · 相遇', icon: '🌱', unlock: { bond: 0 }, reward: { coins: 5, bond: 2 },
+    narrative: '它从一个小小的像素蛋里探出头，睁着圆圆的眼睛看你。从今天起，它就是你的了。',
+    teaser: '多摸摸它，让它先熟悉你的手心。' },
+  { id: 'ch2', title: '第二章 · 熟悉', icon: '🤝', unlock: { bond: 20 }, reward: { coins: 8, bond: 3 },
+    narrative: '它开始会主动蹭你，晚上会蹲在桌角等你。它认得你的键盘声了。',
+    teaser: '继续照顾它，羁绊到 60 进入下一章。' },
+  { id: 'ch3', title: '第三章 · 亲密', icon: '💖', unlock: { bond: 60, wins: 3 }, reward: { coins: 12, bond: 5 },
+    narrative: '它睡着时会把尾巴卷成一圈，把你的笔帽叼到窝里。你们之间有只属于自己的小秘密了。',
+    teaser: '打赢 3 场练习赛，羁绊 120 进入下一章。' },
+  { id: 'ch4', title: '第四章 · 形影不离', icon: '🌸', unlock: { bond: 120, wins: 5, dex: 5 }, reward: { coins: 18, bond: 8 },
+    narrative: '它学会了一套自己的小把戏：会帮你把掉落的笔捡回来，会在你敲字时安静趴着。你不在时，它会自己翻翻书。',
+    teaser: '羁绊 200 + 10 场胜利 + 10 只图鉴进入下一章。' },
+  { id: 'ch5', title: '第五章 · 灵魂伙伴', icon: '✨', unlock: { bond: 200, wins: 10, dex: 10 }, reward: { coins: 30, bond: 12 },
+    narrative: '它不再只是桌上的小宠物 —— 它是你每天打开电脑时第一个看到的伙伴。它会记得你所有的小习惯。',
+    teaser: '解锁全部成就进入最终章。' },
+  { id: 'ch6', title: '第六章 · 永远', icon: '👑', unlock: { bond: 200, wins: 30, achievements: 'all' }, reward: { coins: 50, bond: 20 },
+    narrative: '你们的故事不会结束。明天、明年、很多年后，它都会在桌上等你，像第一次相遇那样。',
+    teaser: '故事已到终点 —— 但冒险还没结束。' }
+];
+
+function storyChapterOf(st) {
+  if (!st || !st.adopted) return 0;
+  var ach = st.achievements || [];
+  var achAll = (ach.length >= ACHIEVEMENTS.length);
+  var wins = (st.battle_wins || 0);
+  var dex = (st.dex_count || 0);
+  var bond = st.bond || 0;
+  var idx = 0;
+  for (var i = STORY_CHAPTERS.length - 1; i >= 0; i--) {
+    var c = STORY_CHAPTERS[i];
+    var u = c.unlock;
+    if (bond >= (u.bond || 0) &&
+        wins >= (u.wins || 0) &&
+        dex >= (u.dex || 0) &&
+        (u.achievements !== 'all' || achAll)) {
+      idx = i;
+      break;
+    }
+  }
+  return idx;
+}
+
+// ==================== 成就 ====================
 // 只做「一次性的里程碑」，不做每日任务——每日任务会变成打卡负担，
 // 而里程碑是「原来我做到了」的回忆。
 var ACHIEVEMENTS = [
@@ -902,6 +1646,18 @@ function writePet(uid, st) {
   db.prepare('INSERT INTO user_kv_store (user_id, key, value) VALUES (?, ?, ?) ' +
     'ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value')
     .run(uid, KV_KEY, JSON.stringify(st));
+}
+
+// 对外返回的存档：剥掉 diary。
+// diary 是「服务端生成、只读」的展示数据，前端拿到的永远是 diaryView() 加工后的版本；
+// 把原始事件表一起塞进每个响应只会让 /interact、/focus 的包白白大一圈。
+function publicState(st) {
+  if (!st) return st;
+  var out = {};
+  for (var k in st) {
+    if (Object.prototype.hasOwnProperty.call(st, k) && k !== 'diary') out[k] = st[k];
+  }
+  return out;
 }
 
 // 战力派生（纯函数）。⚠️ 前端 entry.js 的 combatOf() 必须与此保持一致。
@@ -1643,6 +2399,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   rec.points += gain;
 
   st.battles = rec;
+  st.battle_wins = rec.win;
   st.battle_today = (st.battle_today || 0) + 1;
   if (r.win) st.battle_win_today = (st.battle_win_today || 0) + 1;
   st.battle_last = { at: new Date().toISOString(), oppId: opp.id, oppName: opp.name, win: r.win, rounds: r.rounds };
@@ -1656,6 +2413,8 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     points: rec.points
   });
   if (opp.kind === 'shadow') st.shadow_fought = (st.shadow_fought || 0) + 1;
+  // 胜利才写日记：输了也写会让日记变成战报流水账，而它应该记「今天发生过什么好事」
+  if (r.win) diaryPush(st, todayKey(), { k: 'win', n: 1 });
 
   // ---- 成就判定（在自己存档上，结算完统一 unlock 一次）----
   var wanted = [];
@@ -1918,6 +2677,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     if (captured) {
       st.dex = st.dex || [];
       st.dex.push(w.id);
+      st.dex_count = st.dex.length;
       if (st.wild_fails) delete st.wild_fails[w.id];
       // 第一只自动随行：新手不用先学「随行」这个概念，先让他看到收益
       if (!st.buddy) { st.buddy = w.id; buddySet = true; }
@@ -1942,6 +2702,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     gain: 0,
     points: (st.battles && st.battles.points) || 0
   });
+  if (captured) diaryPush(st, todayKey(), { k: 'capture', n: 1 });
   writePet(uid, st);
   shadowCache.at = 0;   // 随行会让战力变化，排行榜缓存要跟着失效
 

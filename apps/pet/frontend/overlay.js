@@ -39,9 +39,109 @@
   var storage = null;
   var realtime = null;
   var timers = [];
+
+  // ---- 音效引擎（WebAudio 合成，零音频文件，Chrome 80 兼容）----
+  // 所有音效用振荡器 + 增益 + 滤波器合成，不下载任何文件；
+  // AudioContext 必须在用户手势后 resume；提供静音开关与音量。
+  var sfxCtx = null;
+  var sfxGain = null;
+  var sfxEnabled = true;
+  try {
+    if (storage && storage.get) {
+      if (storage.get('sfx') === 'off') sfxEnabled = false;
+    }
+  } catch (e) {}
+  function sfxEnsureCtx() {
+    if (sfxCtx) return sfxCtx;
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      sfxCtx = new C();
+      sfxGain = sfxCtx.createGain();
+      sfxGain.gain.value = 0.32;
+      sfxGain.connect(sfxCtx.destination);
+    } catch (e) { sfxCtx = null; }
+    return sfxCtx;
+  }
+  function sfxResume() {
+    if (sfxCtx && sfxCtx.state === 'suspended') { try { sfxCtx.resume(); } catch (e) {} }
+  }
+  function sfxTone(freq, type, dur, vol, delay) {
+    var ctx = sfxEnsureCtx(); if (!ctx) return;
+    var now = ctx.currentTime + (delay || 0);
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, now);
+    g.gain.setValueAtTime((vol || 0.25) * (sfxGain ? 1 : 1), now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(g); g.connect(sfxGain || ctx.destination);
+    osc.start(now); osc.stop(now + dur + 0.02);
+  }
+  function sfxSweep(f0, f1, type, dur, vol, delay) {
+    var ctx = sfxEnsureCtx(); if (!ctx) return;
+    var now = ctx.currentTime + (delay || 0);
+    var osc = ctx.createOscillator();
+    var g = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(f0, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), now + dur);
+    g.gain.setValueAtTime(vol || 0.25, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    osc.connect(g); g.connect(sfxGain || ctx.destination);
+    osc.start(now); osc.stop(now + dur + 0.02);
+  }
+  function sfxNoise(dur, vol, delay) {
+    var ctx = sfxEnsureCtx(); if (!ctx) return;
+    var now = ctx.currentTime + (delay || 0);
+    var bufSize = Math.floor(ctx.sampleRate * dur);
+    var buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+    var src = ctx.createBufferSource();
+    src.buffer = buf;
+    var g = ctx.createGain();
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 1200;
+    g.gain.setValueAtTime(vol || 0.2, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    src.connect(filt); filt.connect(g); g.connect(sfxGain || ctx.destination);
+    src.start(now); src.stop(now + dur + 0.02);
+  }
+  function sfxPlay(name) {
+    if (!sfxEnabled) return;
+    sfxEnsureCtx(); sfxResume();
+    var map = {
+      click: function(){ sfxTone(880, 'sine', 0.06, 0.18); },
+      open: function(){ sfxTone(659, 'sine', 0.08, 0.2); sfxTone(880, 'sine', 0.12, 0.2, 0.08); },
+      feed: function(){ sfxSweep(520, 260, 'triangle', 0.18, 0.22); },
+      poke: function(){ sfxTone(440, 'sine', 0.09, 0.2); },
+      crit: function(){ sfxTone(1046, 'sine', 0.08, 0.22); sfxTone(1318, 'sine', 0.1, 0.24, 0.06); sfxTone(1568, 'sine', 0.12, 0.2, 0.12); },
+      coin: function(){ sfxTone(988, 'sine', 0.07, 0.2); sfxTone(1318, 'sine', 0.12, 0.22, 0.07); },
+      tierup: function(){ sfxTone(523, 'sine', 0.1, 0.2); sfxTone(659, 'sine', 0.1, 0.2, 0.1); sfxTone(784, 'sine', 0.1, 0.2, 0.2); sfxTone(1046, 'sine', 0.22, 0.24, 0.3); },
+      'focus-start': function(){ sfxSweep(220, 330, 'sine', 0.25, 0.18); },
+      'focus-end': function(){ sfxTone(784, 'sine', 0.1, 0.2); sfxTone(1046, 'sine', 0.2, 0.24, 0.1); },
+      'battle-win': function(){ sfxTone(523,'sine',0.1,0.2); sfxTone(659,'sine',0.1,0.2,0.1); sfxTone(784,'sine',0.1,0.2,0.2); sfxTone(1046,'sine',0.25,0.26,0.3); },
+      'battle-lose': function(){ sfxSweep(440, 220, 'sawtooth', 0.3, 0.18); },
+      capture: function(){ sfxTone(880,'sine',0.08,0.2); sfxTone(1175,'sine',0.08,0.22,0.08); sfxTone(1568,'sine',0.15,0.2,0.16); sfxNoise(0.12,0.12,0.05); },
+      levelup: function(){ sfxTone(659,'sine',0.1,0.2); sfxTone(784,'sine',0.1,0.2,0.1); sfxTone(988,'sine',0.1,0.2,0.2); sfxTone(1318,'sine',0.25,0.26,0.3); },
+      daily: function(){ sfxTone(659,'sine',0.1,0.2); sfxTone(880,'sine',0.1,0.2,0.1); sfxTone(1046,'sine',0.2,0.24,0.2); },
+      error: function(){ sfxSweep(220, 160, 'square', 0.15, 0.16); }
+    };
+    var fn = map[name];
+    if (fn) { try { fn(); } catch (e) {} }
+  }
+  function sfxSetEnabled(v) {
+    sfxEnabled = !!v;
+    try { if (storage && storage.set) storage.set('sfx', sfxEnabled ? 'on' : 'off'); } catch (e) {}
+  }
+  window.__ciPetSfx = { play: sfxPlay, setEnabled: sfxSetEnabled, isEnabled: function(){ return sfxEnabled; } };
+  var timers = [];
   var pos = { x: 0, y: 0 };
   var facing = 1;
-  var mode = 'idle';            // idle | walk | dash | climb | fly | sleep
+  var mode = 'idle';            // idle | walk | dash | climb | fly | sleep | focus
+  // 专注模式开关：true 时 scheduleIdle 只做呼吸，不主动表演（v0.11.0）
+  var focusOn = false;
   var lastInteract = Date.now();
   var kills = 0;
   var levelInfo = null;
@@ -249,6 +349,11 @@
     throwFast: ['哇啊啊——', '自由飞行！', '再见了我世界！'],
     land: ['（拍拍灰）', '稳稳落地', '哼哼', '我的屁股…'],
     feed: ['好吃！！', '还想吃', '谢谢投喂~', '唔姆唔姆'],
+    // 豪华大餐（小鱼干换的）：台词要和普通喂食拉开差距，否则玩家感觉白花 5 条鱼干
+    feast: ['哇！豪华大餐！！', '（眼睛发光）这是过节才吃的吧…', '我、我真的可以吃这个吗？'],
+    // 专注（v0.11.0）：开场安静，不喊口号——它在陪你，不是在给你加油
+    focus: ['（安静趴下）', '我在这儿，你忙你的。', '（把尾巴收好）'],
+    focusEnd: ['（伸了个懒腰）结束了？', '辛苦啦。', '陪你坐了好久，腿有点麻…'],
     sleep: ['Zzz…', '呼…呼…'],
     dream: ['Zzz…（梦到豆子山）', '呼…（蹬腿）', '唔…再睡五分钟…'],
     wake: ['（伸懒腰）', '我睡着的哦？', '啊——睡得好饱'],
@@ -418,6 +523,8 @@
       el.classList.toggle('ci-pet-walking', m === 'walk');
       el.classList.toggle('ci-pet-dashing', m === 'dash');
       el.classList.toggle('ci-pet-climbing', m === 'climb');
+      // 专注态挂个类：一是不用额外字段就能被探针读到，二是方便 CSS 做「安静」的微调
+      el.classList.toggle('ci-pet-focusing', m === 'focus');
     }
   }
 
@@ -437,6 +544,10 @@
     var tick = function() {
       idleTimer = null;
       if (!el) return;
+      // 专注期间不做任何随机动作。
+      // 这是「陪伴」和「打扰」的分界线：一只每 20 秒跳一下的宠物，
+      // 在你要专心写作业时是噪音，不是陪伴。只保留待机呼吸。
+      if (focusOn) { scheduleIdle(); return; }
       var idleMs = Date.now() - lastInteract;
       if (mode !== 'sleep' && idleMs > SLEEP_AFTER_MS) {
         setMode('sleep');
@@ -606,6 +717,7 @@
     if (Math.random() > 0.5) return;
     lastGift = Date.now();
     say('gift', 1800);
+    if (window.__ciPetSfx) window.__ciPetSfx.play('coin');
     if (isVideo) playVideo('拆礼物');
     if (el) {
       var g = document.createElement('span');
@@ -684,17 +796,24 @@
   }
 
   // ---- 交互 ----
-  function reportInteract(type) {
+  // extra.food：'feast' 时带豪华大餐（只对 feed 有意义），其余交互不传。
+  function reportInteract(type, extra) {
     var api = ctx && ctx.data && ctx.data.api;
     if (!api) return;
-    api.post('/pet/interact', { type: type }).then(function(res) {
+    var payload = { type: type };
+    if (extra && extra.food) payload.food = extra.food;
+    api.post('/pet/interact', payload).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (d.state) state = d.state;
-      if (d.tierUp) later(function() { say('tierup', 2200); confetti(); }, 900);
+      if (d.tierUp) later(function() { say('tierup', 2200); confetti(); if (window.__ciPetSfx) window.__ciPetSfx.play('tierup'); }, 900);
       // 回报给宠物屋页面：让它刷新状态条，且自己别再发一次请求（否则撞冷却）
       try {
         window.dispatchEvent(new CustomEvent('ci-pet-fed', {
-          detail: { type: type, state: d.state, gained: d.gained || 0, capped: !!d.capped, tierUp: !!d.tierUp }
+          detail: { type: type, state: d.state, gained: d.gained || 0, capped: !!d.capped,
+                    tierUp: !!d.tierUp,
+                    // v0.15.0：把「大成功」和「新心情」一并回报。
+                    // 不传的话，页面上的 +10 和 +2 长得一模一样，性格与心情永远只在后端。
+                    crit: !!d.crit, mood: d.mood, personality: d.personality }
         }));
       } catch (e) {}
     }, function(err) {
@@ -730,6 +849,7 @@
     if (isPat) {
       anim('ci-pet-blink', 400);
       heart(2);
+      if (window.__ciPetSfx) window.__ciPetSfx.play('poke');
       bubbleSay(pick(LINES.pat), 1600);
     } else {
       anim('ci-pet-wiggle', 550);
@@ -738,21 +858,55 @@
     reportInteract('poke');
   }
 
-  function feed() {
+  function feed(food) {
     if (!el) return;
     wake('silent');
-    heart(3);
-    say('feed', 1800);
-    if (isVideo) { playVideo('吃白饭'); } else { anim('ci-pet-hop', 700); }
-    reportInteract('feed');
+    var feast = food === 'feast';
+    heart(feast ? 5 : 3);
+    say(feast ? 'feast' : 'feed', 1800);
+    if (window.__ciPetSfx) window.__ciPetSfx.play(feast ? 'tierup' : 'feed');
+    // 大餐给一个「更贵」的动作：普通饭是白饭，大餐是大闸蟹。
+    // 桌宠的反馈必须让玩家一眼看出「这 5 条小鱼干花得值」。
+    if (isVideo) { playVideo(feast ? '吃大闸蟹' : '吃白饭'); } else { anim('ci-pet-hop', 700); }
+    reportInteract('feed', { food: food });
   }
 
   function celebrateLevel(level) {
     confetti();
+    if (window.__ciPetSfx) window.__ciPetSfx.play('levelup');
     if (isVideo) playVideo('可爱宅舞');
     anim('ci-pet-hop', 700);
     later(function() { anim('ci-pet-hop', 700); }, 750);
     bubbleSay(pick(LINES.levelup) + (level ? ' Lv' + level : ''), 2400);
+  }
+
+  // ---- 专注模式（v0.11.0）----
+  // 只做三件事：停随机调度、放一个安静待机、结束时报个信。
+  // 不做倒计时气泡：真正的倒计时在宠物屋页面上，桌宠脑袋上再挂一个数字，
+  // 就成了「换了皮的计时器」，反而提醒你去盯时间。
+  function enterFocus(minutes) {
+    if (!el) return;
+    focusOn = true;
+    lastInteract = Date.now();
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    setMode('focus');
+    heart(1);
+    say('focus', 2600);
+    if (window.__ciPetSfx) window.__ciPetSfx.play('focus-start');
+    if (isVideo) playVideo('原地小憩沉眠', true);
+  }
+
+  function exitFocus(done) {
+    focusOn = false;
+    if (mode === 'focus') setMode('idle');
+    lastInteract = Date.now();
+    if (done) {
+      heart(4);
+      say('focusEnd', 2200);
+      if (window.__ciPetSfx) window.__ciPetSfx.play('focus-end');
+      later(function() { confetti(); }, 420);
+    }
+    scheduleIdle();
   }
 
   // 宠物屋「呼唤」：悬浮桌宠就在应用页面之上，当场应一声可见可感
@@ -761,6 +915,7 @@
     wake('silent');
     heart(2);
     say('call', 1900);
+    if (window.__ciPetSfx) window.__ciPetSfx.play('open');
     if (isVideo && poolsV && poolsV.clicks && poolsV.clicks.length) playVideo(pick(poolsV.clicks));
     reportInteract('poke');
   }
@@ -1418,7 +1573,8 @@
   function onVisibility() {
     if (!el) return;
     if (document.hidden) {
-      if (mode !== 'sleep') setMode('sleep');
+      // 专注中不睡：它正在「陪你」，切个后台就趴下睡觉，回来看到会很出戏。
+      if (!focusOn && mode !== 'sleep') setMode('sleep');
     } else {
       wake('silent');
     }
@@ -1430,20 +1586,38 @@
     realtime = context && context.data && context.data.realtime;
     // ⚠️ 注册与移除必须用同一个函数引用：之前 feed 的是匿名包装、移除的是裸 feed，
     //    removeEventListener 静默失效，事件监听跨挂载周期累积。
-    var onFeedEvent = function() { feed(); };
+    var onFeedEvent = function(e) { feed(e && e.detail && e.detail.food); };
+    // 专注：页面只负责计时与结算，桌面这只负责「安静地陪着」。
+    // 两个世界通过事件解耦，桌宠被关掉时页面逻辑照样成立（只是没有陪伴表现）。
+    var onFocusStart = function(e) { enterFocus(e && e.detail && e.detail.minutes); };
+    var onFocusEnd = function(e) { exitFocus(!!(e && e.detail && e.detail.done)); };
     var onPokeEvent = function() { poke(null); };
     var onCallEvent = function() { callPet(); };
     // 对战胜利：页面（entry.js）结算完派发，桌面这只跟着欢呼一下。
     // 只做表现，不碰任何数值——战报结算全在服务端。
     var onWinEvent = function() {
       say('win', 2200);
+      if (window.__ciPetSfx) window.__ciPetSfx.play('battle-win');
       later(function() { confetti(); }, 260);
+    };
+    var onTierupEvent = function() {
+      say('tierup', 2000);
+      if (window.__ciPetSfx) window.__ciPetSfx.play('tierup');
+      later(function() { confetti(); }, 200);
+    };
+    var onWishEvent = function() {
+      say('poke', 1600);
+      if (window.__ciPetSfx) window.__ciPetSfx.play('poke');
     };
     window.addEventListener('ci-pet-state-changed', onPetChanged);
     window.addEventListener('ci-pet-feed', onFeedEvent);
     window.addEventListener('ci-pet-poke', onPokeEvent);
     window.addEventListener('ci-pet-call', onCallEvent);
     window.addEventListener('ci-pet-win', onWinEvent);
+    window.addEventListener('ci-pet-tierup', onTierupEvent);
+    window.addEventListener('ci-pet-wish', onWishEvent);
+    window.addEventListener('ci-pet-focus-start', onFocusStart);
+    window.addEventListener('ci-pet-focus-end', onFocusEnd);
     window.addEventListener('resize', clamp);
     document.addEventListener('visibilitychange', onVisibility);
     if (realtime && typeof realtime.on === 'function') {
@@ -1465,6 +1639,10 @@
         window.removeEventListener('ci-pet-poke', onPokeEvent);
         window.removeEventListener('ci-pet-call', onCallEvent);
         window.removeEventListener('ci-pet-win', onWinEvent);
+        window.removeEventListener('ci-pet-tierup', onTierupEvent);
+        window.removeEventListener('ci-pet-wish', onWishEvent);
+        window.removeEventListener('ci-pet-focus-start', onFocusStart);
+        window.removeEventListener('ci-pet-focus-end', onFocusEnd);
         window.removeEventListener('resize', clamp);
         document.removeEventListener('visibilitychange', onVisibility);
         destroy();
@@ -1483,6 +1661,7 @@
       adopted: !!(state && state.adopted),
       enabled: state ? state.enabled !== false : null,
       mode: mode,
+      focusOn: focusOn,
       bond: state ? (state.bond || 0) : null,
       bondTier: bondTier(),
       kills: kills,

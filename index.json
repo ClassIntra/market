@@ -1,6 +1,6 @@
 {
   "version": 20,
-  "updated_at": "2026-10-28T00:00:00.000Z",
+  "updated_at": "2026-10-30T03:17:46.983Z",
   "apps": [
     {
       "name": "chess",
@@ -63,8 +63,8 @@
     {
       "name": "pet",
       "label": "桌宠",
-      "version": "0.3.4",
-      "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。",
+      "version": "0.17.0",
+      "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。每只都有天生的性格（贪吃/粘人/高冷/好奇/贪睡），心情会随时段和你的照顾变化。五种属性相生相克，练级会进化，还能去野外收服野生精灵。陪它专注会掉小鱼干，夜里它站在星月下的草地上写日记。每天签到有礼，逗它笑、连点 15 秒还能再涨一波羁绊。",
       "author": "ClassIntra",
       "icon": "apps/pet/icon.svg",
       "files": [
@@ -350,12 +350,12 @@
         "assets/webm/骑木马.webm": "5f54a98ccac97eac000d799043411f4fc0732096dc51a2ad766552737578f313",
         "assets/webm/鲸鱼吐泡泡特效.webm": "d64d02059dc1602f7de5aa3135d381351363f021b2bceed47655db322cc71db3",
         "backend/cleanup.js": "00d23a8fe99161c37d5a2256674e4c3030242ba0077f549c0b19176d276f76b3",
-        "backend/routes.js": "3c9e6f3c10756e9ef85a7d792b2d5d130be4b599ea7093205db1040c9f3289f2",
-        "frontend/entry.js": "ad42cbdd69ab27ca72d1fdf34e668d40bea73074a146d0241817045fdb283405",
-        "frontend/overlay.js": "5e188f5b4c96e360d4e34f04e69bf116d09a4d46782cb45e7507d78cd0bff7b1",
-        "frontend/style.css": "410c26dc6ee1a2abc8b0649f33438ac7ea149fbeb2b7a1538e1511ca7f6b23ba",
+        "backend/routes.js": "842fd71e7ad920e2111562d957b97e397b649025ff3f5d889f7cda38867599a6",
+        "frontend/entry.js": "4e45e12b39124dfb69ef578461699741b53991d04c65a2765f362db45a8a9694",
+        "frontend/overlay.js": "f6e0181fcf7e3070a97279a5c01c3fe02e8a2287712b6841946cf4b1233ce0ab",
+        "frontend/style.css": "70494a7b690fdd50f93a8a3c7b996d71c66b4906004f37dacab952119f82f333",
         "icon.svg": "428a12ac4ec6f6dee430811187ec9015eeb52beaa36d5c93ea5c34a33fa8bcf5",
-        "manifest.json": "d6573707c10fd02b4cf346ad407bfdc3a37b1eae12628e575b4f23422be490f1"
+        "manifest.json": "7b2f7d322db0ef55b52f61afcb2146d6c8549947de8b72b8190326d2d56f97af"
       }
     }
   ],
@@ -379,7 +379,7 @@
         "backend/bot-user.js": "ba10dc0fb321cf51812bb9e5f81e91d956cff850ddf2266ea5f59bb357544d90",
         "backend/info.js": "f0f646db513d1ae1d55482e4ec1f11dd7c40f6ded88cab616eeaa11035b3e40a",
         "backend/manage.js": "1ae37ff9160be0ba73ab8ee48c95b8724992a996c71b4f6d31da439b1c32beec",
-        "backend/relay.js": "8d06e6f3a388f7933d0bf028273e4462c3bcc502b0542bbbe019d256853e2140",
+        "backend/relay.js": "d9430a5adb4be13b6a86bab65b528afc980db1e917840479f545aae6162b4047",
         "backend/routes.js": "9fd2389786326ab360432bf1b3cd975732b88a7fd91ff630951f90e2b3daf9ce",
         "manifest.json": "21cf71d0f4efa0f3ef08d210b6408fd49def9025efb0f1f76ca86ec83489f749",
         "README.md": "ee1a69fa81c296e988b310c87645a042cdcbdd50c7869897af96ca3868298d4d"
@@ -447,7 +447,7 @@
       "name": "web-proxy",
       "label": "网页代理",
       "version": "1.0.25",
-      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。1.0.22 起浏览器的历史 / 收藏 / 首页按账号存到服务端，同一账号换设备登录后自动同步。1.0.23 起云游戏画质不再放大页面视口，改为浏览器进程 2 倍合成表面 + 帧按 2 倍像素输出：画面更清晰，但排版大小、字号、媒体查询与普通模式完全一致（此前开启后页面会切成桌面版、文字变小）。1.0.24 起触摸拖动严格 1:1 转发（不再叠加前端自造的甩动惯性，「划一点却滑出去很远」的飘移消失），并支持长按手势：按住 600ms 且不移动即补发右键，页面里依赖 contextmenu 的长按菜单可以正常弹出。1.0.25 打磨长按细节：触发后位移超过 24px 自动解冻恢复转发（不会「卡到抬手」），云游戏模式不参与长按（按住开火不会被冻结），长按后加第二根手指会整体复位状态。",
+      "description": "内置网页代理服务（纯 Node 实现，无需 Python/mitmproxy）。把任意外网站点经本地代理转发并重写资源链接，使超能岛浏览器可以打开被防盗链、跨域或 iframe 限制的站点。代理默认随 ClassIntra 启动自动运行（默认监听 9101，占用自动顺延至 9105），管理员可在应用市场「服务端插件」中随时暂停或恢复。",
       "author": "",
       "files": [
         "plugins/web-proxy/backend/access.js",

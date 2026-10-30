@@ -442,7 +442,10 @@
 }
 .ci-pet-actions { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin: -6px; }
 .ci-pet-bigbtn {
-  -webkit-flex: 1 1 30%; flex: 1 1 30%;
+  /* v0.11.0：互动从 3 个变 4 个（喂食/摸摸/呼唤/专注）。
+     30% 会让第 4 个被挤到单独一行，改成 22% 一行放得下；
+     窄屏（竖屏平板）交给 flex-wrap 自然折成 2×2。 */
+  -webkit-flex: 1 1 22%; flex: 1 1 22%;
   min-width: 96px;
   min-height: 88px;
   margin: 6px;
@@ -802,22 +805,15 @@
 .ci-pet-bigbtn--primary .ci-pet-bigbtn-sub { color: rgba(255, 255, 255, 0.92); font-weight: 500; }
 .ci-pet-bigbtn--primary[disabled] { opacity: 0.62; box-shadow: 0 2px 8px rgba(255, 110, 146, 0.16); }
 
-/* ---- 7. 入场：错峰上浮，第一次打开有"活了"的感觉 ---- */
+/* ---- 7. 入场动画（只保留 keyframes，绑定逻辑收口到 K 段的 is-tabswitch）----
+   ⚠️ 2026-10-29 修：这里原来是无条件 `.ci-pethome > * { animation: ciPetRiseIn ... both }`，
+   配上 renderHome() 每次交互都 clearRoot 重建整页 —— 于是「喂一口饭」「专注结算」都会让
+   整页重新浮入一次，截图里表现为文字重影（动画中段 opacity 未到 1），真机上是明显的闪。
+   现在入场统一由 .ci-pethome.is-tabswitch 触发（首次进入也算一次切页），普通刷新零动画。 */
 @keyframes ciPetRiseIn {
   from { opacity: 0; -webkit-transform: translateY(12px); transform: translateY(12px); }
   to { opacity: 1; -webkit-transform: translateY(0); transform: translateY(0); }
 }
-.ci-pethome > * {
-  -webkit-animation: ciPetRiseIn 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
-  animation: ciPetRiseIn 0.42s cubic-bezier(0.22, 0.9, 0.3, 1) both;
-}
-.ci-pethome > *:nth-child(1) { -webkit-animation-delay: 0.02s; animation-delay: 0.02s; }
-.ci-pethome > *:nth-child(2) { -webkit-animation-delay: 0.07s; animation-delay: 0.07s; }
-.ci-pethome > *:nth-child(3) { -webkit-animation-delay: 0.12s; animation-delay: 0.12s; }
-.ci-pethome > *:nth-child(4) { -webkit-animation-delay: 0.17s; animation-delay: 0.17s; }
-.ci-pethome > *:nth-child(5) { -webkit-animation-delay: 0.22s; animation-delay: 0.22s; }
-.ci-pethome > *:nth-child(6) { -webkit-animation-delay: 0.27s; animation-delay: 0.27s; }
-.ci-pethome > *:nth-child(n + 7) { -webkit-animation-delay: 0.32s; animation-delay: 0.32s; }
 
 /* ---- 8. 对战（练习赛）：卡片 + 血条 + 战报 ---- */
 .ci-pet-battle {
@@ -958,6 +954,8 @@
   padding: 10px 12px;
   border-radius: 14px;
   background: rgba(128, 128, 128, 0.06);
+  position: relative;
+  overflow: visible;
 }
 .ci-pet-arena-side--me { background: rgba(10, 132, 255, 0.07); }
 .ci-pet-arena-side--foe { background: rgba(255, 100, 130, 0.09); }
@@ -1017,11 +1015,49 @@
   color: var(--ci-color-text-secondary, #6b6b70);
   white-space: pre-line;
 }
-.ci-pet-arena-skip {
-  margin-top: 10px;
-  padding: 6px 14px;
-  min-height: 30px;
-  border: 1px solid rgba(128, 128, 128, 0.24);
+.ci-pet-arena-side--hit {
+  animation: ciPetArenaHit 320ms ease-out;
+}
+.ci-pet-arena-side--crit {
+  animation: ciPetArenaCrit 420ms ease-out;
+}
+@keyframes ciPetArenaHit {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+@keyframes ciPetArenaCrit {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 100, 130, 0); }
+  30% { transform: scale(1.04); box-shadow: 0 0 18px rgba(255, 100, 130, 0.55); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(255, 100, 130, 0); }
+}
+.ci-pet-dmgfloat {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #FF6482;
+  pointer-events: none;
+  animation: ciPetDmgFloat 900ms ease-out forwards;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.ci-pet-dmgfloat.is-crit {
+  color: #FF9500;
+  font-size: 22px;
+}
+.ci-pet-dmgfloat.is-heal {
+  color: #34C759;
+  font-size: 16px;
+}
+@keyframes ciPetDmgFloat {
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  15% { opacity: 1; transform: translateY(-6px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-36px) scale(1); }
+}
   border-radius: 9999px;
   background: transparent;
   font-size: 12px;
@@ -1622,6 +1658,29 @@
 .ci-pet-badge--evo {
   background: rgba(191, 90, 242, 0.16);
   color: #8E44AD;
+}
+.ci-pet-badge--combo {
+  background: linear-gradient(90deg, rgba(255, 214, 10, 0.9), rgba(255, 149, 0, 0.9));
+  color: #1b1b1f;
+  box-shadow: 0 0 12px rgba(255, 214, 10, 0.35);
+}
+.ci-pet-combo-float {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  font-size: 26px;
+  font-weight: 900;
+  color: #FFD60A;
+  text-shadow: 0 4px 16px rgba(255, 149, 0, 0.6);
+  pointer-events: none;
+  animation: ciPetComboFloat 1400ms ease-out forwards;
+  z-index: 6;
+}
+@keyframes ciPetComboFloat {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.4); }
+  20% { opacity: 1; transform: translateX(-50%) scale(1.25); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-40px) scale(1); }
 }
 
 /* 本命属性选择：五个圆角块，选中用 currentColor 描边 */
@@ -2479,6 +2538,431 @@
 }
 .ci-pet-weather.is-fit .ci-pet-weather-fit { color: #8FE3A8; }
 
+/* ---------- N. 每日登录奖励（v0.15.0）---------- */
+/* 紧贴天气条：它是唯一一个「不花钱就能涨」的东西，值得和天气一样常驻。
+   点一下展开说明并领奖，领完变灰勾 —— 进页面一次只闪一次，不反复跳。 */
+.ci-pet-daily {
+  margin: 10px 2px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: radial-gradient(140% 140% at 0% 0%, rgba(255, 214, 10, 0.28) 0%, rgba(255, 100, 130, 0.96) 55%, rgba(191, 90, 242, 0.92) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 12px 26px rgba(255, 100, 130, 0.24);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.ci-pet-daily::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(70% 70% at 100% 0%, rgba(255, 255, 255, 0.18) 0%, transparent 65%);
+}
+.ci-pet-daily > * { position: relative; z-index: 1; }
+.ci-pet-daily-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-daily-left {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  min-width: 0;
+}
+.ci-pet-daily-icon {
+  width: 30px;
+  height: 30px;
+  margin-right: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 16px;
+  line-height: 30px;
+  text-align: center;
+}
+.ci-pet-daily-text { min-width: 0; display: flex; flex-direction: column; }
+.ci-pet-daily-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+.ci-pet-daily-sub {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.86);
+}
+.ci-pet-daily-pill {
+  -webkit-flex: none; flex: none;
+  min-width: 42px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.ci-pet-daily.is-claimed .ci-pet-daily-pill {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+.ci-pet-daily.is-claimed {
+  cursor: default;
+  background: linear-gradient(150deg, rgba(90, 94, 110, 0.88), rgba(64, 68, 82, 0.88));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 6px 18px rgba(4, 7, 18, 0.2);
+}
+.ci-pet-wish {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: radial-gradient(120% 120% at 0% 0%, rgba(191, 90, 242, 0.22) 0%, rgba(52, 199, 89, 0.16) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 10px 22px rgba(52, 199, 89, 0.16);
+}
+.ci-pet-wish-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-wish-left {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  min-width: 0;
+}
+.ci-pet-wish-icon {
+  width: 28px;
+  height: 28px;
+  margin-right: 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 16px;
+  line-height: 28px;
+  text-align: center;
+}
+.ci-pet-wish-text { min-width: 0; display: flex; flex-direction: column; }
+.ci-pet-wish-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1b1b1f);
+}
+.ci-pet-wish-sub {
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-wish-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(90deg, #34C759, #7BE08F);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ci-pet-wish-btn:active { -webkit-transform: scale(0.96); transform: scale(0.96); }
+.ci-pet-wish-btn:disabled { opacity: 0.6; }
+
+/* ---- 故事章节（v0.15.0）---- */
+.ci-pet-story {
+  margin: 10px 14px 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(191, 90, 242, 0.18), rgba(10, 132, 255, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 10px 22px rgba(191, 90, 242, 0.16);
+}
+.ci-pet-story-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-bottom: 8px;
+}
+.ci-pet-story-icon {
+  width: 32px;
+  height: 32px;
+  margin-right: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 18px;
+  line-height: 32px;
+  text-align: center;
+}
+.ci-pet-story-text { min-width: 0; display: flex; flex-direction: column; }
+.ci-pet-story-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1b1b1f);
+}
+.ci-pet-story-sub {
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-story-narr {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ci-color-text-primary, #1b1b1f);
+  margin-bottom: 8px;
+}
+.ci-pet-story-teaser {
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  font-style: italic;
+  margin-bottom: 8px;
+}
+.ci-pet-story-btn {
+  width: 100%;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(90deg, #BF5AF2, #0A84FF);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.ci-pet-story-btn:active { -webkit-transform: scale(0.98); transform: scale(0.98); }
+.ci-pet-story-btn:disabled { opacity: 0.6; }
+.ci-pet-story-prog {
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+.ci-pet-story-progfill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #BF5AF2, #FFD60A);
+  -webkit-transition: width 0.4s ease;
+  transition: width 0.4s ease;
+}
+.ci-pet-daily-note {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.45;
+}
+/* 领奖瞬间：整条短暂高亮，配合音效「叮」 */
+.ci-pet-daily.claiming {
+  animation: ciPetDailyClaim 520ms ease;
+}
+@keyframes ciPetDailyClaim {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.035); box-shadow: inset 0 0 0 1px rgba(255,255,255,.46), 0 0 30px rgba(255,214,10,.46); }
+  100% { transform: scale(1); }
+}
+
+/* ---------- 离线时光（v0.16.0）----------
+   你不在的时候它也在生活。深蓝底 + 月亮，和签到的暖金是两种情绪：
+   签到是「我来了有奖励」，离线 recap 是「它在等我」。
+*/
+.ci-pet-offline {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(10, 132, 255, 0.22), rgba(91, 93, 104, 0.22));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10), 0 10px 22px rgba(10, 132, 255, 0.14);
+}
+.ci-pet-offline-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-offline-left {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ci-pet-offline-icon {
+  font-size: 18px;
+  -webkit-flex: none; flex: none;
+}
+.ci-pet-offline-text {
+  min-width: 0; display: flex; flex-direction: column;
+}
+.ci-pet-offline-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+.ci-pet-offline-sub {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.86);
+  line-height: 1.4;
+}
+.ci-pet-offline-pill {
+  -webkit-flex: none; flex: none;
+  min-width: 46px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 214, 10, 0.18);
+  color: #FFD60A;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+}
+/* 离线刚回来：整条淡入 + 左侧蓝光扫过，提示「这是新东西」 */
+.ci-pet-offline {
+  animation: ciPetOfflineIn 1.4s ease both;
+}
+@keyframes ciPetOfflineIn {
+  0% { opacity: 0; transform: translateY(6px); }
+  30% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- 每日奇遇（v0.16.0）----------
+   和签到的暖金、离线的深蓝都不一样：奇遇用的是「发现」的黄绿，
+   因为它不是「你来领奖励」，而是「今天发生了好事」。
+*/
+.ci-pet-wonder {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(52, 199, 89, 0.20), rgba(255, 214, 10, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10), 0 10px 22px rgba(52, 199, 89, 0.14);
+}
+.ci-pet-wonder-row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-wonder-left {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ci-pet-wonder-icon {
+  font-size: 18px;
+  -webkit-flex: none; flex: none;
+}
+.ci-pet-wonder-text {
+  min-width: 0; display: flex; flex-direction: column;
+}
+.ci-pet-wonder-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+.ci-pet-wonder-sub {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.86);
+  line-height: 1.4;
+}
+.ci-pet-wonder-pill {
+  -webkit-flex: none; flex: none;
+  min-width: 54px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 214, 10, 0.20);
+  color: #FFD60A;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  border: none;
+  cursor: pointer;
+}
+.ci-pet-wonder-pill:active { transform: scale(0.95); }
+.ci-pet-wonder-pill--done {
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.65);
+  cursor: default;
+}
+/* 奇遇卡片：发现时轻微弹跳，提示「这是今天的新鲜事」 */
+.ci-pet-wonder {
+  animation: ciPetWonderIn 0.7s cubic-bezier(.2,1.4,.4,1) both;
+}
+
+/* 自主行为卡（v0.17.0） */
+.ci-pet-autonomy {
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(150deg, rgba(175, 82, 222, 0.18), rgba(90, 200, 250, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55), 0 6px 18px rgba(175, 82, 222, 0.12);
+  animation: ciPetOfflineIn 0.4s ease-out;
+}
+.ci-pet-autonomy-row {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ci-pet-autonomy-left {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ci-pet-autonomy-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.ci-pet-autonomy-text {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  min-width: 0;
+}
+.ci-pet-autonomy-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ci-color-text-primary, #1c1c1e);
+}
+.ci-pet-autonomy-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+.ci-pet-autonomy-pill {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(175, 82, 222, 0.18);
+  color: var(--ci-color-text-primary, #1c1c1e);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ci-pet-autonomy-list {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
+}
+.ci-pet-autonomy-item {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  gap: 8px;
+}
+.ci-pet-autonomy-item-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.ci-pet-autonomy-item-text {
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+}
+@keyframes ciPetWonderIn {
+  0% { opacity: 0; transform: scale(0.94) translateY(6px); }
+  60% { transform: scale(1.02) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 /* ---------- O. 每日任务 ---------- */
 .ci-pet-quests {
   margin-top: 2px;
@@ -2694,3 +3178,2654 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   R. v0.11.0：专注陪伴 / 小鱼干 / 日记
+   —— 这三块共用一套配色：暖橙（食物/小鱼干）+ 蓝（专注/安静），
+      刻意不和现有的粉（羁绊/喂食主行动）抢同一层语义。
+   ============================================================ */
+
+/* ---- R1. 它的小日记 ---- */
+.ci-pet-diary {
+  margin-top: 14px;
+  padding: 14px 16px 12px;
+  border-radius: var(--ci-shape-xl, 18px);
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(16, 24, 40, 0.06);
+}
+.ci-pet-diary-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-bottom: 8px;
+}
+.ci-pet-diary-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #1B1B1F);
+}
+/* 今日专注分钟做成右侧小胶囊：和日记正文分开，扫一眼就知道"今天陪了多久" */
+.ci-pet-diary-tag {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.10);
+  color: #0A6CD6;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ci-pet-diary-quote {
+  position: relative;
+  padding: 11px 12px 11px 30px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 149, 0, 0.08), rgba(255, 100, 130, 0.05));
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--ci-color-text-primary, #2B2B30);
+}
+.ci-pet-diary-quote.is-empty {
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  background: rgba(128, 128, 128, 0.06);
+}
+.ci-pet-diary-mark {
+  position: absolute;
+  left: 10px;
+  top: 3px;
+  font-size: 24px;
+  line-height: 1;
+  /* 引号是装饰不是内容，但也不能淡到看不见：0.45 的橙在米白卡片上几乎消失，
+     提到 0.85 并换成暖棕，才像"本子上的手写引号"。 */
+  color: rgba(200, 120, 40, 0.85);
+  font-family: Georgia, 'Times New Roman', serif;
+}
+.ci-pet-diary-more { margin-top: 10px; }
+.ci-pet-diary-more > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  list-style: none;
+}
+.ci-pet-diary-more > summary::-webkit-details-marker { display: none; }
+.ci-pet-diary-more > summary::before { content: '▸ '; }
+.ci-pet-diary-more[open] > summary::before { content: '▾ '; }
+.ci-pet-diary-row {
+  display: -webkit-flex; display: flex;
+  padding: 7px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ci-pet-diary-date {
+  -webkit-flex: none; flex: none;
+  width: 44px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-diary-rowtext {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ci-color-text-secondary, #6B6B70);
+}
+
+/* ---- R2. 小卖部（小鱼干余额 + 豪华大餐）---- */
+.ci-pet-shoppe {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--ci-color-bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 14px rgba(16, 24, 40, 0.05);
+}
+.ci-pet-shoppe-coins {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+}
+.ci-pet-shoppe-coinicon { margin-right: 4px; font-size: 16px; }
+.ci-pet-shoppe-num {
+  font-size: 17px;
+  font-weight: 800;
+  color: #B0701F;
+  font-variant-numeric: tabular-nums;
+}
+.ci-pet-shoppe-unit {
+  margin-left: 4px;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
+.ci-pet-shoppe-buy {
+  margin-left: auto;
+  padding: 7px 13px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(150deg, #FFB067, #FF8A5B);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(255, 138, 91, 0.28);
+  -webkit-transition: -webkit-transform 0.15s ease;
+  transition: transform 0.15s ease;
+}
+.ci-pet-shoppe-buy.is-off {
+  background: rgba(128, 128, 128, 0.14);
+  /* 用 secondary 而不是 tertiary：禁用态本来就要"看得出但点不动"，
+     tertiary 的浅灰在浅灰底上只有 2:1，读起来像被抠掉了。 */
+  color: var(--ci-color-text-secondary, #6B6B70);
+  box-shadow: none;
+}
+.ci-pet-shoppe-buy:active { -webkit-transform: scale(0.96); transform: scale(0.96); }
+
+/* ---- R3. 专注时长选择 ---- */
+.ci-pet-focuspick {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(10, 132, 255, 0.06);
+}
+.ci-pet-focuspick-label {
+  margin-right: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ci-color-text-secondary, #6B6B70);
+}
+.ci-pet-focuspick-btn {
+  margin: 0 6px 0 0;
+  padding: 7px 13px;
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  border-radius: 999px;
+  background: var(--ci-color-bg-card, #fff);
+  color: #0A6CD6;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ci-pet-focuspick-btn:active { -webkit-transform: scale(0.96); transform: scale(0.96); }
+.ci-pet-focuspick-cancel {
+  margin-left: auto;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+  font-size: 12px;
+}
+
+/* ---- R4. 专注进行中的按钮：蓝调 + 极缓呼吸 ---- */
+/* 用蓝色而不是继续用粉：粉色在这页代表"喂它/涨羁绊"，专注是另一类事，
+   同色会让人误以为点它也在加羁绊。 */
+.ci-pet-focusbtn.is-running {
+  background: linear-gradient(150deg, #6FB6FF, #4A90E2);
+  box-shadow: 0 4px 10px rgba(74, 144, 226, 0.24), 0 12px 26px rgba(74, 144, 226, 0.18);
+  -webkit-animation: ciPetFocusPulse 3.2s ease-in-out infinite;
+  animation: ciPetFocusPulse 3.2s ease-in-out infinite;
+}
+.ci-pet-focusbtn.is-running .ci-pet-bigbtn-label { color: #fff; font-weight: 700; }
+.ci-pet-focusbtn.is-running .ci-pet-bigbtn-sub { color: rgba(255, 255, 255, 0.9); }
+@keyframes ciPetFocusPulse {
+  0%, 100% { box-shadow: 0 4px 10px rgba(74, 144, 226, 0.24), 0 12px 26px rgba(74, 144, 226, 0.18); }
+  50% { box-shadow: 0 4px 16px rgba(74, 144, 226, 0.36), 0 12px 32px rgba(74, 144, 226, 0.26); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ci-pet-focusbtn.is-running {
+    -webkit-animation: none !important;
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+
+/* ---- R5. 逗它笑小游戏（v0.15.0）：15 秒限时连点 ---- */
+/* 它和另外三个互动按钮同排，但用暖黄而不是粉/蓝 —— 这是「玩」，不是「照顾」，
+   放一起会让人误以为点它也在加羁绊。 */
+.ci-pet-laughbtn {
+  -webkit-flex: 1; flex: 1;
+  min-width: 0;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  padding: 10px 6px;
+  min-height: 78px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(150deg, #FFD60A, #FF9500);
+  color: #1b1b1f;
+  cursor: pointer;
+  -webkit-user-select: none; user-select: none;
+  overflow: hidden;
+  position: relative;
+}
+.ci-pet-laughbtn .ci-pet-laughbtn-tit {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.ci-pet-laughbtn .ci-pet-laughbtn-sub {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 3px;
+  opacity: 0.8;
+}
+.ci-pet-laughbtn:active {
+  -webkit-transform: scale(0.96); transform: scale(0.96);
+}
+.ci-pet-laughbtn.is-running {
+  background: linear-gradient(150deg, #FF9500, #FF6B00);
+  -webkit-animation: ciPetLaughPulse 0.9s ease-in-out infinite;
+  animation: ciPetLaughPulse 0.9s ease-in-out infinite;
+}
+.ci-pet-laughbtn.is-running .ci-pet-laughbtn-tit { color: #fff; }
+.ci-pet-laughbtn.is-running .ci-pet-laughbtn-sub { color: rgba(255,255,255,0.92); }
+@keyframes ciPetLaughPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+.ci-pet-laugh-float {
+  position: absolute;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  font-size: 20px;
+  font-weight: 900;
+  color: #FF9500;
+  text-shadow: 0 3px 10px rgba(255, 149, 0, 0.5);
+  pointer-events: none;
+  animation: ciPetLaughFloat 700ms ease-out forwards;
+  z-index: 6;
+}
+.ci-pet-laugh-float.is-hot {
+  color: #FF3B30;
+  font-size: 24px;
+  text-shadow: 0 4px 16px rgba(255, 59, 48, 0.55);
+}
+@keyframes ciPetLaughFloat {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.4); }
+  20% { opacity: 1; transform: translateX(-50%) scale(1.2); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-34px) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ci-pet-laughbtn.is-running {
+    -webkit-animation: none !important;
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   S. 卡片内文字色：跟着卡片底色走（v0.11.0）
+   ============================================================ */
+/* 这一页的卡片（hero / 状态 / 任务 / 日记 / 小卖部 / 形象 / 设置 / 冒险入口）
+   设计上都是「浅色卡片」，但主题不保证变量成对：
+   当前这套主题给 --ci-color-bg-card = #F8F2E4（米白），
+   而 --ci-color-text-primary 仍是深色档的纯白 —— 卡片内所有标题都成了白字压米白，
+   对比度接近 0（截图里看着像"文字重影"，放大 3 倍才看出只有一行字，只是快看不见了）。
+
+   修法：在卡片容器上重绑三个文字变量，卡片内那 95 处 color: var(--ci-color-*) 自动跟随；
+   深底卡片再切回亮字，纯深色主题下不会反过来瞎掉。 */
+.ci-pet-hero,
+.ci-pet-stats,
+.ci-pet-quests,
+.ci-pet-diary,
+.ci-pet-shoppe,
+.ci-pet-actions,
+.ci-pet-stylecard,
+.ci-pet-misc,
+.ci-pet-advlink {
+  --ci-color-text-primary: #1B1B1F;
+  --ci-color-text-secondary: #5F5F66;
+  --ci-color-text-tertiary: #86868B;
+  /* ⚠️ 必须显式写 color，只重绑变量不够：
+     color 是继承的"计算后的值"，宿主在 .app-shell 上已经算好了白色并往下继承，
+     后代改 --ci-color-text-primary 不会让祖先那层重算 —— 于是 .ci-pet-name 这类
+     自己没写 color 的元素仍然是白的。这里在卡片容器上落一次真实颜色，后代才会跟着变。 */
+  color: #1B1B1F;
+}
+.ci-pethome.ci-pet-darkcard .ci-pet-hero,
+.ci-pethome.ci-pet-darkcard .ci-pet-stats,
+.ci-pethome.ci-pet-darkcard .ci-pet-quests,
+.ci-pethome.ci-pet-darkcard .ci-pet-diary,
+.ci-pethome.ci-pet-darkcard .ci-pet-shoppe,
+.ci-pethome.ci-pet-darkcard .ci-pet-actions,
+.ci-pethome.ci-pet-darkcard .ci-pet-stylecard,
+.ci-pethome.ci-pet-darkcard .ci-pet-misc,
+.ci-pethome.ci-pet-darkcard .ci-pet-advlink {
+  --ci-color-text-primary: rgba(235, 235, 245, 0.95);
+  --ci-color-text-secondary: rgba(235, 235, 245, 0.72);
+  --ci-color-text-tertiary: rgba(235, 235, 245, 0.52);
+  color: rgba(235, 235, 245, 0.95);
+}
+/* 页面级标题（分区标题 / 页头）直接坐在深色页底上，必须保持主题原色，
+   不能跟着卡片走 —— 否则「每日任务」会变成深色字、在深底上消失。 */
+
+/* ============================================================================
+   U. v0.12.0「星夜水晶」视觉改版
+   ----------------------------------------------------------------------------
+   改版前：深色星空外壳 + 一叠米色纸卡。纸卡太重，夜空只在卡片缝里透一点，
+          整页读起来像「资料卡列表」，不像「我的宠物」。
+   改版后：卡片一律半透明玻璃，夜空透上来做底；亮色只留给宠物本身和
+          「值得亮」的那几样东西（今日焦点金票 / 胜负横幅 / 主行动按钮）。
+          暗底上满眼都亮 = 没有重点，这是这一版最重要的一条。
+
+   三条约定（动这段之前先读）：
+   1. 只追加、不改上面 A~S 段的历史规则。E 段那把米色选择器列表是 v0.9 的沉淀，
+      逐个回去改容易漏；这里用「.ci-pethome 前缀」把特异性提到 0,2,0 统一覆盖，
+      将来要回滚只需删掉本段。
+   2. 卡片底色亮度必须低于 0.45，否则 markCardTone() 会判成浅底、让 S 段写深墨字
+      → 深底深字。这里用 rgba(18,24,46,.62)，parseLum 得 0.09，稳定落在「暗卡」分支。
+      （v0.11 的「文字重影」事故就是这么来的：白字压米白，对比度接近 0。）
+   3. 探针按类名断言（_pet-ui-shot.mjs / _pet-real-e2e.mjs），class 一个都不能删改。
+      Chrome 80 基线：不用 flex gap / aspect-ratio / backdrop-filter / :is() / inset。
+   ============================================================================ */
+
+/* ---------- U1. 外壳：夜空再压深一档，给玻璃留出对比 ---------- */
+/* 星星三层密度 + 高空紫调极光 + 地平线冷光。底色比 v0.9 更暗（#05080F），
+   玻璃卡才"浮"得起来 —— 原来 #101628 太亮，卡片和底几乎同明度。 */
+.ci-pethome {
+  --ci-color-bg-card: rgba(18, 24, 46, 0.62);
+  background-color: #05080F;
+  background-image:
+    radial-gradient(circle 1.6px at 26px 38px, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1px at 132px 92px, rgba(180, 210, 255, 0.55), rgba(180, 210, 255, 0) 100%),
+    radial-gradient(circle 1.3px at 68px 172px, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1.1px at 210px 58px, rgba(255, 235, 180, 0.5), rgba(255, 235, 180, 0) 100%),
+    radial-gradient(circle 1.5px at 280px 140px, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1px at 44px 116px, rgba(200, 220, 255, 0.42), rgba(200, 220, 255, 0) 100%),
+    radial-gradient(72% 38% at 18% 8%, rgba(191, 90, 242, 0.10), rgba(191, 90, 242, 0) 70%),
+    radial-gradient(88% 44% at 50% 102%, rgba(90, 200, 250, 0.13), rgba(90, 200, 250, 0) 70%),
+    radial-gradient(120% 62% at 50% 0%, #1A2253 0%, #101736 39%, #0A0F22 72%, #05080F 100%);
+  background-repeat: repeat, repeat, repeat, repeat, repeat, repeat, no-repeat, no-repeat, no-repeat;
+  background-size: 189px 227px, 189px 227px, 189px 227px, 311px 173px, 311px 173px, 311px 173px, 100% 100%, 100% 100%, 100% 100%;
+}
+
+/* ---------- U2. 玻璃卡：一个列表收口所有内容卡 ---------- */
+/* 与 E 段（2122）同一批选择器 + 首页 v0.10/v0.11 新增的四张卡。
+   写法要点：底色用 rgba 白极低透明度，靠「上沿 1px 高光 + 1px 描边 + 下沉大阴影」
+   做出玻璃厚度 —— Chrome 80 没有 backdrop-filter，只能用这三层假装。 */
+.ci-pethome .ci-pet-stats,
+.ci-pethome .ci-pet-misc,
+.ci-pethome .ci-pet-canvaswrap,
+.ci-pethome .ci-pet-battle,
+.ci-pethome .ci-pet-buddy,
+.ci-pethome .ci-pet-dex-progress,
+.ci-pethome .ci-pet-types,
+.ci-pethome .ci-pet-evo,
+.ci-pethome .ci-pet-tower,
+.ci-pethome .ci-pet-wild,
+.ci-pethome .ci-pet-tpl,
+.ci-pethome .ci-pet-stylecard,
+.ci-pethome .ci-pet-advlink,
+.ci-pethome .ci-pet-tools,
+.ci-pethome .ci-pet-rank,
+.ci-pethome .ci-pet-ach,
+.ci-pethome .ci-pet-titles,
+.ci-pethome .ci-pet-quests,
+.ci-pethome .ci-pet-diary,
+.ci-pethome .ci-pet-shoppe,
+.ci-pethome .ci-pet-weather,
+.ci-pethome .ci-pet-hist {
+  background-color: rgba(255, 255, 255, 0.045);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 10px 26px rgba(2, 5, 14, 0.42);
+}
+
+/* ---------- U3. 卡片内文字：统一亮字，不再依赖主题变量成不成对 ---------- */
+/* 与 S 段同一批容器，特异性 0,2,0 压过 S 段的 0,1,0。
+   S 段的 .ci-pet-darkcard 分支（0,3,0）会赢，但它给的也是亮字，两条路殊途同归。
+   ⚠️ 仍然必须显式写 color：color 是继承的已计算值，只重绑变量不会让祖先重算。 */
+.ci-pethome .ci-pet-hero,
+.ci-pethome .ci-pet-stats,
+.ci-pethome .ci-pet-quests,
+.ci-pethome .ci-pet-diary,
+.ci-pethome .ci-pet-shoppe,
+.ci-pethome .ci-pet-actions,
+.ci-pethome .ci-pet-stylecard,
+.ci-pethome .ci-pet-misc,
+.ci-pethome .ci-pet-advlink {
+  --ci-color-text-primary: #EEF3FF;
+  --ci-color-text-secondary: rgba(198, 212, 240, 0.74);
+  --ci-color-text-tertiary: rgba(198, 212, 240, 0.50);
+  color: #EEF3FF;
+}
+
+/* ---------- U4. Hero：从「资料卡」改成「角色展台」 ---------- */
+/* v0.9 的 hero 是「左 132px 方块 + 右四行文字」，跟通讯录头像卡是一个骨架。
+   这一版换成上下结构：上半 200px 全宽场景（宠物站在夜空下），下半信息条。
+   卡片本身不再有内边距 —— padding 会把场景挤成一个方块，这是关键。
+   ⚠️ 不要再写 .ci-pet-hero 的 padding/overflow：这里已经定死，覆盖会连锁改坏
+      场景层的绝对定位基准（E/D 段的历史坑：重复写 overflow:hidden 把布局打回旧版）。 */
+.ci-pethome .ci-pet-hero {
+  display: block;
+  position: relative;
+  padding: 0;
+  /* ⚠️ flex: none 不能省。.ci-pethome 是 flex column（停靠栏靠 margin-top:auto 贴底），
+     hero 是它的 flex item；而「overflow 非 visible 的 flex item，自动最小尺寸为 0」
+     是 flexbox 的硬规则 —— 加上下面的 overflow:hidden 后，min-height:auto 不再保护它，
+     整块会被压成 0 高（2026-10-29 实测：stage 200px、info 142px 都在，父元素 h=0，
+     页面上宠物区直接消失，从 HUD 一步跳到状态条）。 */
+  -webkit-flex: none;
+  flex: none;
+  border-radius: 26px;
+  overflow: hidden;
+  background-color: #0D1430;
+  background-image: none;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 18px 44px rgba(2, 5, 14, 0.58);
+}
+/* 右下角那团粉色柔光是给米色纸做的，换了深底会糊成脏斑 → 关掉，改由月亮光晕承担 */
+.ci-pethome .ci-pet-hero::after { display: none; }
+
+.ci-pethome .ci-pet-hero-stage {
+  position: relative;
+  width: auto;
+  height: 200px;
+  -webkit-flex: none;
+  flex: none;
+  border-radius: 0;
+  overflow: hidden;
+  box-shadow: none;
+  background: #0B1030;
+}
+/* 宠物：绝对定位 + left/right:0 + margin auto 水平居中。
+   ⚠️ 不能用 translateX(-50%) 居中 —— ciPetBob 动画就是 transform: translateY，
+      两者会互相覆盖（动画赢），宠物会往右偏半个身位。 */
+.ci-pethome .ci-pet-hero-stage canvas {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30px;
+  width: 160px;
+  height: 160px;
+  margin: 0 auto;
+  z-index: 2;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  -webkit-filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.52));
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.52));
+  -webkit-animation: ciPetBob 2.6s ease-in-out infinite;
+  animation: ciPetBob 2.6s ease-in-out infinite;
+}
+/* 视频形态：脚踩地面，不要上下居中（原 translate(-50%,-52%) 是为方块舞台调的） */
+.ci-pethome .ci-pet-hero-video {
+  top: auto;
+  bottom: 6px;
+  height: 178px;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+}
+
+/* 场景：白天草地 → 星夜山坡。月亮是三层（外晕/内晕/实体），
+   远山用两个压底边的圆做剪影 —— 跟 v0.9 同一套手法，只是配色换成夜，
+   并且刻意压低山的对比：它是远景，抢戏就把宠物盖过去了。 */
+.ci-pethome .ci-pet-scene-sky {
+  background:
+    radial-gradient(circle at 77% 21%, rgba(255, 238, 186, 0.16), rgba(255, 238, 186, 0) 48%),
+    radial-gradient(circle at 77% 21%, rgba(255, 243, 205, 0.42), rgba(255, 243, 205, 0) 19%),
+    radial-gradient(circle at 77% 21%, #FFFDF0, #FFEFC2 2.7%, rgba(255, 239, 194, 0) 3.3%),
+    radial-gradient(circle at 13% 27%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 0.8%),
+    radial-gradient(circle at 27% 11%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 0.6%),
+    radial-gradient(circle at 41% 33%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 0.7%),
+    radial-gradient(circle at 57% 8%, rgba(200, 220, 255, 0.6), rgba(200, 220, 255, 0) 0.6%),
+    radial-gradient(circle at 66% 40%, rgba(255, 235, 200, 0.7), rgba(255, 235, 200, 0) 0.8%),
+    radial-gradient(circle at 90% 46%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 0.6%),
+    radial-gradient(circle at 8% 52%, rgba(200, 220, 255, 0.45), rgba(200, 220, 255, 0) 0.7%),
+    linear-gradient(180deg, #06091D 0%, #101838 32%, #1E2750 58%, #303055 80%, #40375C 100%);
+}
+/* 远山：用 clip-path 画真山脊，比「两个压底边的圆」像山得多（圆只会读成土包）。
+   clip-path 会把背景一起裁掉，所以这里只能用纯渐变色，不能叠 radial 光斑。 */
+.ci-pethome .ci-pet-scene-hills {
+  left: 0;
+  right: 0;
+  bottom: 44px;
+  height: 78px;
+  background: linear-gradient(180deg, #28325C 0%, #1E274C 100%);
+  -webkit-clip-path: polygon(0 100%, 0 72%, 7% 58%, 14% 66%, 23% 40%, 31% 56%,
+    39% 44%, 47% 62%, 56% 38%, 64% 54%, 73% 34%, 81% 52%, 89% 42%, 95% 56%, 100% 48%, 100% 100%);
+  clip-path: polygon(0 100%, 0 72%, 7% 58%, 14% 66%, 23% 40%, 31% 56%,
+    39% 44%, 47% 62%, 56% 38%, 64% 54%, 73% 34%, 81% 52%, 89% 42%, 95% 56%, 100% 48%, 100% 100%);
+}
+/* 中景：草坡。顶沿那道亮线是"月光扫过草尖"——不要把透明度写高，
+   0.4 以上就变成一根霓虹灯管，比没有还难看。 */
+.ci-pethome .ci-pet-scene-ground {
+  height: 44px;
+  /* 夜色草坡：冷青压到低饱和，顶端留一道月光边。
+     饱和度一高就变成一条荧光绿横条，跟整片夜空打架（第一版就是这样）。 */
+  background: linear-gradient(180deg, rgba(74, 118, 118, 0.88) 0%, rgba(38, 64, 78, 0.94) 24%, #16283A 62%, #0A1220 100%);
+  box-shadow: inset 0 1px 0 rgba(158, 226, 216, 0.16);
+}
+/* 近景草丛：一道高低不平的草尖剪影压在宠物脚前，画面立刻有「站在草里」的层次。
+   ⚠️ 用 ::before 而不是往 DOM 里加节点（探针按 childNodes 数断言过舞台结构）。 */
+.ci-pethome .ci-pet-hero-stage::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  bottom: 0;
+  height: 32px;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(10, 22, 34, 0) 0%, rgba(8, 18, 30, 0.72) 58%, rgba(7, 15, 26, 0.96) 100%);
+  -webkit-clip-path: polygon(0 100%, 0 62%, 2% 80%, 5% 50%, 9% 74%, 12% 42%, 17% 70%,
+    21% 56%, 24% 82%, 28% 46%, 33% 72%, 37% 54%, 42% 78%, 46% 40%, 51% 66%, 55% 52%,
+    59% 76%, 64% 44%, 68% 72%, 73% 58%, 78% 82%, 82% 48%, 87% 74%, 91% 54%, 96% 78%, 100% 52%, 100% 100%);
+  clip-path: polygon(0 100%, 0 62%, 2% 80%, 5% 50%, 9% 74%, 12% 42%, 17% 70%,
+    21% 56%, 24% 82%, 28% 46%, 33% 72%, 37% 54%, 42% 78%, 46% 40%, 51% 66%, 55% 52%,
+    59% 76%, 64% 44%, 68% 72%, 73% 58%, 78% 82%, 82% 48%, 87% 74%, 91% 54%, 96% 78%, 100% 52%, 100% 100%);
+}
+.ci-pethome .ci-pet-scene-shadow {
+  bottom: 24px;
+  width: 104px;
+  height: 17px;
+  margin-left: -52px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.68), rgba(0, 0, 0, 0) 70%);
+}
+/* 角色背后的一团环境光：比给宠物加 drop-shadow 便宜得多
+   （视频每帧重算 filter 在低端平板上会掉帧），效果上还更像"它在发光" */
+.ci-pethome .ci-pet-hero-stage::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 240px;
+  height: 240px;
+  margin-left: -120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(150, 200, 255, 0.17), rgba(150, 200, 255, 0) 64%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 信息条：接在场景下方，顶部一道极淡的分隔光，颜色比场景底略深一档 */
+.ci-pethome .ci-pet-hero-info {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 13px 18px 16px;
+  background: linear-gradient(180deg, rgba(15, 22, 50, 0.30), rgba(11, 16, 38, 0.92));
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.ci-pethome .ci-pet-hero-mood {
+  margin: 0 0 7px;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  background: rgba(255, 209, 102, 0.13);
+  color: #FFD98A;
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.24);
+  -webkit-animation: none;
+  animation: none;
+}
+.ci-pethome .ci-pet-name {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  line-height: 1.2;
+  color: #F5F8FF;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+.ci-pethome .ci-pet-badges { margin: 8px 0 0; }
+/* 徽章三色分工：羁绊档=金（稀有度），进化=紫（成长），等级=蓝（信息）。
+   原来是一律粉渐变 —— 三个并列会糊成一片，分不出哪个是重点。 */
+.ci-pethome .ci-pet-badge {
+  margin: 0 6px 0 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 209, 102, 0.14);
+  color: #FFD98A;
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.28);
+  text-shadow: none;
+}
+.ci-pethome .ci-pet-badge--evo {
+  background: rgba(191, 90, 242, 0.16);
+  color: #E3B4FF;
+  box-shadow: inset 0 0 0 1px rgba(191, 90, 242, 0.30);
+}
+.ci-pethome .ci-pet-badge--lv {
+  background: rgba(90, 200, 250, 0.14);
+  color: #9BDCFF;
+  box-shadow: inset 0 0 0 1px rgba(90, 200, 250, 0.28);
+}
+.ci-pethome .ci-pet-hint {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---------- U5. 状态条：从「细线」改成「能量条」 ---------- */
+/* 10px 的条在深底上像一条划痕。12px + 内凹槽 + 同色外发光（--ci-pet-fill 由 JS 注入，
+   顺带当 glow 颜色用），才能读成「它的体力」。 */
+.ci-pethome .ci-pet-stats {
+  margin-top: 12px;
+  padding: 18px 18px 16px;
+  border-radius: 22px;
+}
+.ci-pethome .ci-pet-statrow { margin-top: 17px; }
+.ci-pethome .ci-pet-statrow:first-child { margin-top: 0; }
+.ci-pethome .ci-pet-stathead { margin-bottom: 8px; }
+.ci-pethome .ci-pet-statlabel {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  color: rgba(226, 236, 255, 0.76);
+}
+.ci-pethome .ci-pet-statvalue {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.ci-pethome .ci-pet-statbar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.36);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.ci-pethome .ci-pet-statbar > span {
+  border-radius: 999px;
+  box-shadow:
+    0 0 14px -2px var(--ci-pet-fill, #0A84FF),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+}
+.ci-pethome .ci-pet-statfoot {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ---------- U6. 互动按钮：玻璃底座 + 圆形图标盘 ---------- */
+/* v0.9 是「米色厚底 3D」——深色玻璃环境里那种厚底会变成一块突兀的亮砖。
+   这一版改成玻璃 + 图标底下垫一个圆盘，主行动的粉色负责「发光」而不是「厚」。
+   ⚠️ emoji 用 inline-flex 居中，不要靠 line-height：Chrome 对彩色 emoji 的
+      基线处理跟普通字形不同，line-height 大会往下沉。 */
+.ci-pethome .ci-pet-bigbtn {
+  border-radius: 20px;
+  background-color: rgba(255, 255, 255, 0.05);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.015));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 8px 20px rgba(2, 5, 14, 0.38);
+}
+.ci-pethome .ci-pet-bigbtn:active {
+  -webkit-transform: scale(0.96) translateY(1px);
+  transform: scale(0.96) translateY(1px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(2, 5, 14, 0.42);
+}
+.ci-pethome .ci-pet-bigbtn-emoji {
+  display: -webkit-inline-flex;
+  display: inline-flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 21px;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .ci-pet-bigbtn-label {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.ci-pethome .ci-pet-bigbtn-sub {
+  font-size: 10px;
+  line-height: 1.45;
+}
+/* 主行动：粉色只做发光，不做厚底。inset 白高光是"塑料按钮"的关键一笔 */
+.ci-pethome .ci-pet-bigbtn--primary {
+  background-image: linear-gradient(165deg, #FF8A6B 0%, #FF6E92 52%, #F6518F 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 10px 26px rgba(255, 90, 140, 0.34);
+}
+.ci-pethome .ci-pet-bigbtn--primary:active {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 4px 14px rgba(255, 90, 140, 0.30);
+}
+.ci-pethome .ci-pet-bigbtn--primary .ci-pet-bigbtn-emoji {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+}
+.ci-pethome .ci-pet-bigbtn--primary[disabled],
+.ci-pethome .ci-pet-bigbtn[disabled] {
+  opacity: 0.55;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+/* 专注进行中：蓝调呼吸（R4 段定的是米色时代的写法，这里补一层深底版本） */
+.ci-pethome .ci-pet-focusbtn.is-running {
+  background-image: linear-gradient(165deg, rgba(90, 200, 250, 0.26), rgba(10, 132, 255, 0.20));
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 200, 250, 0.42),
+    0 0 22px rgba(90, 200, 250, 0.24);
+}
+.ci-pethome .ci-pet-focusbtn.is-running .ci-pet-bigbtn-label { color: #B7E4FF; }
+
+/* ---------- U7. 分区标题 / 天气 / 每日任务 / 日记 / 小卖部 ---------- */
+/* 分区标题在深底上已经是金色（A 段），这里只把左侧色块换成"发光竖条" */
+.ci-pethome .ci-pet-section {
+  margin: 20px 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #FFD166;
+}
+.ci-pethome .ci-pet-section::before {
+  width: 3px;
+  height: 12px;
+  margin-right: 9px;
+  background: linear-gradient(180deg, #FFE29A, #FF9F43);
+  box-shadow: 0 0 10px rgba(255, 180, 80, 0.55);
+}
+
+/* 天气：原卡已经是深蓝，改成玻璃后要把描边提亮一档，否则在夜空底上看不出边界 */
+.ci-pethome .ci-pet-weather {
+  margin-top: 12px;
+  border-radius: 20px;
+}
+.ci-pethome .ci-pet-weather.is-fit {
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 200, 250, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 10px 26px rgba(2, 5, 14, 0.42);
+}
+
+/* 每日任务：行分隔线换成白色极淡，并对"可领取"那一行留一点暖光 */
+.ci-pethome .ci-pet-quests { border-radius: 22px; }
+.ci-pethome .ci-pet-quest { border-top-color: rgba(255, 255, 255, 0.07); }
+.ci-pethome .ci-pet-quest-claim:not([disabled]) {
+  box-shadow: 0 6px 16px rgba(255, 160, 60, 0.30);
+}
+
+/* 日记：引用块是"它说的话"，给一道左侧细金线与更大的行距，读起来像摘抄 */
+.ci-pethome .ci-pet-diary { border-radius: 22px; }
+.ci-pethome .ci-pet-diary-quote {
+  border-left: 2px solid rgba(255, 209, 102, 0.42);
+  padding-left: 12px;
+  line-height: 1.72;
+}
+.ci-pethome .ci-pet-diary-mark { color: rgba(255, 209, 102, 0.55); }
+.ci-pethome .ci-pet-diary-row { border-top-color: rgba(255, 255, 255, 0.06); }
+
+/* 小卖部：小鱼干余额是这一页唯一的"货币"，数字给金色发光 */
+.ci-pethome .ci-pet-shoppe { border-radius: 20px; }
+.ci-pethome .ci-pet-shoppe-num {
+  color: #FFD166;
+  text-shadow: 0 0 12px rgba(255, 209, 102, 0.45);
+}
+.ci-pethome .ci-pet-shoppe-buy:not(.is-off) {
+  background-image: linear-gradient(165deg, rgba(255, 209, 102, 0.20), rgba(255, 159, 67, 0.14));
+  color: #FFD98A;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 209, 102, 0.32),
+    0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+/* 专注时长选择条：浮在互动区下方，做成一条"抽屉" */
+.ci-pethome .ci-pet-focuspick {
+  margin-top: 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 8px 20px rgba(2, 5, 14, 0.34);
+}
+.ci-pethome .ci-pet-focuspick-btn {
+  background: rgba(90, 200, 250, 0.14);
+  color: #B7E4FF;
+  box-shadow: inset 0 0 0 1px rgba(90, 200, 250, 0.30);
+}
+.ci-pethome .ci-pet-focuspick-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(198, 212, 240, 0.66);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+/* ---------- U8. 冒险入口：三张竖排卡改成"可点亮"的行 ---------- */
+.ci-pethome .ci-pet-advlink {
+  border-radius: 18px;
+  -webkit-transition: -webkit-transform 0.16s ease, box-shadow 0.16s ease;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.ci-pethome .ci-pet-advlink:active {
+  -webkit-transform: scale(0.985);
+  transform: scale(0.985);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 4px 14px rgba(2, 5, 14, 0.42);
+}
+.ci-pethome .ci-pet-advlink-icon {
+  display: -webkit-inline-flex;
+  display: inline-flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .ci-pet-advlink-arrow { color: rgba(255, 209, 102, 0.55); }
+
+/* ---------- U9. 底部停靠栏：选中态改成"发光胶囊" ---------- */
+/* v0.9 的选中态是一块 13% 透明的浅黄方块，在玻璃卡变深之后几乎看不见。
+   这一版：更亮的底 + 金色描边 + 外发光 + 图标轻微上浮。 */
+.ci-pethome .ci-pet-tabs {
+  background: linear-gradient(180deg, rgba(22, 30, 62, 0.94), rgba(6, 9, 20, 0.985));
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 -14px 34px rgba(2, 5, 14, 0.62);
+}
+.ci-pethome .ci-pet-tab {
+  border-radius: 16px;
+  -webkit-transition: background 0.18s ease, box-shadow 0.18s ease;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+.ci-pethome .ci-pet-tab.is-on {
+  background: rgba(255, 209, 102, 0.15);
+  color: #FFD166;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 209, 102, 0.36),
+    0 0 20px rgba(255, 209, 102, 0.16);
+}
+.ci-pethome .ci-pet-tab-icon {
+  display: inline-block;
+  -webkit-transition: -webkit-transform 0.18s ease;
+  transition: transform 0.18s ease;
+}
+.ci-pethome .ci-pet-tab.is-on .ci-pet-tab-icon {
+  -webkit-transform: translateY(-1px) scale(1.08);
+  transform: translateY(-1px) scale(1.08);
+}
+
+/* ---------- U10. 顶部 HUD：跟着玻璃语言走一档 ---------- */
+.ci-pethome .ci-pet-hud {
+  background: linear-gradient(150deg, rgba(48, 62, 112, 0.86), rgba(18, 25, 52, 0.90));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 10px 26px rgba(2, 5, 14, 0.46);
+}
+.ci-pethome .ci-pet-hud-avatar {
+  box-shadow:
+    0 0 0 2px rgba(255, 209, 102, 0.62),
+    0 0 18px rgba(255, 209, 102, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* ---------- U11. 骨架屏：跟玻璃同一套色，避免首帧闪一下米色 ---------- */
+.ci-pethome .ci-pet-skel-card,
+.ci-pethome .ci-pet-skel-hud {
+  background-color: rgba(255, 255, 255, 0.045);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+/* ---------- U12. 保留「亮块」：设计上就该亮的那几样，别被玻璃吃掉 ---------- */
+/* 今日焦点金票 / 胜负横幅 / 稀有度描边——它们在暗底上是"高亮卡"，
+   这是有意为之的重点，不是没改完的遗留。 */
+.ci-pethome .ci-pet-wild-spot {
+  background: linear-gradient(135deg, #FFEDA8, #FFD473 52%, #FFC65C);
+  box-shadow:
+    inset 0 0 0 1px rgba(190, 126, 10, 0.34),
+    0 8px 22px rgba(255, 190, 80, 0.22);
+}
+.ci-pethome .ci-pet-arena-result.is-win { background: linear-gradient(150deg, #EAF9EC, #F7FFFA); }
+.ci-pethome .ci-pet-arena-result.is-lose { background: linear-gradient(150deg, #F2F3F6, #FCFCFD); }
+.ci-pethome .ci-pet-wild.is-owned {
+  background-image: linear-gradient(135deg, rgba(52, 199, 89, 0.14), rgba(255, 255, 255, 0.03));
+}
+
+/* ---------- U13. 减少动态效果：新增的位移/缩放一并关掉 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .ci-pet-bigbtn:active,
+  .ci-pethome .ci-pet-advlink:active,
+  .ci-pethome .ci-pet-tab.is-on .ci-pet-tab-icon {
+    -webkit-transform: none;
+    transform: none;
+  }
+  .ci-pethome .ci-pet-hero-stage canvas {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
+/* ---------- U14. 内层小控件：把「浅底浅字」的翻车点一次性收口 ---------- */
+/* 这一节是 U2 的补丁，也是 v0.12.0 真正的坑：
+   v0.9 的战术/技能/试炼塔/属性胶囊都是「浅白底 + 深灰字」，为米色纸卡设计。
+   卡片换成玻璃后，它们的底色没跟着变、字色却被 S 段带成了亮色 ——
+   于是「白底白字」，页面看着像没加载完。
+   修法不是逐个调字色，而是把底色也换成深色玻璃，让「底暗字亮」这套关系重新成立。
+
+   另一类：属性胶囊（.ci-pet-el--*）原本是 16% 彩底 + 深彩字，在暗底上深彩字读不出来。
+   深色环境下彩色标签的规矩是「底更淡、字更亮」，所以底抬到 20~24%，字换成高明度同色系。 */
+
+/* 14.1 属性胶囊：五个色系统一亮字。底色留一点透明，让玻璃透上来 */
+.ci-pethome .ci-pet-el--fire {
+  background: rgba(255, 107, 74, 0.20);
+  color: #FFB4A0;
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 74, 0.30);
+}
+.ci-pethome .ci-pet-el--grass {
+  background: rgba(52, 199, 89, 0.20);
+  color: #8FE6A6;
+  box-shadow: inset 0 0 0 1px rgba(52, 199, 89, 0.30);
+}
+.ci-pethome .ci-pet-el--earth {
+  background: rgba(176, 122, 74, 0.26);
+  color: #E3BC90;
+  box-shadow: inset 0 0 0 1px rgba(176, 122, 74, 0.34);
+}
+.ci-pethome .ci-pet-el--electric {
+  background: rgba(230, 167, 0, 0.22);
+  color: #FFD97A;
+  box-shadow: inset 0 0 0 1px rgba(230, 167, 0, 0.32);
+}
+.ci-pethome .ci-pet-el--water {
+  background: rgba(10, 132, 255, 0.22);
+  color: #8FCBFF;
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.32);
+}
+/* 克制/被克小标签同源，一起提亮 */
+.ci-pethome .ci-pet-typetag.is-adv {
+  background: rgba(52, 199, 89, 0.20);
+  color: #8FE6A6;
+}
+.ci-pethome .ci-pet-typetag.is-dis {
+  background: rgba(255, 107, 74, 0.20);
+  color: #FFB4A0;
+}
+
+/* 14.2 战术三选一：不再是一块浅灰砖，改成可选中的玻璃格 */
+.ci-pethome .ci-pet-tactic {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  -webkit-transition: background 0.16s ease, box-shadow 0.16s ease;
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+.ci-pethome .ci-pet-tactic-name { color: rgba(214, 226, 250, 0.72); }
+.ci-pethome .ci-pet-tactic.is-on {
+  background: rgba(90, 200, 250, 0.16);
+  border-color: rgba(90, 200, 250, 0.58);
+  box-shadow:
+    inset 0 0 0 1px rgba(90, 200, 250, 0.26),
+    0 0 18px rgba(90, 200, 250, 0.20);
+}
+.ci-pethome .ci-pet-tactic.is-on .ci-pet-tactic-name { color: #9BDCFF; }
+
+/* 14.3 技能胶囊：未装备是玻璃，已装备是紫玻璃 */
+.ci-pethome .ci-pet-skill {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: rgba(214, 226, 250, 0.72);
+}
+.ci-pethome .ci-pet-skill.is-on {
+  background: rgba(191, 90, 242, 0.18);
+  border-color: rgba(191, 90, 242, 0.56);
+  color: #E3B4FF;
+  box-shadow: 0 0 16px rgba(191, 90, 242, 0.18);
+}
+
+/* 14.4 试炼塔当前层卡：2147 行那条 rgba(255,255,255,.72) 是给纸卡留的，
+   深底下就是一块白砖，这里整块换掉 */
+.ci-pethome .ci-pet-tower-card {
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+/* 14.5 本命属性选中态：原来是一整块纯白（#fff），在暗底上最刺眼。
+   改成「同色描边 + 微亮底」，靠 border-color: currentColor 跟着属性色走。 */
+.ci-pethome .ci-pet-type {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: transparent;
+  color: rgba(214, 226, 250, 0.70);
+}
+.ci-pethome .ci-pet-type.is-on {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: currentColor;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 0 18px rgba(255, 255, 255, 0.05);
+}
+
+/* 14.6 emoji 图标盘：彩色 emoji 本身自带颜色，但 color 默认是黑的 ——
+   一旦字体回退到黑白字形就会变成黑块压在暗底上。给个亮色兜底。 */
+.ci-pethome .ci-pet-bigbtn-emoji,
+.ci-pethome .ci-pet-tactic-icon,
+.ci-pethome .ci-pet-skill-icon,
+.ci-pethome .ci-pet-advlink-icon {
+  color: #EEF3FF;
+}
+
+/* 14.7 内页卡片也补一次文字变量重绑 —— 不依赖宿主主题给的是深墨还是白字。
+   与 U3 同为 0,2,0，靠后写覆盖同一个目标，两边值一致、不冲突。 */
+.ci-pethome .ci-pet-battle,
+.ci-pethome .ci-pet-buddy,
+.ci-pethome .ci-pet-types,
+.ci-pethome .ci-pet-evo,
+.ci-pethome .ci-pet-tower,
+.ci-pethome .ci-pet-wild,
+.ci-pethome .ci-pet-tpl,
+.ci-pethome .ci-pet-canvaswrap,
+.ci-pethome .ci-pet-tools,
+.ci-pethome .ci-pet-rank,
+.ci-pethome .ci-pet-ach,
+.ci-pethome .ci-pet-titles,
+.ci-pethome .ci-pet-hist,
+.ci-pethome .ci-pet-dex-progress,
+.ci-pethome .ci-pet-weather {
+  --ci-color-text-primary: #EEF3FF;
+  --ci-color-text-secondary: rgba(198, 212, 240, 0.74);
+  --ci-color-text-tertiary: rgba(198, 212, 240, 0.50);
+  color: #EEF3FF;
+}
+
+/* 14.8 卡片内分隔线：paper 时代的 #E5E5EA 一类在深底上会变成一道白痕，
+   统一压到 6~8% 白 */
+.ci-pethome .ci-pet-hist-row,
+.ci-pethome .ci-pet-diary-row,
+.ci-pethome .ci-pet-rank-item,
+.ci-pethome .ci-pet-buddy + .ci-pet-buddy {
+  border-top-color: rgba(255, 255, 255, 0.07);
+}
+
+/* 14.9 成就胶囊：两个状态都是「深字压暗底」——
+   未解锁是 #8E8E93 灰压 10% 灰、已解锁是 #8A5A00 深棕压金，
+   在夜空底上一律糊成一团（已解锁的反而更看不清，等于白做）。
+   深色环境下的规矩：未解锁靠透明度区分，已解锁才允许上金色高光。 */
+.ci-pethome .ci-pet-ach-chip {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(198, 212, 240, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.ci-pethome .ci-pet-ach-chip.is-on {
+  background: linear-gradient(135deg, rgba(255, 209, 102, 0.20), rgba(255, 159, 67, 0.12));
+  color: #FFD98A;
+  font-weight: 600;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 209, 102, 0.34),
+    0 0 14px rgba(255, 190, 80, 0.14);
+}
+
+/* ---------- U16. 圆角与间距：一套 22/18 的节奏 ---------- */
+/* 改版前每张卡各写各的（26/22/20/18），排在一起能看出「不是一套 UI」。
+   这里收口成两档：大卡 22、小卡 18。间距也统一到 14 —— 12 太挤，
+   卡片之间看不出呼吸，整页像贴纸。 */
+.ci-pethome .ci-pet-stats,
+.ci-pethome .ci-pet-quests,
+.ci-pethome .ci-pet-diary,
+.ci-pethome .ci-pet-shoppe,
+.ci-pethome .ci-pet-weather,
+.ci-pethome .ci-pet-misc,
+.ci-pethome .ci-pet-battle,
+.ci-pethome .ci-pet-dex-progress,
+.ci-pethome .ci-pet-types,
+.ci-pethome .ci-pet-evo,
+.ci-pethome .ci-pet-hist,
+.ci-pethome .ci-pet-rank,
+.ci-pethome .ci-pet-ach,
+.ci-pethome .ci-pet-titles {
+  border-radius: 22px;
+}
+.ci-pethome .ci-pet-advlink,
+.ci-pethome .ci-pet-stylecard,
+.ci-pethome .ci-pet-buddy,
+.ci-pethome .ci-pet-wild,
+.ci-pethome .ci-pet-tpl,
+.ci-pethome .ci-pet-canvaswrap,
+.ci-pethome .ci-pet-tools { border-radius: 18px; }
+.ci-pethome .ci-pet-stats,
+.ci-pethome .ci-pet-weather,
+.ci-pethome .ci-pet-hist { margin-top: 14px; }
+/* 冒险入口的箭头原来几乎是透明的，整行都看不出可以点 */
+.ci-pethome .ci-pet-advlink-arrow {
+  color: rgba(255, 209, 102, 0.80);
+  font-size: 19px;
+  line-height: 1;
+}
+
+/* ---------- U17. 彩色小标签：暗底上一律改成「淡底 + 亮字」 ---------- */
+/* 这一批标签原本是「16% 彩底 + 深彩字」，为白纸卡设计（深字压浅彩才读得清）。
+   移到夜空底之后，底色的 16% 透明等于没有，深彩字直接消失在背景里。
+   深色环境的通行做法是反过来的：底色压得更淡，字提到高明度同色系。
+   涉及：难度标签 / 挑战留言卡 / 已收服标 / 胜负戳 / 已集齐属性。 */
+.ci-pethome .ci-pet-odds--easy { background: rgba(52, 199, 89, 0.18); color: #8FE6A6; }
+.ci-pethome .ci-pet-odds--even { background: rgba(10, 132, 255, 0.18); color: #8FCBFF; }
+.ci-pethome .ci-pet-odds--hard { background: rgba(255, 59, 48, 0.18); color: #FFA79E; }
+
+/* 挑战留言卡：整卡是「有人打过来了」的暖红警示，
+   底色抬到 9%、文字换成暖白 —— 冷灰字压暖红会显脏，也会让警示意味读不出来。 */
+.ci-pethome .ci-pet-inbox {
+  background: rgba(255, 80, 68, 0.09);
+  border-color: rgba(255, 96, 84, 0.26);
+}
+.ci-pethome .ci-pet-inbox-item { color: rgba(255, 226, 220, 0.80); }
+.ci-pethome .ci-pet-inbox-who { color: #FFE8E4; }
+.ci-pethome .ci-pet-inbox-rounds { color: rgba(255, 200, 194, 0.55); }
+.ci-pethome .ci-pet-inbox-clear {
+  background: rgba(255, 96, 84, 0.18);
+  color: #FFB4A8;
+  box-shadow: inset 0 0 0 1px rgba(255, 110, 96, 0.30);
+}
+.ci-pethome .ci-pet-inbox-hit {
+  color: #FFA79E;
+  border-color: rgba(255, 96, 84, 0.42);
+  background: rgba(255, 96, 84, 0.10);
+}
+.ci-pethome .ci-pet-inbox-hit[disabled] {
+  color: rgba(198, 212, 240, 0.42);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.ci-pethome .ci-pet-wild-owned {
+  background: rgba(52, 199, 89, 0.20);
+  color: #8FE6A6;
+  box-shadow: inset 0 0 0 1px rgba(52, 199, 89, 0.30);
+}
+.ci-pethome .ci-pet-dex-type.is-full {
+  background: rgba(52, 199, 89, 0.20);
+  color: #8FE6A6;
+}
+.ci-pethome .ci-pet-hist-row.is-win .ci-pet-hist-mark {
+  background: rgba(52, 199, 89, 0.22);
+  color: #8FE6A6;
+}
+.ci-pethome .ci-pet-hist-row.is-lose .ci-pet-hist-mark {
+  background: rgba(255, 59, 48, 0.20);
+  color: #FFA79E;
+}
+
+/* 17.1 剩下这几个「浅彩底 + 深彩字」的小标签，同上：底降淡、字提亮 */
+.ci-pethome .ci-pet-foe-owner {
+  background: rgba(255, 149, 0, 0.18);
+  color: #FFC26B;
+}
+.ci-pethome .ci-pet-result-ach {
+  background: rgba(255, 214, 10, 0.18);
+  color: #FFDD7A;
+}
+.ci-pethome .ci-pet-tower-done {
+  background: rgba(255, 214, 10, 0.16);
+  color: #FFDD7A;
+}
+.ci-pethome .ci-pet-title-chip {
+  background: linear-gradient(135deg, rgba(191, 90, 242, 0.20), rgba(10, 132, 255, 0.16));
+  color: #E3B4FF;
+  box-shadow: inset 0 0 0 1px rgba(191, 90, 242, 0.26);
+}
+.ci-pethome .ci-pet-diary-tag {
+  background: rgba(10, 132, 255, 0.18);
+  color: #9BDCFF;
+  box-shadow: inset 0 0 0 1px rgba(90, 200, 250, 0.24);
+}
+
+/* ============================================================================
+   V. v0.13.0「去卡片化」
+   ----------------------------------------------------------------------------
+   用户原话：「不要卡片化，参考其他游戏」。
+
+   问题诊断：v0.12 换了材质（纸卡→玻璃），但**结构还是网页**——每个区块被一个
+   等宽圆角矩形包起来、间距均匀、从上往下一列排开。这就是「卡片化」的本体，
+   换什么材质都救不回来。真实游戏主界面不长这样：
+
+     · 场景是满幅的，不是「一张卡片里装了个小舞台」
+     · 信息是「浮」在场景上的 HUD（图标 + 数字 + 细条），不带框
+     · 分组靠 间距 / 小标题 / 细分隔线，不靠「给每块画个框」
+     · 只有真正「物件」性质的东西才配一个格子（背包、卡槽）
+
+   所以这一版把卡片外壳整个撤掉：background / box-shadow / border-radius 归零，
+   内容直接坐在夜空上。分区只留三样东西——金色小标题、26px 间距、1px 分隔线。
+
+   风险控制：撤背景之后可读性全靠「夜色足够深 + 文字足够亮」，
+   所以底色 #05080F 与文字 #EEF3FF 这组关系不能动。
+   ============================================================================ */
+
+/* ---------- V1. 舞台满幅：场景和页面是一体的 ---------- */
+/* hero 左右各抵消 .ci-pethome 的 12px 内边距，做成通栏。
+   上一版它是一张 26px 圆角的卡片，一眼就是「网页里的一个区块」。 */
+.ci-pethome .ci-pet-hero {
+  margin: 0 -12px;
+  border-radius: 0;
+  box-shadow: none;
+  background-color: transparent;
+}
+.ci-pethome .ci-pet-hero-stage { height: 218px; }
+/* 场景底部要融进夜空，不能留一条硬边。info 用渐变压过去，
+   顺带把名字压在"雾"里——比再加一层卡片自然得多。 */
+.ci-pethome .ci-pet-hero-info {
+  padding: 14px 18px 17px;
+  background: linear-gradient(180deg, rgba(6, 9, 20, 0) 0%, rgba(6, 9, 20, 0.40) 38%, rgba(5, 8, 15, 0.88) 100%);
+  border-top: none;
+}
+/* 满幅舞台里的宠物可以再大一点 */
+.ci-pethome .ci-pet-hero-stage canvas {
+  width: 176px;
+  height: 176px;
+  bottom: 34px;
+}
+.ci-pethome .ci-pet-hero-video {
+  bottom: 10px;
+  height: 196px;
+}
+
+/* ---------- V2. 撤壳：首页所有区块不再有「卡片」这件事 ---------- */
+/* 一次性把底/阴影/圆角/内边距全部归零。padding 归零是关键——
+   留着 padding 就还是「卡片的内边距」，视觉上仍然是个盒子。 */
+.ci-pethome .ci-pet-stats,
+.ci-pethome .ci-pet-quests,
+.ci-pethome .ci-pet-shoppe,
+.ci-pethome .ci-pet-weather,
+.ci-pethome .ci-pet-misc,
+.ci-pethome .ci-pet-advlinks,
+.ci-pethome .ci-pet-styles {
+  margin-top: 26px;
+  padding: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* ---------- V3. 状态条：从「卡片里的两根条」变成 HUD ---------- */
+/* 游戏里的血条不长在卡片上：标签压得很小、数字给得很大、条本身很细。 */
+.ci-pethome .ci-pet-stats { margin-top: 22px; }
+.ci-pethome .ci-pet-statrow { margin-top: 15px; }
+.ci-pethome .ci-pet-stathead { margin-bottom: 6px; }
+.ci-pethome .ci-pet-statlabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  color: rgba(214, 226, 250, 0.62);
+}
+.ci-pethome .ci-pet-statvalue {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-shadow: 0 0 16px currentColor;
+}
+.ci-pethome .ci-pet-statbar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+.ci-pethome .ci-pet-statfoot {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: rgba(198, 212, 240, 0.45);
+}
+
+/* ---------- V4. 每日任务：无框列表 + 分隔线 ---------- */
+.ci-pethome .ci-pet-quests-head { padding: 0 0 12px; }
+.ci-pethome .ci-pet-quest {
+  padding: 13px 2px;
+  border-top: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ci-pethome .ci-pet-quest:last-child { border-bottom: none; }
+
+/* ---------- V5. 日记：唯一保留「物件感」的东西，做成一张纸条 ---------- */
+/* 全页都是「浮在夜里的信息」，只有日记是它写给你的实体。
+   所以这里反过来：暖白纸、微倾斜、右下角卷边——它越像一张真纸，越可信。
+   ⚠️ 文字变量必须写两条：S 段的 `.ci-pethome.ci-pet-darkcard .ci-pet-diary`
+      是 0,3,0，单写 `.ci-pethome .ci-pet-diary`（0,2,0）会被它压回亮字，
+      于是深墨纸条上又出现白字（v0.11 那个「文字重影」事故的翻版）。 */
+.ci-pethome .ci-pet-diary,
+.ci-pethome.ci-pet-darkcard .ci-pet-diary {
+  margin: 30px 8px 0;
+  padding: 20px 20px 18px;
+  background-color: #FBF4E2;
+  background-image: linear-gradient(165deg, #FDF9EF 0%, #F2E7CD 100%);
+  border-radius: 3px 3px 16px 3px;
+  box-shadow:
+    0 16px 34px rgba(2, 5, 14, 0.52),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  -webkit-transform: rotate(-0.5deg);
+  transform: rotate(-0.5deg);
+  /* 纸上的字必须是深墨——这里重绑变量，别让上面那套亮字规则漏进来 */
+  --ci-color-text-primary: #33291A;
+  --ci-color-text-secondary: #6B5B3E;
+  --ci-color-text-tertiary: #8C7A57;
+  color: #33291A;
+}
+.ci-pethome .ci-pet-diary-quote {
+  border-left: 2px solid rgba(190, 150, 70, 0.45);
+  line-height: 1.75;
+}
+.ci-pethome .ci-pet-diary-mark { color: rgba(190, 150, 70, 0.55); }
+.ci-pethome .ci-pet-diary-tag {
+  background: rgba(163, 118, 30, 0.14);
+  color: #8A6320;
+  box-shadow: none;
+}
+.ci-pethome .ci-pet-diary-more summary { color: #8C7A57; }
+.ci-pethome .ci-pet-diary-row {
+  border-top-color: rgba(120, 96, 50, 0.18);
+}
+.ci-pethome .ci-pet-diary-date { color: #8C7A57; }
+
+/* ---------- V6. 互动：圆形的技能钮 ---------- */
+/* 圆角矩形按钮是网页语言；圆形图标 + 下方小字是游戏语言。
+   四个钮居中排布、互不撑满，留白本身就是「这不是列表」。 */
+.ci-pethome .ci-pet-actions {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: nowrap;
+  flex-wrap: nowrap;
+  -webkit-justify-content: center;
+  justify-content: center;
+  margin: 26px 0 0;
+}
+.ci-pethome .ci-pet-bigbtn {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  width: 80px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 5px;
+  padding: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border-radius: 0;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-transition: -webkit-transform 0.14s ease;
+  transition: transform 0.14s ease;
+}
+.ci-pethome .ci-pet-bigbtn:active {
+  -webkit-transform: scale(0.92);
+  transform: scale(0.92);
+  box-shadow: none;
+}
+.ci-pethome .ci-pet-bigbtn-emoji {
+  width: 62px;
+  height: 62px;
+  margin: 0 auto;
+  border-radius: 50%;
+  font-size: 26px;
+  background: radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 8px 18px rgba(2, 5, 14, 0.42);
+}
+.ci-pethome .ci-pet-bigbtn-label {
+  margin-top: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #EEF3FF;
+}
+.ci-pethome .ci-pet-bigbtn-sub {
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.3;
+  color: rgba(198, 212, 240, 0.52);
+}
+/* 主行动：整颗圆变成会发光的粉球，而不是一块粉色方块 */
+.ci-pethome .ci-pet-bigbtn--primary {
+  background-image: none;
+  box-shadow: none;
+}
+.ci-pethome .ci-pet-bigbtn--primary .ci-pet-bigbtn-emoji {
+  background: radial-gradient(circle at 50% 24%, #FFC0AC 0%, #FF7C97 54%, #E33C79 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 10px 26px rgba(255, 90, 140, 0.44),
+    0 0 34px rgba(255, 90, 140, 0.24);
+}
+.ci-pethome .ci-pet-bigbtn--primary .ci-pet-bigbtn-sub { color: rgba(255, 214, 226, 0.72); }
+.ci-pethome .ci-pet-bigbtn--primary[disabled] .ci-pet-bigbtn-emoji { opacity: 0.5; }
+.ci-pethome .ci-pet-bigbtn[disabled] { opacity: 1; }
+.ci-pethome .ci-pet-bigbtn[disabled] .ci-pet-bigbtn-emoji { opacity: 0.42; }
+
+/* ---------- V7. 小卖部：一条 HUD 横栏 ---------- */
+.ci-pethome .ci-pet-shoppe {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-top: 20px;
+  padding: 14px 2px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .ci-pet-shoppe-buy {
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.28);
+}
+
+/* ---------- V8. 冒险入口：无框列表，最后一项不留线 ---------- */
+.ci-pethome .ci-pet-advlinks { margin-top: 22px; }
+.ci-pethome .ci-pet-advlink {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  width: 100%;
+  padding: 13px 2px;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  border-radius: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ci-pethome .ci-pet-advlink:last-child { border-bottom: none; }
+.ci-pethome .ci-pet-advlink:active {
+  -webkit-transform: none;
+  transform: none;
+  box-shadow: none;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* ---------- V9. 形象：唯一该有「格子」的地方（背包/卡槽语义） ---------- */
+.ci-pethome .ci-pet-styles { margin-top: 22px; }
+.ci-pethome .ci-pet-stylecard {
+  background-color: rgba(255, 255, 255, 0.035);
+  background-image: none;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .ci-pet-stylecard.is-active {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 209, 102, 0.55),
+    0 0 24px rgba(255, 209, 102, 0.14);
+}
+
+/* ---------- V10. 设置：两行无框条目 ---------- */
+.ci-pethome .ci-pet-misc {
+  margin-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .ci-pet-toggle-row {
+  padding: 14px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ci-pethome .ci-pet-misc .ci-pet-btnrow { padding: 12px 2px 0; }
+
+/* ---------- V11. 顶栏：HUD 不是卡片，是贴在场景上的一条 ---------- */
+/* 它要 sticky 常驻，所以必须有不透明底；但可以去掉圆角和左右留白，
+   让它读成「顶栏」而不是「顶部那张卡片」。 */
+.ci-pethome .ci-pet-hud {
+  margin: -10px -12px 0;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: linear-gradient(180deg, rgba(12, 18, 40, 0.94) 0%, rgba(9, 14, 32, 0.62) 100%);
+  box-shadow: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- V12. 内页容器：从「卡片」降成「数据面板」 ---------- */
+/* 对战 / 图鉴 / 排行页有大量内层控件，完全撤底会散架。
+   折中：留 2% 白 + 上沿一道高光 + 6px 微圆角 —— 读起来是「一块面板」，
+   而不是「一张浮起来的卡」（没有下沉阴影，就不浮）。 */
+.ci-pethome .ci-pet-battle,
+.ci-pethome .ci-pet-types,
+.ci-pethome .ci-pet-evo,
+.ci-pethome .ci-pet-tower,
+.ci-pethome .ci-pet-wild,
+.ci-pethome .ci-pet-tpl,
+.ci-pethome .ci-pet-canvaswrap,
+.ci-pethome .ci-pet-tools,
+.ci-pethome .ci-pet-rank,
+.ci-pethome .ci-pet-ach,
+.ci-pethome .ci-pet-titles,
+.ci-pethome .ci-pet-hist,
+.ci-pethome .ci-pet-dex-progress,
+.ci-pethome .ci-pet-buddy {
+  background-color: rgba(255, 255, 255, 0.022);
+  background-image: none;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+/* 页头（对战/图鉴/排行那行大标题）也按 HUD 处理，不要卡片感 */
+.ci-pethome .ci-pet-pagehead {
+  margin: 22px 2px 0;
+  padding: 0;
+}
+
+/* ---------- V13. 减少动态：纸条也别歪 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .ci-pet-diary {
+    -webkit-transform: none;
+    transform: none;
+  }
+}
+
+/* ---------- V14. 场景余晖：让「舞台」一直延伸到内容深处 ---------- */
+/* 撤掉卡片之后暴露出来一个新问题：hero 结束的那条线以下，整片都是同一种深色，
+   中段（天气 / 任务 / 日记）读起来像「糊了一层黑雾」——因为没有任何东西
+   提示这里还是「同一个世界」。
+   办法不是再画一个卡，而是让场景的光继续往下渗：地平线附近的冷光 + 一层很长的
+   竖向衰减。它跟着内容一起滚，视觉上把整页连成一块。 */
+.ci-pethome::after {
+  content: '';
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 150px;
+  height: 520px;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(64% 46% at 50% 0%, rgba(86, 132, 210, 0.16), rgba(86, 132, 210, 0) 72%),
+    linear-gradient(180deg, rgba(26, 38, 74, 0.55) 0%, rgba(14, 20, 42, 0.28) 38%, rgba(5, 8, 15, 0) 100%);
+}
+
+/* 任务卡的 head 现在兼任「分区标题」：没有外层 sectionTitle 了，
+   它得自己扛起「这里是新的一节」的视觉重量。 */
+.ci-pethome .ci-pet-quests { margin-top: 30px; }
+.ci-pethome .ci-pet-quests-head { padding: 0 2px 11px; }
+.ci-pethome .ci-pet-quests-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #FFD166;
+}
+.ci-pethome .ci-pet-quests-bonus { color: rgba(255, 209, 102, 0.62); }
+
+/* 天气：不再是一张卡，而是一条带色标的信息行。
+   左侧那 2px 冷色竖线是它的「身份」——比给整块加框轻得多，也够区分。 */
+.ci-pethome .ci-pet-weather {
+  padding-left: 13px;
+  border-left: 2px solid rgba(90, 200, 250, 0.42);
+}
+.ci-pethome .ci-pet-weather.is-fit {
+  border-left-color: rgba(90, 200, 250, 0.72);
+  box-shadow: none;
+}
+
+/* 形象格里的「使用 / 换回来」：实心蓝在夜空里太跳，降成玻璃 + 金边 */
+.ci-pethome .ci-pet-stylecard-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFD98A;
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.34);
+  font-weight: 600;
+}
+.ci-pethome .ci-pet-stylecard-btn:active {
+  background: rgba(255, 209, 102, 0.16);
+  opacity: 1;
+}
+
+/* ---------- V15. 收紧纵向节奏 ---------- */
+/* 卡片被撤掉之后，原来那些 22~26px 的「卡片间距」就变成了纯空白，
+   整页读起来一段一段断着。压到 18~20，靠分隔线和小标题分节就够了。 */
+.ci-pethome .ci-pet-stats { margin-top: 16px; }
+.ci-pethome .ci-pet-weather { margin-top: 20px; }
+.ci-pethome .ci-pet-diary { margin: 24px 4px 0; }
+.ci-pethome .ci-pet-actions { margin-top: 22px; }
+.ci-pethome .ci-pet-shoppe { margin-top: 16px; }
+.ci-pethome .ci-pet-advlinks { margin-top: 20px; }
+.ci-pethome .ci-pet-styles { margin-top: 20px; }
+.ci-pethome .ci-pet-misc { margin-top: 18px; }
+.ci-pethome .ci-pet-section { margin: 22px 2px 0; }
+
+/* ---------- V16. 战力圆盘：从粉色改成金色 ---------- */
+/* 粉色在这一页是「主行动」的专属色（喂食、挑战）。
+   战力是个读数，不是按钮 —— 用同一套粉会跟操作抢注意力，
+   而且「数字用金色、操作才用暖色」是数值型 UI 的通行规矩。 */
+.ci-pethome .ci-pet-power {
+  width: 78px;
+  height: 78px;
+  background: radial-gradient(circle at 50% 26%, #FFE9AE 0%, #FFC85C 46%, #E39A1E 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 8px 22px rgba(228, 154, 30, 0.30),
+    0 0 30px rgba(255, 200, 92, 0.18);
+  color: #4A2E00;
+}
+.ci-pethome .ci-pet-power-num { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35); }
+.ci-pethome .ci-pet-power-label { color: #6B4400; opacity: 1; font-weight: 700; }
+
+/* ---------- U15. 让所有分区「不被压缩」 ---------- */
+/* .ci-pethome 是 flex column（停靠栏靠 margin-top:auto 贴底），而 flex item 默认
+   flex-shrink:1 —— 内容一旦超过容器高度，浏览器会按比例压缩每个 item。
+   普通卡片靠 min-height:auto 兜着，但凡自己写了 overflow:hidden 的（hero、带
+   text-overflow 的标题卡）最小尺寸会退化成 0，直接被压成一条线。
+   内容页本来就该整体滚动，所以这里把「不收缩」显式写死，别依赖默认行为。 */
+.ci-pethome > * {
+  -webkit-flex: none;
+  flex: none;
+}
+
+/* ================================================================
+   W. 舞台化（v0.14.0）：首屏是一场戏，不是一页文档
+   ----------------------------------------------------------------
+   上一版的问题不是「不好看」，是**结构**：hero 只是页面顶部的一条 200px 横幅，
+   下面接着天气、任务、日记、按钮……从上往下滚。那是「带插图的网页」。
+   游戏主界面反过来 —— 场景占满首屏，所有信息以 HUD 身份浮在场景上，
+   玩家一眼看到的是「它」，而不是「一排标题」。
+   ================================================================ */
+
+/* W1. 首屏高度：宿主的顶栏(48) + 底部 dock(66) + 安全余量。 */
+.ci-pethome .ci-pet-hero {
+  position: relative;
+  display: block;
+  margin: -12px -14px 0;
+  padding: 0;
+  /* 舞台高 = 视口 − 宿主顶栏(48) − dock(80) − 容器上内边距(12) */
+  height: calc(100vh - 140px);
+  min-height: 420px;
+  max-height: 820px;
+  border-radius: 0;
+  overflow: hidden;
+  background: #070B22;
+  background-image: none;
+  box-shadow: none;
+}
+
+/* W2. 舞台铺满：原来是 height:200px 的横幅，现在它就是整块 hero。 */
+.ci-pethome .ci-pet-hero-stage {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+}
+
+/* W3. 宠物：站在偏下的位置，留出上面的天空给月亮和气泡。 */
+.ci-pethome .ci-pet-hero-stage canvas {
+  bottom: 27%;
+  width: 190px;
+  height: 190px;
+}
+.ci-pethome .ci-pet-hero-video {
+  bottom: 21%;
+  height: 330px;
+}
+
+/* W4. 星点层：一层静态的小圆点，比再多画几颗「大星星」有效得多 ——
+   星星的价值在密度，不在亮度。 */
+.ci-pethome .ci-pet-scene-stars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 52%;
+  z-index: 1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 8% 22%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1px, rgba(255,255,255,0) 1.6px),
+    radial-gradient(circle at 19% 61%, rgba(200,225,255,0.7) 0, rgba(200,225,255,0.7) 1px, rgba(200,225,255,0) 1.5px),
+    radial-gradient(circle at 31% 14%, rgba(255,255,255,0.6) 0, rgba(255,255,255,0.6) 1.2px, rgba(255,255,255,0) 1.8px),
+    radial-gradient(circle at 37% 78%, rgba(255,255,255,0.75) 0, rgba(255,255,255,0.75) 1px, rgba(255,255,255,0) 1.6px),
+    radial-gradient(circle at 48% 31%, rgba(255,240,205,0.8) 0, rgba(255,240,205,0.8) 1.3px, rgba(255,240,205,0) 2px),
+    radial-gradient(circle at 55% 66%, rgba(255,255,255,0.5) 0, rgba(255,255,255,0.5) 1px, rgba(255,255,255,0) 1.5px),
+    radial-gradient(circle at 63% 19%, rgba(210,230,255,0.7) 0, rgba(210,230,255,0.7) 1px, rgba(210,230,255,0) 1.6px),
+    radial-gradient(circle at 71% 52%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0.85) 1.4px, rgba(255,255,255,0) 2.1px),
+    radial-gradient(circle at 84% 33%, rgba(255,235,200,0.6) 0, rgba(255,235,200,0.6) 1px, rgba(255,235,200,0) 1.6px),
+    radial-gradient(circle at 92% 71%, rgba(255,255,255,0.55) 0, rgba(255,255,255,0.55) 1px, rgba(255,255,255,0) 1.5px);
+}
+
+/* W5. 底部 HUD：不是「场景下面的一条信息」，而是一层压在场景上的渐变。
+   顶部完全透明，让草地自然穿过去 —— 一旦有硬边，整块又变回卡片。 */
+.ci-pethome .ci-pet-hero-info {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  margin: 0 auto;
+  padding: 44px 22px 12px;
+  max-width: 640px;
+  background: none;
+  border-top: none;
+  pointer-events: none;   /* 只有里面的控件接事件，空白处让给场景 */
+}
+.ci-pethome .ci-pet-hero-info > * { pointer-events: auto; }
+/* 渐变单独一层 ::before —— 直接把背景写在 info 上会让 max-width 收窄后
+   两侧留出两条硬边（info 现在居中，比屏幕窄）。 */
+.ci-pethome .ci-pet-hero-info::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 100vw;
+  height: 100%;
+  margin-left: -50vw;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(5, 8, 15, 0) 0%, rgba(5, 8, 15, 0.42) 26%,
+    rgba(5, 8, 15, 0.82) 54%, rgba(5, 8, 15, 0.96) 100%);
+}
+
+/* W6. 名牌：名字与徽章排一行，不再各占一行。 */
+.ci-pethome .ci-pet-namecol {
+  padding: 0 2px;
+  text-align: center;
+}
+.ci-pethome .ci-pet-name {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #F2F6FF;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.72);
+}
+.ci-pethome .ci-pet-badges {
+  -webkit-justify-content: center;
+  justify-content: center;
+  margin: 7px 0 0;
+}
+
+/* W7. 状态条：两根并排，占宽对半。原来是一上一下两整行 —— 竖着排像仪表盘，
+   并排才像 HUD。脚注在 HUD 里会挤成两行，先藏掉（信息在按钮副标题里还有一份）。 */
+.ci-pethome .ci-pet-stats {
+  display: -webkit-flex;
+  display: flex;
+  margin: 14px -7px 0;
+}
+.ci-pethome .ci-pet-statrow {
+  -webkit-flex: 1 1 0;
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0 7px;
+}
+.ci-pethome .ci-pet-statfoot { display: none; }
+
+/* W8. 操作：四个圆钮居中。 */
+.ci-pethome .ci-pet-actions {
+  -webkit-justify-content: center;
+  justify-content: center;
+  margin: 12px -4px 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* W9. 头顶气泡：它在想什么。位置贴着宠物右上。 */
+.ci-pethome .ci-pet-thought {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 52%;
+  margin-left: 44px;
+  max-width: 210px;
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: rgba(12, 18, 38, 0.82);
+  box-shadow:
+    inset 0 0 0 1px rgba(180, 210, 255, 0.18),
+    0 8px 20px rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+/* 小尖角指向宠物 */
+.ci-pethome .ci-pet-thought::after {
+  content: '';
+  position: absolute;
+  left: -5px;
+  bottom: 12px;
+  width: 9px;
+  height: 9px;
+  background: rgba(12, 18, 38, 0.82);
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+  box-shadow: inset 1px -1px 0 rgba(180, 210, 255, 0.18);
+}
+.ci-pethome .ci-pet-thought .ci-pet-hero-mood {
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(226, 236, 255, 0.92);
+  box-shadow: none;
+}
+
+/* W10. 窄屏（竖屏手机）：气泡会顶到右边缘，改到宠物正上方居中。 */
+@media (max-width: 520px) {
+  .ci-pethome .ci-pet-thought {
+    left: 50%;
+    margin-left: 0;
+    bottom: auto;
+    top: 18px;
+    -webkit-transform: translateX(-50%);
+    transform: translateX(-50%);
+    max-width: 74%;
+    text-align: center;
+  }
+  .ci-pethome .ci-pet-thought::after {
+    left: 50%;
+    bottom: -4px;
+    margin-left: -4px;
+    box-shadow: none;
+  }
+  .ci-pethome .ci-pet-hero-video { height: 250px; }
+  .ci-pethome .ci-pet-hero-stage canvas { width: 150px; height: 150px; }
+  .ci-pethome .ci-pet-name { font-size: 21px; }
+}
+
+/* ---------- W11. 舞台盒子的比例修正 ---------- */
+/* 第一版的错：宠物 330px 高、站在 21% 的位置，底部 HUD 有 316px ——
+   两者直接叠在一起，名牌和状态条全压在宠物身上。
+   排布必须按「HUD 先占位，宠物站剩下的地方」来算：
+     HUD ≈ 210px（名牌 54 + 状态 40 + 按钮 96 + 边距）
+     宠物底边 = max(220px, 32%)，往上长 290px */
+.ci-pethome .ci-pet-hero-video {
+  bottom: 32%;
+  height: 290px;
+}
+.ci-pethome .ci-pet-hero-stage canvas {
+  bottom: 32%;
+  width: 168px;
+  height: 168px;
+}
+.ci-pethome .ci-pet-hero-info {
+  padding: 36px 20px 10px;
+  max-width: 620px;
+}
+/* 脚注：HUD 里最不重要的一行，压到 10px 并且不许换行 ——
+   它一旦换行就会把整块 HUD 顶高 16px，宠物又要重算位置。 */
+.ci-pethome .ci-pet-hint {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: rgba(170, 190, 225, 0.66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- W12. 舞台右上角：战力 / 属性 / 小鱼干 ---------- */
+.ci-pethome .ci-pet-stagehud {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 6;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-justify-content: flex-end;
+  justify-content: flex-end;
+  max-width: 60%;
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-sh-pill {
+  margin: 0 0 6px 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  color: rgba(226, 236, 255, 0.9);
+  background: rgba(10, 16, 32, 0.52);
+  box-shadow: inset 0 0 0 1px rgba(180, 210, 255, 0.14);
+}
+/* 小鱼干是「钱包」，可以在暗背景上给一点金 —— 但只是一点点，
+   真正亮的是主行动按钮，别抢。 */
+.ci-pethome .ci-pet-sh-coin {
+  color: #FFD98A;
+  background: rgba(60, 44, 12, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.26);
+}
+
+/* ---------- W13. 气泡位置：贴着宠物头顶右侧 ---------- */
+/* 宠物底在 32%、高 290px，头顶约在舞台 32% + 44% 处 ——
+   气泡放在 56% 高度，既不会压脸，也不会飘到月亮上去。 */
+.ci-pethome .ci-pet-thought {
+  bottom: 56%;
+  margin-left: 56px;
+}
+
+/* ---------- W14. 窄屏重排 ---------- */
+@media (max-width: 520px) {
+  .ci-pethome .ci-pet-hero-video { bottom: 34%; height: 230px; }
+  .ci-pethome .ci-pet-hero-stage canvas { bottom: 34%; width: 140px; height: 140px; }
+  .ci-pethome .ci-pet-stagehud { top: 8px; right: 8px; max-width: 74%; }
+  .ci-pethome .ci-pet-sh-pill { font-size: 10px; padding: 3px 8px; }
+  .ci-pethome .ci-pet-hero-info { padding: 28px 12px 8px; }
+  .ci-pethome .ci-pet-name { font-size: 20px; }
+}
+
+/* ---------- W15. 线性图标：一套描边，一个颜色 ---------- */
+.ci-pethome .ci-pet-bigbtn-emoji {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 0;                 /* 旧版这里放的是 emoji 文字，现在只有 svg */
+  color: rgba(212, 226, 255, 0.9);
+}
+.ci-pethome .ci-pet-bigbtn-emoji svg { display: block; }
+/* 主行动那颗粉球上，图标必须是纯白 —— 粉底 + 淡蓝线会糊成一片 */
+.ci-pethome .ci-pet-bigbtn--primary .ci-pet-bigbtn-emoji { color: #FFFFFF; }
+/* 副标题一行封顶：它一旦换行，整块 HUD 就被顶高，宠物又要重算位置 */
+.ci-pethome .ci-pet-bigbtn-sub {
+  max-width: 78px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- W16. 名字：四向描边 + 冷光 ---------- */
+/* 游戏里的名字从来不是「一行黑体字」——它压在一块随时会变的背景上，
+   必须有描边才能保证任何场景下都读得清。这里用 1px 四向 + 一层冷光，
+   比 text-shadow: 0 2px 6px 更「贴」在画面上。 */
+.ci-pethome .ci-pet-name {
+  color: #FFFFFF;
+  text-shadow:
+    -1px -1px 0 rgba(6, 10, 24, 0.92),
+     1px -1px 0 rgba(6, 10, 24, 0.92),
+    -1px  1px 0 rgba(6, 10, 24, 0.92),
+     1px  1px 0 rgba(6, 10, 24, 0.92),
+     0 0 22px rgba(120, 170, 255, 0.34),
+     0 3px 10px rgba(0, 0, 0, 0.66);
+}
+
+/* ---------- W17. 宠物站位：和名牌之间留一口气 ---------- */
+.ci-pethome .ci-pet-hero-video { bottom: 35%; }
+.ci-pethome .ci-pet-hero-stage canvas { bottom: 35%; }
+
+/* ---------- W18. 画面纵深 ---------- */
+/* 场景原来只有「天空 + 一层山 + 一条地」，中景全空，所以看着像壁纸。
+   补三样便宜但有用的东西：
+     ① 暗角（vignette）—— 把视线收到中间，是最省力的「有镜头」信号
+     ② 远端第二层山脊 —— 只比天空深一档，负责「有远近」
+     ③ 地平线雾 —— 让地面和山之间不是一条硬切线
+   ⚠️ 全部挂在 ::before / ::after 上，不动 DOM（探针按 children 数断言过舞台）。 */
+.ci-pethome .ci-pet-hero::after {
+  content: '';
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    radial-gradient(128% 86% at 50% 44%, rgba(0, 0, 0, 0) 42%, rgba(2, 5, 14, 0.52) 100%);
+}
+/* 远山第二层：比主山脊更淡、更高、更平，读起来才像「后面还有山」 */
+.ci-pethome .ci-pet-scene-hills::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 118px;
+  background: linear-gradient(180deg, rgba(58, 72, 122, 0.55) 0%, rgba(44, 56, 100, 0.32) 100%);
+  -webkit-clip-path: polygon(0 100%, 0 82%, 11% 62%, 22% 74%, 34% 52%, 46% 70%,
+    58% 48%, 70% 66%, 82% 50%, 92% 68%, 100% 56%, 100% 100%);
+  clip-path: polygon(0 100%, 0 82%, 11% 62%, 22% 74%, 34% 52%, 46% 70%,
+    58% 48%, 70% 66%, 82% 50%, 92% 68%, 100% 56%, 100% 100%);
+  pointer-events: none;
+}
+/* 地平线雾：一条横向的柔光，压在山脚，抹掉硬切线 */
+.ci-pethome .ci-pet-scene-ground::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -26px;
+  height: 34px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(70, 92, 140, 0) 0%, rgba(70, 92, 140, 0.30) 62%, rgba(70, 92, 140, 0) 100%);
+}
+
+/* ---------- W19. 状态条：读成 HUD，不是进度条 ---------- */
+/* 原来「饱食 67%」+ 一根横条，跟后台监控面板一样。
+   游戏 HUD 的做法是：标签小、数值大、条细，三者压在同一行里。 */
+.ci-pethome .ci-pet-stathead {
+  -webkit-align-items: baseline;
+  align-items: baseline;
+}
+.ci-pethome .ci-pet-statlabel {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: rgba(178, 196, 228, 0.78);
+}
+.ci-pethome .ci-pet-statvalue {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-shadow: 0 0 12px currentColor;
+}
+.ci-pethome .ci-pet-statbar {
+  height: 5px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.42);
+}
+.ci-pethome .ci-pet-statbar > span {
+  border-radius: 3px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.22);
+}
+
+/* ---------- W20. 场景比例重排：让宠物真的站在地上 ---------- */
+/* 上一版最要命的错误：宠物 bottom:35%（浮在半空），地面只有底部 44px 一条 ——
+   看起来就是「贴纸飘在壁纸上」。真实舞台必须先有地平线，宠物才有地方站。
+   新比例（舞台 659 高为例）：
+       天空     0 – 250
+       远山     250 – 330
+       地平线   330
+       草地     330 – 659（含 HUD 覆盖区）
+       宠物脚   363（踩进草里 33px）
+       头顶     73
+   比例一改，气泡/暗角/前景草的位置全都要跟着往下走。 */
+
+/* 地面：从一条 44px 的「草坡边」变成真正的草地。
+   顶沿仍是那道月光边（0.16 就够，再亮就是霓虹灯管），
+   但往下要迅速压暗 —— 近景阴影越深，宠物越像站在光里。 */
+.ci-pethome .ci-pet-scene-ground {
+  height: 50%;
+  background: linear-gradient(180deg,
+    rgba(88, 132, 130, 0.92) 0%,
+    rgba(46, 76, 90, 0.96) 7%,
+    #1B2E44 24%,
+    #0C1626 56%,
+    #05090F 100%);
+  box-shadow: inset 0 1px 0 rgba(170, 232, 220, 0.20);
+}
+/* 远山跟着地平线上移，否则会被草地整片盖住 */
+.ci-pethome .ci-pet-scene-hills {
+  bottom: 50%;
+  height: 84px;
+}
+.ci-pethome .ci-pet-scene-hills::before {
+  bottom: 0;
+  height: 126px;
+}
+/* 宠物站立位：脚踩在地平线下 33px */
+.ci-pethome .ci-pet-hero-video { bottom: 42%; }
+.ci-pethome .ci-pet-hero-stage canvas { bottom: 45%; }
+/* 脚下的投影也要跟到地面顶沿 */
+.ci-pethome .ci-pet-scene-shadow {
+  bottom: 48%;
+}
+/* 角色背光：原来贴在舞台底部，随地面抬高一起上移 */
+.ci-pethome .ci-pet-hero-stage::after {
+  bottom: 42%;
+}
+/* 前景草尖：它原来是「舞台底下的一道边」，现在要压在地平线附近，
+   否则整片新草地会变成一块没有细节的深色。 */
+.ci-pethome .ci-pet-hero-stage::before {
+  bottom: 47%;
+  height: 40px;
+  background: linear-gradient(180deg, rgba(10, 22, 34, 0) 0%, rgba(8, 18, 30, 0.55) 60%, rgba(6, 13, 24, 0.9) 100%);
+}
+/* 星点只铺天空，别落到山上去 */
+.ci-pethome .ci-pet-scene-stars { bottom: 62%; }
+
+/* 月亮：上一版半径 2.7%，在 659px 高的舞台上接近 70px ——
+   远景光源比近景角色还大，画面立刻假。压到 1.6%，光晕跟着收。 */
+.ci-pethome .ci-pet-scene-sky {
+  background:
+    radial-gradient(circle at 78% 17%, rgba(255, 238, 186, 0.13), rgba(255, 238, 186, 0) 34%),
+    radial-gradient(circle at 78% 17%, rgba(255, 243, 205, 0.34), rgba(255, 243, 205, 0) 12%),
+    radial-gradient(circle at 78% 17%, #FFFDF0, #FFEFC2 1.55%, rgba(255, 239, 194, 0) 1.95%),
+    radial-gradient(circle at 13% 27%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 0.8%),
+    radial-gradient(circle at 41% 33%, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0) 0.7%),
+    radial-gradient(circle at 66% 40%, rgba(255, 235, 200, 0.7), rgba(255, 235, 200, 0) 0.8%),
+    radial-gradient(circle at 90% 46%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 0.6%),
+    linear-gradient(180deg, #06091D 0%, #101838 34%, #1E2750 62%, #2C2C52 84%, #3A3155 100%);
+}
+
+/* 气泡：跟着宠物头顶走（头顶约在 30% 高度处） */
+.ci-pethome .ci-pet-thought { bottom: 66%; }
+
+@media (max-width: 520px) {
+  .ci-pethome .ci-pet-hero-video { bottom: 44%; height: 220px; }
+  .ci-pethome .ci-pet-hero-stage canvas { bottom: 47%; }
+  .ci-pethome .ci-pet-scene-hills { height: 60px; }
+  .ci-pethome .ci-pet-scene-hills::before { height: 92px; }
+  .ci-pethome .ci-pet-thought { bottom: auto; top: 14px; }
+  .ci-pethome .ci-pet-hero::after {
+    background: radial-gradient(150% 90% at 50% 42%, rgba(0, 0, 0, 0) 46%, rgba(2, 5, 14, 0.46) 100%);
+  }
+}
+
+/* ---------- W21. 画面比例第二版：地平线压到 2/3，宠物占满中段 ---------- */
+/* 上一版地平线在 58%，结果「草地」占了画面下半 42%，而那块几乎是纯黑的 ——
+   读起来像「宠物站在一堵黑墙前」。
+   正确的舞台比例：天空 ≈ 55%、宠物 ≈ 45%、草地只留 1/3 并交给 HUD 覆盖。
+   同时把 HUD 压矮：名牌和徽章收紧、按钮区收到 180px 以内。 */
+
+.ci-pethome .ci-pet-scene-ground { height: 34%; }
+.ci-pethome .ci-pet-scene-hills { bottom: 34%; height: 92px; }
+.ci-pethome .ci-pet-scene-hills::before { bottom: 0; height: 140px; }
+.ci-pethome .ci-pet-scene-stars { bottom: 46%; }
+
+/* 宠物：这次真的站在地平线上（脚落在地面顶沿往下 16px 处）。
+   视频 340px 是「主角尺寸」——再小就变成挂件，再大就压住名字。 */
+.ci-pethome .ci-pet-hero-video { bottom: 31%; height: 340px; }
+.ci-pethome .ci-pet-hero-stage canvas { bottom: 33%; width: 196px; height: 196px; }
+.ci-pethome .ci-pet-scene-shadow { bottom: 32.5%; }
+.ci-pethome .ci-pet-hero-stage::after { bottom: 31%; }
+
+/* 地平线：不要锯齿。
+   上一版用 clip-path 画草尖，44px 高时像草，铺满 220px 就成了横贯全屏的一条拉链。
+   真实摄影里「镜头前的草」只该出现在画面最底部，地平线本身是一条柔和的雾带。 */
+.ci-pethome .ci-pet-hero-stage::before {
+  bottom: 34%;
+  height: 52px;
+  background: linear-gradient(180deg,
+    rgba(12, 26, 40, 0) 0%,
+    rgba(13, 28, 42, 0.52) 58%,
+    rgba(9, 20, 32, 0.88) 100%);
+  -webkit-clip-path: none;
+  clip-path: none;
+}
+
+/* 草地：原来是一条纯黑渐变，铺到 220px 就是一块黑布。
+   给它两样东西 —— 地平线附近的一层月光，和一组极淡的横向明暗（读成草浪）。 */
+.ci-pethome .ci-pet-scene-ground {
+  background:
+    radial-gradient(72% 120% at 50% 0%, rgba(126, 190, 176, 0.22), rgba(126, 190, 176, 0) 62%),
+    repeating-linear-gradient(180deg,
+      rgba(255, 255, 255, 0.018) 0px, rgba(255, 255, 255, 0.018) 3px,
+      rgba(0, 0, 0, 0) 3px, rgba(0, 0, 0, 0) 9px),
+    linear-gradient(180deg,
+      rgba(96, 140, 136, 0.94) 0%,
+      rgba(52, 84, 96, 0.97) 9%,
+      #1D3149 30%,
+      #0B1524 66%,
+      #04070D 100%);
+  box-shadow: inset 0 1px 0 rgba(180, 240, 226, 0.16);
+}
+
+/* 气泡：宠物头顶约在 20% 处，气泡压到 78% 才贴着它 */
+.ci-pethome .ci-pet-thought { bottom: 78%; margin-left: 60px; }
+
+/* 名牌收紧：26 → 22px，徽章间距 7 → 4px */
+.ci-pethome .ci-pet-name { font-size: 22px; }
+.ci-pethome .ci-pet-badges { margin: 4px 0 0; }
+.ci-pethome .ci-pet-stats { margin: 9px -7px 0; }
+.ci-pethome .ci-pet-actions { margin: 9px -4px 0; }
+.ci-pethome .ci-pet-hint { margin: 5px 0 0; }
+.ci-pethome .ci-pet-hero-info { padding: 30px 20px 8px; max-width: 600px; }
+
+/* 状态数值统一用冷白：上一版两条分别是橙字和蓝字，看着像两套系统 */
+.ci-pethome .ci-pet-statvalue {
+  color: #E9F1FF;
+  text-shadow: 0 0 14px rgba(140, 185, 255, 0.42);
+}
+
+@media (max-width: 520px) {
+  .ci-pethome .ci-pet-hero-video { bottom: 33%; height: 240px; }
+  .ci-pethome .ci-pet-hero-stage canvas { bottom: 35%; }
+  .ci-pethome .ci-pet-scene-hills { height: 64px; }
+  .ci-pethome .ci-pet-scene-hills::before { height: 98px; }
+  .ci-pethome .ci-pet-thought { top: 12px; bottom: auto; }
+  .ci-pethome .ci-pet-name { font-size: 19px; }
+}
+
+/* ---------- W22. 让宠物「落地」，让世界「有东西」 ---------- */
+/* 上一版仍然像贴纸：问题是画面里除了宠物什么都没有 ——
+   没有投影、没有前景、没有尺度参照物。人会本能地把「孤立立绘」读成贴纸。
+   补三样：接地投影、萤火、远景树影。都是纯 CSS，不加 DOM。 */
+
+/* ① 接地投影：比原来大一倍、深一档，压在脚正下方。
+   没有它，宠物就是浮在色块上的图片。 */
+.ci-pethome .ci-pet-scene-shadow {
+  bottom: 32.2%;
+  width: 150px;
+  height: 26px;
+  margin-left: -75px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.46) 42%, rgba(0, 0, 0, 0) 74%);
+}
+/* ② 脚下的一圈暖光：把「它站在这里」变成「这里因为它才亮」。
+   比给宠物加 drop-shadow 便宜（视频每帧算 filter 会掉帧）。 */
+.ci-pethome .ci-pet-hero-stage::after {
+  bottom: 30%;
+  width: 300px;
+  height: 190px;
+  margin-left: -150px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 62%,
+    rgba(255, 214, 150, 0.20) 0%, rgba(160, 200, 255, 0.12) 38%, rgba(140, 190, 255, 0) 72%);
+}
+
+/* ③ 地平线：给它一点起伏。完全笔直的地平线是「矢量图」的信号，
+   真实场景里它总是被草坡和树冠打断。振幅压到 6px 以内，只做暗示。 */
+.ci-pethome .ci-pet-scene-ground {
+  -webkit-clip-path: polygon(0 0, 6% 5px, 13% 1px, 21% 7px, 29% 2px, 37% 8px,
+    45% 3px, 53% 9px, 61% 2px, 69% 7px, 77% 1px, 85% 6px, 93% 2px, 100% 7px, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 6% 5px, 13% 1px, 21% 7px, 29% 2px, 37% 8px,
+    45% 3px, 53% 9px, 61% 2px, 69% 7px, 77% 1px, 85% 6px, 93% 2px, 100% 7px, 100% 100%, 0 100%);
+}
+
+/* ④ 远景树影：右侧一小丛，比山脊深一档。
+   它的价值不是「好看」，是提供尺度 —— 有参照物，宠物才显得「大」。 */
+.ci-pethome .ci-pet-scene-hills::after {
+  content: '';
+  position: absolute;
+  right: 7%;
+  bottom: 4px;
+  width: 60px;
+  height: 54px;
+  pointer-events: none;
+  background: #101A34;
+  -webkit-clip-path: polygon(48% 0, 62% 34%, 74% 22%, 86% 40%, 78% 62%, 94% 72%,
+    100% 100%, 0 100%, 6% 70%, 22% 58%, 14% 38%, 26% 22%, 38% 32%);
+  clip-path: polygon(48% 0, 62% 34%, 74% 22%, 86% 40%, 78% 62%, 94% 72%,
+    100% 100%, 0 100%, 6% 70%, 22% 58%, 14% 38%, 26% 22%, 38% 32%);
+}
+/* 左侧再来一丛矮的，构图才平衡（右侧有月亮 + 树，左边不能全空） */
+.ci-pethome .ci-pet-scene-hills::before {
+  background-image:
+    radial-gradient(circle at 12% 100%, rgba(38, 50, 88, 0.85) 0, rgba(38, 50, 88, 0.85) 46px, rgba(38, 50, 88, 0) 47px),
+    radial-gradient(circle at 26% 100%, rgba(32, 44, 80, 0.7) 0, rgba(32, 44, 80, 0.7) 32px, rgba(32, 44, 80, 0) 33px);
+  background-repeat: no-repeat;
+  -webkit-clip-path: none;
+  clip-path: none;
+  opacity: 0.9;
+}
+
+/* ⑤ 萤火：四个小光点贴在地平线附近，缓慢呼吸。
+   这是「画面活着」最便宜的做法 —— 比动画角色便宜得多，气息却一模一样。 */
+.ci-pethome .ci-pet-scene-stars::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 62%;
+  height: 40%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 17% 52%, rgba(190, 255, 214, 0.9) 0, rgba(190, 255, 214, 0.35) 2px, rgba(190, 255, 214, 0) 7px),
+    radial-gradient(circle at 34% 76%, rgba(255, 240, 170, 0.85) 0, rgba(255, 240, 170, 0.3) 2px, rgba(255, 240, 170, 0) 8px),
+    radial-gradient(circle at 72% 64%, rgba(180, 230, 255, 0.8) 0, rgba(180, 230, 255, 0.28) 2px, rgba(180, 230, 255, 0) 7px),
+    radial-gradient(circle at 88% 82%, rgba(255, 235, 190, 0.75) 0, rgba(255, 235, 190, 0.26) 2px, rgba(255, 235, 190, 0) 6px);
+  -webkit-animation: ciPetFirefly 7s ease-in-out infinite;
+  animation: ciPetFirefly 7s ease-in-out infinite;
+}
+@-webkit-keyframes ciPetFirefly {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+@keyframes ciPetFirefly {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+/* ⑥ 气泡躲开月亮：月亮在右上，气泡固定在「宠物右上」会跟它撞。
+   往右下让 40px，并且限制宽度，让两者的视觉重心分开。 */
+.ci-pethome .ci-pet-thought {
+  bottom: 74%;
+  margin-left: 66px;
+  max-width: 190px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .ci-pet-scene-stars::after {
+    -webkit-animation: none;
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* ---------- W23. 第三次比例修正：让脚踩进草里，让 HUD 覆盖草地 ---------- */
+/* 前两版的错都在同一个地方：把「地平线」当成「画面的下三分之一线」，
+   于是宠物只能浮在线的上方（脚踩不到东西），HUD 又只能塞在线下面。
+   正确的关系是：
+       地平线 45%  ← 宠物脚在这条线下方 20px（被草挡住一截才叫「站」）
+       HUD 顶 61%  ← HUD 是浮在草地上的面板，它盖住的是「地面」，不是「宠物」
+   两者之间那 16% 是空地 —— 名字就放在那里，视觉上正好「站在它脚边」。 */
+.ci-pethome .ci-pet-scene-ground { height: 55%; }
+.ci-pethome .ci-pet-scene-hills { bottom: 55%; height: 96px; }
+.ci-pethome .ci-pet-scene-hills::before { bottom: 0; height: 148px; }
+.ci-pethome .ci-pet-scene-hills::after { bottom: 4px; }
+.ci-pethome .ci-pet-scene-stars { bottom: 58%; }
+
+.ci-pethome .ci-pet-hero-video { bottom: 51%; height: 312px; }
+.ci-pethome .ci-pet-hero-stage canvas { bottom: 52%; width: 190px; height: 190px; }
+.ci-pethome .ci-pet-scene-shadow { bottom: 50.4%; }
+.ci-pethome .ci-pet-hero-stage::after { bottom: 49%; }
+/* 地平线雾要压在地平线上，不能飘到宠物腰上 */
+.ci-pethome .ci-pet-hero-stage::before { bottom: 55%; height: 44px; }
+
+/* 地平线那道青边：0.94 的亮青在夜里就是一条发光的蛇。
+   压到 0.55，让它读成「月光扫过草尖」而不是「一条灯带」。 */
+.ci-pethome .ci-pet-scene-ground {
+  box-shadow: inset 0 1px 0 rgba(150, 210, 200, 0.10);
+}
+.ci-pethome .ci-pet-scene-ground {
+  background:
+    radial-gradient(74% 42% at 50% 0%, rgba(126, 190, 176, 0.20), rgba(126, 190, 176, 0) 66%),
+    repeating-linear-gradient(180deg,
+      rgba(255, 255, 255, 0.016) 0px, rgba(255, 255, 255, 0.016) 3px,
+      rgba(0, 0, 0, 0) 3px, rgba(0, 0, 0, 0) 9px),
+    linear-gradient(180deg,
+      rgba(72, 108, 108, 0.86) 0%,
+      rgba(44, 74, 88, 0.95) 10%,
+      #1B2E44 32%,
+      #0A1422 68%,
+      #04070D 100%);
+}
+
+/* 气泡：宠物头顶约在 12% 处，气泡落在 76% 附近（胸口右侧），不挡脸不挡月亮 */
+.ci-pethome .ci-pet-thought { bottom: 76%; }
+
+@media (max-width: 520px) {
+  .ci-pethome .ci-pet-hero-video { bottom: 50%; height: 236px; }
+  .ci-pethome .ci-pet-hero-stage canvas { bottom: 51%; }
+  .ci-pethome .ci-pet-scene-hills { height: 66px; }
+  .ci-pethome .ci-pet-scene-hills::before { height: 104px; }
+  .ci-pethome .ci-pet-hero-stage::before { bottom: 55%; height: 34px; }
+}
+
+/* ---------- W24. 提亮与收尾：暗底上要留「看得见的东西」 ---------- */
+/* 整页调下来偏暗：天空、草地、HUD 三层都是深色，四个按钮的圆底也是深色 ——
+   结果就是「什么都看不清」。暗场景的规矩不是「所有东西都亮」，而是
+   「少数东西明确地亮，其余安静地暗」，这样眼睛才有落脚点。 */
+
+/* ① 按钮圆底：从 3% 白提到 9% 白，描边抬到 0.22。
+   再暗下去它们就融进夜色了 —— 而它们恰恰是玩家唯一能操作的东西。 */
+.ci-pethome .ci-pet-bigbtn-emoji {
+  background: radial-gradient(circle at 50% 26%, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    0 8px 18px rgba(2, 5, 14, 0.46),
+    0 0 22px rgba(120, 170, 255, 0.10);
+}
+.ci-pethome .ci-pet-bigbtn-emoji { color: rgba(232, 242, 255, 0.96); }
+.ci-pethome .ci-pet-bigbtn-sub { color: rgba(206, 220, 246, 0.62); }
+.ci-pethome .ci-pet-bigbtn-label { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7); }
+
+/* ② 状态条：两块各自成一个小胶囊，否则「67% 羁绊 33」会被读成一句话 */
+.ci-pethome .ci-pet-statrow {
+  padding: 7px 10px 8px;
+  border-radius: 12px;
+  background: rgba(8, 14, 28, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.ci-pethome .ci-pet-statbar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ③ 名字：暖白 + 冷光，和月亮同一族色温 */
+.ci-pethome .ci-pet-name {
+  color: #FBFDFF;
+  text-shadow:
+    -1px -1px 0 rgba(8, 12, 26, 0.95),
+     1px -1px 0 rgba(8, 12, 26, 0.95),
+    -1px  1px 0 rgba(8, 12, 26, 0.95),
+     1px  1px 0 rgba(8, 12, 26, 0.95),
+     0 0 26px rgba(255, 226, 170, 0.30),
+     0 0 44px rgba(120, 170, 255, 0.24);
+}
+
+/* ④ 徽章：深底白字在草地上太糊，统一加一层暗底描边 */
+.ci-pethome .ci-pet-badge {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.38);
+}
+
+/* ⑤ 底部留白：dock 是 sticky，会盖住最后一行内容。
+   给容器补上「dock 高度 + 呼吸」的底部内边距，所有页都受益。 */
+.ci-pethome { padding-bottom: 84px; }
+/* 首页首屏已经是满的，不需要额外顶部留白 */
+.ci-pethome .ci-pet-hero { margin-top: -12px; }
+
+/* ⑥ 舞台右上角胶囊：字再小一点也读得清，靠的是底色和描边 */
+.ci-pethome .ci-pet-sh-pill {
+  background: rgba(8, 14, 30, 0.62);
+  box-shadow:
+    inset 0 0 0 1px rgba(190, 216, 255, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.34);
+}
+
+/* ---------- W25. 角色台座 + 修掉 dock 被顶起来的回归 ---------- */
+/* ⚠️ 上一步给 .ci-pethome 加了 padding-bottom:84px，本意是「别让 sticky dock
+   盖住最后一行」，结果把 dock 从视口底顶到了内容中间（sticky 的 bottom:0
+   是相对滚动容器的 padding box 计算的）。这里撤回，改用更笨但可靠的办法：
+   让 dock 自己占位，内容末尾留一条等高的空块。 */
+.ci-pethome { padding-bottom: 24px; }
+.ci-pethome .ci-pet-tabs { margin-top: 0; }
+
+/* 角色台座：宠物脚下一圈会呼吸的椭圆光环。
+   上一版这块是一片空地 —— 名字孤零零漂在草地上，整页像「没做完」。
+   游戏的做法不是填文字，是给角色一个「台座」：有它，空地就变成「舞台」。 */
+.ci-pethome .ci-pet-scene-shadow::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 210px;
+  height: 56px;
+  margin-left: -105px;
+  margin-top: -28px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: none;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(150, 208, 255, 0.30),
+    inset 0 0 22px rgba(120, 180, 255, 0.16),
+    0 0 26px rgba(120, 180, 255, 0.14);
+  -webkit-animation: ciPetHalo 5.2s ease-in-out infinite;
+  animation: ciPetHalo 5.2s ease-in-out infinite;
+}
+@-webkit-keyframes ciPetHalo {
+  0%, 100% { opacity: 0.55; -webkit-transform: scale(0.97); }
+  50%      { opacity: 1;    -webkit-transform: scale(1.03); }
+}
+@keyframes ciPetHalo {
+  0%, 100% { opacity: 0.55; transform: scale(0.97); }
+  50%      { opacity: 1;    transform: scale(1.03); }
+}
+
+/* 名字上提：HUD 的 padding-top 30 → 22，把「宠物脚 → 名字」的间隙从 70 收到 50。
+   再紧就贴上了，再松又空了。 */
+.ci-pethome .ci-pet-hero-info { padding-top: 22px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .ci-pet-scene-shadow::before {
+    -webkit-animation: none;
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* ---------- W26. 互动的即时反馈（v0.15.0） ---------- */
+/* 玩法不好玩，很大一部分原因是「反馈贫瘠」：
+   点一下，数值从 33 变成 37，就这样。没有音效、没有动作、没有惊讶。
+   这一段的职责是把「+4」变成「看得见的一件事」——
+   飘字负责「我做了什么」，暴击样式负责「这次不一样」。 */
+
+.ci-pethome .ci-pet-float {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  z-index: 9;
+  margin-left: -70px;
+  width: 140px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #FFD98A;
+  text-shadow:
+    0 1px 0 rgba(10, 14, 26, 0.9),
+    0 0 16px rgba(255, 200, 90, 0.5),
+    0 4px 14px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  -webkit-animation: ciPetFloat 1.5s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
+  animation: ciPetFloat 1.5s cubic-bezier(0.22, 0.9, 0.3, 1) forwards;
+}
+/* 大成功：换色 + 更大 + 一圈扩散的环。
+   如果两次互动长得一样，那「有概率触发」这件事在玩家眼里就不存在。 */
+.ci-pethome .ci-pet-float.is-crit {
+  font-size: 21px;
+  color: #FFE9A8;
+  text-shadow:
+    0 1px 0 rgba(60, 30, 0, 0.9),
+    0 0 22px rgba(255, 190, 70, 0.85),
+    0 4px 16px rgba(0, 0, 0, 0.7);
+}
+@-webkit-keyframes ciPetFloat {
+  0%   { opacity: 0; -webkit-transform: translateY(8px) scale(0.82); }
+  18%  { opacity: 1; -webkit-transform: translateY(0) scale(1.1); }
+  36%  { -webkit-transform: translateY(-4px) scale(1); }
+  100% { opacity: 0; -webkit-transform: translateY(-52px) scale(1); }
+}
+@keyframes ciPetFloat {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.82); }
+  18%  { opacity: 1; transform: translateY(0) scale(1.1); }
+  36%  { transform: translateY(-4px) scale(1); }
+  100% { opacity: 0; transform: translateY(-52px) scale(1); }
+}
+
+/* 气泡换句：新的一句从下方浮上来。硬切会像画面故障。 */
+.ci-pethome .ci-pet-hero-mood.is-swap {
+  -webkit-animation: ciPetMoodIn 0.36s ease-out;
+  animation: ciPetMoodIn 0.36s ease-out;
+}
+@-webkit-keyframes ciPetMoodIn {
+  0%   { opacity: 0; -webkit-transform: translateY(5px); }
+  100% { opacity: 1; -webkit-transform: translateY(0); }
+}
+@keyframes ciPetMoodIn {
+  0%   { opacity: 0; transform: translateY(5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 性格徽章：它是「这只宠物的身份」，比称号更需要一点颜色。
+   用暖金细边而不是实心块 —— 实心会跟「已收服」「限定」那些标签打架。 */
+.ci-pethome .ci-pet-badge--persona {
+  color: #FFE0A6;
+  background: rgba(90, 62, 16, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 130, 0.34);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .ci-pet-float {
+    -webkit-animation-duration: 0.9s;
+    animation-duration: 0.9s;
+  }
+  .ci-pethome .ci-pet-hero-mood.is-swap {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
+/* ---------- W27. 底部 dock：把 emoji 换成同一套线性图标 ---------- */
+/* emoji 图标是这套 UI 里最后一处「不受控的颜色」：
+   🏠 是砖红、⚔️ 是灰银、📖 是棕、🏆 是金 —— 四个图标四种色，
+   在深色 dock 上永远是杂牌军的观感。SVG 只描边不填色，颜色由 CSS 给，
+   选中态才上金，四者才像「同一套东西」。 */
+.ci-pethome .ci-pet-tab-icon {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 0;
+  color: rgba(186, 204, 236, 0.66);
+  -webkit-transition: color 0.18s ease;
+  transition: color 0.18s ease;
+}
+.ci-pethome .ci-pet-tab-icon svg { display: block; width: 21px; height: 21px; }
+.ci-pethome .ci-pet-tab.is-on .ci-pet-tab-icon {
+  color: #FFD98A;
+  -webkit-filter: drop-shadow(0 0 8px rgba(255, 200, 100, 0.45));
+  filter: drop-shadow(0 0 8px rgba(255, 200, 100, 0.45));
+}
+.ci-pethome .ci-pet-tab-name {
+  color: rgba(186, 204, 236, 0.62);
+  font-size: 10px;
+  letter-spacing: 0.6px;
+}
+.ci-pethome .ci-pet-tab.is-on .ci-pet-tab-name { color: #FFE3A8; font-weight: 700; }
+
+/* 选中态的那一圈金框原来是给 emoji 圆角方块设计的，
+   换成线性图标后它太「实」了 —— 改成底部一条短光条，像主机 UI 的选中指示。 */
+.ci-pethome .ci-pet-tab.is-on::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 18px;
+  height: 2px;
+  margin-left: -9px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255, 209, 102, 0), #FFD98A, rgba(255, 209, 102, 0));
+  box-shadow: 0 0 8px rgba(255, 200, 100, 0.6);
+}
+
+/* ---------- W28. dock 选中态：从「描边方块」改成「一盏点亮的灯」 ---------- */
+/* 上一版给选中项套了一圈金色描边 + 半透明底 —— 在深色 dock 上它读成一个白框，
+   比未选中的三项重太多，整条 dock 被它拽走注意力。
+   游戏 dock 的惯例是「不画框，只点亮」：图标变色 + 底下一道短光条。 */
+.ci-pethome .ci-pet-tab.is-on {
+  background: rgba(255, 209, 102, 0.07);
+  box-shadow: none;
+}
+.ci-pethome .ci-pet-tab.is-on::after {
+  bottom: 5px;
+  width: 16px;
+  height: 2px;
+  margin-left: -8px;
+}
+
+/* 未选中项压得更暗一点，选中项的差异才成立 */
+.ci-pethome .ci-pet-tab:not(.is-on) .ci-pet-tab-icon { color: rgba(168, 188, 222, 0.52); }
+.ci-pethome .ci-pet-tab:not(.is-on) .ci-pet-tab-name { color: rgba(168, 188, 222, 0.48); }
+
+/* ---------- W29. 脚注与 dock 之间要有呼吸 ---------- */
+/* hero 高度写死在 calc(100vh - 140px)，但 hint 是 HUD 的最后一行 ——
+   在 787 高的平板上它离 dock 只有 6px，视觉上「贴着」。
+   把 hint 抬高 4px 同时压到 9px 字号，读起来是脚注而不是被裁掉的正文。 */
+.ci-pethome .ci-pet-hint {
+  margin: 7px 0 4px;
+  font-size: 9.5px;
+  color: rgba(160, 182, 218, 0.58);
+}
+
+/* ---------- W30. 冒险入口图标：跟着 dock 换成线性图标 ---------- */
+/* v0.15.0 把 entry.js 里这些图标的来源从 emoji 换成了 ICONS 里的 SVG，
+   但 CSS 还停在「font-size: 22px 的文字槽」——SVG 没有字号，会缩成 0。
+   这里给它真实尺寸，并把颜色统一到「未选中冷、选中金」这一套。 */
+.ci-pethome .ci-pet-advlink-icon {
+  width: 34px;
+  font-size: 0;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  color: rgba(198, 216, 246, 0.86);
+}
+.ci-pethome .ci-pet-advlink-icon svg { display: block; width: 22px; height: 22px; }
+.ci-pethome .ci-pet-advlink:active .ci-pet-advlink-icon { color: #FFD98A; }

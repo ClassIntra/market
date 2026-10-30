@@ -1038,8 +1038,16 @@ async function handleObAction(req) {
   try {
     switch (action) {
       case 'send_private_msg':
-      case 'send_msg':
         await handleSendPrivate(p, echo);
+        return;
+      case 'send_msg':
+        // OneBot v11 通用发送：优先按 group_id/message_type 判群，
+        // 避免群消息被误投到私聊（AstrBot 的 send(event) 兜底会同时带 group_id 与 user_id）
+        if (p.group_id != null && p.message_type !== 'private') {
+          await handleSendGroup(p, echo);
+        } else {
+          await handleSendPrivate(p, echo);
+        }
         return;
       case 'send_group_msg':
         await handleSendGroup(p, echo);
@@ -1630,12 +1638,12 @@ function sendFallback(userId) {
 function start() {
   if (state.started) return;
   state.started = true;
-  // 镜像实例（ClassIntra 的 app-https.js）不启动机器人 relay。
+  // 镜像实例（app-https.js）不启动机器人 relay。
   // 机器人账号在 CI WS 上只允许一个连接：9001 主实例已经登着，
   // 镜像实例再登一次，服务端会把旧连接踢掉（对端收到 code=1005），
   // 而镜像这边 scheduleReconnect 立刻又连回来 —— 于是两边互相踢，
   // 每 3 秒一轮的无尽循环，日志刷屏不说，机器人在学生端表现为间歇性掉线。
-  // 同 ws/chat-server.js 的镜像早退：全局唯一资源只归主实例。
+  // 这也正是「镜像实例不持有任何全局唯一资源」原则的一环（同 ws/chat-server.js）。
   if (process.env.WS_MIRROR_MODE === 'true') {
     log('镜像实例（app-https）：机器人 relay 由 9001 主实例负责，本实例跳过');
     return;
