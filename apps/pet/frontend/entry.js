@@ -5816,16 +5816,18 @@ function sceneHomeBody(container) {
 
     function tick() {
       if (token !== fightToken) return;
-      if (idx >= steps.length) { finish(); return; }
-      applyStep(steps[idx]);
+      if (idx >= cur.steps.length) { finish(); return; }
+      applyStep(cur.steps[idx]);
       idx++;
       fightTimer = setTimeout(tick, 340);
     }
 
     skip.addEventListener('click', function() {
       if (token !== fightToken) return;
-      stopFight();
-      while (idx < steps.length) { applyStep(steps[idx]); idx++; }
+      // ⚠️ 这里不能调 stopFight()——它会把 fightToken 递增，导致 finish 里
+      //    settle 回调的 token 校验永远失败，「跳过动画」= 白打一场没战绩。
+      if (fightTimer) { clearTimeout(fightTimer); fightTimer = null; }
+      while (idx < cur.steps.length) { applyStep(cur.steps[idx]); idx++; }
       finish();
     });
 

@@ -2965,8 +2965,8 @@
   margin-top: 10px;
   padding: 12px;
   border-radius: 18px;
-  background-color: #1A2340;
-  background-image: radial-gradient(120% 90% at 50% 0%, #2B3765 0%, #1D2748 46%, #131A31 100%);
+  background-color: #241b30;
+  background-image: radial-gradient(120% 90% at 50% 0%, #332645 0%, #261c36 46%, #180f1f 100%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 24px rgba(4, 7, 18, 0.34);
 }
 .ci-pet-arena-side { background: rgba(255, 255, 255, 0.06); }
@@ -4224,17 +4224,17 @@
    玻璃卡才"浮"得起来 —— 原来 #101628 太亮，卡片和底几乎同明度。 */
 .ci-pethome {
   --ci-color-bg-card: rgba(18, 24, 46, 0.62);
-  background-color: #05080F;
+  background-color: #0a070d;
   background-image:
-    radial-gradient(circle 1.6px at 26px 38px, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 100%),
-    radial-gradient(circle 1px at 132px 92px, rgba(180, 210, 255, 0.55), rgba(180, 210, 255, 0) 100%),
-    radial-gradient(circle 1.3px at 68px 172px, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(circle 1.6px at 26px 38px, rgba(255, 244, 224, 0.92), rgba(255, 244, 224, 0) 100%),
+    radial-gradient(circle 1px at 132px 92px, rgba(255, 226, 190, 0.55), rgba(255, 226, 190, 0) 100%),
+    radial-gradient(circle 1.3px at 68px 172px, rgba(255, 240, 214, 0.5), rgba(255, 240, 214, 0) 100%),
     radial-gradient(circle 1.1px at 210px 58px, rgba(255, 235, 180, 0.5), rgba(255, 235, 180, 0) 100%),
-    radial-gradient(circle 1.5px at 280px 140px, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0) 100%),
-    radial-gradient(circle 1px at 44px 116px, rgba(200, 220, 255, 0.42), rgba(200, 220, 255, 0) 100%),
-    radial-gradient(72% 38% at 18% 8%, rgba(191, 90, 242, 0.10), rgba(191, 90, 242, 0) 70%),
-    radial-gradient(88% 44% at 50% 102%, rgba(90, 200, 250, 0.13), rgba(90, 200, 250, 0) 70%),
-    radial-gradient(120% 62% at 50% 0%, #1A2253 0%, #101736 39%, #0A0F22 72%, #05080F 100%);
+    radial-gradient(circle 1.5px at 280px 140px, rgba(255, 244, 224, 0.62), rgba(255, 244, 224, 0) 100%),
+    radial-gradient(circle 1px at 44px 116px, rgba(255, 226, 190, 0.42), rgba(255, 226, 190, 0) 100%),
+    radial-gradient(72% 38% at 18% 8%, rgba(255, 170, 90, 0.08), rgba(255, 170, 90, 0) 70%),
+    radial-gradient(88% 44% at 50% 102%, rgba(255, 190, 120, 0.10), rgba(255, 190, 120, 0) 70%),
+    radial-gradient(120% 62% at 50% 0%, #2b2033 0%, #1d1522 39%, #140e17 72%, #0a070d 100%);
   background-repeat: repeat, repeat, repeat, repeat, repeat, repeat, no-repeat, no-repeat, no-repeat;
   background-size: 189px 227px, 189px 227px, 189px 227px, 311px 173px, 311px 173px, 311px 173px, 100% 100%, 100% 100%, 100% 100%;
 }
@@ -8821,7 +8821,7 @@
 .ci-pet-more-title {
   font-size: 14px;
   font-weight: 900;
-  color: #e8e2ff;
+  color: #f3e6d0;
   letter-spacing: 2px;
   margin-right: 10px;
   padding-left: 10px;
@@ -9436,7 +9436,7 @@
     repeating-linear-gradient(90deg,
       rgba(255, 255, 255, 0.022) 0 22px,
       rgba(0, 0, 0, 0.062) 22px 44px),
-    linear-gradient(180deg, #191528 0%, #221d38 62%, #282240 100%);
+    linear-gradient(180deg, #1f1620 0%, #291e2b 62%, #312434 100%);
 }
 
 /* ---------- 墙脚环境遮蔽 + 踢脚线 ----------
@@ -9465,7 +9465,7 @@
   /* 顶线（crown molding）：一条木色压条 + 一条投影。
      房间「合拢」靠的就是这条边，而不是靠把墙刷深。 */
   box-shadow:
-    0 3px 0 #4a3c66,
+    0 3px 0 #513f47,
     0 4px 0 #241d38,
     0 9px 14px -6px rgba(0, 0, 0, 0.55);
   pointer-events: none;
@@ -9495,8 +9495,8 @@
   margin-left: -280px;
   z-index: 2;
   background: radial-gradient(ellipse at 50% 50%,
-    rgba(255, 240, 196, 0.22) 0%,
-    rgba(255, 238, 180, 0.085) 46%,
+    rgba(255, 240, 196, 0.30) 0%,
+    rgba(255, 238, 180, 0.11) 46%,
     rgba(255, 238, 180, 0) 72%);
   pointer-events: none;
 }
@@ -9575,9 +9575,9 @@
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 1px;
-  color: #2b2238;
+  color: #332534;
   background: #ffe9b8;
-  box-shadow: 0 0 0 2px #17111f, 2px 2px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px #1c1119, 2px 2px 0 rgba(0, 0, 0, 0.45);
   opacity: 0;
   pointer-events: none;
   -webkit-transform: translateX(-50%) translateY(4px);
@@ -9592,7 +9592,7 @@
   top: 100%;
   margin-left: -4px;
   border: 4px solid transparent;
-  border-top-color: #17111f;
+  border-top-color: #1c1119;
 }
 .ci-pethome .world-obj:hover .world-obj-name,
 .ci-pethome .world-obj:focus .world-obj-name {
@@ -9685,8 +9685,8 @@
   padding: 8px 14px;
   border: none;
   cursor: pointer;
-  background: #2b2238;
-  box-shadow: 0 0 0 3px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.45);
+  background: #332534;
+  box-shadow: 0 0 0 3px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.45);
   font-family: inherit;
 }
 .ci-pethome .world-hud-petname {
@@ -9711,8 +9711,8 @@
   right: 14px;
   z-index: 5;
   padding: 8px 12px;
-  background: #2b2238;
-  box-shadow: 0 0 0 3px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.45);
+  background: #332534;
+  box-shadow: 0 0 0 3px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.45);
 }
 .ci-pethome .world-hud-coin {
   font-size: 13px;
@@ -9788,7 +9788,7 @@
   -webkit-flex-direction: column;
   flex-direction: column;
   background: #241c30;
-  box-shadow: 0 0 0 3px #ffe9b8, 0 0 0 6px #17111f, 6px 6px 0 rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 3px #ffe9b8, 0 0 0 6px #1c1119, 6px 6px 0 rgba(0, 0, 0, 0.5);
   -webkit-animation: worldSheetIn 0.18s cubic-bezier(0.2, 0.9, 0.3, 1) both;
   animation: worldSheetIn 0.18s cubic-bezier(0.2, 0.9, 0.3, 1) both;
 }
@@ -9802,7 +9802,7 @@
   -webkit-align-items: center;
   align-items: center;
   padding: 10px 14px;
-  background: #17111f;
+  background: #1c1119;
   border-bottom: 3px solid #ffd76e;
 }
 .ci-pethome .world-sheet-title {
@@ -9895,7 +9895,7 @@
 /* ---------- dock 像素化 + 版本标记 ---------- */
 .ci-pethome .ci-pet-tabs {
   border-radius: 0;
-  background: #17111f;
+  background: #1c1119;
   border-top: 3px solid #ffd76e;
 }
 .ci-pethome .ci-pet-vermark {
@@ -10023,18 +10023,18 @@
   padding: 7px 14px;
   border: none;
   cursor: pointer;
-  background: #2b2238;
+  background: #332534;
   color: #ffd76e;
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 1px;
   font-family: inherit;
-  box-shadow: 0 0 0 2px #17111f, 3px 3px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px #1c1119, 3px 3px 0 rgba(0, 0, 0, 0.45);
 }
 .ci-pethome .ci-pet-pagehead-home:active {
   -webkit-transform: translate(2px, 2px);
   transform: translate(2px, 2px);
-  box-shadow: 0 0 0 2px #17111f;
+  box-shadow: 0 0 0 2px #1c1119;
 }
 
 /* ---------- 17.5 dock 遗留样式清理（dock 已删，垫块置空防挤压）---------- */
@@ -10281,7 +10281,7 @@
   white-space: nowrap;
   color: #ffe9b8;
   background: rgba(22, 17, 34, 0.86);
-  box-shadow: 0 0 0 2px #17111f, 2px 2px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 2px #1c1119, 2px 2px 0 rgba(0, 0, 0, 0.35);
   pointer-events: none;
   -webkit-transform: translateX(-50%);
   transform: translateX(-50%);
@@ -10468,11 +10468,16 @@
 /* ---------- 21.1 内页背景 = 小屋的墙纸 ---------- */
 .ci-pethome:not(.is-hometab) {
   background:
-    radial-gradient(120% 90% at 46% 30%, rgba(0, 0, 0, 0) 44%, rgba(8, 5, 16, 0.30) 78%, rgba(8, 5, 16, 0.55) 100%),
+    /* v0.26.0 点灯：内页顶部挂一盏看不见的灯 —— 一池暖光落在标题上 */
+    radial-gradient(52% 30% at 50% 4%,
+      rgba(255, 198, 122, 0.085) 0%,
+      rgba(255, 198, 122, 0.03) 46%,
+      rgba(255, 198, 122, 0) 72%),
+    radial-gradient(120% 90% at 46% 30%, rgba(0, 0, 0, 0) 44%, rgba(10, 6, 8, 0.30) 78%, rgba(10, 6, 8, 0.55) 100%),
     repeating-linear-gradient(90deg,
-      rgba(255, 255, 255, 0.020) 0 26px,
+      rgba(255, 236, 214, 0.022) 0 26px,
       rgba(0, 0, 0, 0.055) 26px 52px),
-    linear-gradient(180deg, #221d34 0%, #2c2645 58%, #302a4c 100%) !important;
+    linear-gradient(180deg, #2a202c 0%, #332436 58%, #38283a 100%) !important;
 }
 
 /* ---------- 21.2 圆角一律清零 ----------
@@ -10489,16 +10494,16 @@
 .ci-pethome .ci-pet-rank-row,
 .ci-pethome .ci-pet-sheet,
 .ci-pethome .ci-pet-card {
-  background: #241f3a !important;
+  background: #2b2130 !important;
   border: none !important;
-  box-shadow: 0 0 0 2px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.42) !important;
-  color: #e8e2ff !important;
+  box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.42) !important;
+  color: #f3e6d0 !important;
 }
 
 /* ---------- 21.4 血条盘：白卡 → 深色像素面板 ---------- */
 .ci-pethome .ci-pet-hpplate {
-  background: linear-gradient(180deg, #2e2749 0%, #221c39 100%) !important;
-  border: 3px solid #17111f !important;
+  background: linear-gradient(180deg, #352935 0%, #29202b 100%) !important;
+  border: 3px solid #1c1119 !important;
   border-radius: 0 !important;
   box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.45) !important;
 }
@@ -10522,7 +10527,7 @@
   box-shadow:
     inset 0 -5px 0 rgba(0, 0, 0, 0.28),
     inset 0 3px 0 rgba(255, 255, 255, 0.30),
-    0 0 0 3px #17111f,
+    0 0 0 3px #1c1119,
     5px 5px 0 rgba(0, 0, 0, 0.45) !important;
   -webkit-transition: -webkit-transform 0.08s ease;
   transition: transform 0.08s ease;
@@ -10533,7 +10538,7 @@
   box-shadow:
     inset 0 -3px 0 rgba(0, 0, 0, 0.28),
     inset 0 2px 0 rgba(255, 255, 255, 0.24),
-    0 0 0 3px #17111f,
+    0 0 0 3px #1c1119,
     2px 2px 0 rgba(0, 0, 0, 0.45) !important;
 }
 .ci-pethome .ci-pet-cmdbtn-label {
@@ -10549,19 +10554,19 @@
   border-radius: 0;
   cursor: pointer;
   font-family: inherit;
-  background: #2b2238;
+  background: #332534;
   color: #ffd76e;
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 1px;
   padding: 8px 14px;
-  box-shadow: 0 0 0 2px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.45);
 }
 .ci-pethome .ci-pet-pagehead-home:active,
 .ci-pethome .ci-pet-homefab:active {
   -webkit-transform: translate(2px, 2px);
   transform: translate(2px, 2px);
-  box-shadow: 0 0 0 2px #17111f;
+  box-shadow: 0 0 0 2px #1c1119;
 }
 /* 战斗页没有 pageHead，用它回首页：固定在 HUD 下方，不挡舞台 */
 .ci-pethome .ci-pet-homefab {
@@ -10576,10 +10581,10 @@
   color: #ffe9b8 !important;
   font-weight: 900 !important;
   letter-spacing: 3px !important;
-  text-shadow: 2px 2px 0 #17111f !important;
+  text-shadow: 2px 2px 0 #1c1119 !important;
 }
 .ci-pethome .ci-pet-pagehead-sub {
-  color: #b9aee0 !important;
+  color: #cdbfab !important;
   letter-spacing: 0.5px !important;
 }
 
@@ -10602,14 +10607,14 @@
       rgba(255, 233, 168, 0.14) 26px 42px,
       rgba(255, 233, 168, 0) 43px),
     linear-gradient(180deg,
-      #0d1029 0%, #0d1029 20%,
-      #131735 20%, #131735 44%,
-      #1a2044 44%, #1a2044 68%,
-      #212a52 68%, #212a52 100%) !important;
+      #141020 0%, #141020 20%,
+      #1a1430 20%, #1a1430 44%,
+      #221a3c 44%, #221a3c 68%,
+      #2b2049 68%, #2b2049 100%) !important;
 }
 .ci-pethome .ci-pet-battle .ci-pet-scene-hills {
   background-image:
-    radial-gradient(circle at 24% 100%, #1b2145 0 44px, rgba(27, 33, 69, 0) 45px),
+    radial-gradient(circle at 24% 100%, #261d3e 0 44px, rgba(38, 29, 62, 0) 45px),
     radial-gradient(circle at 74% 100%, #151a38 0 54px, rgba(21, 26, 56, 0) 55px) !important;
 }
 .ci-pethome .ci-pet-battle .ci-pet-scene-ground {
@@ -10622,8 +10627,8 @@
   padding: 5px 12px !important;
   color: #ffd0dd !important;
   background: #2a1030 !important;
-  box-shadow: 0 0 0 3px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.45) !important;
-  text-shadow: 2px 2px 0 #17111f !important;
+  box-shadow: 0 0 0 3px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.45) !important;
+  text-shadow: 2px 2px 0 #1c1119 !important;
   font-style: normal !important;
   letter-spacing: 3px !important;
 }
@@ -10634,11 +10639,11 @@
    一处改，全内页一起变成「深紫面板 + 暖白字」。
    ⚠️ 必须 scope 在 .ci-pethome 内，别污染宿主桌面。 */
 .ci-pethome {
-  --ci-color-bg-page: #221d34;
-  --ci-color-bg-card: #241f3a;
-  --ci-color-text-primary: #ede8ff;
-  --ci-color-text-secondary: #b9aee0;
-  --ci-color-text-tertiary: #8f85b3;
+  --ci-color-bg-page: #2a202c;
+  --ci-color-bg-card: #2b2130;
+  --ci-color-text-primary: #f6ead6;
+  --ci-color-text-secondary: #cdbfab;
+  --ci-color-text-tertiary: #a3938c;
   --ci-color-primary: #ffd76e;
 }
 
@@ -10648,9 +10653,9 @@
 .ci-pethome:not(.is-hometab) .ci-pet-evo,
 .ci-pethome:not(.is-hometab) .ci-pet-types,
 .ci-pethome:not(.is-hometab) .ci-pet-buddy {
-  background: #241f3a;
+  background: #2b2130;
   border: none;
-  box-shadow: 0 0 0 2px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.40);
+  box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.40);
 }
 
 /* ---------- 22. 角色像素化（v0.21.4）----------
@@ -10680,28 +10685,31 @@
    做法：用 4 向 drop-shadow(blur=0) 合成 2px 硬描边，不引入任何图片。 */
 .ci-pethome .world-obj .world-obj-art {
   filter:
-    drop-shadow(2px 0 0 #17111f)
-    drop-shadow(-2px 0 0 #17111f)
-    drop-shadow(0 2px 0 #17111f)
-    drop-shadow(0 -2px 0 #17111f)
+    drop-shadow(2px 0 0 #1c1119)
+    drop-shadow(-2px 0 0 #1c1119)
+    drop-shadow(0 2px 0 #1c1119)
+    drop-shadow(0 -2px 0 #1c1119)
     drop-shadow(0 6px 0 rgba(0, 0, 0, 0.35));
 }
-/* 灯要保留暖光：描边之后再把光晕叠回去（filter 会覆盖，不是叠加） */
+/* 灯要保留暖光：描边之后再把光晕叠回去（filter 会覆盖，不是叠加）。
+   v0.26.0 点灯：光晕从 18px/0.6 加到 30px/0.8 —— 房间里唯一的光源要真的像光源，
+   再垫一层更大的微光把书架那一角「烘」暖。 */
 .ci-pethome .world-obj[data-obj="lamp"] .world-obj-art {
   filter:
-    drop-shadow(2px 0 0 #17111f)
-    drop-shadow(-2px 0 0 #17111f)
-    drop-shadow(0 2px 0 #17111f)
-    drop-shadow(0 -2px 0 #17111f)
-    drop-shadow(0 0 18px rgba(255, 233, 168, 0.6));
+    drop-shadow(2px 0 0 #1c1119)
+    drop-shadow(-2px 0 0 #1c1119)
+    drop-shadow(0 2px 0 #1c1119)
+    drop-shadow(0 -2px 0 #1c1119)
+    drop-shadow(0 0 14px rgba(255, 233, 168, 0.8))
+    drop-shadow(0 0 30px rgba(255, 214, 140, 0.45));
 }
 /* 角色也用同一套描边，否则它还是「贴上去的」 */
 .ci-pethome .world-pet-vid {
   filter:
-    drop-shadow(2px 0 0 #17111f)
-    drop-shadow(-2px 0 0 #17111f)
-    drop-shadow(0 2px 0 #17111f)
-    drop-shadow(0 -2px 0 #17111f)
+    drop-shadow(2px 0 0 #1c1119)
+    drop-shadow(-2px 0 0 #1c1119)
+    drop-shadow(0 2px 0 #1c1119)
+    drop-shadow(0 -2px 0 #1c1119)
     drop-shadow(0 5px 0 rgba(0, 0, 0, 0.4));
 }
 
@@ -10938,11 +10946,11 @@
 
 /* ---------- 26.3 HUD：蓝 navy → 房间紫 + 天花同款木压边 ---------- */
 .ci-pethome:not(.is-hometab) .ci-pet-hud {
-  background: linear-gradient(160deg, #2c2545 0%, #241f3a 100%) !important;
+  background: linear-gradient(160deg, #332637 0%, #2b2130 100%) !important;
   border-radius: 0 !important;
   box-shadow:
-    0 0 0 2px #17111f,
-    0 4px 0 #4a3c66,
+    0 0 0 2px #1c1119,
+    0 4px 0 #513f47,
     4px 6px 0 rgba(0, 0, 0, 0.42) !important;
 }
 
@@ -10957,31 +10965,31 @@
   box-shadow:
     inset 0 3px 0 rgba(255, 235, 200, 0.26),
     inset 0 -4px 0 rgba(0, 0, 0, 0.30),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 4px 0 rgba(0, 0, 0, 0.45) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-foe-btn:active {
   box-shadow:
     inset 0 2px 0 rgba(255, 235, 200, 0.20),
     inset 0 -3px 0 rgba(0, 0, 0, 0.30),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     2px 2px 0 rgba(0, 0, 0, 0.45) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-foe-btn[disabled] {
   background: rgba(136, 130, 152, 0.22) !important;
-  color: #8f85b3 !important;
+  color: #a3938c !important;
   text-shadow: none;
-  box-shadow: 0 0 0 2px #17111f !important;
+  box-shadow: 0 0 0 2px #1c1119 !important;
 }
 /* Boss 挑战大按钮已是金票根，只把圆角和描边统一掉 */
 .ci-pethome:not(.is-hometab) .ci-pet-bstage-fight {
   border-radius: 0 !important;
-  border-color: #17111f !important;
+  border-color: #1c1119 !important;
   box-shadow:
     inset 0 3px 0 rgba(255, 255, 255, 0.6),
     inset 0 -5px 0 rgba(146, 100, 20, 0.55),
     0 7px 0 #6b440d,
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 6px 0 rgba(0, 0, 0, 0.4) !important;
 }
 
@@ -10995,44 +11003,44 @@
   text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
   box-shadow:
     inset 0 3px 0 rgba(255, 214, 160, 0.14),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 4px 0 rgba(0, 0, 0, 0.45) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-btn--ghost {
-  background: #2b2238 !important;
+  background: #332534 !important;
   color: #ffd76e !important;
   border: 2px solid #ffd76e;
-  box-shadow: 0 0 0 2px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.45) !important;
 }
 
 /* ---------- 26.6 图鉴卡：白底绿渐变 → 深木面板；稀有度 = 像素描边色 ----------
    is-owned 不再是「白卡上飘绿」，而是卡顶一线苔绿 —— 收服感来自色阶，不是来自换纸。 */
 .ci-pethome:not(.is-hometab) .ci-pet-wild {
-  background: #241f3a !important;
+  background: #2b2130 !important;
   border-radius: 0 !important;
-  box-shadow: 0 0 0 2px #17111f, 4px 4px 0 rgba(0, 0, 0, 0.40) !important;
+  box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.40) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-wild.is-owned {
-  background: linear-gradient(180deg, #27402f 0%, #241f3a 46%) !important;
+  background: linear-gradient(180deg, #27402f 0%, #2b2130 46%) !important;
 }
 /* 稀有度描边用元素色板里的蓝/金 —— 与属性徽章同源，内页内部也不打架 */
 .ci-pethome:not(.is-hometab) .ci-pet-wild.ci-pet-rar--rare {
   box-shadow:
     inset 0 0 0 2px rgba(58, 134, 201, 0.65),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 4px 0 rgba(0, 0, 0, 0.40) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-wild.ci-pet-rar--legend {
   box-shadow:
     inset 0 0 0 2px rgba(230, 176, 42, 0.78),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 4px 0 rgba(0, 0, 0, 0.40) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-wild-owned {
   border-radius: 0;
   background: rgba(63, 154, 83, 0.24);
   color: #9fd07a;
-  box-shadow: 0 0 0 1px #17111f;
+  box-shadow: 0 0 0 1px #1c1119;
   font-weight: 900;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-wild-spot {
@@ -11041,20 +11049,20 @@
 }
 /* 战斗结算：浅绿/浅灰纸卡 → 深底色阶（赢=苔绿，输=灰紫） */
 .ci-pethome:not(.is-hometab) .ci-pet-arena-result.is-win {
-  background: linear-gradient(180deg, #27402f 0%, #241f3a 70%) !important;
+  background: linear-gradient(180deg, #27402f 0%, #2b2130 70%) !important;
 }
 .ci-pethome:not(.is-hometab) .ci-pet-arena-result.is-lose {
-  background: linear-gradient(180deg, #3a2b3a 0%, #241f3a 70%) !important;
+  background: linear-gradient(180deg, #3a2b3a 0%, #2b2130 70%) !important;
 }
 
 /* ---------- 26.7 排行「我」卡：蓝 navy → 房间紫 + 金细描边 ---------- */
 .ci-pethome:not(.is-hometab) .ci-pet-rankme {
-  background-color: #241f3a !important;
-  background-image: linear-gradient(180deg, #2c2545 0%, #241f3a 100%) !important;
+  background-color: #2b2130 !important;
+  background-image: linear-gradient(180deg, #332637 0%, #2b2130 100%) !important;
   border-radius: 0 !important;
   box-shadow:
     inset 0 0 0 2px rgba(255, 215, 110, 0.38),
-    0 0 0 2px #17111f,
+    0 0 0 2px #1c1119,
     4px 4px 0 rgba(0, 0, 0, 0.42) !important;
 }
 
@@ -11068,7 +11076,7 @@
   background: linear-gradient(180deg, #54402e 0%, #42301f 58%, #332417 100%) !important;
   /* 描边也收进来：v26 截图里四色边框还是「四块糖」的残余，
      像素世界里描边只有一种颜色 —— 轮廓黑。 */
-  border-color: #17111f !important;
+  border-color: #1c1119 !important;
 }
 
 /* ---------- 26.9 称号徽章：粉紫胶囊 → 方角金章 ---------- */
@@ -11077,5 +11085,136 @@
   background: rgba(255, 215, 110, 0.12);
   color: #ffd76e;
   font-weight: 900;
-  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.35);
+  box-shadow: 0 0 0 1px #1c1119, inset 0 0 0 1px rgba(255, 215, 110, 0.35);
+}
+
+/* ==============================================================================
+   27. 默契指令（v0.25.0）—— 战斗中插手的三张手牌
+   它是「录像 → 一局」里玩家唯一能亲手改变结局的东西，视觉上要像
+   被捏在手里的牌，而不是又一颗按钮。全屋继续用木色 + 轮廓黑 + 金描边。
+   约束：Chrome 80 基线 —— 不用 flex gap(84+)，间距用 margin。
+   ============================================================================== */
+.ci-pet-arena { position: relative; }
+.ci-pet-cmdrow {
+  margin-top: 10px;
+  padding: 9px 10px 10px;
+  background: linear-gradient(180deg, #2c2545 0%, #241f3a 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 215, 110, 0.16),
+    0 0 0 2px #17111f,
+    4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pet-cmdrow.is-hidden { display: none; }
+.ci-pet-cmdrow-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+}
+.ci-pet-cmdrow-label {
+  font-size: 13px;
+  font-weight: 900;
+  color: #ffd76e;
+  letter-spacing: 3px;
+}
+.ci-pet-cmdrow-count {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #241f3a;
+  background: #ffd76e;
+  box-shadow: 0 0 0 1px #17111f;
+}
+.ci-pet-cmdrow-count.is-out {
+  background: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.72);
+}
+.ci-pet-cmdrow-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(226, 233, 250, 0.48);
+}
+.ci-pet-cmdrow-cards {
+  display: -webkit-flex; display: flex;
+  margin-top: 8px;
+}
+.ci-pet-cmd {
+  -webkit-flex: 1; flex: 1;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-left: 8px;
+  padding: 8px 9px;
+  border: 0;
+  text-align: left;
+  color: #f6f1e3;
+  background: linear-gradient(180deg, #54402e 0%, #42301f 58%, #332417 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.3);
+  -webkit-transition: -webkit-transform 0.08s steps(2, end);
+  transition: transform 0.08s steps(2, end);
+}
+.ci-pet-cmd:first-child { margin-left: 0; }
+.ci-pet-cmd:active { transform: translateY(2px); }
+.ci-pet-cmd.is-busy { opacity: 0.55; }
+.ci-pet-cmd.is-used {
+  opacity: 0.42;
+  filter: saturate(0.15);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ci-pet-cmd.is-out {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.ci-pet-cmd-icon {
+  -webkit-flex: none; flex: none;
+  font-size: 22px;
+  line-height: 1;
+}
+.ci-pet-cmd-txt {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  min-width: 0;
+}
+.ci-pet-cmd-name { font-size: 14px; font-weight: 800; }
+.ci-pet-cmd-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(226, 233, 250, 0.6);
+}
+/* 按下牌的那一瞬间：一行大字压在舞台中央 */
+.ci-pet-cmdfx {
+  position: absolute;
+  left: 50%;
+  top: 36%;
+  z-index: 30;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  padding: 10px 18px;
+  color: #ffd76e;
+  font-size: 18px;
+  font-weight: 900;
+  background: linear-gradient(180deg, #2c2545, #241f3a);
+  box-shadow:
+    0 0 0 2px #17111f,
+    0 0 0 4px rgba(255, 215, 110, 0.5),
+    6px 6px 0 rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  -webkit-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  animation: ciPetCmdFx 900ms steps(3, end) forwards;
+}
+.ci-pet-cmdfx-icon { font-size: 26px; margin-right: 10px; }
+@keyframes ciPetCmdFx {
+  0% { opacity: 0; -webkit-transform: translate(-50%, -50%) scale(0.6); transform: translate(-50%, -50%) scale(0.6); }
+  18% { opacity: 1; -webkit-transform: translate(-50%, -50%) scale(1.08); transform: translate(-50%, -50%) scale(1.08); }
+  72% { opacity: 1; -webkit-transform: translate(-50%, -50%) scale(1); transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; -webkit-transform: translate(-50%, -64%) scale(1); transform: translate(-50%, -64%) scale(1); }
+}
+/* 指令落下的舞台轻震：steps() 而不是缓动，像素世界没有丝滑 */
+.ci-pet-arena.is-shake { animation: ciPetArenaShake 260ms steps(2, end); }
+@keyframes ciPetArenaShake {
+  0% { -webkit-transform: translate(0, 0); transform: translate(0, 0); }
+  25% { -webkit-transform: translate(-3px, 2px); transform: translate(-3px, 2px); }
+  50% { -webkit-transform: translate(3px, -2px); transform: translate(3px, -2px); }
+  75% { -webkit-transform: translate(-2px, -1px); transform: translate(-2px, -1px); }
+  100% { -webkit-transform: translate(0, 0); transform: translate(0, 0); }
 }
