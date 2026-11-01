@@ -69,7 +69,6 @@
 .ci-pet-resource-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   padding: 5px 11px;
   background: rgba(255, 255, 255, 0.96);
   backdrop-filter: blur(8px);
@@ -82,6 +81,8 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.8);
   animation: ciPetPillFloat 3s ease-in-out infinite;
 }
+
+.ci-pet-resource-pill > * + * { margin-left: 6px; }
 
 @keyframes ciPetPillFloat {
   0%, 100% { transform: translateY(0); }
@@ -261,7 +262,7 @@
 .ci-equip-slot.rare::before {
   content: '';
   position: absolute;
-  inset: -2px;
+  top: -2px; right: -2px; bottom: -2px; left: -2px;
   border: 2px solid var(--ci-rarity-rare);
   border-radius: 14px;
   opacity: 0.6;
@@ -318,7 +319,7 @@
 .ci-effect-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px;
+  grid-gap: 8px;
 }
 
 .ci-effect-item {
@@ -328,9 +329,10 @@
   font-size: 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
+
+.ci-effect-item > * + * { margin-left: 6px; }
 
 .ci-effect-plus {
   color: var(--ci-hp-high);
@@ -358,7 +360,7 @@
 /* 环境特效 */
 .ci-environment-effect {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   opacity: 0.3;
   pointer-events: none;
 }
@@ -431,7 +433,7 @@
 /* 技能释放特效 */
 .ci-skill-visual-shockwave {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   pointer-events: none;
 }
 
@@ -484,12 +486,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
   padding: 8px 16px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 }
+
+.ci-tab-item > * + * { margin-top: 4px; }
 
 .ci-tab-icon {
   font-size: 26px;
@@ -544,7 +547,7 @@
 /* ---------- 弹窗/对话框美化 ---------- */
 .ci-dialog-overlay {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
   display: flex;
@@ -3255,7 +3258,7 @@
 .ci-pet-daily::before {
   content: '';
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   pointer-events: none;
   background: radial-gradient(70% 70% at 100% 0%, rgba(255, 255, 255, 0.18) 0%, transparent 65%);
 }
@@ -3472,9 +3475,10 @@
 .ci-pet-offline-left {
   display: -webkit-flex; display: flex;
   -webkit-align-items: center; align-items: center;
-  gap: 10px;
   min-width: 0;
 }
+
+.ci-pet-offline-left > * + * { margin-left: 10px; }
 .ci-pet-offline-icon {
   font-size: 18px;
   -webkit-flex: none; flex: none;
@@ -3532,9 +3536,10 @@
 .ci-pet-wonder-left {
   display: -webkit-flex; display: flex;
   -webkit-align-items: center; align-items: center;
-  gap: 10px;
   min-width: 0;
 }
+
+.ci-pet-wonder-left > * + * { margin-left: 10px; }
 .ci-pet-wonder-icon {
   font-size: 18px;
   -webkit-flex: none; flex: none;
@@ -3592,16 +3597,18 @@
   align-items: center;
   -webkit-justify-content: space-between;
   justify-content: space-between;
-  gap: 10px;
 }
+
+.ci-pet-autonomy-row > * + * { margin-left: 10px; }
 .ci-pet-autonomy-left {
   display: -webkit-flex;
   display: flex;
   -webkit-align-items: center;
   align-items: center;
-  gap: 10px;
   min-width: 0;
 }
+
+.ci-pet-autonomy-left > * + * { margin-left: 10px; }
 .ci-pet-autonomy-icon {
   font-size: 18px;
   line-height: 1;
@@ -3638,18 +3645,20 @@
   display: flex;
   -webkit-flex-direction: column;
   flex-direction: column;
-  gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.4);
 }
+
+.ci-pet-autonomy-list > * + * { margin-top: 6px; }
 .ci-pet-autonomy-item {
   display: -webkit-flex;
   display: flex;
   -webkit-align-items: center;
   align-items: center;
-  gap: 8px;
 }
+
+.ci-pet-autonomy-item > * + * { margin-left: 8px; }
 .ci-pet-autonomy-item-icon {
   font-size: 14px;
   line-height: 1;
@@ -7890,7 +7899,7 @@
   display: -ms-grid;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  grid-gap: 7px;
 }
 .ci-pet-skillcell {
   width: auto;
@@ -9766,12 +9775,12 @@
 /* ---------- RPG 对话框（从底部升起的像素面板） ---------- */
 .ci-pethome .world-sheet-wrap {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   z-index: 40;
 }
 .ci-pethome .world-sheet-scrim {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(6, 6, 16, 0.55);
 }
 .ci-pethome .world-sheet {
@@ -10093,7 +10102,7 @@
 /* 漂浮微尘：5 枚像素小点缓缓上浮（JS 生成 span） */
 .ci-pethome .world-motes {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   overflow: hidden;
   pointer-events: none;
   z-index: 5;
