@@ -36,6 +36,7 @@
   var buddyInfo = null;  // 当前随行伙伴
   var evolutionInfo = null; // 当前进化阶段
   var weatherInfo = null;   // 今日天气（v0.10.0，按日期哈希，全班一致）
+  var shopInfo = null;      // 小卖部货架（v0.25.0，随 /state 下发）
   var petWish = null;
   var storyInfo = null;
   var petWishTimer = null;
@@ -202,6 +203,52 @@
   // ⚠️ 每行必须正好 12 个字符（探针里有长度断言），少于 12 会自动补透明格，
   //    美术贴边就丢描边。palette 只用单个 ASCII 小写键，别用两位键。
   var PIX_ICONS = {
+    // 塔（v0.28.0 · 试炼塔一级入口）：对称五段收分的塔身 + 金窗 + 塔尖亮顶。
+    // 之前埋在「对战 → 抽屉 → 第三个标签」三层深，实测用户找不到深渊在哪。
+    tower: { pal: { a: '#5e5484', b: '#cabfff', c: '#ffd76e' }, rows: [
+      '.....bb.....',
+      '....abba....',
+      '....abba....',
+      '....acba....',
+      '...aabbaa...',
+      '...aacbaa...',
+      '..aaabbaaa..',
+      '..aaacbaaa..',
+      '.aaaabbaaaa.',
+      '.aaaacbaaaa.',
+      'aaaabccbaaaa',
+      'aaabccccbaaa'
+    ] },
+    // 太阳（昼夜切换钮 · 白天态）：8 向硬边光线 + 暖核
+    sun: { pal: { r: '#ffc95e', y: '#ffd76e', w: '#fff6d0' }, rows: [
+      '.....rr.....',
+      '.r...yy...r.',
+      '..r.yyyy.r..',
+      '...yywwyy...',
+      '..yywwwwyy..',
+      'rryywwwwyyrr',
+      '..yywwwwyy..',
+      '...yywwyy...',
+      '..r.yyyy.r..',
+      '.r...yy...r.',
+      '.....rr.....',
+      '............'
+    ] },
+    // 月亮（昼夜切换钮 · 夜晚态）：朝左的月牙，奶油色
+    moon: { pal: { m: '#f6ead6' }, rows: [
+      '....mmmm....',
+      '..mmmmmmm...',
+      '.mmmmmmmmm..',
+      '.mmmmmm.....',
+      'mmmmmm......',
+      'mmmmm.......',
+      'mmmmm.......',
+      'mmmmm.......',
+      'mmmmmm......',
+      '.mmmmmm.....',
+      '.mmmmmmmm...',
+      '....mmmm....'
+    ] },
     // 火：焰心高光在下方，焰尖偏左（和房间壁炉同向的动势）
     fire: { pal: { a: '#b8331f', b: '#e8562f', c: '#ffb05c' }, rows: [
       '............',
@@ -509,6 +556,9 @@
     // 前端各算一份迟早会对不上（平板时间被改过时尤其明显）。
     if (d.personality !== undefined) personalityInfo = d.personality;
     if (d.mood !== undefined) moodInfo = d.mood;
+    // v0.25.0：小卖部货架与助战位，都是服务端算好下发的只读视图。
+    if (d.shop !== undefined) shopInfo = d.shop;
+    if (d.assistant !== undefined && battle) battle.assistant = d.assistant;
   }
 
   // 对战 / 爬塔 / 野怪三种响应都带 weather + quests：打完一场顺手更新，
@@ -594,6 +644,55 @@
     if (r === undefined || isNaN(r) || isNaN(g) || isNaN(b)) return null;
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   }
+  // ---------- 昼夜模式（v0.27.0）----------
+  // 小屋有白天和黑夜：auto 跟随真实时间（6:30–18:30 白天），也可手动切。
+  // 状态走 localStorage（偏光是设备级的视觉偏好，不用进服务器档案）。
+  // 三处消费：① root.is-day class（CSS 全量换装，token 自动联动 markCardTone）
+  //           ② 窗户取图（windowDay / window，见 sceneHomeBody）
+  //           ③ stageHud 的切换钮图标（sun / moon）。
+  var DAY_KEY = 'ci-pet-daynight';
+  var dayNight = { mode: 'auto', last: null, timer: null };
+  function dayNightLoad() {
+    try {
+      var m = localStorage.getItem(DAY_KEY);
+      if (m === 'day' || m === 'night' || m === 'auto') dayNight.mode = m;
+    } catch (e) {}
+  }
+  function isDayNow() {
+    if (dayNight.mode === 'day') return true;
+    if (dayNight.mode === 'night') return false;
+    var now = new Date();
+    var hh = now.getHours() + now.getMinutes() / 60;
+    return hh >= 6.5 && hh < 18.5;
+  }
+  function applyDayNight(redraw) {
+    var day = isDayNow();
+    if (root && root.classList) root.classList.toggle('is-day', day);
+    var key = dayNight.mode + ':' + (day ? 'day' : 'night');
+    if (key === dayNight.last) return;
+    dayNight.last = key;
+    fillDayToggle();
+    // 窗户是 JS 决定的美术，换景要重绘；auto 跨界时别打断正在进行的散步
+    if (redraw && uiTab === 'home') renderHomeWhenIdle();
+  }
+  function fillDayToggle() {
+    if (!root) return;
+    var btn = root.querySelector('[data-hud="daynight"]');
+    if (!btn) return;
+    var day = isDayNow();
+    setIconText(btn, day ? 'sun' : 'moon', dayNight.mode === 'auto' ? '自动' : (day ? '白天' : '夜晚'));
+    btn.setAttribute('data-mode', dayNight.mode);
+  }
+  function cycleDayNight() {
+    dayNight.mode = dayNight.mode === 'auto' ? 'day' : (dayNight.mode === 'day' ? 'night' : 'auto');
+    try { localStorage.setItem(DAY_KEY, dayNight.mode); } catch (e) {}
+    dayNight.last = null;
+    applyDayNight(true);
+    sysToast(dayNight.mode === 'auto'
+      ? '自动模式：6:30–18:30 是白天，其余是夜晚'
+      : (isDayNow() ? '白天模式：阳光洒进小屋' : '夜晚模式：点亮台灯'), 'info');
+  }
+
   function markCardTone() {
     if (!root) return;
     var raw = '';
@@ -1434,8 +1533,15 @@
     var box = h('div', 'ci-pet-advstage');
     var cards = [
       {
-        id: 'battle', icon: 'battle', name: '对战', sub: battle ? ('今日 ' + (battle.today || 0) + ' 场') : '练习赛',
-        stat: battle ? ('第 ' + (battle.myRank || '-') + ' 名') : '',
+        // 对战卡副标题带塔/深渊进度（v0.28.0）：深渊的存在必须从首页就能被看见——
+        // 「通关十层解锁深渊」是长期目标，目标不可见就等于不存在。
+        id: 'battle', icon: 'battle', name: '对战',
+        sub: battle
+          ? ((battle.tower && battle.tower.abyss)
+              ? ('深渊 ' + battle.tower.abyss.depth + ' 层')
+              : ('塔 ' + ((battle.tower && battle.tower.cleared) || 0) + '/' + ((battle.tower && battle.tower.total) || 10)))
+          : '练习赛',
+        stat: battle ? ('今日 ' + (battle.today || 0) + ' 场 · 第 ' + (battle.myRank || '-') + ' 名') : '',
         badge: battle ? tabBadgeCount('battle') : 0
       },
       {
@@ -1726,6 +1832,9 @@
     // 横屏分栏的开关：CSS 用它区分「首页双栏」与「内页单列加宽」。
     // 放在 clearRoot 之后立刻设，渲染中段就会带上，避免首帧按竖屏排一次再跳。
     if (root.classList) root.classList.toggle('is-hometab', uiTab === 'home');
+    // 昼夜 class 必须在 markCardTone 之前挂上：markCardTone 读 --ci-color-bg-card，
+    // is-day 把它重定义成浅卡色，darkcard 判定就自动跟着走（白天=浅卡=深字）。
+    applyDayNight(false);
     if (!state || !state.adopted) { renderAdopt(); return; }
     // v0.9.0：HUD 常驻顶部，导航沉到底部（像手游的 dock），中间才是页面内容。
     // ⚠️ 先挂进 root 再 fillHud：gameHud() 内部的 fillHud 用 root.querySelector 找人，
@@ -1888,23 +1997,110 @@
     coins.appendChild(h('span', 'ci-pet-shoppe-coinicon', '🐟'));
     coins.appendChild(h('b', 'ci-pet-shoppe-num', String(coinCount())));
     coins.appendChild(h('i', 'ci-pet-shoppe-unit', '条小鱼干'));
+    // 提示一句「钱从哪来」：专注才是鱼干的主产出，商店只是把它变成选择
+    coins.appendChild(h('span', 'ci-pet-shoppe-tip', '陪它专注就有进账'));
     box.appendChild(coins);
 
-    var enough = coinCount() >= FOCUS_COIN_COST;
-    var canBuy = enough && canFeed();
-    var b = h('button', 'ci-pet-shoppe-buy' + (canBuy ? '' : ' is-off'));
-    b.setAttribute('data-shoppe', 'feast');
-    if (canBuy) {
-      b.textContent = '🍱 豪华大餐 · ' + FOCUS_COIN_COST + '🐟';
-    } else {
-      b.disabled = true;
-      b.textContent = enough
-        ? '🍱 今天吃饱啦'
-        : ('🍱 还差 ' + (FOCUS_COIN_COST - coinCount()) + ' 条小鱼干');
+    // 普通饭：这是「喂」不是「买」，放货架最上面横贯一行 —— 弹层打开，最先看到的
+    // 应该是今天还喂不喂得动，然后才是「要不要顺便囤点货」。
+    var normal = h('button', 'ci-pet-shoppe-item is-wide' + (canFeed() ? '' : ' is-off'));
+    normal.setAttribute('data-shoppe', 'normal');
+    var ntop = h('span', 'ci-pet-shoppe-item-top');
+    ntop.appendChild(h('span', 'ci-pet-shoppe-item-icon', '🍚'));
+    ntop.appendChild(h('span', 'ci-pet-shoppe-item-cost', '今日 ' + fedCount() + ' / 3'));
+    normal.appendChild(ntop);
+    normal.appendChild(h('span', 'ci-pet-shoppe-item-name', '开饭'));
+    normal.appendChild(h('span', 'ci-pet-shoppe-item-desc', '普通的一餐，羁绊 +4'));
+    normal.addEventListener('click', function() { doFeed('normal', normal); });
+    box.appendChild(normal);
+
+    // 货架（v0.25.0）：以前整个商店只有一件豪华大餐，鱼干攒到三位数也只有一个去处。
+    // 现在一格一件：药水直接补战斗库存，铃铛买的是今天的第三张默契牌。
+    var items = (shopInfo && shopInfo.items) || [];
+    if (!items.length) {
+      // 桩环境 / 老接口：货架拿不到就维持原样，只剩大餐按钮
+      var legacy = h('button', 'ci-pet-shoppe-buy' + (coinCount() >= FOCUS_COIN_COST && canFeed() ? '' : ' is-off'));
+      legacy.setAttribute('data-shoppe', 'feast');
+      legacy.textContent = '🍱 豪华大餐 · ' + FOCUS_COIN_COST + '🐟';
+      legacy.addEventListener('click', function() { doFeed('feast', legacy); });
+      box.appendChild(legacy);
+      return box;
     }
-    b.addEventListener('click', function() { doFeed('feast', b); });
-    box.appendChild(b);
+    var shelf = h('div', 'ci-pet-shoppe-shelf');
+    for (var i = 0; i < items.length; i++) {
+      (function(item) {
+        var out = coinCount() < item.cost ||
+                  (item.kind === 'feed' && !canFeed()) ||
+                  item.soldOut;
+        var card = h('button', 'ci-pet-shoppe-item' + (out ? ' is-off' : '') +
+          (item.soldOut ? ' is-soldout' : ''));
+        card.setAttribute('data-shoppe', item.id);
+        var top = h('span', 'ci-pet-shoppe-item-top');
+        top.appendChild(h('span', 'ci-pet-shoppe-item-icon', item.icon || ''));
+        top.appendChild(h('span', 'ci-pet-shoppe-item-cost', item.cost + '🐟'));
+        card.appendChild(top);
+        card.appendChild(h('span', 'ci-pet-shoppe-item-name', item.name));
+        card.appendChild(h('span', 'ci-pet-shoppe-item-desc', item.desc || ''));
+        if (item.kind === 'item') {
+          card.appendChild(h('span', 'ci-pet-shoppe-item-charges', '库存 ' + (item.charges || 0)));
+        } else if (item.soldOut) {
+          card.appendChild(h('span', 'ci-pet-shoppe-item-charges', '今日已购'));
+        }
+        card.addEventListener('click', function() { doShopBuy(item, card); });
+        shelf.appendChild(card);
+      })(items[i]);
+    }
+    box.appendChild(shelf);
     return box;
+  }
+
+  // 小卖部下单：大餐走喂食老路（那边管饱食度和每日上限），其余直接扣钱发货。
+  // 成功后只重绘这一张卡 + 余额：整页 renderHome 会把闲逛动画打断（v0.23.1 的教训）。
+  function doShopBuy(item, card) {
+    if (item.kind === 'feed') { doFeed('feast', card); return; }
+    if (!api) return;
+    api.post('/pet/shop/buy', { id: item.id }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (state) state.coins = d.coins;
+      if (d.inventory && battle) battle.inventory = d.inventory;
+      if (d.bellToday && shopInfo) {
+        for (var i = 0; i < shopInfo.items.length; i++) {
+          if (shopInfo.items[i].id === 'bell') shopInfo.items[i].soldOut = true;
+        }
+      }
+      if (d.inventory && shopInfo) {
+        for (var j = 0; j < shopInfo.items.length; j++) {
+          var it = shopInfo.items[j];
+          if (it.kind !== 'item') continue;
+          for (var k = 0; k < d.inventory.owned.length; k++) {
+            if (d.inventory.owned[k].id === it.id) it.charges = d.inventory.owned[k].charges;
+          }
+        }
+      }
+      sysToast('买到了 ' + (d.icon || '') + ' ' + (d.name || '东西') +
+        (item.id === 'bell' ? '——今天多一张默契牌' : ''), 'success');
+      // 只重绘余额数字与这张卡的状态，别动整页
+      var numEl = root.querySelector('.ci-pet-shoppe-num');
+      if (numEl) numEl.textContent = String(coinCount());
+      if (card) {
+        var fresh = shopInfo && shopInfo.items ? (function() {
+          for (var i = 0; i < shopInfo.items.length; i++) {
+            if (shopInfo.items[i].id === item.id) return shopInfo.items[i];
+          }
+          return null;
+        })() : null;
+        var chargesEl = card.querySelector('.ci-pet-shoppe-item-charges');
+        if (chargesEl && fresh) chargesEl.textContent = '库存 ' + (fresh.charges || 0);
+        if (item.id === 'bell' && card) {
+          card.classList.add('is-soldout');
+          if (chargesEl) chargesEl.textContent = '今日已购';
+        }
+      }
+      refreshTabBadges();
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '没买到';
+      sysToast(msg, 'error');
+    });
   }
 
   // 专注时长选择：15 / 25 / 45。三个数不是随手挑的：
@@ -2447,6 +2643,42 @@ var SCENE_ART = {
     '.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
     '..............................................'
   ] },
+  // 白天窗户（_art7.py 生成）：与夜窗同框 46x32，暖木框 + 蓝天渐变 + 硬边太阳 + 云 + 鸟。
+    windowDay: { w: 46, h: 32, pal: {
+    'k': '#6b4a2a', 'j': '#a87c4a', 'a': '#6fb0e0', 'b': '#8ec4ec', 'c': '#aedcf6', 'd': '#c8ecfc', 'y': '#ffd76e', 'w': '#fff6d0', 'r': '#ffc95e', 'n': '#ffffff', 'm': '#dceef8', 'v': '#4a3826', 'e': '#c79a5e', 'f': '#7a5530' }, rows: [
+    '..................................r...........',
+    '.kkkkkkkkkkkkkkkkkkkkkkjkkkkkrkkkkrkkkkrkkkkk.',
+    '.kaaaaaaaaaaaaaaaaaaaaajaaaaaaraaaraaaraaaaak.',
+    '.kaaaannnnnaaaaaaaaaaaajaaaaaaaaaayaaaaaaaaak.',
+    '.kaaannnnnnnaaaaaaaaaaajaaaaaaaayywyyaaaaaaak.',
+    '.kaannnnnnnnnaaaaaaaaaajaaaaaaaaywwwyaaaaaaak.',
+    '.kaaammmmmmmaaaaaaaaaaajaaaarrrywwwwwyrrraaak.',
+    '.kaaaaaaaaaaaaaaaaaaaaajaaaaaaaaywwwyaaaaaaak.',
+    '.kbbbbbbbbbbbbbbbbbbbbbjbbbbbbbbyywyybbbbbbbk.',
+    '.kbbbbbbbbbbvbvbbbbbbbbjbbbbbbbbbbybbbbbbbbbk.',
+    '.kbbbbbbbbbbbvbbbbbbbbbjbbbbbbrbbbrbbbrbbbbbk.',
+    '.kbbbbbbbbbbbbbbbbbbbbbjbbbbbrbbbbrbbbbrbbbbk.',
+    '.kbbbbbbbbbbbbbbbvbvbbbjbbbbbbbbbbrbbbbbbbbbk.',
+    '.kbbbbbbbbbbbbbbbbvbbbbjbbbbbbbbbbbbbbbbbbbbk.',
+    '.kjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjk.',
+    '.kccccccnnnnnnnccccccccjcccccccccccccccccccck.',
+    '.kcccccnnnnnnnnncccccccjcccccccccccccccccccck.',
+    '.kccccnnnnnnnnnnnccccccjcccccccccccccccccccck.',
+    '.kcccccmmmmmmmmmcccccccjcccccccccccccccccccck.',
+    '.kcccccccccccccccccccccjcccccccccccccccccccck.',
+    '.kcccccccccccccccccccccjcccccccccccccccccccck.',
+    '.kdddddddddddddddddddddjddddddddddddddddddddk.',
+    '.kdddddddjddddddddjddddjdddjdnnnndddjdddddddk.',
+    '.kdddddjddddddddjddddddjdjddnnnnnnjddddddddjk.',
+    '.kdddjddddddddjddddddddjdddnnnnnnnnddddddjddk.',
+    '.kdjddddddddjddddddddjdjddddmmmmmmdddddjddddk.',
+    '.kddddddddjddddddddjdddjddddjddddddddjddddddk.',
+    '.kddddddjddddddddjdddddjddjddddddddjddddddddk.',
+    '.kkkkkkkkkkkkkkkkkkkkkkjkkkkkkkkkkkkkkkkkkkkk.',
+    'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+    'ffffffffffffffffffffffffffffffffffffffffffffff',
+    '..............................................',
+] },
   // 奖杯：杯身 + 双耳 + 底座
   trophy: { w: 15, h: 16, pal: { 'a': '#5a3c14', 'b': '#8a6320', 'c': '#b98c2e', 'd': '#dfb455', 'e': '#f6dd94', 'f': '#f6efdc', 'g': '#d9ccae', 'h': '#3a2418' }, rows: [
     '...............',
@@ -2523,6 +2755,47 @@ var SCENE_ART = {
   ] },
   // 窗帘：上端收褶 + 四道竖褶 + 底摆
   curtain: { w: 16, h: 38, pal: { 'a': '#4a2a37', 'b': '#66394a', 'c': '#8c5064' }, rows: [
+    '................',
+    '.....cccccc.....',
+    '....aaaaaaaa....',
+    '....aaaaaaaa....',
+    '...acbabcbaca...',
+    '...acbabcbaca...',
+    '...acbabcbaca...',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..aaaaaaaaaaaa..',
+    '..aaaaaaaaaaaa..',
+    '..aaaaaaaaaaaa..',
+    '................'
+  ] },
+  // 白天窗帘（v0.27.0 _art7.py）：形状复用夜帘（单字符调色板的好处），布色换米黄 —— 阳光下的棉布帘。
+  curtainDay: { w: 16, h: 38, pal: { 'a': '#e3cda2', 'b': '#c9ab78', 'c': '#f7ecd0' }, rows: [
     '................',
     '.....cccccc.....',
     '....aaaaaaaa....',
@@ -3192,8 +3465,15 @@ function sceneAction(act, walkX) {
     if (act === 'easel') { worldSheet('画板 · 形象', easelSheetBody); return; }
     if (act === 'gift') { worldSheet('今日惊喜', giftSheetBody); return; }
   };
-  // 喂食不用走过去（食盆就在脚边，直接吃）
-  if (act === 'feed') { bumpInteractCombo(); doFeed('normal', null); return; }
+  // 喂食不用走过去（食盆就在脚边），但它也不只是「喂」：
+  // v0.24 起首页是像素小家，v0.19 的侧栏货架成了死代码，鱼干从此没有花处。
+  // 现在点食盆 = 打开「食盆 · 小卖部」：买（货架）和喂（普通饭/大餐）在同一张弹层里，
+  // 「吃」的来路与去处是同一条链，不必再造一个新物件占地板面积。
+  if (act === 'feed') {
+    bumpInteractCombo();
+    worldSheet('食盆 · 小卖部', function(body) { body.appendChild(shoppeBar()); });
+    return;
+  }
   worldWalkTo(walkX, open);
 }
 
@@ -3366,16 +3646,37 @@ function sceneHomeBody(container) {
   hud.addEventListener('click', function() { sceneAction('bed'); });
   world.appendChild(hud);
 
-  // 右上资源
+  // 右上资源：昼夜切换 + 鱼干（v0.27.0 从 stageHud 挪进来 —— stageHud 是对战页的，
+  // 家里的时间开关就该在家里；🐟 顺手换成 fish 像素图标）
   var res = h('div', 'world-hud-res');
-  res.appendChild(h('span', 'world-hud-coin', '🐟 ' + coinCount()));
+  var dayBtn = h('button', 'world-hud-day');
+  dayBtn.setAttribute('type', 'button');
+  dayBtn.setAttribute('data-hud', 'daynight');
+  dayBtn.setAttribute('title', '切换白天 / 夜晚');
+  dayBtn.addEventListener('click', function(ev) {
+    ev.stopPropagation();
+    cycleDayNight();
+  });
+  // ⚠️ 此刻 world 还没上树，fillDayToggle 的 querySelector 查不到 ——
+  // 图标必须当场铺；上树后由 applyDayNight 统一刷。
+  setIconText(dayBtn, isDayNow() ? 'sun' : 'moon',
+    dayNight.mode === 'auto' ? '自动' : (isDayNow() ? '白天' : '夜晚'));
+  dayBtn.setAttribute('data-mode', dayNight.mode);
+  res.appendChild(dayBtn);
+  var coinSpan = h('span', 'world-hud-coin');
+  setIconText(coinSpan, 'fish', ' ' + coinCount());
+  res.appendChild(coinSpan);
   world.appendChild(res);
 
   // ---------- 家具物件 ----------
   var objLayer = h('div', 'world-objects');
   for (var i = 0; i < SCENE_OBJECTS.length; i++) {
     (function(o) {
-      var art = SCENE_ART[o.art || o.id];
+      var artKey = o.art || o.id;
+      // 昼夜换画：白天 = 蓝天太阳窗 + 米黄窗帘（_art7.py 生成），夜里才是月亮星星 + 梅紫帘
+      if (o.id === 'window') artKey = isDayNow() ? 'windowDay' : 'window';
+      else if (artKey === 'curtain') artKey = isDayNow() ? 'curtainDay' : 'curtain';
+      var art = SCENE_ART[artKey];
       var isDeco = !!o.deco;
       // 像素网格：整间屋子 + 角色全部 5px/像素。
       // 角色的 canvas 是 68×38 渲染成 340×190 —— 正好 5px。原来每件家具各自
@@ -4140,6 +4441,15 @@ function sceneHomeBody(container) {
       if (on) b.disabled = true;
       b.addEventListener('click', function() { doBuddy(w.id); });
       foot.appendChild(b);
+      // 助战（v0.25.0）：图鉴的第二种用法。收服的野怪可以站上场边给本命加成。
+      var curA = (battle && battle.assistant) || null;
+      var onA = !!(curA && curA.id === w.id);
+      var ab = h('button', 'ci-pet-foe-btn' + (onA ? ' is-assist' : ''),
+        onA ? '⚔️ 助战中' : '⚔️ 助战');
+      ab.setAttribute('data-assist', w.id);
+      ab.setAttribute('title', (ASSIST_TEXT[w.type] || '给本命一个被动加成'));
+      ab.addEventListener('click', function() { doAssistant(onA ? '' : w.id); });
+      foot.appendChild(ab);
     } else {
       foot.appendChild(h('span', 'ci-pet-wild-chance',
         '收服率 ' + Math.round((w.capture || 0) * 100) + '%' +
@@ -4167,6 +4477,26 @@ function sceneHomeBody(container) {
       }
       if (d.evolution) evolutionInfo = d.evolution;
       sysToast(id ? '随行伙伴已更换' : '已取消随行', 'success');
+      renderHome();
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '切换失败';
+      sysToast(msg, 'error');
+    });
+  }
+
+  // 助战五系加成的文案（与后端 ASSIST_BONUS 对齐；按钮 title 与提示共用）
+  var ASSIST_TEXT = {
+    fire: '攻击 +5%', water: '每回合回 1.5% 血', grass: '血量见底时挡一半（一次）',
+    electric: '暴击率 +5', earth: '防御 +10%'
+  };
+  function doAssistant(id) {
+    if (!api) return;
+    api.post('/pet/assistant', { id: id || '' }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (battle) battle.assistant = d.assistant || null;
+      sysToast(d.assistant
+        ? (d.assistant.name + ' 开始为你助战：' + d.assistant.bonusText)
+        : '已取消助战', 'success');
       renderHome();
     }, function(err) {
       var msg = (err && err.response && err.response.data && err.response.data.message) || '切换失败';
@@ -4451,6 +4781,7 @@ function sceneHomeBody(container) {
     // 底色统一是木牌 —— 四个高饱和渐变按钮会让这一页和小家像是两个游戏。
     var defs = [
       { id: 'fight', icon: 'fight', label: '对战', tone: 'is-red' },
+      { id: 'tower', icon: 'tower', label: '试炼塔', tone: 'is-blue' },
       { id: 'env',   icon: 'env',   label: '副本', tone: 'is-teal' },
       { id: 'build', icon: 'build', label: '备战', tone: 'is-purple' },
       { id: 'honor', icon: 'honor', label: '荣誉', tone: 'is-gold' }
@@ -4463,7 +4794,10 @@ function sceneHomeBody(container) {
         b.appendChild(h('span', 'ci-pet-cmdbtn-label', d.label));
         b.addEventListener('click', function() {
           if (d.id === 'build') { renderBuildEditor(); return; }
-          openSheet(sec, d.id);
+          // 塔一级直达塔 pane：它曾是抽屉里的第三个标签，实测没人翻到（深渊因此不可见）。
+          // ⚠️ sheet 的 kind 仍是 'fight'（抽屉分类），塔只是它里面的初始 pane——
+          //    直接 openSheet(sec,'tower') 会掉进空抽屉（三个分支都不匹配）。
+          openSheet(sec, d.id === 'tower' ? 'fight' : d.id, d.id === 'tower' ? 'tower' : null);
         });
         bar.appendChild(b);
       })(defs[i]);
@@ -4489,7 +4823,7 @@ function sceneHomeBody(container) {
     head.appendChild(close);
     sheet.appendChild(head);
     var body = h('div', 'ci-pet-sheet-body');
-    if (kind === 'fight') buildFightSheet(body, sec);
+    if (kind === 'fight') buildFightSheet(body, sec, arguments.length > 2 ? arguments[2] : null);
     else if (kind === 'env') buildEnvSheet(body, sec);
     else if (kind === 'honor') buildHonorSheet(body, sec);
     sheet.appendChild(body);
@@ -4503,7 +4837,7 @@ function sceneHomeBody(container) {
   }
 
   // 对战抽屉：准备（天气/属性/风格）+ 三个标签（影子/练习赛/试炼塔）
-  function buildFightSheet(body, sec) {
+  function buildFightSheet(body, sec, initialTab) {
     body.appendChild(battleOpsRow(sec));
     var out = !battle || (typeof battle.left === 'number' && battle.left === 0 && battle.cap > 0);
     var tabs = h('div', 'ci-pet-sheettabs');
@@ -4514,7 +4848,8 @@ function sceneHomeBody(container) {
       { id: 'tower', label: '试炼之塔' }
     ];
     defs.forEach(function(d, idx) {
-      var t = h('button', 'ci-pet-sheettab' + (idx === 0 ? ' is-on' : ''));
+      var t = h('button', 'ci-pet-sheettab' +
+        ((initialTab ? d.id === initialTab : idx === 0) ? ' is-on' : ''));
       t.textContent = d.label;
       t.addEventListener('click', function() {
         var kids = tabs.childNodes;
@@ -4541,7 +4876,8 @@ function sceneHomeBody(container) {
       } else {
         pane.appendChild(towerSection(sec));
       }
-      if (idx > 0) pane.style.display = 'none';
+      var hidden = initialTab ? (d.id !== initialTab) : (idx > 0);
+      if (hidden) pane.style.display = 'none';
       panes[d.id] = pane;
       body.appendChild(pane);
     });
@@ -5001,6 +5337,23 @@ function sceneHomeBody(container) {
         : ('今日挑战 ' + (t.today || 0) + ' 次')));
     box.appendChild(headRow);
 
+    // 今日规则（v0.28.0）：每天两条词缀，全班同一天完全相同（和天气一个先例）。
+    // 它是「每天的变奏」——同一个人、同一个塔，今天的正确打法不一样。
+    var mods = t.dailyMods || [];
+    if (mods.length) {
+      var modRow = h('div', 'ci-pet-modrow');
+      modRow.appendChild(h('span', 'ci-pet-modrow-label', '今日规则'));
+      for (var mi = 0; mi < mods.length; mi++) {
+        var chip = h('span', 'ci-pet-modchip', mods[mi].icon + ' ' + mods[mi].name);
+        chip.setAttribute('title', mods[mi].text);
+        modRow.appendChild(chip);
+      }
+      var modTxt = h('span', 'ci-pet-modrow-text',
+        mods.map(function(m) { return m.text; }).join(' · '));
+      box.appendChild(modRow);
+      box.appendChild(modTxt);
+    }
+
     // 进度格：10 个小方块，通关的填色
     var pips = h('div', 'ci-pet-tower-pips');
     for (var i = 0; i < t.floors.length; i++) {
@@ -5012,8 +5365,42 @@ function sceneHomeBody(container) {
     box.appendChild(pips);
 
     if (!t.next) {
-      box.appendChild(h('div', 'ci-pet-tower-done',
-        '👑 十层全通，你是这一届的塔顶传说。'));
+      // ---- 深渊（v0.28.0）：塔打穿之后唯一的无尽内容 ----
+      // 「你是塔顶传说」只是毕业典礼，不是终点。深渊没有底：
+      // 每一层属性轮换（逼你换本命）、难度只按深度缓涨、积分进塔积分池接着上榜。
+      var ab = t.abyss;
+      var abx = h('div', 'ci-pet-abyss');
+      abx.appendChild(h('div', 'ci-pet-abyss-head',
+        '👑 十层全通 · 深渊已开'));
+      if (ab && ab.next) {
+        var nx = ab.next;
+        abx.appendChild(h('div', 'ci-pet-abyss-depth',
+          '当前深度 ' + ab.depth + ' 层'));
+        var acard = h('div', 'ci-pet-tower-card is-abyss');
+        var atop = h('div', 'ci-pet-foe-top');
+        var awho = h('div', 'ci-pet-foe-who');
+        awho.appendChild(h('span', 'ci-pet-foe-name',
+          '深渊第 ' + nx.depth + ' 层 · ' + nx.name));
+        if (nx.type) awho.appendChild(elementChip(nx.type));
+        var aodds = oddsLabel(nx.power);
+        awho.appendChild(h('span', 'ci-pet-odds ci-pet-odds--' + aodds.key, aodds.text));
+        atop.appendChild(awho);
+        var aout = typeof t.left === 'number' && t.left === 0 && t.cap > 0;
+        var abtn = h('button', 'ci-pet-foe-btn is-abyss', aout ? '今日次数用完' : '下潜');
+        if (aout) abtn.disabled = true;
+        abtn.addEventListener('click', function() { doTowerFight(sec, abtn); });
+        atop.appendChild(abtn);
+        acard.appendChild(atop);
+        acard.appendChild(h('div', 'ci-pet-foe-meta',
+          '战力 ' + nx.power + ' · 难度 ×' + ab.buff +
+          ' · 通关 +' + ab.gain + ' 塔积分'));
+        if (nx.desc) acard.appendChild(h('div', 'ci-pet-foe-desc', nx.desc));
+        abx.appendChild(acard);
+        abx.appendChild(h('div', 'ci-pet-abyss-tip',
+          '深渊对手的属性一层一换——克它的本命比硬冲多活两回合。' +
+          '失败不清深度：卡在哪层，明天接着从那层往下走。'));
+      }
+      box.appendChild(abx);
       return box;
     }
 
@@ -5039,6 +5426,17 @@ function sceneHomeBody(container) {
     if (n.desc) card.appendChild(h('div', 'ci-pet-foe-desc', n.desc));
     box.appendChild(card);
 
+    // 深渊预告（未通关）：「通关十层解锁深渊」是全游戏最长的目标，
+    // 目标不可见就等于不存在——用一条锁定的预告把它挂在进度格下面。
+    if ((t.cleared || 0) < t.total) {
+      var lock = h('div', 'ci-pet-abyss is-locked');
+      lock.appendChild(h('div', 'ci-pet-abyss-head', '🌑 深渊 · 尚未开启'));
+      lock.appendChild(h('div', 'ci-pet-abyss-depth',
+        '通过第 ' + t.total + ' 层解锁 · 还差 ' + (t.total - (t.cleared || 0)) + ' 层'));
+      lock.appendChild(h('div', 'ci-pet-abyss-tip',
+        '塔层不会跟着你变强——卡住的那层，喂饱它、涨了羁绊、换套技能，总能过去。'));
+      box.appendChild(lock);
+    }
     box.appendChild(h('div', 'ci-pet-tower-tip',
       '整座塔都是土属性：草本命打起来最轻松，电本命会被全程克制。' +
       '塔层不会跟着你变强，卡在哪层就是卡在哪层——喂饱宠物、涨了羁绊就能过去。' +
@@ -5078,11 +5476,25 @@ function sceneHomeBody(container) {
     });
   }
 
+  // 深渊里程碑夸赞（v0.28.0）：结算横幅上的一次性高光。
+  // 深度只有踩中里程碑才说话——每次都说就会变成打卡提示音。
+  var ABYSS_CHEERS = {
+    1: '第一层，只是开始——下面还有一整个无底的世界',
+    3: '深度 3：渊行者称号到手',
+    5: '深度 5：你已经站在大部分人到不了的地方',
+    7: '深度 7：破晓者的门槛，跨过去了',
+    10: '深度两位数：这已经不能叫运气了',
+    12: '深度 12：渊之尽头在望',
+    15: '深度 15：教室里可能没有第二个人到过这里',
+    20: '深度 20：传说。真的。'
+  };
+
   // 塔的战斗回放：复用同一个播放器，只是结尾多一句「通关第 N 层」
   function playTowerFight(sec, d) {
     playFight(sec, d, {
       tower: true,
       floor: d.floor,
+      abyss: d.abyss || null,
       total: d.towerTotal,
       cleared: d.cleared,
       endpoint: '/pet/tower/fight',
@@ -5405,6 +5817,20 @@ function sceneHomeBody(container) {
     var badgeRow = h('div', 'ci-pet-arena-badges');
     if (c.type) badgeRow.appendChild(elementChip(c.type));
     badgeRow.appendChild(h('div', 'ci-pet-arena-power', '战力 ' + (c.power || 0)));
+    // 我方侧的「士气 + 助战」：把照顾与收集的回报画在血条旁边——
+    // 玩家一眼能看见「今天照顾得好」和「场边站着谁」在这场战斗里是真实存在的。
+    if (kind === 'me') {
+      if (c.mood && c.mood.tone === 'high') {
+        var moodEl = h('span', 'ci-pet-arena-mood', c.mood.icon + ' 士气高涨');
+        moodEl.setAttribute('title', '心情好：攻击 +8%');
+        badgeRow.appendChild(moodEl);
+      }
+      if (c.assist) {
+        var asEl = h('span', 'ci-pet-arena-assist', c.assist.icon + ' ' + (c.assist.name || ''));
+        asEl.setAttribute('title', '助战：' + (c.assist.bonusText || ''));
+        badgeRow.appendChild(asEl);
+      }
+    }
     el.appendChild(badgeRow);
     var bar = h('div', 'ci-pet-hpbar');
     var fill = h('span', 'ci-pet-hpfill');
@@ -5716,16 +6142,35 @@ function sceneHomeBody(container) {
       var banner = h('div', 'ci-pet-arena-result' + (dd.win ? ' is-win' : ' is-lose'));
 
       if (opts.tower) {
-        // 塔的结算完全不用「积分」这套说法：它讲的是层数，不是分数
+        // 塔的结算完全不用「积分」这套说法：它讲的是层数，不是分数。
+        // 深渊层（v0.28.0）另有一套话术：讲「下潜」不讲「爬」，讲深度不讲层号。
         var fNo = opts.floor;
+        var isAbyssRun = !!opts.abyss;
         banner.appendChild(h('div', 'ci-pet-result-title',
-          dd.win ? ('🎉 第 ' + fNo + ' 层通过！') : ('💧 第 ' + fNo + ' 层没过')));
+          dd.win
+            ? (isAbyssRun ? ('🌑 深渊第 ' + opts.abyss + ' 层通过！') : ('🎉 第 ' + fNo + ' 层通过！'))
+            : (isAbyssRun ? ('💧 深渊第 ' + opts.abyss + ' 层没过') : ('💧 第 ' + fNo + ' 层没过'))));
         banner.appendChild(h('div', 'ci-pet-result-sub',
           dd.win
-            ? ('+ ' + (dd.gain || 0) + ' 塔积分 · 现在 ' + (dd.towerPoints || 0) + ' 分')
-            : '差一点。喂饱它、涨了羁绊再来，或者换套技能试试'));
+            ? ('+ ' + (dd.gain || 0) + ' 塔积分 · 现在 ' + (dd.towerPoints || 0) + ' 分' +
+               (isAbyssRun ? ' · 深度 ' + (dd.abyssFloor || 0) : ''))
+            : (isAbyssRun
+                ? '深度还在——失败不清进度，换本命克它的属性，接着下潜'
+                : '差一点。喂饱它、涨了羁绊再来，或者换套技能试试')));
+        // 成就感三件套（v0.28.0）：门开仪式 / 里程碑夸赞 / 深度进度。
+        // 「下潜成功」的爽点必须落在结算横幅上，而不是埋在成就列表里。
+        if (dd.gateOpened) {
+          var gate = h('div', 'ci-pet-result-gate',
+            '🌑 深渊之门已开启——塔的下面还有整整一个无底的世界');
+          banner.appendChild(gate);
+        }
+        if (isAbyssRun && ABYSS_CHEERS[dd.abyssFloor]) {
+          banner.appendChild(h('div', 'ci-pet-result-gate', '✦ ' + ABYSS_CHEERS[dd.abyssFloor]));
+        }
         banner.appendChild(h('div', 'ci-pet-result-quota',
-          '今日爬塔 ' + dd.today + ' 次 · 已通 ' + (dd.towerFloor || 0) + ' / ' + (dd.towerTotal || 10) + ' 层'));
+          isAbyssRun
+            ? '深渊每周榜上见 · 失败不清深度'
+            : '今日爬塔 ' + dd.today + ' 次 · 已通 ' + (dd.towerFloor || 0) + ' / ' + (dd.towerTotal || 10) + ' 层'));
       } else if (opts.wild) {
         // 收服结算：三段只在三种结果里各出现一段，别把「没抓到」写成失败
         var cr = opts.creature || dd.creature || {};
@@ -5869,6 +6314,20 @@ function sceneHomeBody(container) {
     }
     window.addEventListener('resize', onResize);
     renderSkeleton();
+    // 昼夜：读回设备偏好 + 每分钟对表（auto 模式跨过 6:30/18:30 界线时自动换景）
+    dayNightLoad();
+    applyDayNight(false);
+    dayNight.timer = setInterval(function() {
+      if (dayNight.mode === 'auto') applyDayNight(true);
+    }, 60000);
+    // 调试/探针钩子：截图脚本用它钉住白天或黑夜
+    window.__ciPetDayNight = {
+      get: function() { return { mode: dayNight.mode, day: isDayNow() }; },
+      set: function(m) {
+        if (m !== 'day' && m !== 'night' && m !== 'auto') return;
+        dayNight.mode = m; dayNight.last = null; applyDayNight(true);
+      }
+    };
     api.get('/pet/state').then(function(res) {
       var d = (res.data && res.data.data) || {};
       palette = d.palette || [];
@@ -5900,6 +6359,8 @@ function sceneHomeBody(container) {
     window.removeEventListener('resize', onResize);
     stopFocusTimer();   // 只停表，不清 focus.active —— 回来时还能接着计时（见 armFocusTimer）
     if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
+    if (dayNight.timer) { clearInterval(dayNight.timer); dayNight.timer = null; }
+    try { delete window.__ciPetDayNight; } catch (e) { window.__ciPetDayNight = null; }
     if (root && root.parentNode) root.parentNode.removeChild(root);
     editCanvas = null;
     root = null;

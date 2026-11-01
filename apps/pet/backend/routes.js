@@ -776,6 +776,8 @@ router.get('/state', requireAuth, function(req, res) {
     wild: WILD,
     buddy: buddyPublic(state),
     evolution: evolutionOf(state),
+    assistant: (state && state.adopted) ? assistantView(state) : null,
+    shop: (state && state.adopted) ? shopView(state) : null,
     weather: weatherOf(todayKey()),
     personality: (state && state.adopted) ? personalityOf(state, userId(req)) : null,
     mood: (state && state.adopted) ? moodOf(state) : null,
@@ -1439,6 +1441,16 @@ function battleKitOf(st, env, consume) {
   }
   if (kit.tonic) out.atk = Math.round(out.atk * 1.5);
   if (kit.swift) out.spd = Math.round(out.spd * 1.15);
+  // 助战（v0.25.0）：已收服的野怪按系别给一个永久小加成。
+  // ⚠️ 只对「还在图鉴里」的生效——万一以后有移除机制，这里不会白给数值。
+  var assist = st.assistant ? wildById(st.assistant) : null;
+  if (assist && ownedMap(st)[assist.id]) {
+    if (assist.type === 'fire') out.atk = Math.round(out.atk * 1.05);
+    else if (assist.type === 'electric') out.crit = Math.min(90, out.crit + 5);
+    else if (assist.type === 'earth') out.def = Math.round(out.def * 1.10);
+    else if (assist.type === 'water') kit.assistRegen = 0.015;
+    else if (assist.type === 'grass') kit.assistShield = true;
+  }
   // 环境的暴击/治疗加成挂在 critMul/healMul 上，引擎直接乘
   if (env && env.critMul) out.critMul *= env.critMul;
   if (env && env.healMul) out.healMul *= env.healMul;
@@ -1891,6 +1903,120 @@ function towerBuffFor(st, floorDef) {
 }
 var TOWER_CLEAR_GAIN = 25;     // 首次通关的奖励，比日常一场多得多
 function towerFloorOf(n) { return TOWER_FLOORS[n - 1] || null; }
+
+// ==================== 今日规则（v0.28.0）====================
+// 后期枯燥的根不是「打不过」，是「每天都一样」：同一个塔、同一套数值、
+// 同一种打法，练到 bond 200 之后每场战斗的悬念只剩指令牌那 ±20%。
+//
+// 今日规则给塔装一个「每天的变奏」：从 8 条词缀里按**日期哈希**抽 2 条，
+// 全班同一天完全相同（和天气同一个先例）——同学之间能聊「今天这规则真阴间」。
+// 词缀是**双方对称**的：它不改变敌我相对强度（难度仍由层控制），
+// 改变的是这一天的正确打法——「玻璃大炮」日憋一发更香，「硬壳时代」日破甲才有价值。
+//
+// ⚠️ 只作用于塔与深渊（PvE）：练习赛/影子是社交对抗，加词缀会干扰
+// 「谁的宠物更强」的比较，那里永远用裸规则。
+// ⚠️ 不进 seed：同一层、同一天、换本命重打要能对比，随机流不能因词缀漂移。
+var DAILY_MODS = {
+  haste:   { id: 'haste',   name: '疾风地带', icon: '💨', text: '双方速度 +25%',
+             apply: function(c) { c.spd = Math.round(c.spd * 1.25); } },
+  quag:    { id: 'quag',    name: '稠重空气', icon: '🌫️', text: '双方速度 -20%',
+             apply: function(c) { c.spd = Math.max(1, Math.round(c.spd * 0.8)); } },
+  glass:   { id: 'glass',   name: '玻璃大炮', icon: '🔮', text: '双方伤害 ×1.3',
+             mod: { dmgMul: 1.3 } },
+  turtle:  { id: 'turtle',  name: '硬壳时代', icon: '🐢', text: '双方防御 ×1.25',
+             apply: function(c) { c.def = Math.round(c.def * 1.25); } },
+  vampire: { id: 'vampire', name: '血之契约', icon: '🩸', text: '攻击方按伤害 8% 回血',
+             mod: { vampire: 0.08 } },
+  critup:  { id: 'critup',  name: '无防备',   icon: '🎯', text: '双方暴击率 +15',
+             apply: function(c) { c.crit = Math.min(90, c.crit + 15); } },
+  burn:    { id: 'burn',    name: '燃烧地面', icon: '🔥', text: '每回合双方掉 3% 最大血',
+             mod: { dotPercent: 0.03 } },
+  beefy:   { id: 'beefy',   name: '铜皮铁骨', icon: '🧱', text: '双方最大血 +30%',
+             apply: function(c) { c.hp = Math.round(c.hp * 1.3); } }
+};
+var DAILY_MOD_IDS = Object.keys(DAILY_MODS);
+function dailyModsOf(dateKey) {
+  var rnd = rngFrom(fnv1a('mods|' + (dateKey || todayKey())));
+  var a = DAILY_MOD_IDS[Math.floor(rnd() * DAILY_MOD_IDS.length)];
+  var b = DAILY_MOD_IDS[Math.floor(rnd() * DAILY_MOD_IDS.length)];
+  if (b === a) b = DAILY_MOD_IDS[(DAILY_MOD_IDS.indexOf(a) + 1) % DAILY_MOD_IDS.length];
+  return [DAILY_MODS[a], DAILY_MODS[b]];
+}
+// 把今日规则折进一场战斗：combat 类直接改属性（要在 powerOf 之前调用），
+// 引擎类汇成一个 mods 对象（dmgMul / vampire / dotPercent）交 simulateBattle。
+// 返回 { mods: <引擎通道> }，dotPercent 与环境的灼烧叠加（都是「回合末掉血」）。
+function applyDailyMods(mine, foe, mods) {
+  var out = {};
+  for (var i = 0; i < mods.length; i++) {
+    var m = mods[i];
+    if (m.apply) { m.apply(mine); m.apply(foe); }
+    if (m.mod) {
+      if (m.mod.dmgMul) out.dmgMul = (out.dmgMul || 1) * m.mod.dmgMul;
+      if (m.mod.vampire) out.vampire = (out.vampire || 0) + m.mod.vampire;
+      if (m.mod.dotPercent) out.dotPercent = (out.dotPercent || 0) + m.mod.dotPercent;
+    }
+  }
+  return out;
+}
+
+// ==================== 深渊（v0.28.0）—— 打穿塔之后的无尽模式 ====================
+// 塔 10 层打完，「你是塔顶传说」——然后呢？bond 涨到 200 之后数值全线封顶，
+// 每场都是碾压，玩家第二次登顶就退坑了。深渊是塔的延伸：
+// 层数无限、难度连续上升、对手属性按深度轮换（逼你换本命）、技能包逐段加厚。
+//
+// 设计红线：
+//   1) 深度是**存档进度**（st.abyss_floor），失败不清零——深渊惩罚的是「上不去」，
+//      不是「掉下来」，掉层会让后期玩家每个日常都变成守门战。
+//   2) 名字按深度全局固定：同学之间能聊「你打到无面人了吗」。
+//   3) 积分进塔积分池（tower_points），自动接入现有排行榜，不新开第二条榜。
+var ABYSS_NAMES = [
+  '守夜的影子', '无面的猫', '灰烬行者', '回声', '断线的木偶',
+  '雾中的灯', '倒走的钟', '折角的页', '哑掉的铃', '熄不掉的烛'
+];
+var ABYSS_SKILLS = [
+  ['heavy'],
+  ['heavy', 'shield'],
+  ['lifesteal', 'combo'],
+  ['heavy', 'pierce', 'shield'],
+  ['lifesteal', 'heavy', 'shield']
+];
+// 深度难度：1.62 + 0.05 × (depth-1)——第 1 层和塔顶**同难度**起步。
+// 教训（两轮实测）：第一版 1.62×(1+0.09d) 让刚登顶的玩家进门就是墙（bond170 只有 10%）；
+// 改 1.62+0.07d 仍只有 10%。深渊第 1 层的对手本来 bond 就比塔顶高 6 点，
+// 再叠 buff 跳升，等于双倍惩罚。现在难度完全由「深度 +1 = +0.05」线性堆：
+// d1=1.62（塔顶持平）、d5=1.82、d10=2.07、d20=2.57——上一层的你永远打得过这一层的你。
+// 对手属性轮换与今日规则提供「新鲜感」，难度只提供「坡度」，两者不叠加共振。
+function abyssBuffFor(depth) { return 1.62 + 0.03 * (depth - 1); }
+// 对手羁绊：**固定** 150 + 深度 × 2（d1=152 与塔顶同源，d10=170，d20=190）。
+// ⚠️ 绝不跟随玩家——这是两轮实测换来的教训。塔的 towerFoeBond 有
+// 「min(myBond, base+40)」的跟随上限（防低层太弱），照抄到深渊就是灾难：
+// 玩家 bond240 时对手也 240，深度坡度被完全抵消，甚至 spd 反超让玩家永远后手
+// （实测 bond240 打深渊 5 = 0%，尽管属性全面占优）。深渊是「固定的墙」：
+// 你变强 = 能下更深，这才是「后期也有事做」的全部意义。
+// 能摸到深渊的玩家 bond 至少 ~200（塔 10 对手 192），不存在新手保护问题。
+function abyssFoeBond(st, depth) {
+  return Math.max(150 + depth * 2, 6);
+}
+// 深度 depth（从 1 起）的那一层。f 编号接着塔（11 起），让「第几层」只有一个说法。
+function abyssFloorOf(st, depth) {
+  if (!(depth >= 1)) return null;
+  var types = ['earth', 'water', 'fire', 'grass', 'electric'];
+  var type = types[(depth - 1) % types.length];
+  var skills = ABYSS_SKILLS[Math.min(ABYSS_SKILLS.length - 1, Math.floor((depth - 1) / 4))];
+  var seg = depth <= 5 ? 1 : (depth <= 10 ? 2 : (depth <= 15 ? 3 : 4));
+  return {
+    f: 10 + depth, depth: depth,
+    name: ABYSS_NAMES[(depth - 1) % ABYSS_NAMES.length],
+    desc: '深渊第 ' + seg + ' 段 · 它的系别一直在换',
+    type: type, skills: skills.slice()
+  };
+}
+function abyssClearGain(depth) {
+  // 通关 10 层塔 = 25×10 = 250 分的分段产出；深渊每层起 30 分，每深一层 +15%，
+  // 深度 10 一层 ≈ 120 分——够让「今天再下一层」有分量，又不至于把日常刷分比下去。
+  return Math.round(30 * Math.pow(1.15, Math.min(depth - 1, 20)));
+}
+
 function towerOf(st) {
   var cleared = (st && st.tower_floor) || 0;
   var today = todayKey();
@@ -1927,7 +2053,28 @@ function towerOf(st) {
     };
   } else {
     out.next = null;   // 通关了
+    // ---- 深渊（v0.28.0）：塔打穿之后的路。深度 = 已通过的深渊层数。 ----
+    var depth = (st && st.abyss_floor) || 0;
+    var nd = abyssFloorOf(st, depth + 1);
+    if (nd) {
+      var ab = abyssFoeBond(st, nd.depth);
+      var ac = combatOf({ bond: ab });
+      var at = typeInfo(nd.type);
+      out.abyss = {
+        depth: depth,
+        gain: abyssClearGain(nd.depth),
+        buff: Math.round(abyssBuffFor(nd.depth) * 100) / 100,
+        next: {
+          f: nd.f, name: nd.name, desc: nd.desc, depth: nd.depth,
+          bond: ab, tierName: ac.tierName, power: powerOf(ac), skills: nd.skills,
+          type: nd.type, typeName: at.name, typeIcon: at.icon
+        }
+      };
+    }
   }
+  out.dailyMods = dailyModsOf(today).map(function(m) {
+    return { id: m.id, name: m.name, icon: m.icon, text: m.text };
+  });
   return out;
 }
 
@@ -1947,6 +2094,11 @@ function titlesOf(st) {
   if (floor >= 3) out.push({ id: 'climber', name: '攀塔者', icon: '🧗' });
   if (floor >= 6) out.push({ id: 'veteran', name: '老练斗士', icon: '🗡️' });
   if (floor >= 10) out.push({ id: 'champion', name: '塔顶传说', icon: '👑' });
+  // 深渊称号（v0.28.0）：塔顶之后的名声继续往上叠，后期玩家的「我是谁」有新答案
+  var abyss = (st && st.abyss_floor) || 0;
+  if (abyss >= 3) out.push({ id: 'abysswalker', name: '渊行者', icon: '🌑' });
+  if (abyss >= 7) out.push({ id: 'daybreak', name: '破晓者', icon: '🌗' });
+  if (abyss >= 12) out.push({ id: 'abyssend', name: '渊之尽头', icon: '🕳️' });
   // 图鉴与进化：这两条线不需要打得多，只需要养得久、收得全
   var dexCount = ((st && st.dex) || []).length;
   if (dexCount >= 5) out.push({ id: 'collector', name: '收藏家', icon: '📖' });
@@ -2186,6 +2338,11 @@ var ACHIEVEMENTS = [
   { id: 'tower_3',    name: '攀塔者',   icon: '🧗', desc: '通过试炼塔第 3 层' },
   { id: 'tower_6',    name: '老练斗士', icon: '🗡️', desc: '通过试炼塔第 6 层' },
   { id: 'tower_10',   name: '塔顶传说', icon: '👑', desc: '通关试炼塔第 10 层' },
+  // 深水成就（v0.28.0）：塔只有 10 层，打完「塔顶传说」之后成长线就断了。
+  // 深渊是唯一的无尽内容，它的里程碑必须够深——不是「多打几场」，是「再多撑几层」。
+  { id: 'abyss_3',    name: '渊行者',   icon: '🌑', desc: '抵达深渊第 3 层' },
+  { id: 'abyss_7',    name: '破晓者',   icon: '🌗', desc: '抵达深渊第 7 层' },
+  { id: 'abyss_12',   name: '渊之尽头', icon: '🕳️', desc: '抵达深渊第 12 层' },
   { id: 'dex_1',      name: '初次收服', icon: '🔴', desc: '收服第一只野生精灵' },
   { id: 'dex_5',      name: '图鉴入门', icon: '📖', desc: '图鉴收录 5 只野生精灵' },
   { id: 'dex_15',     name: '图鉴大师', icon: '🔮', desc: '收服全部 15 只野生精灵' }
@@ -2816,7 +2973,11 @@ function settledRes(ob) {
 // 指令点：羁绊越深，它越信你。2 → 3 的台阶放在「亲密」，和第三个技能槽同档——
 // 两处一起涨，玩家能感觉到「关系变好 = 打法变宽」，而不是两个各自为政的进度条。
 function cmdSlotsOf(st) {
-  return tierOf((st && st.bond) || 0) >= 2 ? 3 : 2;
+  var base = tierOf((st && st.bond) || 0) >= 2 ? 3 : 2;
+  // 默契铃铛（小卖部 v0.25.0）：今天买过就 +1。花钱买默契，但每天只卖一枚——
+  // 「摸得到的上限」：玩家不会为了多一张牌把鱼干刷穿，但攒一枚会有盼头。
+  if (st && st.bell_date === todayKey() && (st.bell_bought || 0) > 0) base += 1;
+  return base;
 }
 // 清洗客户端上报的指令：只留合法回合、合法类型、不重复、不超上限。
 // ⚠️ 每种指令**每场只能用一次**：三张牌是三选一的口味，不是三份同款弹药。
@@ -2874,6 +3035,10 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
   // 默契指令：{r, kind} 的数组，只作用于我方（who === 0）。
   var cmdBy = {};
   var cmds = (extra.cmds && Object.prototype.toString.call(extra.cmds) === '[object Array]') ? extra.cmds : [];
+  // 今日规则的引擎通道（v0.28.0）：dmgMul（玻璃大炮）/ vampire（血之契约）。
+  // 只在有词缀时才生效，无词缀路径的随机流与基线逐位一致（自测基线 [1] 会红）。
+  var modsG = extra.mods || {};
+  if (modsG.dotPercent && env) env.dotPercent = (env.dotPercent || 0) + modsG.dotPercent;
   for (var ci = 0; ci < cmds.length; ci++) {
     var cc = cmds[ci] || {};
     if (cc.r >= 1 && COMMAND_IDS.indexOf(cc.kind) >= 0) cmdBy[cc.r] = cc.kind;
@@ -2883,7 +3048,7 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
     return {
       hp: c.hp, max: c.hp, atk: c.atk, def: c.def, spd: c.spd, crit: c.crit,
       critMul: c.critMul || 1, healMul: c.healMul || 1,
-      sk: sk, shield: sk.shield, kit: kit || {},
+      sk: sk, shield: sk.shield || !!(kit && kit.assistShield), kit: kit || {},
       buffAtk: 1, buffDef: 1, buffTurns: 0,   // 狂怒/壁垒的乘区（回合数每轮结束递减）
       cd: {},                                  // 主动技能冷却
       skipNext: false,                         // 爆发冲击的后摇
@@ -2994,6 +3159,13 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
     // 这是塔唯一的连续难度旋钮——属性只能取整，取整会把难度压成台阶。
     if (who === 1 && fBuff !== 1) dmg = Math.max(1, Math.round(dmg * fBuff));
 
+    // 今日规则「玻璃大炮」：双方伤害统一 ×dmgMul。放在塔乘区之后、
+    // 主动技能之前——它是对称变奏，不该被「乘在哪个系数前」的顺序放大或缩小。
+    if (modsG.dmgMul && modsG.dmgMul !== 1) {
+      dmg = Math.max(1, Math.round(dmg * modsG.dmgMul));
+      tags.push('moddmg');
+    }
+
     // 主动技能倍率（爆发冲击/重锤砸击）
     if (opts.mult && opts.mult !== 1) {
       dmg = Math.round(dmg * opts.mult);
@@ -3077,6 +3249,12 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
         Math.max(1, Math.round(atkSide.max * 0.08))
       );
       healBy(atkSide, who, lsHeal, 'lifesteal', r);
+    }
+
+    // 今日规则「血之契约」：攻击方按实际伤害 8% 回血。挂在鲸吞后面——
+    // 两者同发时按顺序各自结算，上限规则（不溢出）由 healBy 统一保证。
+    if (modsG.vampire > 0 && dmg > 0 && atkSide.hp > 0) {
+      healBy(atkSide, who, Math.round(dmg * modsG.vampire), 'modvamp', r);
     }
 
     // 钝剑：攻击后回复 5% 最大 HP（受治疗加成影响）
@@ -3168,7 +3346,7 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
     // 破防计时（全力一击的代价）。见 strike 里为什么初值是 3。
     if (S.vulnTurns > 0) S.vulnTurns--;
     if (S.hp > 0) {
-      var regenPct = (S.sk.regen || 0) + (S.kit.herb ? 0.03 : 0);
+      var regenPct = (S.sk.regen || 0) + (S.kit.herb ? 0.03 : 0) + (S.kit.assistRegen || 0);
       if (regenPct > 0) healBy(S, who, Math.round(S.max * regenPct), 'regen', r);
       if (S.kit.vial && r === 1) healBy(S, who, Math.round(S.max * 0.4), 'vial', r);
     }
@@ -3243,6 +3421,18 @@ function weatherOf(dateKey) {
 
 // 只有「本命属性与今日天气同系」的一方吃加成。双方同规则：
 // 对手也能吃到，所以这不是白送，而是「今天带谁上场更划算」。
+// ==================== 士气：心情的战斗面（v0.25.0）====================
+// 以前心情只影响「互动大成功的概率」，玩家看不见摸不着——「我把它照顾得很好」
+// 这件事，在它最重要的场合（上场打架）没有任何体现。
+// 现在心情好 = 士气高涨 = 出战攻击 +8%，照护的回报多一条看得见的路。
+// ⚠️ 只加不减：困了/饿了不扣攻击。它们已经让互动收益打折，战斗再罚一次
+//    就是双重惩罚——这里的 8% 是「照顾的礼物」，不是「没照顾的罚金」。
+function applyMood(c, st, now) {
+  var m = moodOf(st, now);
+  if (m.tone === 'high') c.atk = Math.round(c.atk * 1.08);
+  c.mood = { id: m.id, name: m.name, icon: m.icon, tone: m.tone };
+  return c;
+}
 function applyWeather(c, type, w) {
   if (!w || normType(type) !== w.type) return c;
   return {
@@ -3394,6 +3584,8 @@ router.get('/battle/profile', requireAuth, function(req, res) {
 
     rank: rank,
     myRank: myRank,
+    assistant: assistantView(st),
+    cmdSlots: cmdSlotsOf(st),
     last: st.battle_last || null,
     weather: weatherOf(today),
     quests: questsView(uid, st),
@@ -3578,7 +3770,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   var myKit = battleKitOf(st, env, false);
   var useCons = consumableInPlay(st);
   st.battle_skills = myKit.skills;
-  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
+  var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
   var foeType = normType(opp.type);
   var foe = applyWeather(combatOf({ bond: opp.bond }), foeType, weather);
@@ -3612,7 +3804,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   function previewData() {
     return {
       win: r.win, rounds: r.rounds, steps: r.steps, seed: seed,
-      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
       foe: { name: opp.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: foeType, typeName: ELEMENTS[foeType].name, typeIcon: ELEMENTS[foeType].icon },
       opp: opp,
       types: { me: myType, foe: foeType, mulMe: typeMul(myType, foeType), mulFoe: typeMul(foeType, myType) },
@@ -3724,7 +3916,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     rounds: r.rounds,
     steps: r.steps,
     seed: seed,
-    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
     foe: { name: opp.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: foeType, typeName: ELEMENTS[foeType].name, typeIcon: ELEMENTS[foeType].icon },
     opp: opp,
     types: { me: myType, foe: foeType, mulMe: typeMul(myType, foeType), mulFoe: typeMul(foeType, myType) },
@@ -3778,8 +3970,22 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     }
     ob = lo.ob;
   }
-  var floorDef = ob ? towerFloorOf(ob.ref.f) : towerFloorOf(cleared + 1);
+  // 层定义：普通层走塔表；塔打穿（cleared >= 10）后走深渊——
+  // 深度 = st.abyss_floor + 1，失败不清零（深渊惩罚的是「上不去」，不是「掉下来」）。
+  // reroll/settle 用会话 ref.f 复原层号（11+ 表示深渊），防止中途进度变化拿到另一层。
+  var floorDef = null;
+  if (ob) {
+    floorDef = ob.ref.f > TOWER_FLOORS.length
+      ? abyssFloorOf(st, ob.ref.f - TOWER_FLOORS.length)
+      : towerFloorOf(ob.ref.f);
+  } else {
+    floorDef = towerFloorOf(cleared + 1) ||
+      (cleared >= TOWER_FLOORS.length ? abyssFloorOf(st, ((st.abyss_floor || 0) + 1)) : null);
+  }
   if (!floorDef) return res.status(400).json({ code: 400, message: '塔已经爬完了，你是塔顶传说' });
+  // 深渊层的对手属性按深度轮换（打破「全塔土系」的单调，逼你换本命应对）
+  var foeType2 = floorDef.type || TOWER_TYPE;
+  var isAbyss = !!floorDef.depth;
   var cmds = (mode === 'settle' && ob)
     ? (ob.cmds || [])
     : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
@@ -3795,12 +4001,16 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   var useCons = consumableInPlay(st);
   st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
-  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
+  var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
-  var foeBond = towerFoeBond(st, floorDef);
-  var foe = applyWeather(combatOf({ bond: foeBond }), TOWER_TYPE, weather);
+  var foeBond = isAbyss ? abyssFoeBond(st, floorDef.depth) : towerFoeBond(st, floorDef);
+  var foe = applyWeather(combatOf({ bond: foeBond }), foeType2, weather);
+  // 今日规则（v0.28.0）：双方对称的变奏。必须落在 powerOf 之前，分数才和强度一致。
+  var dailyMods = dailyModsOf(today);
+  var modCh = applyDailyMods(mine, foe, dailyMods);
+  mine.power = powerOf(mine);
   foe.power = powerOf(foe);
-  var foeBuff = towerBuffFor(st, floorDef);
+  var foeBuff = isAbyss ? abyssBuffFor(floorDef.depth) : towerBuffFor(st, floorDef);
 
   // seed 带上「这一层已经试了多少次」：同一层反复挑战会拿到不同的随机流，
   // 否则「打不过就是永远打不过」，反复尝试没有任何意义。
@@ -3813,8 +4023,8 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   if (mode === 'settle') {
     r = settledRes(ob);
   } else {
-    r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills || [], foeBuff, { me: myType, foe: TOWER_TYPE },
-      { env: env, myKit: myKit.kit, cmds: cmds });
+    r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills || [], foeBuff, { me: myType, foe: foeType2 },
+      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh });
   }
 
   // 只演算：不涨次数、不推进层数、不发成就
@@ -3823,13 +4033,14 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     writePet(uid, st);
     return res.json({ code: 200, data: {
       win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
-      floor: floorDef.f, cleared: false,
-      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
-      foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: TOWER_TYPE, typeName: ELEMENTS[TOWER_TYPE].name, typeIcon: ELEMENTS[TOWER_TYPE].icon },
-      types: { me: myType, foe: TOWER_TYPE, mulMe: typeMul(myType, TOWER_TYPE), mulFoe: typeMul(TOWER_TYPE, myType) },
+      floor: floorDef.f, cleared: false, abyss: floorDef.depth || null,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
+      foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: foeType2, typeName: ELEMENTS[foeType2].name, typeIcon: ELEMENTS[foeType2].icon },
+      types: { me: myType, foe: foeType2, mulMe: typeMul(myType, foeType2), mulFoe: typeMul(foeType2, myType) },
       skills: myKit.skills, foeSkills: floorDef.skills || [],
       towerFloor: st.tower_floor || 0, towerTotal: TOWER_FLOORS.length, towerPoints: st.tower_points || 0,
       today: st.tower_today || 0, cap: TOWER_DAILY_CAP,
+      dailyMods: dailyMods.map(function(m) { return { id: m.id, name: m.name, icon: m.icon, text: m.text }; }),
       cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
       weather: weather
     }});
@@ -3842,30 +4053,46 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   st.tower_today = (st.tower_today || 0) + 1;
 
   var clearedNow = false;
+  var gateOpened = false;
   var gain = 0;
   var fresh = [];
   if (r.win) {
     clearedNow = true;
-    gain = TOWER_CLEAR_GAIN;
-    st.tower_floor = floorDef.f;
-    st.tower_best = Math.max(st.tower_best || 0, floorDef.f);
+    if (isAbyss) {
+      // 深渊：推进深度、积分按深度指数给（进塔积分池 = 自动进榜）。
+      gain = abyssClearGain(floorDef.depth);
+      st.abyss_floor = floorDef.depth;
+      var abyssWins = [];
+      if (floorDef.depth >= 3) abyssWins.push('abyss_3');
+      if (floorDef.depth >= 7) abyssWins.push('abyss_7');
+      if (floorDef.depth >= 12) abyssWins.push('abyss_12');
+      fresh = unlock(st, abyssWins);
+    } else {
+      gain = TOWER_CLEAR_GAIN;
+      st.tower_floor = floorDef.f;
+      st.tower_best = Math.max(st.tower_best || 0, floorDef.f);
+      // 塔层里程碑：3/6/10 层各一个，给「爬到哪了」一个说法
+      var towerWins = [];
+      if (floorDef.f >= 3) towerWins.push('tower_3');
+      if (floorDef.f >= 6) towerWins.push('tower_6');
+      if (floorDef.f >= 10) towerWins.push('tower_10');
+      fresh = unlock(st, towerWins);
+      // 仪式点：首次登顶的那一场，前端要给「深渊之门开启」一个独立的高亮行——
+      // 这是整个游戏最大的内容门槛，值得一句自己的台词，而不是混在通用结算里。
+      gateOpened = floorDef.f >= TOWER_FLOORS.length;
+    }
     // 塔的积分单独记：练习赛积分是社交货币（要跟同学比），
     // 塔是线性进度，两条线混在一个数字里会让人看不懂自己到底在比什么。
     st.tower_points = (st.tower_points || 0) + gain;
-    // 塔层里程碑：3/6/10 层各一个，给「爬到哪了」一个说法
-    var towerWins = [];
-    if (floorDef.f >= 3) towerWins.push('tower_3');
-    if (floorDef.f >= 6) towerWins.push('tower_6');
-    if (floorDef.f >= 10) towerWins.push('tower_10');
-    fresh = unlock(st, towerWins);
   }
-  st.tower_last = { at: new Date().toISOString(), f: floorDef.f, win: r.win, rounds: r.rounds };
+  st.tower_last = { at: new Date().toISOString(), f: floorDef.f, win: r.win, rounds: r.rounds,
+                    abyss: floorDef.depth || null };
   pushHistory(st, {
     at: st.tower_last.at,
     kind: 'tower',
     win: r.win,
-    title: '第 ' + floorDef.f + ' 层 · ' + floorDef.name,
-    sub: '试炼塔 · ' + r.rounds + ' 回合',
+    title: (isAbyss ? '深渊第 ' + floorDef.depth + ' 层 · ' : '第 ' + floorDef.f + ' 层 · ') + floorDef.name,
+    sub: (isAbyss ? '深渊 · ' : '试炼塔 · ') + r.rounds + ' 回合',
     gain: gain,
     points: st.tower_points || 0
   });
@@ -3879,23 +4106,27 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     win: r.win,
     floor: floorDef.f,
     cleared: clearedNow,
+    abyss: floorDef.depth || null,
+    gateOpened: gateOpened,
     rounds: r.rounds,
     steps: r.steps,
     seed: seed,
-    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
-    foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: TOWER_TYPE, typeName: ELEMENTS[TOWER_TYPE].name, typeIcon: ELEMENTS[TOWER_TYPE].icon },
-    types: { me: myType, foe: TOWER_TYPE, mulMe: typeMul(myType, TOWER_TYPE), mulFoe: typeMul(TOWER_TYPE, myType) },
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
+    foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: foeType2, typeName: ELEMENTS[foeType2].name, typeIcon: ELEMENTS[foeType2].icon },
+    types: { me: myType, foe: foeType2, mulMe: typeMul(myType, foeType2), mulFoe: typeMul(foeType2, myType) },
     gain: gain,
     today: st.tower_today,
     cap: TOWER_DAILY_CAP,
     towerFloor: st.tower_floor || 0,
     towerTotal: TOWER_FLOORS.length,
+    abyssFloor: st.abyss_floor || 0,
     towerPoints: st.tower_points || 0,
     skills: myKit.skills,
     foeSkills: floorDef.skills || [],
     unlocked: fresh,
     titles: titlesOf(st),
     weather: weather,
+    dailyMods: dailyMods.map(function(m) { return { id: m.id, name: m.name, icon: m.icon, text: m.text }; }),
     cmdSlots: cmdSlotsOf(st),
     commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
     cmds: cmds,
@@ -3996,7 +4227,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   var useCons = consumableInPlay(st);
   st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
-  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
+  var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
   var foe = applyWeather(combatOf({ bond: w.bond }), w.type, weather);
   foe.power = powerOf(foe);
@@ -4026,7 +4257,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
       win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
       captured: false, buddySet: false, nextChance: null, drop: null,
       chance: chance,
-      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
       foe: { name: w.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: w.type, typeName: ELEMENTS[w.type].name, typeIcon: ELEMENTS[w.type].icon },
       creature: wildPublic(w),
       dexCount: (st.dex || []).length, dexTotal: WILD.length,
@@ -4106,7 +4337,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     rounds: r.rounds,
     steps: r.steps,
     seed: seed,
-    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
     foe: { name: w.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: w.type, typeName: ELEMENTS[w.type].name, typeIcon: ELEMENTS[w.type].icon },
     creature: wildPublic(w),
     drop: drop,
@@ -4141,6 +4372,44 @@ router.post('/buddy', requireAuth, function(req, res) {
     buddy: buddyPublic(st), buddyBonus: buddyBonusOf(st),
     combat: c, evolution: evolutionOf(st)
   }});
+});
+
+// ==================== 助战（v0.25.0）：图鉴的第二种用法 ====================
+// 收服的野怪以前只有一种用法：看图鉴条目、选一只随行。收第 8 只的意义只剩
+// 「图鉴 8/24」。助战给它们一个岗位：一只已收服的野怪可以站在场边，
+// 按自己的系别给本命一个**永久的小加成**——火加攻、水回血、草护盾、电加暴击、土加防。
+// 一个格子、随时可换、战斗前在图鉴里点一下就生效。收集于是有了第二种理由。
+var ASSIST_BONUS = {
+  fire:     { text: '攻击 +5%' },
+  water:    { text: '每回合回 1.5% 血' },
+  grass:    { text: '血量见底时挡一半（一次）' },
+  electric: { text: '暴击率 +5' },
+  earth:    { text: '防御 +10%' }
+};
+function assistantView(st) {
+  var id = st && st.assistant;
+  if (!id) return null;
+  var w = wildById(id);
+  if (!w) return null;
+  var bonus = ASSIST_BONUS[w.type] || { text: '' };
+  return { id: w.id, name: w.name, icon: w.icon, type: w.type,
+           typeName: ELEMENTS[w.type].name, typeIcon: ELEMENTS[w.type].icon, bonusText: bonus.text };
+}
+router.post('/assistant', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var id = String((req.body && req.body.id) || '');
+  if (id) {
+    if (!wildById(id)) return res.status(400).json({ code: 400, message: '未知的野生精灵' });
+    if (!ownedMap(st)[id]) return res.status(400).json({ code: 400, message: '还没有收服这只，不能助战' });
+    st.assistant = id;
+  } else {
+    st.assistant = null;
+  }
+  writePet(uid, st);
+  shadowCache.at = 0;   // 助战会改战力，排行榜缓存跟着失效
+  res.json({ code: 200, data: { assistant: assistantView(st) } });
 });
 
 // 本命属性：POST /pet/battle/type { type }
@@ -4356,7 +4625,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
   st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
   var weather = weatherOf(today);
-  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
+  var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
 
   var bossBond = Math.max(4, Math.round((st.bond || 0) * ENV_BOSS_SCALE));
@@ -4384,7 +4653,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
       win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
       env: { id: env.id, name: env.name, icon: env.icon },
       firstKill: false, drop: null,
-      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
       foe: { name: envDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: envDef.skills || [], type: envDef.type, typeName: ELEMENTS[envDef.type].name, typeIcon: ELEMENTS[envDef.type].icon },
       types: { me: myType, foe: envDef.type, mulMe: typeMul(myType, envDef.type), mulFoe: typeMul(envDef.type, myType) },
       dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - (st.env_boss_today || 0)),
@@ -4454,7 +4723,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
     env: { id: env.id, name: env.name, icon: env.icon },
     firstKill: firstKill,
     drop: drop,
-    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
     foe: { name: envDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: envDef.skills || [], type: envDef.type, typeName: ELEMENTS[envDef.type].name, typeIcon: ELEMENTS[envDef.type].icon },
     types: { me: myType, foe: envDef.type, mulMe: typeMul(myType, envDef.type), mulFoe: typeMul(envDef.type, myType) },
     gain: gain,
@@ -4466,6 +4735,73 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
     commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
     cmds: cmds,
     quests: questsView(uid, st)
+  }});
+});
+
+// ==================== 小卖部（v0.25.0）====================
+// 以前整个商店只有一件「豪华大餐」：小鱼干攒到三位数也只有一个去处，
+// 钱包从「资源」退化成「数字」。货架的意义不是多几个按钮，是让专注产出的
+// 每一条鱼干都有「现在买还是攒着」的选择。
+// 定价锚定产出（专注 25 分钟 ≈ 6 条、8 小时离线 ≈ 16 条）：
+//   药水 = 两三天的零花；铃铛 = 一周攒一次的大件。
+// ⚠️ 豪华大餐不在这里扣钱：它走 /interact 的老路（那边还有饱食度与每日上限），
+//    商店里它只是「展示价格」，点了等于喂饭。
+var SHOP = {
+  feast:        { id: 'feast',        name: '豪华大餐', icon: '🍱', cost: 5,  kind: 'feed', desc: '喂一次，羁绊 +10（普通饭 +4）' },
+  restore_vial: { id: 'restore_vial', name: '恢复药剂', icon: '💊', cost: 15, kind: 'item', desc: '下一场战斗第 1 回合末回 40% 血' },
+  healing_herb: { id: 'healing_herb', name: '治愈草',   icon: '🌿', cost: 20, kind: 'item', desc: '下一场战斗每回合回 3% 血' },
+  flame_potion: { id: 'flame_potion', name: '火焰药水', icon: '🧪', cost: 25, kind: 'item', desc: '下一场战斗首击伤害 ×2' },
+  bell:         { id: 'bell',         name: '默契铃铛', icon: '🔔', cost: 40, kind: 'bell', desc: '今天所有战斗默契 +1（每日一枚）' }
+};
+// 货架视图：/state 随存档一起下发（首页不用多打一个请求），/shop 也在用它。
+function shopView(st) {
+  var inv = inventoryOf(st);
+  var bellToday = st && st.bell_date === todayKey() && (st.bell_bought || 0) > 0;
+  var items = [];
+  for (var k in SHOP) {
+    if (!Object.prototype.hasOwnProperty.call(SHOP, k)) continue;
+    var sku = SHOP[k];
+    items.push({
+      id: sku.id, name: sku.name, icon: sku.icon, cost: sku.cost,
+      kind: sku.kind, desc: sku.desc,
+      charges: sku.kind === 'item' ? (inv.charges[sku.id] || 0) : null,
+      soldOut: sku.kind === 'bell' && bellToday
+    });
+  }
+  return { items: items };
+}
+router.get('/shop', requireAuth, function(req, res) {
+  var st = readPet(userId(req)) || {};
+  res.json({ code: 200, data: { coins: st.coins || 0, feastCost: FEAST_COST, items: shopView(st).items } });
+});
+router.post('/shop/buy', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var id = String((req.body && req.body.id) || '');
+  var sku = SHOP[id];
+  if (!sku) return res.status(400).json({ code: 400, message: '小卖部没有这件东西' });
+  if (sku.kind === 'bell' && st.bell_date === todayKey() && (st.bell_bought || 0) >= 1) {
+    return res.status(429).json({ code: 429, message: '铃铛每天只卖一枚，明天再来' });
+  }
+  if ((st.coins || 0) < sku.cost) {
+    return res.status(400).json({ code: 400, message: '小鱼干不够（要 ' + sku.cost + ' 条，现在 ' + (st.coins || 0) + ' 条）' });
+  }
+  st.coins = (st.coins || 0) - sku.cost;
+  if (sku.kind === 'item') {
+    var inv = inventoryOf(st);
+    inv.charges[sku.id] = (inv.charges[sku.id] || 0) + 1;
+  } else if (sku.kind === 'bell') {
+    st.bell_date = todayKey();
+    st.bell_bought = 1;
+  }
+  writePet(uid, st);
+  res.json({ code: 200, data: {
+    id: sku.id, name: sku.name, icon: sku.icon,
+    coins: st.coins || 0,
+    inventory: inventoryView(st),
+    cmdSlots: cmdSlotsOf(st),
+    bellToday: sku.kind === 'bell'
   }});
 });
 

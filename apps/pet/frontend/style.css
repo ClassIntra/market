@@ -2686,17 +2686,17 @@
 .ci-pethome::after { display: none; }
 
 /* 深底上的文字提亮：只点「确实落在暗底上」的那几个，不写 .ci-pethome 的 color */
-.ci-pethome h2 { color: #F6F1E3; }
-.ci-pethome .ci-pethome-sub { color: rgba(226, 233, 250, 0.66); }
-.ci-pet-pagehead-title { color: #F6F1E3; }
-.ci-pet-pagehead-sub { color: rgba(226, 233, 250, 0.62); }
+.ci-pethome h2 { color: var(--ci-pet-ink, #F6F1E3); }
+.ci-pethome .ci-pethome-sub { color: var(--ci-pet-soft, rgba(226, 233, 250, 0.66)); }
+.ci-pet-pagehead-title { color: var(--ci-pet-ink, #F6F1E3); }
+.ci-pet-pagehead-sub { color: var(--ci-pet-soft, rgba(226, 233, 250, 0.62)); }
 .ci-pet-section { color: #FFD166; }
 .ci-pet-section::before { background: linear-gradient(180deg, #FFD166, #FF9F43); }
 .ci-pet-wild-head-name { color: #E8EEFB; }
 .ci-pet-wild-head-count { color: rgba(214, 224, 247, 0.55); }
 .ci-pet-adv { color: rgba(214, 224, 247, 0.58); opacity: 1; }
-.ci-pet-adv[open] { color: rgba(226, 233, 250, 0.82); }
-.ci-pet-adv-out { background: rgba(255, 255, 255, 0.07); color: rgba(226, 233, 250, 0.82); }
+.ci-pet-adv[open] { color: var(--ci-pet-soft, rgba(226, 233, 250, 0.82)); }
+.ci-pet-adv-out { background: rgba(255, 255, 255, 0.07); color: var(--ci-pet-soft, rgba(226, 233, 250, 0.82)); }
 
 /* ---------- B. 顶部 HUD：头像圈 + 名字 + Lv/战力/属性 ---------- */
 .ci-pet-hud {
@@ -2735,7 +2735,7 @@
   font-size: 16px;
   font-weight: 800;
   letter-spacing: 0.2px;
-  color: #F6F1E3;
+  color: var(--ci-pet-ink, #F6F1E3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2751,7 +2751,7 @@
 .ci-pet-hud-sub {
   margin-top: 2px;
   font-size: 10px;
-  color: rgba(226, 233, 250, 0.6);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.6));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2766,7 +2766,7 @@
 .ci-pet-hud-power {
   font-size: 11px;
   font-weight: 700;
-  color: #F6F1E3;
+  color: var(--ci-pet-ink, #F6F1E3);
   font-variant-numeric: tabular-nums;
 }
 /* fillHud 会把 className 重写成「ci-pet-hud-type ci-pet-el--<id>」，
@@ -2979,12 +2979,12 @@
 .ci-pet-hptext { color: rgba(214, 224, 247, 0.66); }
 .ci-pet-arena-log {
   background: rgba(255, 255, 255, 0.06);
-  color: rgba(226, 233, 250, 0.82);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.82));
 }
 .ci-pet-arena-skip {
   border-color: rgba(255, 255, 255, 0.24);
   background: rgba(255, 255, 255, 0.04);
-  color: rgba(226, 233, 250, 0.82);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.82));
 }
 /* 胜负横幅在暗舞台里必须是「亮起来」的那块，否则深色标题全糊掉 */
 .ci-pet-arena-result { box-shadow: inset 0 0 0 1px rgba(120, 94, 48, 0.14); }
@@ -3023,8 +3023,8 @@
   box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.34), 0 8px 22px rgba(4, 7, 18, 0.34);
 }
 .ci-pet-rankme-num { color: #FFD166; }
-.ci-pet-rankme-sub { color: rgba(226, 233, 250, 0.72); }
-.ci-pet-rankme-type { color: rgba(226, 233, 250, 0.72); }
+.ci-pet-rankme-sub { color: var(--ci-pet-soft, rgba(226, 233, 250, 0.72)); }
+.ci-pet-rankme-type { color: var(--ci-pet-soft, rgba(226, 233, 250, 0.72)); }
 .ci-pet-rank,
 .ci-pet-ach,
 .ci-pet-titles {
@@ -3141,7 +3141,7 @@
 
 /* 图鉴 / 排行的「读取中」：给一句会呼吸的提示，而不是一块死字 */
 .ci-pet-battle-loading {
-  color: rgba(226, 233, 250, 0.72);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.72));
   -webkit-animation: ciPetPulse 1.6s ease-in-out infinite;
   animation: ciPetPulse 1.6s ease-in-out infinite;
 }
@@ -3230,12 +3230,12 @@
 .ci-pet-weather-desc {
   margin-top: 2px;
   font-size: 11px;
-  color: rgba(226, 233, 250, 0.7);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.7));
 }
 .ci-pet-weather-fit {
   margin-top: 3px;
   font-size: 10px;
-  color: rgba(226, 233, 250, 0.55);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.55));
 }
 .ci-pet-weather.is-fit .ci-pet-weather-fit { color: #8FE3A8; }
 
@@ -3303,7 +3303,7 @@
 }
 .ci-pet-daily.is-claimed .ci-pet-daily-pill {
   background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--ci-pet-white-soft, rgba(255, 255, 255, 0.7));
 }
 .ci-pet-daily.is-claimed {
   cursor: default;
@@ -4717,7 +4717,7 @@
 }
 .ci-pethome .ci-pet-focuspick-cancel {
   background: rgba(255, 255, 255, 0.05);
-  color: rgba(198, 212, 240, 0.66);
+  color: var(--ci-pet-soft, rgba(198, 212, 240, 0.66));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
 }
 
@@ -4978,7 +4978,7 @@
    深色环境下的规矩：未解锁靠透明度区分，已解锁才允许上金色高光。 */
 .ci-pethome .ci-pet-ach-chip {
   background: rgba(255, 255, 255, 0.05);
-  color: rgba(198, 212, 240, 0.52);
+  color: var(--ci-pet-soft, rgba(198, 212, 240, 0.52));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 .ci-pethome .ci-pet-ach-chip.is-on {
@@ -5056,7 +5056,7 @@
   background: rgba(255, 96, 84, 0.10);
 }
 .ci-pethome .ci-pet-inbox-hit[disabled] {
-  color: rgba(198, 212, 240, 0.42);
+  color: var(--ci-pet-soft, rgba(198, 212, 240, 0.42));
   border-color: rgba(255, 255, 255, 0.10);
 }
 
@@ -5195,7 +5195,7 @@
   margin-top: 6px;
   font-size: 10px;
   letter-spacing: 0.3px;
-  color: rgba(198, 212, 240, 0.45);
+  color: var(--ci-pet-soft, rgba(198, 212, 240, 0.45));
 }
 
 /* ---------- V4. 每日任务：无框列表 + 分隔线 ---------- */
@@ -5308,7 +5308,7 @@
   margin-top: 2px;
   font-size: 9px;
   line-height: 1.3;
-  color: rgba(198, 212, 240, 0.52);
+  color: var(--ci-pet-soft, rgba(198, 212, 240, 0.52));
 }
 /* 主行动：整颗圆变成会发光的粉球，而不是一块粉色方块 */
 .ci-pethome .ci-pet-bigbtn--primary {
@@ -7742,7 +7742,7 @@
 .ci-pet-ops-type.is-t-electric{ background: radial-gradient(circle at 50% 18%, rgba(255, 210, 60, 0.36), rgba(56, 42, 6, 0.5)); border-color: rgba(255, 220, 100, 0.4); }
 .ci-pet-ops-type.is-t-water   { background: radial-gradient(circle at 50% 18%, rgba(60, 160, 255, 0.38), rgba(10, 32, 64, 0.5)); border-color: rgba(110, 180, 255, 0.4); }
 .ci-pet-ops-type.is-on {
-  border-color: rgba(255, 255, 255, 0.75);
+  border-color: var(--ci-pet-white-soft, rgba(255, 255, 255, 0.75));
   box-shadow: 0 0 16px -4px rgba(255, 255, 255, 0.45), inset 0 0 16px -8px rgba(255, 255, 255, 0.5);
 }
 .ci-pet-ops-type:active { opacity: 0.8; }
@@ -8049,7 +8049,7 @@
   text-shadow: 0 2px 3px rgba(10, 10, 50, 0.65);
 }
 .ci-pet-skillcell-type {
-  color: #ffe9b8 !important;
+  color: var(--ci-pet-ink, #ffe9b8) !important;
   opacity: 1;
   font-weight: 700;
   text-shadow: 0 1px 2px rgba(10, 10, 50, 0.6);
@@ -8205,7 +8205,7 @@
 
 /* ---------- 14.8 折叠区 summary 小金徽 ---------- */
 .ci-pet-metafold-g summary {
-  color: #ffe9b8;
+  color: var(--ci-pet-ink, #ffe9b8);
   font-weight: 800;
 }
 .ci-pet-metafold-g[open] summary { color: #ffd76e; }
@@ -8821,7 +8821,7 @@
 .ci-pet-more-title {
   font-size: 14px;
   font-weight: 900;
-  color: #f3e6d0;
+  color: var(--ci-pet-ink, #f3e6d0);
   letter-spacing: 2px;
   margin-right: 10px;
   padding-left: 10px;
@@ -9692,7 +9692,7 @@
 .ci-pethome .world-hud-petname {
   font-size: 16px;
   font-weight: 900;
-  color: #ffe9b8;
+  color: var(--ci-pet-ink, #ffe9b8);
   letter-spacing: 1px;
   text-shadow: 1px 1px 0 #000;
   margin-right: 10px;
@@ -10279,7 +10279,7 @@
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  color: #ffe9b8;
+  color: var(--ci-pet-ink, #ffe9b8);
   background: rgba(22, 17, 34, 0.86);
   box-shadow: 0 0 0 2px #1c1119, 2px 2px 0 rgba(0, 0, 0, 0.35);
   pointer-events: none;
@@ -10497,7 +10497,7 @@
   background: #2b2130 !important;
   border: none !important;
   box-shadow: 0 0 0 2px #1c1119, 4px 4px 0 rgba(0, 0, 0, 0.42) !important;
-  color: #f3e6d0 !important;
+  color: var(--ci-pet-ink, #f3e6d0) !important;
 }
 
 /* ---------- 21.4 血条盘：白卡 → 深色像素面板 ---------- */
@@ -10511,7 +10511,7 @@
 .ci-pethome .ci-pet-hpplate-lv,
 .ci-pethome .ci-pet-hpplate-hptag,
 .ci-pethome .ci-pet-hpplate-pow {
-  color: #ffe9b8 !important;
+  color: var(--ci-pet-ink, #ffe9b8) !important;
   text-shadow: 1px 1px 0 #000 !important;
 }
 .ci-pethome .ci-pet-hpplate-bar {
@@ -10578,13 +10578,13 @@
 
 /* ---------- 21.7 内页标题：像素字形 ---------- */
 .ci-pethome .ci-pet-pagehead-title {
-  color: #ffe9b8 !important;
+  color: var(--ci-pet-ink, #ffe9b8) !important;
   font-weight: 900 !important;
   letter-spacing: 3px !important;
   text-shadow: 2px 2px 0 #1c1119 !important;
 }
 .ci-pethome .ci-pet-pagehead-sub {
-  color: #cdbfab !important;
+  color: var(--ci-pet-ink2, #cdbfab) !important;
   letter-spacing: 0.5px !important;
 }
 
@@ -10977,7 +10977,7 @@
 }
 .ci-pethome:not(.is-hometab) .ci-pet-foe-btn[disabled] {
   background: rgba(136, 130, 152, 0.22) !important;
-  color: #a3938c !important;
+  color: var(--ci-pet-ink3, #a3938c) !important;
   text-shadow: none;
   box-shadow: 0 0 0 2px #1c1119 !important;
 }
@@ -11066,10 +11066,11 @@
     4px 4px 0 rgba(0, 0, 0, 0.42) !important;
 }
 
-/* ---------- 26.8 四颗指令按钮：四色渐变 → 同一块木头 ----------
+/* ---------- 26.8 五颗指令按钮：四色渐变 → 同一块木头（v0.28.1 加试炼塔） ----------
    区分度交给两样东西：30px 的彩色像素图标 + 文字标签。
    房间里所有家具都是木头的，导航也没有理由是四块糖。 */
 .ci-pethome .ci-pet-cmdbtn.is-red,
+.ci-pethome .ci-pet-cmdbtn.is-blue,
 .ci-pethome .ci-pet-cmdbtn.is-teal,
 .ci-pethome .ci-pet-cmdbtn.is-purple,
 .ci-pethome .ci-pet-cmdbtn.is-gold {
@@ -11126,12 +11127,12 @@
 }
 .ci-pet-cmdrow-count.is-out {
   background: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--ci-pet-white-soft, rgba(255, 255, 255, 0.72));
 }
 .ci-pet-cmdrow-hint {
   margin-left: auto;
   font-size: 11px;
-  color: rgba(226, 233, 250, 0.48);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.48));
 }
 .ci-pet-cmdrow-cards {
   display: -webkit-flex; display: flex;
@@ -11145,7 +11146,7 @@
   padding: 8px 9px;
   border: 0;
   text-align: left;
-  color: #f6f1e3;
+  color: var(--ci-pet-ink, #f6f1e3);
   background: linear-gradient(180deg, #54402e 0%, #42301f 58%, #332417 100%);
   box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.3);
   -webkit-transition: -webkit-transform 0.08s steps(2, end);
@@ -11178,7 +11179,7 @@
   margin-top: 2px;
   font-size: 11px;
   line-height: 1.45;
-  color: rgba(226, 233, 250, 0.6);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.6));
 }
 /* 按下牌的那一瞬间：一行大字压在舞台中央 */
 .ci-pet-cmdfx {
@@ -11217,4 +11218,577 @@
   50% { -webkit-transform: translate(3px, -2px); transform: translate(3px, -2px); }
   75% { -webkit-transform: translate(-2px, -1px); transform: translate(-2px, -1px); }
   100% { -webkit-transform: translate(0, 0); transform: translate(0, 0); }
+}
+
+/* ==============================================================================
+   28. 小卖部货架 + 助战 + 士气（v0.25.0）
+   以前整个商店只有一颗大餐按钮；货架让每条鱼干都有「现在买还是攒着」的选择。
+   布局：余额一行，下面两列货卡。平板窄栏不横向滚动（会滚丢第三列）。
+   ⚠️ 选择器必须带 .ci-pethome 前缀：V3 段的 .ci-pethome .ci-pet-shoppe 是
+   display:flex（0,2,0），不带前缀的 block 会被它压回去，弹层里就会挤成两列。
+   ============================================================================== */
+.ci-pethome .ci-pet-shoppe { display: block; }
+.ci-pet-shoppe-tip {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.42));
+}
+.ci-pet-shoppe-shelf {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin-top: 8px;
+}
+.ci-pet-shoppe-item {
+  width: calc(50% - 4px);
+  margin: 0 0 8px 8px;
+  padding: 8px 9px;
+  border: 0;
+  text-align: left;
+  color: var(--ci-pet-ink, #f6f1e3);
+  background: linear-gradient(180deg, #54402e 0%, #42301f 58%, #332417 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.22);
+  position: relative;
+  -webkit-transition: -webkit-transform 0.08s steps(2, end);
+  transition: transform 0.08s steps(2, end);
+}
+.ci-pet-shoppe-item:nth-child(-n+2) { margin-left: 0; }
+.ci-pet-shoppe-item:nth-child(2n+1) { margin-left: 0; }
+.ci-pet-shoppe-item:active { transform: translateY(2px); }
+.ci-pet-shoppe-item.is-off { opacity: 0.5; }
+.ci-pet-shoppe-item.is-soldout {
+  opacity: 0.42;
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.ci-pet-shoppe-item-top {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+}
+.ci-pet-shoppe-item-icon { font-size: 20px; line-height: 1; }
+.ci-pet-shoppe-item-cost {
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd76e;
+  font-variant-numeric: tabular-nums;
+}
+.ci-pet-shoppe-item-name { display: block; margin-top: 3px; font-size: 13px; font-weight: 800; }
+.ci-pet-shoppe-item-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.55));
+}
+.ci-pet-shoppe-item-charges {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #241f3a;
+  background: rgba(255, 215, 110, 0.85);
+  box-shadow: 0 0 0 1px #17111f;
+}
+
+/* ---------- 助战按钮（图鉴野怪卡） ---------- */
+.ci-pet-wild-foot .ci-pet-foe-btn.is-assist {
+  background: rgba(255, 215, 110, 0.16);
+  color: #ffd76e;
+  font-weight: 800;
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.4);
+}
+
+/* ---------- 战斗里的士气 / 助战徽章（我方血条旁） ---------- */
+.ci-pet-arena-badges {
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+}
+.ci-pet-arena-mood,
+.ci-pet-arena-assist {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.14);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.3);
+}
+.ci-pet-arena-assist { color: #9fd8ff; background: rgba(120, 190, 255, 0.12); box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(120, 190, 255, 0.3); }
+
+/* 弹层里的货架：普通饭横贯一行，其余两列 */
+.ci-pet-shoppe-item.is-wide {
+  width: 100%;
+  margin-left: 0;
+  padding: 10px 9px;
+  background: linear-gradient(180deg, #4a5637 0%, #3a4229 58%, #2c3220 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(190, 226, 130, 0.28);
+}
+.ci-pet-shoppe .ci-pet-shoppe-item { margin-left: 8px; }
+.ci-pet-shoppe .ci-pet-shoppe-item:nth-child(-n+1) { margin-left: 0; }
+
+/* ============================================================
+   27. 昼夜模式 · 白天（v0.27.0）
+   ============================================================
+   夜里的小屋是「点着台灯的暖梅色」，白天则是「蜂蜜色的上午」：
+   墙是奶油纸、卡是米黄纸、对战页是蓝天草地。
+   实现走两条通道：
+     ① token：.ci-pethome.is-day 重定义 §21.10 的 --ci-color-*，
+        内页 50+ 处吃 token 的组件自动换装（markCardTone 也跟着判浅底）；
+     ② 字面量：§21.3/21.9 那些写死的 !important 面板/舞台，
+        在这里用同等特异性 + 更晚的出现顺序压回去。
+   状态由 entry.js 的 applyDayNight() 挂 root.is-day。
+   ------------------------------------------------------------ */
+
+/* ---------- 27.1 token：白天 = 奶油纸 + 深棕字 ---------- */
+.ci-pethome.is-day {
+  --ci-color-bg-page: #f2e6ca;
+  --ci-color-bg-card: #fbf3dd;
+  --ci-color-text-primary: #4a3527;
+  --ci-color-text-secondary: #7a5f45;
+  --ci-color-text-tertiary: #9a8266;
+  /* 强调色白天换深琥珀：#ffd76e 金在浅卡上会睁不开眼 */
+  --ci-color-primary: #b06a20;
+  background: linear-gradient(180deg, #f2e6ca 0%, #e4d0aa 100%) !important;
+}
+
+/* ---------- 27.2 内页背景：奶油纸 + 日光池 ---------- */
+.ci-pethome.is-day:not(.is-hometab) {
+  background:
+    radial-gradient(52% 30% at 50% 4%,
+      rgba(255, 250, 224, 0.55) 0%,
+      rgba(255, 250, 224, 0.20) 46%,
+      rgba(255, 250, 224, 0) 72%),
+    radial-gradient(120% 90% at 46% 30%, rgba(0, 0, 0, 0) 44%, rgba(150, 110, 60, 0.12) 78%, rgba(150, 110, 60, 0.26) 100%),
+    repeating-linear-gradient(90deg,
+      rgba(255, 255, 255, 0.10) 0 26px,
+      rgba(160, 120, 60, 0.05) 26px 52px),
+    linear-gradient(180deg, #f2e6ca 0%, #ecdaba 58%, #e4d0aa 100%) !important;
+}
+
+/* ---------- 27.3 面板：米黄纸卡 + 暖木描边（压 §21.3） ---------- */
+.ci-pethome.is-day .ci-pet-battle,
+.ci-pethome.is-day .ci-pet-dex-head,
+.ci-pethome.is-day .ci-pet-dex-sec,
+.ci-pethome.is-day .ci-pet-dex-card,
+.ci-pethome.is-day .ci-pet-rank-row,
+.ci-pethome.is-day .ci-pet-sheet,
+.ci-pethome.is-day .ci-pet-card {
+  background: #fbf3dd !important;
+  box-shadow: 0 0 0 2px #8a6438, 4px 4px 0 rgba(120, 84, 40, 0.30) !important;
+  color: #4a3527 !important;
+}
+/* 21.10 后面那段「半透明面板」五件套 */
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-dex > div,
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-rank > div,
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-evo,
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-types,
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-buddy {
+  background: #fbf3dd;
+  box-shadow: 0 0 0 2px #8a6438, 4px 4px 0 rgba(120, 84, 40, 0.30);
+  color: #4a3527;
+}
+
+/* ---------- 27.4 血条盘：白瓷盘（压 §21.4） ---------- */
+.ci-pethome.is-day .ci-pet-hpplate {
+  background: linear-gradient(180deg, #fff7e0 0%, #f3e4c0 100%) !important;
+  border-color: #8a6438 !important;
+  box-shadow: 4px 4px 0 rgba(120, 84, 40, 0.30) !important;
+}
+.ci-pethome.is-day .ci-pet-hpplate-name,
+.ci-pethome.is-day .ci-pet-hpplate-lv,
+.ci-pethome.is-day .ci-pet-hpplate-hptag,
+.ci-pethome.is-day .ci-pet-hpplate-pow {
+  color: #6b4a2a !important;
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+.ci-pethome.is-day .ci-pet-hpplate-bar {
+  background: #e2d0aa !important;
+  box-shadow: inset 0 0 0 2px #cbb48a !important;
+}
+
+/* ---------- 27.5 房间：上午十点的光 ---------- */
+/* 墙：奶油纸底 + 更强的窗光 + 暖色（不是黑色）暗角 */
+.ci-pethome.is-day .ci-pet-world {
+  background:
+    radial-gradient(120% 96% at 48% 40%,
+      rgba(0, 0, 0, 0) 38%, rgba(120, 84, 40, 0.12) 72%, rgba(120, 84, 40, 0.30) 100%),
+    radial-gradient(46% 42% at var(--win-x, 44%) 22%,
+      rgba(255, 246, 208, 0.40) 0%,
+      rgba(255, 234, 168, 0.16) 46%,
+      rgba(255, 234, 168, 0) 78%),
+    repeating-linear-gradient(90deg,
+      rgba(255, 255, 255, 0.055) 0 22px,
+      rgba(140, 100, 50, 0.05) 22px 44px),
+    linear-gradient(180deg, #e9d8b8 0%, #e2cfab 62%, #d8c29b 100%);
+}
+/* 天花板：受光的顶 */
+.ci-pethome.is-day .ci-pet-world .world-ceiling {
+  background: linear-gradient(180deg, #f4ead6 0%, #e8dbc0 100%);
+  box-shadow:
+    0 3px 0 #cbb591,
+    0 4px 0 #a8946f,
+    0 9px 14px -6px rgba(120, 84, 40, 0.40);
+}
+/* 踢脚线：白天被阳光照着的木头 */
+.ci-pethome.is-day .ci-pet-world .world-baseboard {
+  background: linear-gradient(180deg, #a87c4a 0%, #7a5530 40%, #5d4330 100%);
+  box-shadow: 0 -1px 0 rgba(255, 244, 208, 0.5), 0 3px 6px -2px rgba(120, 84, 40, 0.45);
+}
+/* 护墙板：亮蜂蜜木 */
+.ci-pethome.is-day .world-wainscot {
+  background-color: #c9a05e;
+}
+/* 地板：阳光晒过的蜂蜜色（压夜版三阶） */
+.ci-pethome.is-day .world-floor {
+  background: repeating-linear-gradient(180deg,
+    #c99a5e 0 15px,
+    #d8ab6c 15px 31px,
+    #b9854d 31px 48px);
+}
+/* 窗光光柱：白天加倍（阳光和灯光不是一个量级） */
+.ci-pethome.is-day .ci-pet-world::after {
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(255, 248, 220, 0.42) 0%,
+    rgba(255, 240, 196, 0.16) 46%,
+    rgba(255, 240, 196, 0) 72%);
+}
+/* 台灯白天熄灭：只留像素描边，不要光晕 */
+.ci-pethome.is-day .world-obj[data-obj="lamp"] .world-obj-art {
+  filter:
+    drop-shadow(2px 0 0 #1c1119)
+    drop-shadow(-2px 0 0 #1c1119)
+    drop-shadow(0 2px 0 #1c1119)
+    drop-shadow(0 -2px 0 #1c1119);
+}
+/* 微尘：夜里的灯光尘 → 白天是阳光里飘的亮尘 */
+.ci-pethome.is-day .world-mote {
+  background: rgba(255, 250, 230, 0.75);
+}
+
+/* ---------- 27.6 对战舞台：蓝天草地（压 §21.9） ---------- */
+.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-sky {
+  background:
+    radial-gradient(circle at 76% 17%,
+      #fff6cf 0 22px, #ffd76e 22px 26px,
+      rgba(255, 215, 110, 0.22) 26px 42px,
+      rgba(255, 215, 110, 0) 43px),
+    linear-gradient(180deg,
+      #7db8e8 0%, #7db8e8 20%,
+      #93c8ee 20%, #93c8ee 44%,
+      #aad8f4 44%, #aad8f4 68%,
+      #c4e6fa 68%, #c4e6fa 100%) !important;
+}
+.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-hills {
+  background-image:
+    radial-gradient(circle at 24% 100%, #7aa85a 0 44px, rgba(122, 168, 90, 0) 45px),
+    radial-gradient(circle at 74% 100%, #5c8f44 0 54px, rgba(92, 143, 68, 0) 55px) !important;
+}
+.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-ground {
+  background: linear-gradient(180deg, #8fbf62 0%, #6f9e4a 100%) !important;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35) !important;
+}
+.ci-pethome.is-day .ci-pet-bstage-vs {
+  color: #6b4a2a !important;
+  background: #fff6e2 !important;
+  text-shadow: none !important;
+}
+
+/* ---------- 27.7 舞台 pill：白天浅瓷底 ---------- */
+.ci-pethome.is-day .ci-pet-sh-pill {
+  background: rgba(253, 246, 226, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 100, 56, 0.45),
+    0 2px 8px rgba(120, 84, 40, 0.25);
+}
+
+/* ---------- 27.8 昼夜切换钮（world-hud-res 内） ---------- */
+.ci-pethome .world-hud-day {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  background: none;
+  padding: 0 10px 0 0;
+  margin-right: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.ci-pethome .world-hud-day .ci-pixico { width: 16px; height: 16px; }
+.ci-pethome .world-hud-coin .ci-pixico { width: 15px; height: 15px; }
+.ci-pethome .world-hud-day:active {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+}
+/* auto 模式给一枚小小的「A」角标：手动切换后消失 */
+.ci-pethome .world-hud-day[data-mode="auto"] {
+  position: relative;
+}
+.ci-pethome .world-hud-day[data-mode="auto"]::after {
+  content: 'A';
+  position: absolute;
+  top: -6px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  line-height: 12px;
+  font-size: 9px;
+  font-weight: 900;
+  text-align: center;
+  color: #fffdf4;
+  background: #b06a20;
+  box-shadow: 0 0 0 2px #1c1119;
+}
+
+/* ---------- 27.9 名牌 + 资源条：白天浅瓷（压夜版 #332534） ---------- */
+.ci-pethome.is-day .world-hud-name,
+.ci-pethome.is-day .world-hud-res {
+  background: rgba(253, 246, 226, 0.92);
+  box-shadow: 0 0 0 3px #8a6438, 4px 4px 0 rgba(120, 84, 40, 0.30);
+}
+.ci-pethome.is-day .world-hud-petname {
+  color: #4a3527;
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.65);
+}
+.ci-pethome.is-day .world-hud-lv,
+.ci-pethome.is-day .world-hud-bond,
+.ci-pethome.is-day .world-hud-coin {
+  color: #b06a20;
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* ---------- 27.10 内页顶部 HUD：白瓷条（压 4784/5396 两层夜底） ---------- */
+.ci-pethome.is-day .ci-pet-hud {
+  background: linear-gradient(180deg, rgba(253, 246, 226, 0.97) 0%, rgba(244, 232, 202, 0.90) 100%) !important;
+  border-bottom: 1px solid rgba(138, 100, 56, 0.35) !important;
+  box-shadow: none !important;
+}
+/* HUD 右侧战力/属性小 pill：夜版深蓝底 → 白天浅瓷 */
+.ci-pethome.is-day .ci-pet-hud-chips span {
+  background: rgba(253, 246, 226, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(138, 100, 56, 0.45);
+}
+/* 「回家」钮：白天是深木底（金字在浅背景上必须坐在木头上） */
+.ci-pethome.is-day .ci-pet-pagehead-home {
+  background: #6b4a2a;
+  box-shadow: 0 0 0 2px #4a3220, 3px 3px 0 rgba(120, 84, 40, 0.35);
+}
+
+/* ---------- 27.11 半透明文字变量：夜=冷白，昼=暖棕 ----------
+   19 处 color: rgba(226,233,250,x) / rgba(255,255,255,.7x) 已在原位包成
+   var(--ci-pet-soft, 原值) —— 夜版走默认值零变化，白天在这里一个变量全体切换。 */
+.ci-pethome.is-day {
+  --ci-pet-soft: rgba(96, 66, 42, 0.78);
+  --ci-pet-white-soft: rgba(96, 66, 42, 0.62);
+}
+
+/* ---------- 27.12 字面量扫尾（压 11018 / 21.7 / 2733 等夜版） ---------- */
+/* 图鉴卡（.ci-pet-wild 才是真类名，27.3 里的 dex-card 是别名） */
+.ci-pethome.is-day .ci-pet-wild {
+  background: #fbf3dd !important;
+  color: #4a3527 !important;
+}
+.ci-pethome.is-day .ci-pet-wild.is-owned {
+  background: linear-gradient(180deg, #e4eed2 0%, #fbf3dd 42%) !important;
+}
+/* 页头标题/副标题：夜版金字的白天版 */
+.ci-pethome.is-day .ci-pet-pagehead-title {
+  color: #4a3527 !important;
+  text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+.ci-pethome.is-day .ci-pet-pagehead-sub {
+  color: #7a5f45 !important;
+  text-shadow: none !important;
+}
+/* HUD 名字行：夜版 #F6F1E3 → 深棕 */
+.ci-pethome.is-day .ci-pet-hud-name,
+.ci-pethome.is-day .ci-pet-hud-lv,
+.ci-pethome.is-day .ci-pet-hud-sub {
+  color: #4a3527 !important;
+  text-shadow: none !important;
+}
+.ci-pethome.is-day .ci-pet-hud-power {
+  color: #4a3527 !important;
+  text-shadow: none !important;
+}
+/* 图鉴进度槽：夜版深槽 → 白天浅木槽 */
+.ci-pethome.is-day .ci-pet-dex-progress {
+  background-color: rgba(255, 255, 255, 0.45) !important;
+  box-shadow: inset 0 0 0 2px #cbb48a !important;
+}
+
+/* ---------- 27.13 墨水变量：夜=#f3e6d0 系浅字，昼=深棕（16 行已在原位包 var） ---------- */
+.ci-pethome.is-day {
+  --ci-pet-ink: #4a3527;
+  --ci-pet-ink2: #7a5f45;
+  --ci-pet-ink3: #9a8266;
+}
+/* 排行「我」卡：白天金边米黄纸（压 26.7 紫底） */
+.ci-pethome.is-day .ci-pet-rankme {
+  background-color: #fbf3dd !important;
+  background-image: linear-gradient(180deg, #fff7e0 0%, #fbf3dd 100%) !important;
+  box-shadow:
+    inset 0 0 0 2px rgba(176, 106, 32, 0.55),
+    0 0 0 2px #8a6438,
+    4px 4px 0 rgba(120, 84, 40, 0.30) !important;
+}
+.ci-pethome.is-day .ci-pet-rankme-num {
+  color: #b06a20 !important;
+  text-shadow: none !important;
+}
+
+/* ---------- 27.14 第三冷白家族 rgba(198,212,240,x)（5 行已在原位包 var）----------
+   加上已收服绿标的白天配色 + 图鉴卡文字兜底 */
+.ci-pethome.is-day .ci-pet-wild-name { color: #4a3527 !important; }
+.ci-pethome.is-day .ci-pet-wild-desc,
+.ci-pethome.is-day .ci-pet-wild-bond { color: #7a5f45 !important; }
+.ci-pethome.is-day .ci-pet-wild-owned {
+  background: rgba(90, 143, 68, 0.18) !important;
+  color: #3d6b2a !important;
+}
+
+/* ---------- 27.15 容器级 token 反转 ----------
+   U3 组（4276）与 14.7 组（4946）在 25 个容器上重定义 --ci-color-text-* 为冷白
+   #EEF3FF —— 变量继承「就近 wins」，27.1 在 root 重定义管不进去。
+   白天对同一批容器（并集，去重）用 .is-day（0,3,0）压回暖墨。 */
+.ci-pethome.is-day .ci-pet-hero,
+.ci-pethome.is-day .ci-pet-stats,
+.ci-pethome.is-day .ci-pet-quests,
+.ci-pethome.is-day .ci-pet-diary,
+.ci-pethome.is-day .ci-pet-shoppe,
+.ci-pethome.is-day .ci-pet-actions,
+.ci-pethome.is-day .ci-pet-stylecard,
+.ci-pethome.is-day .ci-pet-misc,
+.ci-pethome.is-day .ci-pet-advlink,
+.ci-pethome.is-day .ci-pet-battle,
+.ci-pethome.is-day .ci-pet-buddy,
+.ci-pethome.is-day .ci-pet-types,
+.ci-pethome.is-day .ci-pet-evo,
+.ci-pethome.is-day .ci-pet-tower,
+.ci-pethome.is-day .ci-pet-wild,
+.ci-pethome.is-day .ci-pet-tpl,
+.ci-pethome.is-day .ci-pet-canvaswrap,
+.ci-pethome.is-day .ci-pet-tools,
+.ci-pethome.is-day .ci-pet-rank,
+.ci-pethome.is-day .ci-pet-ach,
+.ci-pethome.is-day .ci-pet-titles,
+.ci-pethome.is-day .ci-pet-hist,
+.ci-pethome.is-day .ci-pet-dex-progress,
+.ci-pethome.is-day .ci-pet-weather {
+  --ci-color-text-primary: #4a3527;
+  --ci-color-text-secondary: #7a5f45;
+  --ci-color-text-tertiary: #9a8266;
+  color: #4a3527;
+}
+/* 称号章：夜版金字 → 白天深琥珀字（章底不变） */
+.ci-pethome.is-day .ci-pet-title-chip {
+  color: #8a5a14 !important;
+  text-shadow: none !important;
+}
+
+/* ==============================================================================
+   29. 今日规则 + 深渊（v0.28.0）
+   今日规则条：塔页顶部的两条词缀——它是「今天的变奏」，视觉上要像
+   贴在塔门口的告示，而不是又一行小字。
+   深渊面板：塔打穿后的无尽内容。深紫底 + 星点，和夜空同源，但更暗一层。
+   ============================================================================== */
+.ci-pet-modrow {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-top: 8px;
+}
+.ci-pet-modrow-label {
+  -webkit-flex: none; flex: none;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #ffd76e;
+  letter-spacing: 2px;
+}
+.ci-pet-modchip {
+  margin-right: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.12);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.35);
+}
+.ci-pet-modrow-text {
+  display: block;
+  margin: 5px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(226, 233, 250, 0.6);
+}
+
+/* 深渊面板 */
+.ci-pet-abyss {
+  margin-top: 10px;
+  padding: 12px;
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(94, 78, 158, 0.35), rgba(24, 18, 40, 0) 70%),
+    linear-gradient(180deg, #1c1630 0%, #141024 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 140, 255, 0.22),
+    0 0 0 2px #17111f,
+    4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pet-abyss-head {
+  font-size: 14px;
+  font-weight: 900;
+  color: #cabfff;
+  letter-spacing: 1px;
+}
+.ci-pet-abyss-depth {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(226, 233, 250, 0.7);
+}
+.ci-pet-abyss .ci-pet-tower-card {
+  margin-top: 8px;
+  background: linear-gradient(180deg, #2a2344 0%, #221c38 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(160, 140, 255, 0.25);
+}
+.ci-pet-foe-btn.is-abyss {
+  color: #17111f;
+  background: linear-gradient(180deg, #cabfff, #9d8fe0);
+  box-shadow: 0 0 0 1px #17111f, 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.ci-pet-abyss-tip {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(198, 189, 240, 0.6);
+}
+
+/* ==============================================================================
+   30. 深渊可发现性 + 成就感（v0.28.1）
+   教训：深渊入口曾埋在「对战 → 抽屉 → 第三个标签」三层深，且必须通关才可见——
+   实测用户「我好像没看到」。发现性修复三件：一级按钮 / 锁定预告 / 通关仪式。
+   ============================================================================== */
+/* 五颗指令按钮：is-blue 的 tone（试炼塔） */
+.ci-pet-cmdbtn.is-blue   { background: linear-gradient(180deg, #7d92ff 0%, #5a6ff0 55%, #4050d4 100%); border: 3px solid #2f3aa8; box-shadow: 0 5px 0 #1f277a, inset 0 2px 0 rgba(255, 255, 255, 0.45); }
+
+/* 锁定态的深渊预告：和开启后的面板同一个骨架，但降饱和 + 虚线感 */
+.ci-pet-abyss.is-locked {
+  opacity: 0.72;
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(94, 78, 158, 0.16), rgba(24, 18, 40, 0) 70%),
+    linear-gradient(180deg, #1a1528 0%, #131020 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 140, 255, 0.12),
+    0 0 0 2px #17111f,
+    4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pet-abyss.is-locked .ci-pet-abyss-head { color: rgba(202, 191, 255, 0.8); }
+
+/* 结算横幅上的仪式行：深渊之门开启 / 里程碑夸赞 */
+.ci-pet-result-gate {
+  margin-top: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 900;
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.1);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.4);
 }
