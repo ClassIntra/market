@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - Refined Design</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #faf8f5;
+  min-height: 100vh;
+  padding: 40px 20px;
+}
+
+.container {
+  max-width: 580px;
+  margin: 0 auto;
+}
+
+/* ===== 主舞台区 ===== */
+.pet-display {
+  background: linear-gradient(180deg, #fff9f1 0%, #f5ecd8 100%);
+  border-radius: 28px;
+  padding: 56px 40px 48px;
+  text-align: center;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    0 2px 8px rgba(160, 138, 96, 0.08),
+    0 12px 32px rgba(160, 138, 96, 0.12);
+}
+
+.pet-display::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(circle at 30% 20%, rgba(255, 200, 160, 0.15) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.level-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #8b6d4e;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.level-badge {
+  background: #f0e6d4;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.avatar-wrapper {
+  margin-bottom: 40px;
+  position: relative;
+}
+
+.avatar-frame {
+  width: 180px;
+  height: 180px;
+  margin: 0 auto 24px;
+  position: relative;
+}
+
+.avatar-circle {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffe8d4 0%, #ffdab8 50%, #fecf9c 100%);
+  box-shadow: 
+    inset 0 4px 12px rgba(255, 200, 160, 0.5),
+    0 8px 24px rgba(255, 180, 120, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.avatar-inner {
+  font-size: 88px;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  z-index: 2;
+}
+
+.avatar-inner:hover {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.avatar-decoration {
+  position: absolute;
+  top: -12px; left: -12px; right: -12px; bottom: -12px;
+  border: 2px dashed #eecdb0;
+  border-radius: 50%;
+  animation: spin 30s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 数据行 - 精心设计的高度节奏 */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 16px;
+  padding: 16px 12px;
+  box-shadow: 
+    0 1px 3px rgba(160, 138, 96, 0.06),
+    0 4px 12px rgba(160, 138, 96, 0.05);
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 
+    0 3px 8px rgba(160, 138, 96, 0.1),
+    0 8px 20px rgba(160, 138, 96, 0.08);
+}
+
+.stat-icon {
+  font-size: 32px;
+  margin-bottom: 10px;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.stat-row-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #5a4a3a;
+  line-height: 1.2;
+  margin-bottom: 6px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #9a8a7a;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 进度条 - 更柔和的设计 */
+.progress {
+  height: 5px;
+  background: #f0e8dc;
+  border-radius: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.progress-fill.hp {
+  background: linear-gradient(90deg, #6b9c5a 0%, #7bb06a 100%);
+  box-shadow: 0 0 8px rgba(107, 156, 90, 0.3);
+}
+
+.progress-fill.energy {
+  background: linear-gradient(90deg, #6ba3c4 0%, #5b92b5 100%);
+  box-shadow: 0 0 8px rgba(107, 163, 196, 0.3);
+}
+
+/* ===== 内容双栏 ===== */
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.panel {
+  background: white;
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 
+    0 1px 4px rgba(160, 138, 96, 0.06),
+    0 6px 16px rgba(160, 138, 96, 0.06);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f8f4ed;
+}
+
+.panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #5a4a3a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.panel-count {
+  font-size: 11px;
+  color: #9a8a7a;
+  background: #f8f4ed;
+  padding: 4px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* 技能列表 */
+.skill-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #faf8f5;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.skill-item:hover {
+  background: #f8f4ed;
+  border-color: #e8e0d4;
+  transform: translateX(3px);
+}
+
+.skill-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.skill-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a3a2a;
+  margin-bottom: 2px;
+}
+
+.skill-desc {
+  font-size: 11px;
+  color: #9a8a7a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tier-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tier-common { background: #e8e6e4; color: #8a7a6a; }
+.tier-uncommon { background: #d4edda; color: #408b58; }
+.tier-rare { background: #cce5ff; color: #2b7bb9; }
+.tier-epic { background: #f3d4f9; color: #8b5cb4; }
+
+/* 装备槽 */
+.equipment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.equ-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: #faf8f5;
+  border-radius: 10px;
+}
+
+.equ-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #faf8f5;
+  border: 1px dashed #ddd4c8;
+  border-radius: 10px;
+  padding: 16px;
+  color: #c0b4a4;
+  font-size: 12px;
+}
+
+.equ-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.equ-icon {
+  font-size: 26px;
+}
+
+.equ-info {
+  flex: 1;
+}
+
+.equ-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a3a2a;
+  margin-bottom: 2px;
+}
+
+.equ-type {
+  font-size: 10px;
+  color: #9a8a7a;
+}
+
+/* ===== 底部操作栏 ===== */
+.action-panel {
+  background: white;
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 
+    0 1px 4px rgba(160, 138, 96, 0.06),
+    0 6px 16px rgba(160, 138, 96, 0.06);
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 12px;
+}
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  background: linear-gradient(135deg, #6b9c5a 0%, #5b8a4a 100%);
+  color: white;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 
+    0 2px 6px rgba(107, 156, 90, 0.25),
+    0 4px 12px rgba(107, 156, 90, 0.15);
+}
+
+.action-btn.secondary {
+  background: linear-gradient(135deg, #5b9bc4 0%, #4b8ab5 100%);
+  box-shadow: 
+    0 2px 6px rgba(91, 155, 196, 0.25),
+    0 4px 12px rgba(91, 155, 196, 0.15);
+}
+
+.action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 4px 10px rgba(107, 156, 90, 0.3),
+    0 6px 16px rgba(107, 156, 90, 0.2);
+}
+
+.action-icon {
+  font-size: 28px;
+}
+
+.action-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.action-cost {
+  font-size: 9px;
+  opacity: 0.9;
+}
+
+/* 响应式 */
+@media (max-width: 560px) {
+  .stats-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .stat-card:nth-child(4) { grid-column: span 2; }
+  .stat-card:nth-child(5) { grid-column: span 2; }
+  
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .avatar-circle {
+    width: 140px;
+    height: 140px;
+  }
+  
+  .avatar-inner {
+    font-size: 72px;
+  }
+  
+  .action-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 主舞台 -->
+  <div class="pet-display">
+    <div class="level-title">
+      <span class="level-badge">Lv. 42 • 完全体</span>
+    </div>
+    
+    <div class="avatar-wrapper">
+      <div class="avatar-frame">
+        <div class="avatar-decoration"></div>
+        <div class="avatar-circle">
+          <div class="avatar-inner">🐾</div>
+        </div>
+      </div>
+      
+      <!-- 数据网格 -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon">❤️</div>
+          <div class="stat-row-value">128/128</div>
+          <div class="progress">
+            <div class="progress-fill hp" style="width: 100%;"></div>
+          </div>
+          <div class="stat-label">HP</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-row-value">64/80</div>
+          <div class="progress">
+            <div class="progress-fill energy" style="width: 80%;"></div>
+          </div>
+          <div class="stat-label">Energy</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon">💚</div>
+          <div class="stat-row-value">42</div>
+          <div class="stat-label">Bond</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon">🍪</div>
+          <div class="stat-row-value">1,280</div>
+          <div class="stat-label">Coins</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-row-value">S</div>
+          <div class="stat-label">Rank</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 双栏内容区 -->
+  <div class="content-grid">
+    <!-- 技能面板 -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>⚔️</span>
+          Active Skills
+        </div>
+        <div class="panel-count">3 / 5</div>
+      </div>
+      <div class="skill-item">
+        <div class="skill-icon">💥</div>
+        <div class="skill-content">
+          <div class="skill-name">Heavy Blast</div>
+          <div class="skill-desc">Every 3rd hit deals 160% damage</div>
+        </div>
+        <div class="tier-badge tier-rare">RARE</div>
+      </div>
+      
+      <div class="skill-item">
+        <div class="skill-icon">💫</div>
+        <div class="skill-content">
+          <div class="skill-name">Life Steal</div>
+          <div class="skill-desc">Heals 12% of damage dealt</div>
+        </div>
+        <div class="tier-badge tier-uncommon">UNCOMMON</div>
+      </div>
+      
+      <div class="skill-item">
+        <div class="skill-icon">🛡️</div>
+        <div class="skill-content">
+          <div class="skill-name">Bubble Shield</div>
+          <div class="skill-desc">Blocks 50% when HP &lt; 20%</div>
+        </div>
+        <div class="tier-badge tier-common">COMMON</div>
+      </div>
+      
+      <div class="skill-item" style="opacity: 0.5;">
+        <div class="skill-icon">❓</div>
+        <div class="skill-content">
+          <div class="skill-name">Locked</div>
+          <div class="skill-desc">Reach Bond 80 to unlock</div>
+        </div>
+        <div class="tier-badge tier-common">LOCKED</div>
+      </div>
+    </div>
+
+    <!-- 装备面板 -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🎒</span>
+          Equipment
+        </div>
+        <div class="panel-count">2 / 4</div>
+      </div>
+      <div class="equipment-list">
+        <div class="equ-item">
+          <div class="equ-inner">
+            <div class="equ-icon">🗡️</div>
+            <div class="equ-info">
+              <div class="equ-name">Void Blade</div>
+              <div class="equ-type">Weapon • ATK +15%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equ-item">
+          <div class="equ-inner">
+            <div class="equ-icon">💎</div>
+            <div class="equ-info">
+              <div class="equ-name">Crystal Amulet</div>
+              <div class="equ-type">Accessory • DEF +10%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equ-empty">+ Empty Slot</div>
+        <div class="equ-empty">+ Empty Slot</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部操作栏 -->
+  <div class="action-panel">
+    <div class="action-row">
+      <div class="action-btn">
+        <div class="action-icon">🍖</div>
+        <div class="action-text">Feed</div>
+        <div class="action-cost">Free</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">💚</div>
+        <div class="action-text">Play</div>
+        <div class="action-cost">50 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">⚔️</div>
+        <div class="action-text">Battle</div>
+        <div class="action-cost">100 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">✨</div>
+        <div class="action-text">Train</div>
+        <div class="action-cost">80 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">🃏</div>
+        <div class="action-text">Gacha</div>
+        <div class="action-cost">500 Coins</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">🔧</div>
+        <div class="action-text">Build</div>
+        <div class="action-cost">Edit Loadout</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

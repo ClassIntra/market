@@ -1,12 +1,12 @@
 {
-  "version": 22,
-  "updated_at": "2026-10-30T06:35:00.000Z",
+  "version": 23,
+  "updated_at": "2026-10-30T13:32:06.684Z",
   "apps": [
     {
       "name": "chess",
       "label": "象棋",
-      "version": "1.14.2",
-      "description": "支持房间联机、人机练习（服务端 Pikafish 引擎三档棋力：快速/常规/大师，满子不让子，引擎不可用时自动回落内置 AI）、引擎分析面板（评分条与胜率、深度/节点/用时、Top-3 候选着法中文记谱与主变例，点候选即在棋盘标出该步）、本地双人与房间对战同样提供走子提示与棋局分析（分析可一键开关，关掉后仍可手动分析当前局面）、房主建房可选是否开放走子提示与候选分析（全员一致生效，胜率条始终可见，房间规则全员可见）、战事回顾（对局结束后可回放复盘：棋子逐步动画、箭头指引当前手、中文记谱文本列表可点击跳转，进度条可拖动定位任意一手，并显示双方被吃子与子力差；房间内只要房主不退出全部历史局都可回顾，进行中的本局也能随时回看，观战者同权，本地双人与人机同样支持；支持键盘操作 ←/→ 换手、空格播放暂停、Home/End 首末手、Esc 退出，长棋谱自动把当前手滚入视野）、规则完备判定（将死/认输判负，困毙判负，长将判负，双方同意和棋与六十回合自然限着判和，标题栏「和棋」按钮发起提和（与认输并列），对手提和时侧栏弹出同意/拒绝，可撤回）、被吃子账本随回合横幅常驻可见、房间内分析对所有人可见（观战者也能看到，同一局面走服务端缓存，观战扩容几乎不额外占引擎）、房间快捷聊天（侧栏三页切换：房间信息/聊天/引擎，玩家与观战者均可发言，消息随房间销毁）、观战与替补递补、换方、分享邀请到聊天/社区、服务端走子校验、悔棋认输、本地双人同屏与断线恢复的中国象棋",
+      "version": "1.15.1",
+      "description": "支持房间联机与跨班对局（凭房间码跨班加入，棋盘状态由建房的那台服务器权威持有，对班玩家走子与房间聊天实时同步）、人机练习（服务端 Pikafish 引擎三档棋力：快速/常规/大师，满子不让子，引擎不可用时自动回落内置 AI）、引擎分析面板（评分条与胜率、深度/节点/用时、Top-3 候选着法中文记谱与主变例，点候选即在棋盘标出该步）、本地双人与房间对战同样提供走子提示与棋局分析（分析可一键开关，关掉后仍可手动分析当前局面）、房主建房可选是否开放走子提示与候选分析（全员一致生效，胜率条始终可见，房间规则全员可见）、战事回顾（对局结束后可回放复盘：棋子逐步动画、箭头指引当前手、中文记谱文本列表可点击跳转，进度条可拖动定位任意一手，并显示双方被吃子与子力差；房间内只要房主不退出全部历史局都可回顾，进行中的本局也能随时回看，观战者同权，本地双人与人机同样支持；支持键盘操作 ←/→ 换手、空格播放暂停、Home/End 首末手、Esc 退出，长棋谱自动把当前手滚入视野）、规则完备判定（将死/认输判负，困毙判负，长将判负，双方同意和棋与六十回合自然限着判和，标题栏「和棋」按钮发起提和（与认输并列），对手提和时侧栏弹出同意/拒绝，可撤回）、被吃子账本随回合横幅常驻可见、房间内分析对所有人可见（观战者也能看到，同一局面走服务端缓存，观战扩容几乎不额外占引擎）、房间快捷聊天（侧栏三页切换：房间信息/聊天/引擎，玩家与观战者均可发言，消息随房间销毁）、观战与替补递补、换方、分享邀请到聊天/社区、服务端走子校验、悔棋认输、本地双人同屏与断线恢复的中国象棋",
       "author": "ClassIntra",
       "icon": "apps/chess/icon.svg",
       "files": [
@@ -29,19 +29,35 @@
         "backend/engine/NNUE-License.md": "7f3320aa61ceefecec1d5cd158d6d1d2a8adde93728e83a79448df50903c367b",
         "backend/engine/README.md": "28f8cfbe3c84ba38263695628cf2a58e2da6a947cfd5d40cc1f509b128c112c7",
         "backend/engine.js": "59b8109ad16bc5c87ca6dba38f973a9b4e72e8c5887493b361b990b8912424f0",
-        "backend/routes.js": "a78fd04880725fa3a8cf535cbea6fffc2a82f4906a86c4d836f9f0610452bae6",
+        "backend/routes.js": "171a6738898479bc061291cf57823359a6557a8dee235468988e10da6bc68ecb",
         "backend/rules.js": "cb7a804993cb64e7217133995346651be882c88e287a8c1caae95754d8608c50",
-        "frontend/entry.js": "bf8c3ee186e1ef3bd4357e37d90e3005cb7940ce59cde050c7a031ebd6617073",
-        "frontend/style.css": "b8332c738003350d9e652c93e5cb70471af7a4d9817b17c5442ab4e291e0b254",
+        "frontend/entry.js": "ea08904a0d2313525eef4dea6cd4cab75f6fe7d3faaf92703121ad92e3e8242b",
+        "frontend/style.css": "c2a130a3620756e16255607c66f659f572bf625e5941957626308ff09b24d361",
         "icon.svg": "6de1d4538e493c8b39c5ac9e3bd6b0a60d505a4b20a426ef3b33a26c5ce68c44",
-        "manifest.json": "b92ea0be576d9beaa33cc3771728804e9a21f4d8f8559cb72bfecc8f5ea46ea0",
+        "manifest.json": "a3e17a231d63327c9afc62699b9359bf62bfa05d0ef3b92b2b1dbdc73aab9682",
         "README.md": "539bb56e3dd44ca05ecc4c6da579afa006a06779d68b293b10379e481ac15a91"
-      }
+      },
+      "group": "game",
+      "capabilities": [
+        "data.http",
+        "data.realtime",
+        "system.clipboard",
+        "system.share",
+        "system.navigate",
+        "ui.modal"
+      ],
+      "screenshots": [],
+      "changelog": [
+        {
+          "version": "1.15.1",
+          "notes": "跨班对局：凭房间码跨班加入（棋盘状态由建房的那台服务器权威持有，走子与房间聊天实时同步）；界面接入宿主统一导航栏（返回/标题/操作按钮不再自绘一整行，屏幕空间更省）。"
+        }
+      ]
     },
     {
       "name": "gomoku",
       "label": "五子棋",
-      "version": "1.8.2",
+      "version": "1.8.4",
       "description": "支持房间联机、跨班对局、房间快捷聊天、本地双人对战、人机练习、观战与断线恢复的原生 DOM 五子棋",
       "author": "ClassIntra",
       "icon": "apps/gomoku/icon.svg",
@@ -50,21 +66,44 @@
         "apps/gomoku/frontend/entry.js",
         "apps/gomoku/frontend/style.css",
         "apps/gomoku/icon.svg",
-        "apps/gomoku/manifest.json"
+        "apps/gomoku/manifest.json",
+        "apps/gomoku/screenshots/01-overview.png",
+        "apps/gomoku/screenshots/02-light.png"
       ],
       "hashes": {
         "backend/routes.js": "6458256d3762b4fa00d2036541e070f2cda48727c4925fc652eaf65de7816983",
-        "frontend/entry.js": "a1f9179b77d5a2c5bb02a0febb062f59bb7183c940a0e90c6bae3c39e39d9b31",
-        "frontend/style.css": "96b7951d30e6f7f38d3d21a2bc88af3267c290547f34b3f24137f0381d5feca9",
+        "frontend/entry.js": "106e2cd3fa1fac2fe4a0ccd1244f66a3cccd7aeb6158b4edcc0c6a20375dae9e",
+        "frontend/style.css": "3a92183108d645bc20a76c62695785bc509ae8c100855375aa0aeb9dc50b80ee",
         "icon.svg": "8bd79d9b70a6bc1f896c3855b43411328260718f5488c633667be70ecbeba477",
-        "manifest.json": "819388f2c5889ed81179621435f92dffe7e9fa92ebcd3c3c06cf6fc528faed17"
-      }
+        "manifest.json": "e9ff17ae5cd92169acf2fef277afa81ff495168e01e15fd86e7c5d4378d72952",
+        "screenshots/01-overview.png": "5ab78a4cd6cea166ea2f2033dac2694ed5a59bfbff78e1d161bf72ddd8f4c5d1",
+        "screenshots/02-light.png": "5ab78a4cd6cea166ea2f2033dac2694ed5a59bfbff78e1d161bf72ddd8f4c5d1"
+      },
+      "group": "game",
+      "capabilities": [
+        "data.http",
+        "data.realtime",
+        "system.clipboard",
+        "system.share",
+        "system.navigate",
+        "ui.modal"
+      ],
+      "screenshots": [
+        "apps/gomoku/screenshots/01-overview.png",
+        "apps/gomoku/screenshots/02-light.png"
+      ],
+      "changelog": [
+        {
+          "version": "1.8.4",
+          "notes": "对局状态（轮次/身份）并入宿主导航栏标题旁，导航栏下方不再单独占一行；修复入场页按钮显隐。"
+        }
+      ]
     },
     {
       "name": "pet",
       "label": "桌宠",
-      "version": "0.17.0",
-      "description": "拼一只属于你的像素小家伙：领养它、装扮它，它住在你的桌面上。每只都有天生的性格（贪吃/粘人/高冷/好奇/贪睡），心情会随时段和你的照顾变化。五种属性相生相克，练级会进化，还能去野外收服野生精灵。陪它专注会掉小鱼干，夜里它站在星月下的草地上写日记。每天签到有礼，逗它笑、连点 15 秒还能再涨一波羁绊。",
+      "version": "0.25.0",
+      "description": "领养一只属于你的像素小家伙 —— 它住在一间夜里的小屋：窗外的月亮照进来，小窝、书桌、图鉴柜都摆在同一条地板上，每样东西都有影子。点食盆喂饭、点木门出门冒险、点书柜翻图鉴、点桌上的闹钟陪你专注，点它本体摸摸头，它还会自己在家溜达。五种属性相生相克，练级进化、收服野生精灵、每周轮换副本 Boss。内页与房间同一种像素语言：全幅紫墙、木底导航、像素图标、砖红挑战按钮。",
       "author": "ClassIntra",
       "icon": "apps/pet/icon.svg",
       "files": [
@@ -210,7 +249,9 @@
         "apps/pet/frontend/overlay.js",
         "apps/pet/frontend/style.css",
         "apps/pet/icon.svg",
-        "apps/pet/manifest.json"
+        "apps/pet/manifest.json",
+        "apps/pet/screenshots/01-overview.png",
+        "apps/pet/screenshots/02-light.png"
       ],
       "hashes": {
         "assets/anim-pools.json": "8ed0732f568d03b37392e714e750757cec2426590a2be8f7282cd1d64579a0d6",
@@ -355,8 +396,25 @@
         "frontend/overlay.js": "f6e0181fcf7e3070a97279a5c01c3fe02e8a2287712b6841946cf4b1233ce0ab",
         "frontend/style.css": "70494a7b690fdd50f93a8a3c7b996d71c66b4906004f37dacab952119f82f333",
         "icon.svg": "428a12ac4ec6f6dee430811187ec9015eeb52beaa36d5c93ea5c34a33fa8bcf5",
-        "manifest.json": "7b2f7d322db0ef55b52f61afcb2146d6c8549947de8b72b8190326d2d56f97af"
-      }
+        "manifest.json": "7b2f7d322db0ef55b52f61afcb2146d6c8549947de8b72b8190326d2d56f97af",
+        "screenshots/01-overview.png": "503472673bc1deb97e1857315ecf7be5a0d5e800758fa2a9b8a868c7aedad133",
+        "screenshots/02-light.png": "e72d8019a6b56185e8afd2bd655a13d8e1122f8b55b87901a42fd5b6937942a9"
+      },
+      "group": "life",
+      "capabilities": [
+        "data.storage",
+        "data.http"
+      ],
+      "screenshots": [
+        "apps/pet/screenshots/01-overview.png",
+        "apps/pet/screenshots/02-light.png"
+      ],
+      "changelog": [
+        {
+          "version": "0.17.0",
+          "notes": "领养与装扮、五种性格、五属性相生相克、桌面悬浮层；离线时光与每日奇遇。"
+        }
+      ]
     }
   ],
   "plugins": [
@@ -383,7 +441,13 @@
         "backend/routes.js": "9fd2389786326ab360432bf1b3cd975732b88a7fd91ff630951f90e2b3daf9ce",
         "manifest.json": "21cf71d0f4efa0f3ef08d210b6408fd49def9025efb0f1f76ca86ec83489f749",
         "README.md": "ee1a69fa81c296e988b310c87645a042cdcbdd50c7869897af96ca3868298d4d"
-      }
+      },
+      "changelog": [
+        {
+          "version": "1.1.0",
+          "notes": "AstrBot 机器人以独立账号接入私聊与公共聊天室；支持 OneBot v11 反向 WS 与 HTTP 直调两种管线。"
+        }
+      ]
     },
     {
       "name": "campusbili-bridge",
@@ -404,7 +468,13 @@
         "manifest.json": "e5a0a2494d50ccdd6f95feb00336bbbbe49e04ba0b860ef708a313e9f83ff83c",
         "README.md": "6bf2f6b1564cddfb5831725cb8d49b90164f7cf0064ec040cfef54d61739c227",
         "shared/contract.js": "c6b59e951075d2eae37be79b1bc003e0a22cbec9f5b55af713422a2f4d1fe602"
-      }
+      },
+      "changelog": [
+        {
+          "version": "1.2.1",
+          "notes": "CampusBili 统一联动（v1.1 协议）：postMessage 契约、身份注入、视频控制与静音联动。"
+        }
+      ]
     },
     {
       "name": "netease-music",
@@ -441,7 +511,13 @@
         "cli.js": "7dff568bd036ee8421d21cace6fd51b3539c7a6d5547aa9d398dc4680acfd4ff",
         "manifest.json": "bbee56eab98f64a9bb66cfc3c75858b6d76153f2cf60f68b7c3ba26e50a70b08",
         "README.md": "f23d1f00b752b37f663f02a2ac920b350c4174417d147272264857bebb824b07"
-      }
+      },
+      "changelog": [
+        {
+          "version": "1.1.6",
+          "notes": "修复 GET/POST /admin/config 永久 401：插件路由补挂 requireAuth。"
+        }
+      ]
     },
     {
       "name": "web-proxy",
@@ -478,7 +554,13 @@
         "manifest.json": "3017aae4f0abec6595a5520b758a6509ca13b86a0f0412c57217606116dca6ac",
         "README.md": "a68178d3e4193b241e3b971ace7abe180753d73ccb2328ab27c116773fcc9148",
         "shared/contract.js": "fe9916a2bfa71e9d5ec40a3ce8618d120b09dcd0ddd5505e2f994ddec6246a4a"
-      }
+      },
+      "changelog": [
+        {
+          "version": "1.0.27",
+          "notes": "精简代理排除规则——只排除 9000–9999（ClassIntra 自研服务段），其余地址含局域网 / 内网，手动开启开关即可走代理。"
+        }
+      ]
     }
   ],
   "themes": []

@@ -114,7 +114,6 @@
 }
 
 /* ===== 布局原语：用相邻兄弟 margin 替代 flex gap ===== */
-.gomoku-header,
 .gomoku-layout,
 .gomoku-entry-row {
   display: -webkit-box;
@@ -137,101 +136,43 @@
 }
 
 /*
- * 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
- * 本头部吸顶承担标题栏职责（返回 + 标题 + 状态 + 操作），
- * 与宿主 AppShell 导航栏同款毛玻璃质感。
+ * 对局信息条（1.8.4）：标题栏职责（返回/标题/状态/操作按钮）已全部移交宿主 AppNavBar——
+ * 状态/房间/身份打包在 .gomoku-nav-status 里注入导航栏中轴（标题右侧灰色小字），
+ * 右区（连接灯+操作按钮）注入导航栏右区；本 statusbar 只是节点搬运前的兜底宿主，
+ * 节点全部搬走后变空壳，:empty 整行藏掉，导航栏下方不再占任何高度。
  */
-.gomoku-header {
-  position: -webkit-sticky;
-  position: sticky;
-  top: 0;
-  z-index: 40;
+.gomoku-statusbar {
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  /* 左对齐流式布局：返回 → 标题 → 对局信息段 →（推最右）连接灯+操作 */
+  /* 左对齐流式布局：信息段包装 →（推最右）连接灯+操作 */
   -webkit-box-pack: start;
   -ms-flex-pack: start;
   justify-content: flex-start;
-  /* app 无内边距，标题栏天然全宽贴顶贴边；底部留 14px 与内容分隔 */
-  margin: 0 0 14px;
-  /* 对齐 AppShell 导航栏规格：44px 高、底部 0.5px 分隔线、同款毛玻璃，无圆角无阴影 */
-  min-height: 44px;
-  padding: 4px 8px;
-  background-color: var(--nav-bg, rgba(255, 255, 255, 0.8));
-  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px)); backdrop-filter: var(--glass-blur-container, blur(20px));
-  border-bottom: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
+  margin: 0 0 10px;
+  min-height: 30px;
+  padding: 2px 8px;
 }
 
-.gomoku-back {
-  display: -webkit-box;
-  display: -ms-flexbox;
-  display: flex;
+/* 节点被宿主导航栏搬空后不留空行（appendChild 摘除后无任何子节点） */
+.gomoku-statusbar:empty {
+  display: none;
+}
+
+/* 状态段包装：statusbar 兜底与导航栏中轴（.ci-host-navbar 内）共用同一套外观 */
+.gomoku-nav-status {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  border: 0;
-  background: transparent;
-  /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
-  color: var(--primary-color, var(--gomoku-accent, #007aff));
-  font: inherit;
-  font-size: var(--font-size-body, 17px);
-  padding: 6px 8px 6px 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
-  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
-}
-
-/* 纯 CSS 左箭头（不依赖图标字体） */
-.gomoku-back::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  margin-right: 5px;
-  border-left: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  -webkit-transform: rotate(45deg);
-  transform: rotate(45deg);
-}
-
-@media (hover: hover) {
-  .gomoku-back:not(:disabled):hover { opacity: .72; }
-}
-.gomoku-back:active { opacity: .6; }
-
-/* 三区布局镜像 AppShell 导航栏：左返回（≥70px）/ 中标题水平居中 / 右状态+操作（≥70px） */
-.gomoku-header-left {
-  display: -webkit-box;
-  display: -ms-flexbox;
-  display: flex;
-  -webkit-box-align: center;
-  -ms-flex-align: center;
-  align-items: center;
-  min-width: 70px;
-  margin: 0;
-}
-
-/*
- * 标题与其他应用一致：靠左紧跟返回按钮，不绝对居中。
- * 对局信息段（.gomoku-subtitle）随其后可截断；连接灯+按钮由 margin-left:auto 推到最右。
- */
-.gomoku-header h1 {
-  margin: 0 0 0 10px;
-  /* 统一粗体标题（与其他应用一致）：15px / bold / 主文字色，单行不换行 */
-  -ms-flex-negative: 0;
-  flex-shrink: 0;
-  font-size: 15px;
-  line-height: 1.2;
-  font-weight: var(--font-weight-bold, 700);
-  color: var(--text-primary, #000);
-  white-space: nowrap;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.gomoku-header-right {
+/* 右区（连接灯 + 操作按钮）：注入宿主导航栏后此处通常为空壳 */
+.gomoku-statusbar-right {
   display: -webkit-box;
   display: -ms-flexbox;
   display: flex;
@@ -241,55 +182,49 @@
   -webkit-box-pack: end;
   -ms-flex-pack: end;
   justify-content: flex-end;
-  min-width: 70px;
-  margin: 0 0 0 auto; /* margin-left auto 把右区推到最右（中区脱离文档流后 flex 无第三项） */
+  margin: 0 0 0 auto;
 }
 
-/* 右区三类信息（对局信息段/连接灯/操作按钮）统一 10px 间距 */
-.gomoku-header-right > * + * { margin-left: 10px; }
+/* 右区两类信息（连接灯/操作按钮）统一 10px 间距 */
+.gomoku-statusbar-right > * + * { margin-left: 10px; }
 
-/* 标题栏按钮间距收紧（全局 16px → 12px）：房间模式五按钮总宽压到 ~335px */
-.gomoku-header .gomoku-actions > * + * { margin-left: 12px; }
+/* 操作按钮间距收紧（全局 16px → 12px） */
+.gomoku-statusbar .gomoku-actions > * + *,
+.ci-host-navbar .gomoku-actions > * + * { margin-left: 12px; }
 
-/* 对局信息段（标题右侧）：轮次 + 模式/房间 + 身份，三段「·」分隔。
-   可收缩截断（flex-shrink + ellipsis），空间不足时优先让位给右区按钮；隐藏段不占位。
-   margin-left 12px 与标题拉开距离：15px 粗体紧贴 11px 小字会视觉粘连 */
-.gomoku-header .gomoku-subtitle {
-  display: block;
-  min-width: 0;
-  -ms-flex-negative: 1;
-  flex-shrink: 1;
-  margin: 0 0 0 12px;
+/* 信息段文字（状态/房间/身份）：小号灰字，导航栏中轴与标题同行 */
+.gomoku-nav-status > * {
   font-size: 11px;
   line-height: 1.3;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* 三段（轮次/模式/身份）之间的间隔点；隐藏段（hidden/:empty）自身的 ::before 一并不渲染。
-   间距 9px：11px 小字下 5px 会让信息段挤成一团 */
-.gomoku-subtitle > * + *::before {
+/* 三段之间的间隔点；空段自身的 ::before 一并不渲染 */
+.gomoku-nav-status > * + *::before {
   content: '·';
   margin: 0 9px;
 }
 
-.gomoku-subtitle [data-role="identity"]:empty {
+/* 空段整段不渲染（含自身的间隔点）：房号段在导航栏标题已带房号时会被清空，
+   不藏的话会留下一个孤立的「·」 */
+.gomoku-nav-status > *:empty {
   display: none;
 }
 
-/* 轮次状态在标题栏信息段内必须 inline：<p> 默认块级会独占一行，
-   把信息段撑成两行并溢出 44px 标题栏，与标题文字重叠（v1.6.9 实测截图踩坑） */
-.gomoku-header .gomoku-status {
-  display: inline;
+.gomoku-nav-status [data-role="identity"]:empty {
+  display: none;
 }
 
-/* 轮次状态已并入副标题（.gomoku-subtitle 内 11px 次要色），右区不再单独排状态文字 */
-
-/* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影；
-   紧凑内边距控制右区总宽（≈390px），保 1010px 断点内标题不与右区重叠 */
-.gomoku-header .gomoku-actions button {
+/* 状态必须 inline：<p> 默认块级会独占一行撑破信息条/导航栏 */
+.gomoku-nav-status .gomoku-status {
+  display: inline;
+  margin: 0;
+  color: var(--text-secondary, rgba(60, 60, 67, .6));
+}
+/* 导航栏/信息条内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影 */
+.gomoku-statusbar .gomoku-actions button,
+.ci-host-navbar .gomoku-actions button {
   padding: 4px 8px;
   font-size: 13px;
   font-weight: 500;
@@ -300,17 +235,20 @@
   box-shadow: none;
 }
 
-.gomoku-header .gomoku-actions button.is-secondary {
+.gomoku-statusbar .gomoku-actions button.is-secondary,
+.ci-host-navbar .gomoku-actions button.is-secondary {
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   background: transparent;
   box-shadow: none;
 }
 
-.gomoku-header .gomoku-actions button:disabled { opacity: .35; }
+.gomoku-statusbar .gomoku-actions button:disabled,
+.ci-host-navbar .gomoku-actions button:disabled { opacity: .35; }
 
 /* 透明背景按钮在标题栏内不适用浮起反馈，改用透明度 */
 @media (hover: hover) {
-  .gomoku-header .gomoku-actions button:not(:disabled):hover {
+  .gomoku-statusbar .gomoku-actions button:not(:disabled):hover,
+  .ci-host-navbar .gomoku-actions button:not(:disabled):hover {
     -webkit-filter: none;
     filter: none;
     -webkit-transform: none;
@@ -318,7 +256,8 @@
     opacity: .7;
   }
 }
-.gomoku-header .gomoku-actions button:not(:disabled):active {
+.gomoku-statusbar .gomoku-actions button:not(:disabled):active,
+.ci-host-navbar .gomoku-actions button:not(:disabled):active {
   -webkit-transform: none;
   transform: none;
   opacity: .5;
@@ -628,12 +567,14 @@
   box-shadow: 0 0 0 3px rgba(239, 68, 68, .16);
 }
 
-/* 标题栏内灯体纯化为圆点：文字转存 title（悬停可查），右区宽度从 ~150px 压到 8px */
-.gomoku-header .gomoku-conn {
+/* 导航栏/信息条内灯体纯化为圆点：文字转存 title（悬停可查） */
+.gomoku-statusbar .gomoku-conn,
+.ci-host-navbar .gomoku-conn {
   font-size: 0;
 }
 
-.gomoku-header .gomoku-conn::before {
+.gomoku-statusbar .gomoku-conn::before,
+.ci-host-navbar .gomoku-conn::before {
   margin-right: 0;
 }
 
@@ -1158,13 +1099,13 @@
   .gomoku-shell {
     padding: 12px;
   }
-  /* 窄屏两行布局：返回+标题+信息一行放不下时右区整行换到下（右对齐与桌面一致） */
-  .gomoku-header {
+  /* 窄屏两行布局：信息段+右区单行放不下时右区整行换到下 */
+  .gomoku-statusbar {
     margin: 0 0 12px;
     -ms-flex-wrap: wrap;
     flex-wrap: wrap;
   }
-  .gomoku-header-right {
+  .gomoku-statusbar-right {
     -ms-flex-preferred-size: 100%;
     flex-basis: 100%;
     margin: 8px 0 0;
@@ -1255,8 +1196,8 @@
     -ms-flex-align: center;
     align-items: center;
   }
-  /* 顶栏：app 纵向 flex 的首个子项，全宽贴顶贴边（app 无内边距） */
-  .gomoku-header {
+  /* 信息条：app 纵向 flex 的首个子项 */
+  .gomoku-statusbar {
     -webkit-flex-shrink: 0;
     -ms-flex-negative: 0;
     flex-shrink: 0;
@@ -1286,7 +1227,7 @@
     -ms-flex-line-pack: center;
     align-content: center;
   }
-  /* 棋盘：吃掉视口剩余高度（顶栏 44 + 下距 10 + shell 内边距 22 ≈ 76px，预算 80px；
+  /* 棋盘：吃掉视口剩余高度（信息条 30 + 下距 10 + shell 内边距 22 ≈ 62px，预算 80px 留余；
      roombar 行已并入标题栏，预算从 100px 收紧，横屏棋盘扩大约 20px） */
   .gomoku-board {
     width: min(900px, 100%, calc(100vh - 80px));

@@ -71,17 +71,13 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'undo', text: '悔棋' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
-    // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
-    // 本头部承担标题栏职责。布局与其他应用一致：标题靠左紧跟返回按钮，
-    // 对局信息段（轮次/模式/身份）随其后可截断，右区灯+按钮推到最右
-    var head = t('div', 'gomoku-header', null, [
-      t('div', 'gomoku-header-left', null, [
-        t('button', 'gomoku-back', { type: 'button', 'data-action': 'home', text: '返回' })
-      ]),
-      t('h1', 'gomoku-title', { text: '五子棋' }),
-      // 对局信息动态三段（轮次在前，截断只截静态尾部）：status/room/identity 经 data-role 原地更新
-      t('span', 'gomoku-subtitle', null, [status, room, identity]),
-      t('div', 'gomoku-header-right', null, [connection, actions])
+    // 标题栏职责（返回 + 标题 + 状态 + 右侧操作）已全部移交宿主 AppNavBar：
+    // 状态/房间/身份打包成 .gomoku-nav-status 注入导航栏中轴（标题右侧灰色小字）；
+    // 连接灯与操作按钮注入右区。节点先挂进页面 statusbar 兜底（旧版宿主原地可见），
+    // 全部搬走后 statusbar 变空，CSS :empty 整行藏掉。
+    var head = t('div', 'gomoku-statusbar', null, [
+      t('span', 'gomoku-nav-status', null, [status, room, identity]),
+      t('div', 'gomoku-statusbar-right', null, [connection, actions])
     ]);
 
     var sizeSelect = t('select', null, { 'data-field': 'size', 'data-size': '15' }, [
@@ -174,10 +170,10 @@
     var info = t('aside', 'gomoku-info', null, [tabs, infoPanel, chat]);
     var layout = t('div', 'gomoku-layout', null, [board, info]);
 
-    // 标题栏是 .gomoku-app 的直接子级（shell 之外）：
-    // shell 有 max-width 居中限宽，header 留在里面永远贴不到视口边缘，
-    // 吸顶也会被限宽块「架空」；移出后全宽贴顶贴边。
-    // roombar 已并入标题栏（模式/身份做副标题、连接灯进右区），shell 内不再有独立行
+    // 信息条是 .gomoku-app 的直接子级（shell 之外）：
+    // shell 有 max-width 居中限宽，信息条留在里面会被限宽块约束；
+    // 移出后与棋盘区对齐全宽。
+    // roombar 已并入信息条（模式/身份、连接灯在右区），shell 内不再有独立行
     return t('section', 'gomoku-app', null, [
       head,
       t('div', 'gomoku-shell', null, [entry, error, layout])
@@ -243,6 +239,9 @@
     // 渲染热路径复用的节点引用：render 每次点击/推送都会跑，
     // querySelector 全家桶挪到 mount 时一次性缓存
     var headerActionButtons = root.querySelectorAll('.gomoku-actions [data-action], .gomoku-room-tools [data-action]');
+    // 标题栏右区的按钮组容器：节点会整块搬进宿主导航栏（见 mount 收尾的 hostNavbar 注入），
+    // 但引用始终有效——render 的显隐/禁用逻辑与 setBusy 的补充遍历都靠它
+    var actionsDivElement = root.querySelector('.gomoku-actions');
     var leaveButton = root.querySelector('[data-action="leave"]');
     var undoButton = root.querySelector('[data-action="undo"]');
     var continueButton = root.querySelector('[data-action="continue"]');
@@ -1403,7 +1402,14 @@
       }
       // 房间模式加标记类：本地/单机模式右区更窄，竖屏窄屏媒体查询据此调整
       root.classList.toggle('gomoku-room-mode', mode === 'room' && !!roomCode);
-      setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
+      // 宿主导航栏标题：进入房间后带上房号（store 有同值短路，render 热路径随便调）
+      if (hostNavbarApi) {
+        hostNavbarApi.setTitle(mode === 'room' && roomCode ? '五子棋 · 房 ' + roomCode : '五子棋');
+      }
+      // 房间段：导航栏标题已带「· 房 XXXX」时省略重复（旧宿主信息条兜底时维持原文案）
+      setText(roomElement, mode === 'solo' ? '人机练习'
+        : mode === 'local' ? '本地对战'
+        : (roomCode ? (hostNavbarApi ? '' : '房间 ' + roomCode) : (hostNavbarApi ? '' : '未进入房间')));
       setText(identityElement, mode === 'solo' ? '我执黑 · 电脑执白' : mode === 'local' ? '双人同屏 · 黑方先手' : (member ? (member.role === 'spectator' ? '观战者' : member.role === 'owner' ? '房主 · ' + (member.color === 'black' ? '黑棋' : '白棋') : member.color === 'black' ? '黑棋' : '白棋') : ''));
       // 房间内对手未加入：后端放行自由摆棋，状态条给出提示而非轮次
       var soloRoom = mode === 'room' && state.status === 'active' && !state.winner && state.members.filter(function(m) { return m.color; }).length < 2;
@@ -1618,6 +1624,12 @@
       // 一起禁用会造成「网络慢时聊天页打不开」——用户视角是按钮坏了
       var buttons = root.querySelectorAll('[data-action]:not([data-action="home"]):not([data-action="tab-info"]):not([data-action="tab-chat"])');
       for (var i = 0; i < buttons.length; i++) buttons[i].disabled = flag;
+      // 标题栏按钮组已搬进宿主导航栏（不在 root 子树内），单独遍历——
+      // 漏掉这组的话走子在途时导航栏按钮仍可点，连点「悔棋」会发两次请求
+      if (actionsDivElement) {
+        var navButtons = actionsDivElement.querySelectorAll('[data-action]');
+        for (var n = 0; n < navButtons.length; n++) navButtons[n].disabled = flag;
+      }
     }
     function onBoardClick(event) {
       var cell = event.target.closest('.gomoku-cell');
@@ -1757,6 +1769,7 @@
     if (context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
         disposed = true;
+        if (hostNavbarApi) { try { hostNavbarApi.clear(); } catch (e) {} }
         if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
         removeBoardClick();
         removeRootClick();
@@ -1766,7 +1779,31 @@
         clearChildren(container);
       });
     }
-    container.__gomokuUnmount = function() { disposed = true; if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; } if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode }); removeBoardClick(); removeRootClick(); removeChatInput(); subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); }); subscriptions = []; clearChildren(container); delete container.__gomokuUnmount; };
+    // 标题栏职责移交宿主 AppNavBar（1.8.3）：返回/标题由宿主导航栏承担，
+    // 连接灯与操作按钮整块搬进宿主导航栏右区。DOM 搬运 = appendChild 自动从
+    // statusbar 摘除，事件监听随节点走，render 的显隐/禁用逻辑零改动。
+    // 宿主导航栏不可用（旧版宿主）时节点原地留在 statusbar，优雅降级。
+    var hostNavbarApi = (context.ui && typeof context.ui.hostNavbar === 'object') ? context.ui.hostNavbar : null;
+    if (hostNavbarApi) {
+      hostNavbarApi.setTitle(roomCode ? '五子棋 · 房 ' + roomCode : '五子棋');
+      // 状态段（轮次/房间/身份）注入导航栏中轴：整块搬运，render 零改动
+      hostNavbarApi.setStatus(root.querySelector('.gomoku-nav-status'));
+      hostNavbarApi.setActions([
+        { id: 'connection', element: connectionElement },
+        { id: 'actions', element: actionsDivElement }
+      ]);
+    }
+    container.__gomokuUnmount = function() {
+      disposed = true;
+      if (hostNavbarApi) { try { hostNavbarApi.clear(); } catch (e) {} }
+      if (soloTimer) { clearTimeout(soloTimer); soloTimer = null; }
+      if (roomCode) send({ type: 'gomoku_unsubscribe', room_code: roomCode });
+      removeBoardClick(); removeRootClick(); removeChatInput();
+      subscriptions.forEach(function(remove) { if (typeof remove === 'function') remove(); });
+      subscriptions = [];
+      clearChildren(container);
+      delete container.__gomokuUnmount;
+    };
     // 会话恢复：路由未带房间码时，恢复上次对局——
     // 单机局直接还原棋盘（AI 思考中被打断则续上）；房间码经 loadState 校验存活，房间已关则自然回入场页
     var savedSession = routeRoom ? null : readSession();

@@ -193,6 +193,228 @@
   };
   var ELEMENT_ORDER = ['fire', 'grass', 'earth', 'electric', 'water'];
 
+  // ================= 像素小图标（v0.25.0）====================
+  // 内页原来满屏 emoji（⚔️🗺️🎒🏆🔥🌿⛰️⚡💧🏠）：每个 emoji 都是一张系统彩色贴图，
+  // 大小、配色、描边全不受控。它和 5px 像素家具同屏时，一眼就能看出「两个世界」——
+  // 这正是「内页不像小家」的第一来源。
+  // 做法：和家具同一套流水线 —— 12×12 字符画 → pxArt() → 内联 SVG（自带 1px 内描边）。
+  // 12px 画布按 24px 显示 = 每格 2px，整数缩放，永远清晰。
+  // ⚠️ 每行必须正好 12 个字符（探针里有长度断言），少于 12 会自动补透明格，
+  //    美术贴边就丢描边。palette 只用单个 ASCII 小写键，别用两位键。
+  var PIX_ICONS = {
+    // 火：焰心高光在下方，焰尖偏左（和房间壁炉同向的动势）
+    fire: { pal: { a: '#b8331f', b: '#e8562f', c: '#ffb05c' }, rows: [
+      '............',
+      '.....a......',
+      '....aba.....',
+      '....aba.....',
+      '...abbba....',
+      '..abbbbba...',
+      '..abbcbba...',
+      '.abbcccbba..',
+      '.abbbccbba..',
+      '..abbbbba...',
+      '....aba.....',
+      '.....a......'
+    ] },
+    // 草：一片斜出的叶子，主脉用高光
+    grass: { pal: { a: '#245c33', b: '#3f9a53', c: '#7fd07a' }, rows: [
+      '............',
+      '........aaa.',
+      '......aabbba',
+      '.....abcbbba',
+      '....abcbbbba',
+      '...abcbbbbba',
+      '...abcbbbbba',
+      '..abbbbbbbba',
+      '..abbbbbbba.',
+      '...aabbbba..',
+      '......aaa...',
+      '............'
+    ] },
+    // 土：山体双峰，左侧受光
+    earth: { pal: { a: '#5a3d23', b: '#96693c', c: '#c9a06a' }, rows: [
+      '............',
+      '............',
+      '.....aa.....',
+      '....abba....',
+      '....abba....',
+      '...abccba...',
+      '...abccba...',
+      '..abcbbbba..',
+      '..abbbbbba..',
+      '.abbcbbbbba.',
+      '.aaaaaaaaaa.',
+      '............'
+    ] },
+    // 电：折角闪电，右侧留充能空隙
+    electric: { pal: { a: '#8a5a00', b: '#e6b02a', c: '#ffe27a' }, rows: [
+      '............',
+      '......aaaa..',
+      '.....abbba..',
+      '....abba....',
+      '...abba.....',
+      '..abbbbbba..',
+      '..abbbbba...',
+      '.....abba...',
+      '....abba....',
+      '...abba.....',
+      '...aaa......',
+      '............'
+    ] },
+    // 水：水滴，左上一点高光
+    water: { pal: { a: '#1c4f8a', b: '#3a86c9', c: '#9fd2f0' }, rows: [
+      '............',
+      '.....aa.....',
+      '....abba....',
+      '....abba....',
+      '...abbbba...',
+      '..abbbbbba..',
+      '..acbbbbba..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '...abbbba...',
+      '....aaaa....',
+      '............'
+    ] },
+    // 剑：战力。竖刃 + 护手 + 柄头，四点都压在格子中心，24px 下不糊
+    sword: { pal: { a: '#6b6b78', b: '#c9ccd6', c: '#ffd76e' }, rows: [
+      '.....aa.....',
+      '....abba....',
+      '....abba....',
+      '....abba....',
+      '..aaacaaa...',
+      '....abba....',
+      '....abba....',
+      '....abba....',
+      '....abba....',
+      '.....aa.....',
+      '............',
+      '............'
+    ] },
+    // 交叉双剑：对战
+    fight: { pal: { a: '#6b6b78', b: '#c9ccd6', c: '#ffd76e' }, rows: [
+      'aa........aa',
+      'aba......aba',
+      '.aba....aba.',
+      '..aba..aba..',
+      '...abaaba...',
+      '....abba....',
+      '...abaaba...',
+      '..aba..aba..',
+      '.aba....aba.',
+      'aa........aa',
+      '............',
+      '............'
+    ] },
+    // 藏宝图：副本入口。折缝 + 红叉，比「卷轴」更像「去哪儿」
+    env: { pal: { a: '#8a5a2a', b: '#e8d3a8', c: '#c0392b' }, rows: [
+      '............',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '..abbcbcba..',
+      '..abbcbcba..',
+      '..abbbbbba..',
+      '..abcaacba..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '..aaaaaaaa..',
+      '............',
+      '............'
+    ] },
+    // 背包：备战
+    build: { pal: { a: '#5a3d23', b: '#a8703c', c: '#ffd76e' }, rows: [
+      '............',
+      '.....aa.....',
+      '....a..a....',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '..abbccbba..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '..aaaaaaaa..',
+      '............',
+      '............'
+    ] },
+    // 奖杯：荣誉
+    honor: { pal: { a: '#8a5a00', b: '#e6b02a', c: '#fff0b8' }, rows: [
+      '............',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '.aabbbcbbaa.',
+      '.aabbbbbbaa.',
+      '..abbbbbba..',
+      '...abbbba...',
+      '....abba....',
+      '.....aa.....',
+      '...abbbba...',
+      '..aaaaaaaa..',
+      '............'
+    ] },
+    // 小屋：回家
+    home: { pal: { a: '#3a2619', b: '#a8703c', c: '#ffd76e' }, rows: [
+      '............',
+      '.....aa.....',
+      '....abba....',
+      '...abbbba...',
+      '..abbbbbba..',
+      '.abbbbbbbba.',
+      '.abbbbbbbba.',
+      '.abbbbbbbba.',
+      '.abbaaabbba.',
+      '.abba.abbba.',
+      '.aaaaaaaaaa.',
+      '............'
+    ] },
+    // 小鱼干：货币（和小家 HUD 的 🐟 是同一件东西）
+    fish: { pal: { a: '#2a4a63', b: '#7fb2cf', c: '#e8f6ff' }, rows: [
+      '............',
+      '............',
+      '...aaaa.....',
+      '..abbbbaa...',
+      '.abbbcbbba..',
+      '.abbbbbbbba.',
+      '..abbbbbba..',
+      '...aaaaaa...',
+      '............',
+      '............',
+      '............',
+      '............'
+    ] },
+    // 关闭：抽屉右上角的 X（原来是一个 ✕ 字形，粗细随字体变）
+    close: { pal: { a: '#3a2619', b: '#e8d3a8' }, rows: [
+      '............',
+      '..aa....aa..',
+      '..aba..aba..',
+      '...abaaba...',
+      '....abba....',
+      '.....aa.....',
+      '....abba....',
+      '...abaaba...',
+      '..aba..aba..',
+      '..aa....aa..',
+      '............',
+      '............'
+    ] }
+  };
+  // 取图标：拿不到就返回 null，调用方自行回退（绝不抛错，图标缺一个不该白屏）
+  function pixIcon(name, cls) {
+    var ic = PIX_ICONS[name];
+    if (!ic) return null;
+    var box = h('span', 'ci-pixico' + (cls ? ' ' + cls : ''));
+    box.innerHTML = pxArt(12, 12, ic.rows, ic.pal);
+    return box;
+  }
+  // 图标 + 文本的通用拼装：先清空再挂，供 fillHud 反复刷新时复用
+  function setIconText(el, iconName, text) {
+    if (!el) return;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    var ic = pixIcon(iconName);
+    if (ic) el.appendChild(ic);
+    el.appendChild(document.createTextNode(text == null ? '' : String(text)));
+  }
+
   // 互动图标：一套 24px 线性图标，统一 1.7 描边、圆角端点。
   // 换成 SVG 的理由见 bigBtn 上面的注释 —— emoji 的配色不受控，四个按钮四种色。
   var ICONS = {
@@ -246,7 +468,12 @@
   }
   function elementChip(id, text) {
     var e = elementOf(id);
-    return h('span', 'ci-pet-el ci-pet-el--' + e.id, e.icon + ' ' + (text || e.name));
+    // v0.25.0：图标改成像素图（原来是服务端下发的 emoji，配色不受控）
+    var el = h('span', 'ci-pet-el ci-pet-el--' + e.id);
+    var ic = pixIcon(e.id, 'ci-pet-el-ico');
+    if (ic) el.appendChild(ic);
+    el.appendChild(document.createTextNode(text || e.name));
+    return el;
   }
   // 本地算属性倍率（不依赖服务端返回，勋章/难度标签都能立刻跟着换）
   function localTypeMul(a, b) {
@@ -747,20 +974,23 @@
     interactCombo++;
     interactComboLastAt = now;
     if (interactComboTimer) { clearTimeout(interactComboTimer); interactComboTimer = null; }
-    interactComboTimer = setTimeout(function() { interactCombo = 0; try { renderHome(); } catch (e) {} }, 9000);
+    // ⚠️ 这里原来每点一次都 renderHome()。后果是：一次点击 = clearRoot + 重建整间屋子，
+    //    于是「按下的 3px」「回弹」「角色刚走出的半步」全部在下一帧被抹掉，
+    //    角色还会瞬移回初始位置（42%）。点得越勤，屋子闪得越厉害 ——
+    //    这是全场最伤手感的一处，而且它伪装成「连击提示」躲在计数逻辑里。
+    //    连击只在 3/5/7/10 次弹一条提示，没有任何常驻 UI 依赖重绘。
+    interactComboTimer = setTimeout(function() { interactCombo = 0; }, 9000);
     if (interactCombo === 3 || interactCombo === 5 || interactCombo === 7 || interactCombo === 10) {
       try { sysToast('连击 x' + interactCombo + '！', 'success'); } catch (e) {}
       try { if (window.__ciPetSfx) window.__ciPetSfx.play('click'); } catch (e) {}
-      if (root) {
-        var hero = root.querySelector('.ci-pet-hero');
-        if (hero) {
-          var el = h('span', 'ci-pet-combo-float', '连击 x' + interactCombo + '!');
-          hero.appendChild(el);
-          setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 1400);
-        }
+      // 连击浮字挂在「角色身上」（小家没有 .ci-pet-hero，原来这条在首页永远不显示）
+      var anchor = root ? (root.querySelector('.world-pet') || root.querySelector('.ci-pet-hero')) : null;
+      if (anchor) {
+        var el = h('span', 'ci-pet-combo-float', '连击 x' + interactCombo + '!');
+        anchor.appendChild(el);
+        setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 1400);
       }
     }
-    try { renderHome(); } catch (e) {}
   }
 
   function focusLeftSec() {
@@ -1066,6 +1296,177 @@
     });
   }
 
+  // ================= 今日面板（v0.19.0 游戏化重做）====================
+  // 旧版首页把「天气 / 签到 / 奇遇 / 离线 / 自主 / 心愿 / 故事」七块各画成一张独立卡片，
+  // 从上到下堆成一条长龙 —— 读起来是仪表盘，不是游戏。
+  //
+  // 现在改成一条「今日轨道」：横向滚动的关卡卡，每张卡是一个可点的事件。
+  // 横向是刻意的 —— 一屏能同时看到三件事，而不是只能一屏一件。
+  // 没有内容的卡不画（跟旧版一样：拿不到就整块不出现）。
+  function todayRail() {
+    var items = [];
+    var w = weatherInfo || (battle && battle.weather);
+    if (w && w.id) {
+      items.push({
+        key: 'weather', icon: w.icon || '☀️', kind: 'weather',
+        title: '今日' + (w.name || '天气'),
+        tag: w.bonusText || '',
+        desc: w.desc || '',
+        fit: w.type === ((battle && battle.battleType) || 'grass')
+      });
+    }
+    if (dailyBonusInfo) {
+      var b = dailyBonusInfo;
+      // ⚠️ 签到是服务端在 /state 里直接发放的（granted=true 时鱼干已到账），
+      //    不是前端点一下才发。所以这里不能画「领取」按钮 ——
+      //    画了会让人以为还没领，再点一次就是重复领取。
+      items.push({
+        key: 'daily', icon: '🎁', kind: 'daily',
+        title: b.granted ? '今日签到 · 连续 ' + (b.streak || 1) + ' 天' : '已签到 · 连续 ' + (b.streak || 1) + ' 天',
+        tag: b.granted ? ('+' + (b.coins || 0) + '🐟 +' + (b.bond || 0) + '❤') : '明天再来',
+        desc: b.granted ? (b.msg || '') : '',
+        done: !b.granted
+      });
+    }
+    if (wonderInfo && wonderInfo.wonder) {
+      var wo = wonderInfo.wonder;
+      items.push({
+        key: 'wonder', icon: wo.icon || '✨', kind: 'wonder',
+        title: '今日奇遇 · ' + (wo.title || ''),
+        tag: wo.rewardText || '',
+        desc: wo.text || '',
+        actionable: !wonderInfo.claimed && !!wonderInfo.reward,
+        done: !!wonderInfo.claimed
+      });
+    }
+    if (offlineRecapInfo && offlineRecapInfo.events && offlineRecapInfo.events.length) {
+      var r = offlineRecapInfo;
+      items.push({
+        key: 'offline', icon: '🌙', kind: 'offline',
+        title: '你不在的 ' + (r.gapMin || 0) + ' 分钟',
+        tag: ((r.coinGain > 0 ? '+' + r.coinGain + '🐟 ' : '') + (r.bondGain > 0 ? '+' + r.bondGain + '❤' : '')).trim(),
+        desc: r.msg || '它自己待了一会儿。'
+      });
+    }
+    // 心愿：petWish 是前端自己的定时抽取物（rollWish），不是服务端下发。
+    if (petWish && Date.now() <= petWish.expiresAt) {
+      items.push({
+        key: 'wish', icon: petWish.icon || '🌠', kind: 'wish',
+        title: '心愿 · ' + (petWish.title || ''),
+        tag: '+' + (petWish.rewardBond || 0) + '❤',
+        desc: petWish.desc || '',
+        actionable: true
+      });
+    }
+    if (!items.length) return null;
+
+    var rail = h('div', 'ci-pet-todayrail');
+    var head = h('div', 'ci-pet-todayrail-head');
+    head.appendChild(h('span', 'ci-pet-todayrail-title', '今天'));
+    head.appendChild(h('span', 'ci-pet-todayrail-sub', items.length + ' 件事'));
+    rail.appendChild(head);
+
+    var track = h('div', 'ci-pet-todayrail-track');
+    for (var i = 0; i < items.length; i++) {
+      (function(it) {
+        var card = h('div', 'ci-pet-tcard ci-pet-tcard--' + it.key + (it.done ? ' is-done' : ''));
+        card.setAttribute('data-tcard', it.key);
+        var top = h('div', 'ci-pet-tcard-top');
+        top.appendChild(h('span', 'ci-pet-tcard-icon', it.icon));
+        if (it.tag) top.appendChild(h('span', 'ci-pet-tcard-tag', it.tag));
+        card.appendChild(top);
+        card.appendChild(h('div', 'ci-pet-tcard-title', it.title));
+        if (it.desc) card.appendChild(h('div', 'ci-pet-tcard-desc', it.desc));
+        if (it.actionable) {
+          var go = h('button', 'ci-pet-tcard-go', '领取');
+          go.setAttribute('data-tcard-go', it.key);
+          go.addEventListener('click', function(e) {
+            e.stopPropagation();
+            claimToday(it.key);
+          });
+          card.appendChild(go);
+        } else if (it.fit) {
+          card.appendChild(h('span', 'ci-pet-tcard-fit', '本命契合'));
+        }
+        track.appendChild(card);
+      })(items[i]);
+    }
+    rail.appendChild(track);
+    return rail;
+  }
+
+  // 今日卡片的「领取」动作：签到走 daily，奇遇走 wonder。
+  // 两者都是服务端裁决（今天没领过才给），前端只负责把结果画回去。
+  function claimToday(key) {
+    if (!api) return;
+    if (key === 'wish') {
+      // 心愿走前端自己的 fulfillWish（它要派发对应的互动事件给悬浮桌宠）
+      if (!petWish) return;
+      fulfillWish(null);
+      return;
+    }
+    if (key === 'daily') {
+      // 签到奖励在 /state 时就发过了，这里只播一次提示音 + 动效，不重复发请求。
+      if (!dailyBonusInfo || !dailyBonusInfo.granted) return;
+      if (window.__ciPetSfx) window.__ciPetSfx.play('daily');
+      sysToast(dailyBonusInfo.msg || '签到成功', 'success');
+      return;
+    }
+    if (key === 'wonder') {
+      if (!wonderInfo || wonderInfo.claimed) return;
+      api.post('/pet/wonder/claim').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.state) state = d.state;
+        if (d.wonder) wonderInfo = d.wonder;
+        sysToast(d.msg || '奇遇奖励已到账', 'success');
+        renderHome();
+      }, function(err) {
+        sysToast((err && err.response && err.response.data && err.response.data.message) || '领取失败', 'error');
+      });
+    }
+  }
+
+  // ================= 冒险关卡卡（v0.19.0）====================
+  // 旧版是三行「图标 + 文字 + ›」的列表 —— 那也是报表语法。
+  // 现在改成三张并列的关卡卡：每张有自己的图标底、进度、以及一个「进入」动作。
+  // 竖排长龙 → 横向关卡，是这次重做最能一眼看出「这是游戏」的一步。
+  function adventureStage() {
+    var box = h('div', 'ci-pet-advstage');
+    var cards = [
+      {
+        id: 'battle', icon: 'battle', name: '对战', sub: battle ? ('今日 ' + (battle.today || 0) + ' 场') : '练习赛',
+        stat: battle ? ('第 ' + (battle.myRank || '-') + ' 名') : '',
+        badge: battle ? tabBadgeCount('battle') : 0
+      },
+      {
+        id: 'dex', icon: 'dex', name: '图鉴', sub: battle && battle.dex ? ('已收服 ' + battle.dex.ownedCount + '/' + battle.dex.total) : '收服野生精灵',
+        stat: battle && battle.dex ? (Math.round(battle.dex.ownedCount / Math.max(1, battle.dex.total) * 100) + '%') : '',
+        badge: battle ? tabBadgeCount('dex') : 0
+      },
+      {
+        id: 'rank', icon: 'rank', name: '排行', sub: battle ? ('全班第 ' + (battle.myRank || '-') + ' 名') : '积分榜',
+        stat: battle ? ((battle.record && battle.record.points || 0) + ' 分') : '',
+        badge: 0
+      }
+    ];
+    for (var i = 0; i < cards.length; i++) {
+      (function(c) {
+        var card = h('button', 'ci-pet-advcard');
+        card.setAttribute('data-adv', c.id);
+        var art = h('div', 'ci-pet-advcard-art');
+        art.appendChild(iconSvg(c.icon, 'ci-pet-advcard-icon'));
+        if (c.badge > 0) art.appendChild(h('span', 'ci-pet-advcard-badge', c.badge > 9 ? '9+' : String(c.badge)));
+        card.appendChild(art);
+        card.appendChild(h('div', 'ci-pet-advcard-name', c.name));
+        card.appendChild(h('div', 'ci-pet-advcard-sub', c.sub));
+        if (c.stat) card.appendChild(h('div', 'ci-pet-advcard-stat', c.stat));
+        card.addEventListener('click', function() { switchTab(c.id); });
+        box.appendChild(card);
+      })(cards[i]);
+    }
+    return box;
+  }
+
   // ================= 我的宠物 =================
   function buildDiag() {
     var lines = [];
@@ -1113,13 +1514,18 @@
   // 战力 / 属性 / 小鱼干三样常驻在场景右上角，一眼可见。
   function stageHud() {
     var box = h('div', 'ci-pet-stagehud');
-    var pow = h('span', 'ci-pet-sh-pill', '⚔️ —');
+    // v0.25.0：三枚 pill 全走 12×12 像素图标。⚔️/🌿 首帧会被 fillHud 重写，
+    // 这里也直接用 setIconText 铺骨架，避免「先闪一帧 emoji 再变图标」。
+    var pow = h('span', 'ci-pet-sh-pill');
     pow.setAttribute('data-hud', 'power');
+    setIconText(pow, 'sword', '—');
     box.appendChild(pow);
-    var ty = h('span', 'ci-pet-sh-pill ci-pet-sh-type ci-pet-el--grass', '🌿 草');
+    var ty = h('span', 'ci-pet-sh-pill ci-pet-sh-type ci-pet-el--grass');
     ty.setAttribute('data-hud', 'type');
+    setIconText(ty, 'grass', '草');
     box.appendChild(ty);
-    var coin = h('span', 'ci-pet-sh-pill ci-pet-sh-coin', '🐟 ' + coinCount());
+    var coin = h('span', 'ci-pet-sh-pill ci-pet-sh-coin');
+    setIconText(coin, 'fish', String(coinCount()));
     box.appendChild(coin);
     return box;
   }
@@ -1147,13 +1553,15 @@
     hud.appendChild(who);
 
     var chips = h('div', 'ci-pet-hud-chips');
-    // ⚔ 后面必须跟一个 U+FE0F：光秃秃的 U+2694 在 Windows 上会掉进黑白字形，
-    // 11px 下细得像一道划痕；带变体选择符才是和 dock 上同一枚彩色图标。
-    var pow = h('span', 'ci-pet-hud-power', '⚔️ —');
+    // v0.25.0：em（⚔️ / 🌿）换成 12×12 像素图标 —— 见 PIX_ICONS 的注释。
+    // 数值由 fillHud 单独写入，所以这里只铺骨架，图标不会被 textContent 抹掉。
+    var pow = h('span', 'ci-pet-hud-power');
     pow.setAttribute('data-hud', 'power');
+    setIconText(pow, 'sword', '—');
     chips.appendChild(pow);
-    var ty = h('span', 'ci-pet-hud-type', '🌿 草');
+    var ty = h('span', 'ci-pet-hud-type');
     ty.setAttribute('data-hud', 'type');
+    setIconText(ty, 'grass', '草');
     chips.appendChild(ty);
     hud.appendChild(chips);
 
@@ -1170,7 +1578,8 @@
     var c = battle && battle.combat;
     var powEls = root.querySelectorAll('[data-hud="power"]');
     for (var pi = 0; pi < powEls.length; pi++) {
-      powEls[pi].textContent = c ? ('⚔️ ' + (c.power || 0)) : '⚔️ —';
+      // 图标是子节点，只能改数字 —— 写 textContent 会把整个图标抹掉（HUD 变「—」）
+      setIconText(powEls[pi], 'sword', c ? String(c.power || 0) : '—');
     }
     var info = (battle && battle.typeInfo) || elementOf((battle && battle.battleType) || 'grass');
     var tyEls = root.querySelectorAll('[data-hud="type"]');
@@ -1179,7 +1588,7 @@
       // 保留元素自己的类（舞台版还有自己的尺寸类），只换属性配色那一段
       el.className = String(el.className || '')
         .replace(/\s*ci-pet-el--[a-z]+/g, '') + ' ci-pet-el--' + info.id;
-      el.textContent = (info.icon || '') + ' ' + info.name;
+      setIconText(el, info.id, info.name);
     }
     var sub = root.querySelector('.ci-pet-hud-sub');
     if (sub) {
@@ -1203,6 +1612,10 @@
       { id: 'rank',   icon: 'rank', name: '排行' }
     ];
     var bar = h('div', 'ci-pet-tabs');
+    // 链路验证标记（临时）：dock 右下角的版本号。
+    // 用户环境看不到它 = 没拿到这份文件，CSS 怎么改都无意义。
+    bar.appendChild(h('span', 'ci-pet-vermark', 'UI v6'));
+    
     for (var i = 0; i < tabs.length; i++) {
       (function(t) {
         var on = uiTab === t.id;
@@ -1251,14 +1664,40 @@
       loadBattle(function() { if (uiTab === id) renderHome(); });
     }
   }
+  // 自动化/诊断用：dock 已删，UI 上没有切页按钮，留一个跳转钩子。
+  // 只做「切页」，不暴露任何状态，生产里也没有入口能触发它。
+  window.__ciPetGo = function(t) { try { switchTab(t); } catch (e) {} };
+
   function pageHead(title, sub) {
     var box = h('div', 'ci-pet-pagehead');
-    box.appendChild(h('div', 'ci-pet-pagehead-title', title));
+    // v0.25.0 版式：标题在左、回家在右，同一行。
+    // 原来回家在标题上方，两行挤在 40px 里，读起来像面包屑而不是页头。
+    var row = h('div', 'ci-pet-pagehead-row');
+    row.appendChild(h('div', 'ci-pet-pagehead-title', title));
+    var home = h('button', 'ci-pet-pagehead-home');
+    var hIco = pixIcon('home', 'ci-pet-pagehead-home-ico');
+    if (hIco) home.appendChild(hIco);
+    home.appendChild(h('span', null, '回家'));
+    home.addEventListener('click', function() { switchTab('home'); });
+    row.appendChild(home);
+    box.appendChild(row);
     if (sub) box.appendChild(h('div', 'ci-pet-pagehead-sub', sub));
     return box;
   }
   function renderBattleTab() {
-    root.appendChild(pageHead('对战', '配好战术与技能，再去挑对手。练习赛、影子、试炼塔都不碰羁绊。'));
+    // v2.0：不放 pageHead —— 舞台本身就是页头。
+    // 但**必须留一个回首页的入口**：dock 删掉之后，战斗页曾经是「进得去出不来」。
+    // 这里用一枚悬浮像素按钮（固定在左上，避开 HUD 与舞台）。
+    // 用一条「工具栏」承载返回键：绝对定位会和 HUD 撞（截图实证），
+    // 走正常文档流则天然避开，也和其他内页「顶部一行」的结构一致。
+    var bar = h('div', 'ci-pet-toolbar');
+    var home = h('button', 'ci-pet-pagehead-home');
+    var hIco = pixIcon('home', 'ci-pet-pagehead-home-ico');
+    if (hIco) home.appendChild(hIco);
+    home.appendChild(h('span', null, '回家'));
+    home.addEventListener('click', function() { switchTab('home'); });
+    bar.appendChild(home);
+    root.appendChild(bar);
     root.appendChild(battleSection());
   }
   function renderDexTab() {
@@ -1284,6 +1723,9 @@
   function renderHome() {
     clearRoot();
     markCardTone();   // 先定卡片内文字用深还是亮，再画内容（否则首帧会闪一下白字）
+    // 横屏分栏的开关：CSS 用它区分「首页双栏」与「内页单列加宽」。
+    // 放在 clearRoot 之后立刻设，渲染中段就会带上，避免首帧按竖屏排一次再跳。
+    if (root.classList) root.classList.toggle('is-hometab', uiTab === 'home');
     if (!state || !state.adopted) { renderAdopt(); return; }
     // v0.9.0：HUD 常驻顶部，导航沉到底部（像手游的 dock），中间才是页面内容。
     // ⚠️ 先挂进 root 再 fillHud：gameHud() 内部的 fillHud 用 root.querySelector 找人，
@@ -1300,10 +1742,9 @@
     if (uiTab === 'battle') renderBattleTab();
     else if (uiTab === 'dex') renderDexTab();
     else if (uiTab === 'rank') renderRankTab();
-    else renderHomeBody();
-    // 导航必须最后挂：它用 position: sticky; bottom: 0 贴底，
-    // 放在内容前面的话 sticky 会在滚到顶部时被「顶」回文档流里。
-    root.appendChild(tabBar());
+    else sceneHomeBody(root);
+    // v0.20.0：dock 已删除 —— 小家是像素场景（家具即导航），
+    // 内页由 pageHead 的「回家」按钮返回。tabBar() 函数保留（历史回滚用）。
     // 切页入场：整块内容从下方淡入上浮，撑住「换了一页」的空间感。
     // 只认 switchTab 设的那一次标记，日常刷新（喂食、打完一场）不重播动画。
     if (tabAnim) {
@@ -1774,6 +2215,1365 @@
     return box;
   }
 
+// ================= 像素小家场景（v0.20.0）=================
+// 首页不再是「舞台 + 信息卡片长龙」，而是一间桌宠生活的像素小屋：
+// 功能入口长在家具上 —— 点物件进入对应玩法，点角色 = 摸摸。
+// 联机大地图预留：SCENE_OBJECTS 是数据驱动清单，扩地图 = 扩清单。
+
+// 字符画 → 像素 SVG：'.'/' ' 为透明，其余字符查调色板；
+// 同色横向 run 合并为一个 rect，节点数可控。shape-rendering 强制锐边。
+var MARK = '\u0001';
+var PX_OUTLINE = '#1c1119';   // 统一描边色：近黑带一点紫，不与任何材质抢色
+
+function pxArt(w, h, rows, palette) {
+  // 先还原成字符网格 —— 描边需要知道「邻居是不是实心像素」
+  var grid = [];
+  for (var y = 0; y < h; y++) {
+    var row = rows[y] || '';
+    var line = [];
+    for (var x = 0; x < w; x++) {
+      var c = row.charAt(x);
+      line.push(c === ' ' ? '.' : c);
+    }
+    grid.push(line);
+  }
+  function solid(x, y) {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    var ch = grid[y][x];
+    return ch !== '.' && ch !== MARK;
+  }
+  // 内描边：与实心像素正交相邻的透明格 → 深色轮廓。
+  // 商业像素游戏里，物件全靠这 1px 从背景里「切」出来；
+  // CSS 的模糊投影永远软塌塌，而且会随物件缩放变粗细 —— 描边必须长在美术里。
+  for (var yy = 0; yy < h; yy++) {
+    for (var xx = 0; xx < w; xx++) {
+      if (solid(xx, yy)) continue;
+      if (solid(xx - 1, yy) || solid(xx + 1, yy) || solid(xx, yy - 1) || solid(xx, yy + 1)) {
+        grid[yy][xx] = MARK;   // 先打标记，避免描边被当成实心再扩散一圈
+      }
+    }
+  }
+  var rects = [];
+  for (var y2 = 0; y2 < h; y2++) {
+    var line2 = grid[y2];
+    for (var x2 = 0; x2 < w; x2++) {
+      var ch2 = line2[x2];
+      var color = ch2 === MARK ? PX_OUTLINE : palette[ch2];
+      if (!color) continue;
+      var x3 = x2;
+      while (x3 + 1 < w && line2[x3 + 1] === ch2) x3++;
+      rects.push('<rect x="' + x2 + '" y="' + y2 + '" width="' + (x3 - x2 + 1) + '" height="1" fill="' + color + '"/>');
+      x2 = x3;
+    }
+  }
+  return '<svg viewBox="0 0 ' + w + ' ' + h + '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMax meet" width="100%" height="100%">' + rects.join('') + '</svg>';
+}
+
+
+// 家具像素画：每件 = { w, h, art(字符画), pal(调色板) }。颜色三阶（暗/中/亮）保像素体积感。
+// 每件家具都是字符画 → 内联 SVG，零外部图片依赖。
+var SCENE_ART = {
+  // 床：绒面圆窝 + 木脚
+  bed: { w: 42, h: 20, pal: { 'a': '#5a3a22', 'b': '#7a4f2e', 'c': '#96643a', 'd': '#b47f4b', 'e': '#cfa066', 'x': '#c9b291', 'y': '#ddc9a8', 'z': '#ecdcbd', 'p': '#f2e8d4', 'q': '#fdf6e6', 'r': '#cbb99e', 'g': '#3c4a5e', 'h': '#4d5f78', 'i': '#647992', 'j': '#8098af' }, rows: [
+    '..........................................',
+    '..........................................',
+    '..........................................',
+    '..........................................',
+    '............dddddddddddddddddd............',
+    '........deeeeeeeeeeeeeeeeeeeeeeeec........',
+    '......eeqqqqqqcccbbbbbbbbcccceeeeeee......',
+    '....eeeeppppppzzzzzzzzxxxxxxxbbbbceeee....',
+    '...eeecbqrrrrpzzzzzxxxyyyyggggggxxbceee...',
+    '...eeebzzzzzzzzzxxxyyyyyggggggggggxbeee...',
+    '...deeeczzzzzxxxyxyyyyyxggggggggggceeeb...',
+    '...dbdeeeeexxyyyxyxyyxxxggggggggggeebcb...',
+    '...dbdcccceeeeeeeeeeeeeeeggggggggbcbbcb...',
+    '....cccccccccccccccccccbbcbggggcbbcbbc....',
+    '.....cccccccccccccccbbcbbcbbcbbcbbcbb.....',
+    '.......ccccccccbbbbbbbbbbbbbbbbbbbb.......',
+    '..........ccbbbbbbbbbbbbbbbbbbbb..........',
+    '...............bbbbbbbbbbbb...............',
+    '..........................................',
+    '..........................................'
+  ] },
+  // 书桌：厚桌面 + 抽屉 + 桌腿 + 桌上书与杯
+  desk: { w: 38, h: 23, pal: { 'a': '#4a3220', 'b': '#63421f', 'c': '#7a5330', 'd': '#96693c', 'e': '#b0804a', 'f': '#c9975a', 'p': '#d8cbb0', 'r': '#8a4a3a', 'q': '#a8503c' }, rows: [
+    '......................................',
+    '......................................',
+    '......................................',
+    '.........................ppppppp......',
+    '.........................rrrrrra......',
+    '...ceeeeeeeeeeeeeeeeeeeeeeeeeeeeeea...',
+    '...cdddddddddddddddddddddddddddddda...',
+    '...caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...',
+    '....cccccccccccccccccccccccccccccc....',
+    '....cabbbbbbbbbbaccabbbbbabbbbbbbc....',
+    '....caaafffffffaaccabbbbbabbbbbbbc....',
+    '....aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....ec..........................ec....',
+    '....aa..........................aa....',
+    '......................................',
+    '......................................'
+  ] },
+  // 椅子：靠背 + 坐面 + 四条腿
+  chair: { w: 15, h: 19, pal: { 'a': '#4a3220', 'b': '#5c3c22', 'c': '#75502c', 'd': '#8f6538', 'e': '#a87b47', 's': '#7a4a3a', 't': '#96604a' }, rows: [
+    '...............',
+    '...eeeeeeeee...',
+    '...ddddddddd...',
+    '...dd.cc..cc...',
+    '...cc.cc..cc...',
+    '...cc.cc..cc...',
+    '...cc.cc..cc...',
+    '...cc.cc..cc...',
+    '...cc.cc..cc...',
+    '..eeeeeeeeeee..',
+    '..dsssssssssd..',
+    '..dtttttttttd..',
+    '...dc.....dc...',
+    '...dc.....dc...',
+    '...dbbbbbbbc...',
+    '...dc.....dc...',
+    '...dc.....dc...',
+    '...bb.....bb...',
+    '...............'
+  ] },
+  // 门：门框 + 两块凹板 + 把手
+  door: { w: 26, h: 34, pal: { 'a': '#3a2618', 'b': '#4a3120', 'c': '#6b4626', 'd': '#83592f', 'e': '#a87b47', 'f': '#c9a06a', 'g': '#2a1a10' }, rows: [
+    '..........................',
+    '.ccccccccccccccccccccccca.',
+    '.cbbbbbbbbbbbbbbbbbbbbbba.',
+    '.cbbdddddddddddddddddbbba.',
+    '.cbbcccccccccccccccccbaba.',
+    '.cbbcccccccccccccccccbaba.',
+    '.cbbccbbbbbbbbbbbbbbcbaba.',
+    '.cbbccbeeeeeeeeeeecbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbccccccccccccbcbaba.',
+    '.cbbccbbbbbbbbbbbbbbcbaba.',
+    '.cbbcccccccccccccccffbaba.',
+    '.cbbcccccccccccccccffbaba.',
+    '.cbbccbbbbbbbbbbbbbbcbaba.',
+    '.cbbccbeeeeeeeeeeecbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbdddddddddddcbcbaba.',
+    '.cbbccbccccccccccccbcbaba.',
+    '.cbbccbbbbbbbbbbbbbbcbaba.',
+    '.cbbcccccccccccccccccbaba.',
+    '.cbbggggggggggggggggggbba.',
+    '.eeeeeeeeeeeeeeeeeeeeeeee.',
+    '.fccccccccccccccccccccccf.',
+    '..........................'
+  ] },
+  // 书柜：三层 + 书脊 + 罐子 + 抽屉
+  shelf: { w: 30, h: 28, pal: { 'a': '#5a3c22', 'b': '#6b4828', 'c': '#7d5730', 'd': '#92683a', 'e': '#a87d47', 'p': '#e6dcc4', '1': '#5478a8', '2': '#a85a44', '3': '#6a9160', '4': '#c9a227' }, rows: [
+    '..............................',
+    '.acccccccccccccccccccccccccca.',
+    '.aeeeeeeeeeeeeeeeeeeeeeeeeeea.',
+    '.adddddddddddddddddddddddddda.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '.aaabbbbbbbbbbbbbbbbbbbbbbaaa.',
+    '.aaabbbbbbbbbbbbbbbbbbbbbbaaa.',
+    '.aaabbbbbbbbbbbbbbbbbbbbbbaaa.',
+    '.aaabbbpbbbpbbbpbbbpbbbpbbaaa.',
+    '.aaabpb2bpb4bpb2bpb4bpb1bbaaa.',
+    '.aeeeeeeeeeeeeeeeeeeeeeeeeeea.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '.aaabbddddbbbbbbbbbbbbbbbbaaa.',
+    '.aaabbeeeddbbbbb44bbbbbbbbaaa.',
+    '.aaabbedddcbbbb4432bbbbbbbaaa.',
+    '.aaabbdbbccbbbb4322bbbbbbbaaa.',
+    '.aaabbbbbcbbbbbbbbbbbbbbbbaaa.',
+    '.aeeeeeeeeeeeeeeeeeeeeeeeeeea.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '.aaabbbbbbbbbbbbbbbbbbbbbbaaa.',
+    '.aaabbbpppppppbbbbbbbbbbbbaaa.',
+    '.aaabbb1111111bbbdddddddbbaaa.',
+    '.aaabppppppppppbbccaaaccbbaaa.',
+    '.aaab2222222222bbcccccccbbaaa.',
+    '.aaab2aaaaaaaa2bbcccccccbbaaa.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '..............................'
+  ] },
+  // 窗：夜空四阶 + 月亮 + 星 + 窗棂 + 窗台
+  window: { w: 46, h: 32, pal: { 'a': '#141d42', 'b': '#1e2b5c', 'c': '#2c4a86', 'd': '#3f66a8', 'e': '#fff2c0', 'f': '#e8eeff' }, rows: [
+    '..............................................',
+    '.cccccccccccccccccccccccccccccccccccccccccccc.',
+    '.cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbaaaaaaaaaaaaaaaaaaacbaaaaaaaaaaaaaaaaaaabb.',
+    '.cbaaaaaaaaaaaaaaaaaaacbaaaaaaaaaaaaaaaaaaabb.',
+    '.cbaaaaaaaaeeeeaaaaaaacbaaaaaaaaaaaaaaaaaaabb.',
+    '.cbaaaaaaaeeee#fffbe4eaaaaaacbaaaaaaaffaaaaaaaaaabb.',
+    '.cbaaaaaaee#e8dcae#e8dcaeeeeeaaaaacbaaaaaaafaaaaaaaaaaabb.',
+    '.cbbbbbbbeeeeeeeebbbbbcbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbbbbbbbee#fffbe4eeeeebbbbbcbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbbbbbbbeeee#e8dcaeeeebbbbbcbbbbbbbbbbbbffbbbbbbbb.',
+    '.cbbbbbbbbeeeeeebbbbbbcbbbbbbbbbbbbfbbbbbbbbb.',
+    '.cbbbbbbbbbeeeebbbbbbbcbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbbbbbbbbbbbbbbbbbbbbcbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbccccccccccccccccccccccccccccccccccccccccbb.',
+    '.cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.',
+    '.cbccccccccccccccccccccbcccfcccccccccccccccbb.',
+    '.cbccccccccccccccccccccbcccccccccccccccccccbb.',
+    '.cbccccccccccccccccccccbccccccccccccccffcccbb.',
+    '.cbccccccccccccccccccccbccccccccccccccfccccbb.',
+    '.cbccccccccccccccccccfcbcccccccccccccccccccbb.',
+    '.cbccccccccccccccccccfcbcccccccccccccccccccbb.',
+    '.cbdddddddddddddddddddcbdddddddddddddddddddbb.',
+    '.cbdddddddddddddddddddcbdddddddddffddddddddbb.',
+    '.cbdaadddddaadddddaaddcbdaadddddaadddddaaddbb.',
+    '.cbaaaadddaaaadddaaaadcbaaaadddaaaadddaaaadbb.',
+    '.cbaaaadddaaaadddaaaadcbaaaadddaaaadddaaaadbb.',
+    '.cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.',
+    '.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.',
+    '.dddddddddddddddddddddddddddddddddddddddddddd.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '..............................................'
+  ] },
+  // 奖杯：杯身 + 双耳 + 底座
+  trophy: { w: 15, h: 16, pal: { 'a': '#5a3c14', 'b': '#8a6320', 'c': '#b98c2e', 'd': '#dfb455', 'e': '#f6dd94', 'f': '#f6efdc', 'g': '#d9ccae', 'h': '#3a2418' }, rows: [
+    '...............',
+    '...............',
+    '...............',
+    '......f........',
+    '..deefeeeeeed..',
+    '..cdddddddddc..',
+    '..c.eeddddc.c..',
+    '..c.eddddcc.c..',
+    '....dddcccc....',
+    '.....dcccc.....',
+    '...............',
+    '......dcc......',
+    '......dcc......',
+    '....ccccccc....',
+    '....baaaaab....',
+    '...............'
+  ] },
+  // 食盆：碗体 + 食物堆
+  bowl: { w: 21, h: 13, pal: { 'a': '#2e3d46', 'b': '#3f5460', 'c': '#54707e', 'd': '#6f8d9b', 'e': '#a8c2cc', 'f': '#7a4a2a', 'g': '#9c6238', 'h': '#c0824c', 'i': '#d99a5e' }, rows: [
+    '.....................',
+    '.....................',
+    '.....................',
+    '...............i.....',
+    '.....ddddiidddhgd....',
+    '...ddahhhgggfffaadd..',
+    '...daaahgggfffaaaad..',
+    '..dddddaaaaaaaadddbb.',
+    '...ddddccccccbbbbbb..',
+    '...dddccccccbbbbbbb..',
+    '....ddccccccbbbbbb...',
+    '....aaaaaaaaaaaaaa...',
+    '.....................'
+  ] },
+  // 绿植：陶盆 + 六片叶
+  plant: { w: 16, h: 22, pal: { 'a': '#2c6b3a', 'b': '#3f8a4b', 'c': '#5cb96b', 'd': '#8fe09b', 'p': '#8a4a30', 'q': '#b36141', 'r': '#cf7d59' }, rows: [
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '.....dddcc......',
+    '....dddcccb.....',
+    '....ddcccbbd....',
+    '..dddcccbbbdcc..',
+    '..ddcccbbbdccc..',
+    '..dcccbd.dcccb..',
+    '.ddccbbcccccddc.',
+    '.dcbbbbpcccddcb.',
+    '.cbbbccpbbbbcbb.',
+    '...rrrrprrrrr...',
+    '....rrrrrrrr....',
+    '....qqqqqqqq....',
+    '....qppppppq....',
+    '....qppppppq....',
+    '....qqqqqqqq....',
+    '....pppppppp....',
+    '................'
+  ] },
+  // 书堆：三本叠放
+  books: { w: 20, h: 11, pal: { 'a': '#2a1c14', 'b': '#3f5f8a', 'c': '#557aa8', 'd': '#8a5a2a', 'e': '#b07a3a', 'f': '#7a3a30', 'g': '#9c4e40', 'p': '#e6dcc4', 'q': '#f4eeda' }, rows: [
+    '....................',
+    '....................',
+    '......eeeeeeeee.....',
+    '.....eeeeeeeeeee....',
+    '.....adddddddqqq....',
+    '....acccccacccppp...',
+    '....abbbbbabbbppp...',
+    '...aggggggagggppp...',
+    '...affffffffffppp...',
+    '...affffffffffppp...',
+    '....................'
+  ] },
+  // 窗帘：上端收褶 + 四道竖褶 + 底摆
+  curtain: { w: 16, h: 38, pal: { 'a': '#4a2a37', 'b': '#66394a', 'c': '#8c5064' }, rows: [
+    '................',
+    '.....cccccc.....',
+    '....aaaaaaaa....',
+    '....aaaaaaaa....',
+    '...acbabcbaca...',
+    '...acbabcbaca...',
+    '...acbabcbaca...',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..bacbabcbacab..',
+    '..aaaaaaaaaaaa..',
+    '..aaaaaaaaaaaa..',
+    '..aaaaaaaaaaaa..',
+    '................'
+  ] },
+  // 窗帘杆：木杆 + 球头 + 两个墙托
+  rod: { w: 66, h: 9, pal: { 'a': '#3a2619', 'b': '#5c3d29', 'c': '#7d5334' }, rows: [
+    '..................................................................',
+    '..................................................................',
+    '..................................................................',
+    '..cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc..',
+    '..cccbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbccc..',
+    '..cccaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaccc..',
+    '...............aa................................aa...............',
+    '...............aa................................aa...............',
+    '..................................................................'
+  ] },
+  // 墙挂板：书 + 罐 + 小盆栽
+  wallshelf: { w: 28, h: 14, pal: { 'a': '#2a1c12', 'b': '#6b4425', 'c': '#8d5f33', 'd': '#b98a52', '1': '#4a90d9', '2': '#e05656', '3': '#4caf6e', 'q': '#b36141', 'g': '#4fa85c' }, rows: [
+    '............................',
+    '............................',
+    '.....22......aa....ggg......',
+    '...d122.....cccc..ggggg.....',
+    '...112233...bbbb..ggggg.....',
+    '...112233...bbbb...ggg......',
+    '...112233...bbbb...qqq......',
+    '.dddddddddddddddddddddddddd.',
+    '.cccccccccccccccccccccccccc.',
+    '.aaaaaaaaaaaaaaaaaaaaaaaaaa.',
+    '..aabbaaaaaaaaaaaaaaaabbaa..',
+    '..aabbaaaaaaaaaaaaaaaabbaa..',
+    '....bb................bb....',
+    '............................'
+  ] },
+  clock: { w: 12, h: 12, pal: { 'a': '#5a3c14', 'b': '#8a6320', 'c': '#b98c2e', 'd': '#dfb455', 'e': '#f6dd94', 'f': '#f6efdc', 'g': '#d9ccae', 'h': '#3a2418' }, rows: [
+    '............',
+    '.....bb.....',
+    '....dddd....',
+    '...ddffcc...',
+    '..ddfhffcc..',
+    '..dffhhffb..',
+    '..dffgfffb..',
+    '..cffffffb..',
+    '...ccffbb...',
+    '...bbbbbb...',
+    '...bb..bb...',
+    '............'
+  ] },
+  frame: { w: 14, h: 11, pal: { a: '#8a6d16', b: '#c9a227', c: '#7a5a34', d: '#e8d8b0', f: '#f0a8a0', g: '#333340' }, rows: [
+    'aaaaaaaaaaaaaa',
+    'abbbbbbbbbbbba',
+    'abccccccccccba',
+    'abcddddddddcba',
+    'abcddffffddcba',
+    'abcddfgfgfddcba',
+    'abcddffffddcba',
+    'abcddffffddcba',
+    'abcddddddddcba',
+    'abccccccccccba',
+    'aaaaaaaaaaaaaa'
+  ] },
+  lamp: { w: 8, h: 11, pal: { a: '#8a5f38', b: '#ffe9a8', c: '#fff7d8' }, rows: [
+    '..aaaa..',
+    '.abbbba.',
+    '.abcaba.',
+    'aabccbaa',
+    '.abcaba.',
+    '.abbbba.',
+    '..aaaa..',
+    '...aa...',
+    '...aa...',
+    '..aaaa..',
+    '.aaaaaa.'
+  ] },
+  poster: { w: 12, h: 14, pal: { a: '#4f3620', b: '#2b2238', c: '#4a90d9', d: '#ffe08a', e: '#f5f0e6', f: '#ff8fa3' }, rows: [
+    'aaaaaaaaaaaa',
+    'abbbbbbbbbba',
+    'abceeeeeecba',
+    'abceffffecba',
+    'abcefdddfeba',
+    'abceffffecba',
+    'abceeeeeecba',
+    'abbbbbbbbbba',
+    'abcddddddcba',
+    'abcddddddcba',
+    'abcddddddcba',
+    'abbbbbbbbbba',
+    'aaaaaaaaaaaa',
+    'aaaaaaaaaaaa'
+  ] },
+  gift: { w: 15, h: 14, pal: { 'a': '#7a2e2e', 'b': '#a83e3e', 'c': '#c95a52', 'd': '#e08a78', 'e': '#c9a227', 'f': '#e8c65a', 'g': '#8a6a18' }, rows: [
+    '...............',
+    '...............',
+    '....ff..ff.....',
+    '....eeffee.....',
+    '....gg..gg.....',
+    '..ddddefeddda..',
+    '..bbbbefebbba..',
+    '..bbbbefebbba..',
+    '..bbbbefebbba..',
+    '..bbbbefebbba..',
+    '..bbbbefebbba..',
+    '..aaaaefeaaaa..',
+    '...............',
+    '...............'
+  ] },
+  fishd: { w: 7, h: 4, pal: { a: '#c9a227', b: '#ffd76e' }, rows: [
+    '..aa...',
+    '.aabba.',
+    'aabbbba',
+    '.aaaaa.'
+  ] },
+  yarn: { w: 8, h: 6, pal: { a: '#ff8fa3', b: '#d9506b' }, rows: [
+    '..aaaa..',
+    '.abaaba.',
+    'aabaabaa',
+    'aaabaaba',
+    '.abbaab.',
+    '..aaaa..'
+  ] },
+};
+
+// 家具清单（联机大地图 = 扩这张表）：
+// wall = 靠后墙；hang = 挂在墙上（top 定位）；deco = 纯装饰（不可点无标签）；
+// walkX = 角色走过去交互时站的横向位置（%）。
+// 三条地面纵深线（距房间顶部的百分比）。房间高 636px 时分别是
+// 448 / 512 / 578 —— 墙地交界线在 58%，往回退的三排家具。
+// 落在这三条以外 = 「摆放位置有问题」；加物件时先选行，不要再写 bottom。
+var GROUND_ROWS = { back: 29.56, mid: 19.5, front: 9.12, wall: 39.9 };
+
+var SCENE_OBJECTS = [
+  // ============================================================
+  // 房间陈设。只允许落在三条地面纵深线上（见 GROUND_ROWS）。
+  //
+  // 上一版的问题：每件物件自己写一个 bottom —— 394 / 445 / 488 / 509 /
+  // 528 / 560 / 585 / 598 / 604，七条互不相干的地平线。眼睛看到的是
+  // 「家具随便摆在一块大空地上」，这就是「摆放位置有问题」的来源。
+  // 现在只有三行：back(贴墙) / mid(中景) / front(前景)。
+  //
+  // 横向三簇，簇与簇之间留路：
+  //   左簇 休息（床 / 食盆 / 礼物）   中簇 陪读（书桌压在窗下）   右簇 收藏 + 出口
+  // ============================================================
+
+  // ---- 左簇：休息 ----
+  { id: 'bed',     name: '小窝', act: 'bed',    x: 16.7, row: 'back',  walkX: 23 },
+  { id: 'bowl',    name: '喂食', act: 'feed',   x: 9.9,  row: 'front', walkX: 16 },
+  { id: 'gift',    name: '惊喜', act: 'gift',   x: 22.4, row: 'front', walkX: 28 },
+
+  // ---- 中簇：陪读（书桌正对窗，光的落点就是工作区）----
+  { id: 'desk',    name: null,   act: null,     x: 46.0, row: 'mid', deco: true },
+  { id: 'clock',   name: '专注', act: 'focus',  x: 44.0, row: 'sit:desk', walkX: 38 },
+
+  // ---- 右簇：收藏 + 出口 ----
+  { id: 'shelf',   name: '图鉴', act: 'dex',    x: 66.7, row: 'back', walkX: 60 },
+  { id: 'trophy',  name: '排行', act: 'rank',   x: 66.7, row: 'sit:shelf', walkX: 60 },
+  { id: 'plant',   name: null,   act: null,     x: 79.2, row: 'back', deco: true },
+  { id: 'door',    name: '冒险', act: 'battle', x: 90.6, row: 'wall', walkX: 84 },
+
+  // ---- 墙面（hang：topY 是距顶百分比，不是地面线）----
+  // 窗是主光源也是焦点：窗帘把它框住，书桌正好在窗下。
+  { id: 'curtain',  name: null, act: null,      x: 30, hang: true, topY: 5,  deco: true },
+  { id: 'curtain2', name: null, act: null,      x: 62, hang: true, topY: 5,  art: 'curtain', deco: true },
+  { id: 'rod',      name: null, act: null,      x: 46, hang: true, topY: 3,  deco: true },
+  { id: 'window',   name: '窗外', act: 'window', x: 46, hang: true, topY: 8, walkX: 46 },
+  { id: 'poster',   name: null, act: null,      x: 19, hang: true, topY: 8,  deco: true },
+  { id: 'wallshelf', name: null, act: null,     x: 18, hang: true, topY: 24, deco: true },
+  { id: 'frame',    name: null, act: null,      x: 79, hang: true, topY: 16, deco: true },
+  { id: 'lamp',     name: null, act: null,      x: 6,  hang: true, topY: 22, deco: true }
+];
+
+
+
+// ---------- 场景弹层 ----------
+var worldSheetEl = null;
+// immediate = true 才是「立刻消失」（换内容时用）。
+// 正常关闭走 160ms 的退场动画：面板下沉 + 淡出，scrim 同步淡掉 ——
+// 直接 removeChild 会让一层 74% 高的面板「啪」地不见，比没有动画更生硬。
+function worldSheetClose(immediate) {
+  var el = worldSheetEl;
+  if (!el) return;
+  worldSheetEl = null;
+  if (!el.parentNode) return;
+  if (immediate === true) { el.parentNode.removeChild(el); return; }
+  el.classList.add('is-closing');
+  setTimeout(function() {
+    if (el.parentNode) el.parentNode.removeChild(el);
+    // 面板开着时被推迟的那次重绘，在这里补上（关掉之后才允许重建场景）
+    if (pendingHomeRender) { pendingHomeRender = false; renderHomeWhenIdle(); }
+  }, 170);
+}
+function worldSheet(title, build) {
+  worldSheetClose(true);
+  var wrap = h('div', 'world-sheet-wrap');
+  var scrim = h('div', 'world-sheet-scrim');
+  scrim.addEventListener('click', function() { worldSheetClose(); });
+  var panel = h('div', 'world-sheet');
+  var head = h('div', 'world-sheet-head');
+  head.appendChild(h('span', 'world-sheet-title', title));
+  var x = h('button', 'world-sheet-x', '✕');
+  x.addEventListener('click', function() { worldSheetClose(); });
+  head.appendChild(x);
+  var body = h('div', 'world-sheet-body');
+  build(body);
+  panel.appendChild(head);
+  panel.appendChild(body);
+  wrap.appendChild(scrim);
+  wrap.appendChild(panel);
+  root.appendChild(wrap);
+  worldSheetEl = wrap;
+}
+
+// 弹层内容：小窝（心情/任务/日记/故事/设置）
+function nestSheetBody(body) {
+  var mood = moodInfo || petMood();
+  var moodRow = h('div', 'world-nest-mood');
+  moodRow.appendChild(h('span', 'world-nest-moodicon', (mood && mood.icon) || '🙂'));
+  var mt = h('div', 'world-nest-moodtext');
+  mt.appendChild(h('b', 'world-nest-moodname', (mood && mood.name) || '心情不错'));
+  mt.appendChild(h('span', 'world-nest-mooddesc', (mood && mood.text) || ''));
+  moodRow.appendChild(mt);
+  body.appendChild(moodRow);
+
+  var q = questCard();
+  if (q) body.appendChild(q);
+  var d = diaryCard();
+  if (d) body.appendChild(d);
+  var s = storyCard();
+  if (s) body.appendChild(s);
+  var a = autonomyCard();
+  if (a) body.appendChild(a);
+
+  // 设置区：显示开关 + 改名 + 诊断收进来
+  body.appendChild(sectionTitle('设置'));
+  var misc = h('div', 'ci-pet-misc');
+  var toggleRow = h('div', 'ci-pet-toggle-row');
+  toggleRow.appendChild(h('span', null, '在桌面显示'));
+  var sw = h('button', 'ci-pet-switch' + (state.enabled !== false ? ' ci-pet-switch--on' : ''));
+  sw.addEventListener('click', function() {
+    var nx = state.enabled === false;
+    sw.classList.toggle('ci-pet-switch--on', nx);
+    api.put('/pet/state', { enabled: nx }).then(function(res) {
+      state = (res.data && res.data.data && res.data.data.state) || state;
+      notifyChanged();
+    });
+  });
+  toggleRow.appendChild(sw);
+  misc.appendChild(toggleRow);
+  // 形象入口并入小窝：场景里不再摆画板（它占地大、语义弱，
+  // 「换个样子」本来就属于「关于它的一切」这个面板）。
+  var lookRow = h('div', 'ci-pet-btnrow');
+  var look = h('button', 'ci-pet-btn ci-pet-btn--ghost', '🎨 换个样子');
+  look.addEventListener('click', function() {
+    worldSheet('画板 · 形象', easelSheetBody);
+  });
+  lookRow.appendChild(look);
+  misc.appendChild(lookRow);
+
+  var renameRow = h('div', 'ci-pet-btnrow');
+  var rename = h('button', 'ci-pet-btn ci-pet-btn--ghost', '✏️ 改名字');
+  rename.addEventListener('click', function() {
+    worldSheetClose();
+    if (!(state.design && state.design.type === 'video') && state.design) {
+      edit = { data: state.design.data, color: 2, tool: 'pen', mirror: false };
+    }
+    renderNaming(state.design && state.design.type === 'video' ? 'video' : 'pixel');
+  });
+  renameRow.appendChild(rename);
+  misc.appendChild(renameRow);
+  var adv = h('details', 'ci-pet-adv');
+  adv.appendChild(h('summary', null, '桌宠没出现？点开诊断'));
+  var diagOut = h('pre', 'ci-pet-adv-out');
+  adv.appendChild(diagOut);
+  adv.addEventListener('toggle', function() { if (adv.open) diagOut.textContent = buildDiag(); });
+  misc.appendChild(adv);
+  body.appendChild(misc);
+}
+
+// 弹层内容：画板（形象切换）
+function easelSheetBody(body) {
+  var isVideoPet = state.design && state.design.type === 'video';
+  var styles = h('div', 'ci-pet-styles');
+  var cWhale = h('div', 'ci-pet-stylecard' + (isVideoPet ? ' is-active' : ''));
+  cWhale.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🐳'));
+  cWhale.appendChild(h('div', 'ci-pet-stylecard-name', '大肥鱼'));
+  cWhale.appendChild(h('div', 'ci-pet-stylecard-desc', '100+ 个动作，会跳舞'));
+  if (isVideoPet) {
+    cWhale.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
+  } else {
+    var uw = h('button', 'ci-pet-stylecard-btn', '使用');
+    uw.addEventListener('click', function() {
+      savePixelDraft();
+      switchDesign({ type: 'video', character: 'dsh-whale' }, uw, '使用');
+    });
+    cWhale.appendChild(uw);
+  }
+  styles.appendChild(cWhale);
+  var cPixel = h('div', 'ci-pet-stylecard' + (!isVideoPet ? ' is-active' : ''));
+  var shown = !isVideoPet && state.design ? state.design : null;
+  if (!shown) {
+    var sv0 = null;
+    try { sv0 = storage && storage.get('lastPixel', null); } catch (e) {}
+    if (sv0 && sv0.data) shown = sv0;
+  }
+  if (shown && shown.data) {
+    var pv = document.createElement('canvas');
+    paint(pv, shown, 5);
+    cPixel.appendChild(pv);
+  } else {
+    cPixel.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🎨'));
+  }
+  cPixel.appendChild(h('div', 'ci-pet-stylecard-name', '手作拼豆'));
+  cPixel.appendChild(h('div', 'ci-pet-stylecard-desc', '自己画的小家伙'));
+  if (!isVideoPet) {
+    cPixel.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
+    var rb = h('button', 'ci-pet-stylecard-btn', '再改改');
+    rb.addEventListener('click', function() {
+      worldSheetClose();
+      startEditor(state.design && state.design.data);
+    });
+    cPixel.appendChild(rb);
+  } else {
+    var up = h('button', 'ci-pet-stylecard-btn', shown && shown.data ? '换回来' : '去画一只');
+    up.addEventListener('click', function() {
+      worldSheetClose();
+      var sv = null;
+      try { sv = storage && storage.get('lastPixel', null); } catch (e) {}
+      startEditor(sv && sv.data ? sv.data : '');
+    });
+    cPixel.appendChild(up);
+  }
+  styles.appendChild(cPixel);
+  body.appendChild(styles);
+}
+
+// 弹层内容：今日惊喜（签到 / 奇遇 / 离线）
+function giftSheetBody(body) {
+  var pushed = false;
+  if (dailyBonusInfo) {
+    var b = dailyBonusInfo;
+    var r1 = h('div', 'world-gift-row');
+    r1.appendChild(h('span', 'world-gift-icon', '🎁'));
+    var t1 = h('div', 'world-gift-text');
+    t1.appendChild(h('b', null, b.granted ? '今日签到 · 连续 ' + (b.streak || 1) + ' 天' : '已签到 · 连续 ' + (b.streak || 1) + ' 天'));
+    t1.appendChild(h('span', null, b.granted ? ('+' + (b.coins || 0) + ' 小鱼干 +' + (b.bond || 0) + ' 羁绊') : '明天再来领新奖励'));
+    r1.appendChild(t1);
+    body.appendChild(r1);
+    pushed = true;
+  }
+  if (wonderInfo && wonderInfo.wonder) {
+    var w = wonderInfo;
+    var r2 = h('div', 'world-gift-row');
+    r2.appendChild(h('span', 'world-gift-icon', w.wonder.icon || '✨'));
+    var t2 = h('div', 'world-gift-text');
+    t2.appendChild(h('b', null, '今日奇遇 · ' + w.wonder.title));
+    t2.appendChild(h('span', null, w.wonder.text || ''));
+    r2.appendChild(t2);
+    if (!w.claimed && w.reward) {
+      var pill = h('button', 'world-gift-claim', '领取');
+      pill.addEventListener('click', function() {
+        pill.disabled = true; pill.textContent = '发现中…';
+        api.post('/pet/wonder/claim', {}).then(function(res) {
+          var d = (res.data && res.data.data) || {};
+          if (d.state) state = d.state;
+          if (d.wonder) wonderInfo = d.wonder;
+          absorbProgress(d);
+          if (window.__ciPetSfx) window.__ciPetSfx.play('coin');
+          sysToast(w.wonder.title + '：+' + (d.addedCoins || 0) + ' 鱼干 +' + (d.addedBond || 0) + ' 羁绊', 'success');
+          worldSheetClose();
+        }, function(err) {
+          pill.disabled = false; pill.textContent = '领取';
+          sysToast((err && err.response && err.response.data && err.response.data.message) || '领取失败', 'error');
+        });
+      });
+      r2.appendChild(pill);
+    } else {
+      r2.appendChild(h('span', 'world-gift-done', '✓'));
+    }
+    body.appendChild(r2);
+    pushed = true;
+  }
+  var r = offlineRecapInfo;
+  if (r && r.events && r.events.length) {
+    var r3 = h('div', 'world-gift-row');
+    r3.appendChild(h('span', 'world-gift-icon', '🌙'));
+    var t3 = h('div', 'world-gift-text');
+    t3.appendChild(h('b', null, '你不在的 ' + (r.gapMin || 0) + ' 分钟'));
+    t3.appendChild(h('span', null, r.msg || ''));
+    r3.appendChild(t3);
+    body.appendChild(r3);
+    pushed = true;
+  }
+  if (!pushed) body.appendChild(h('div', 'world-gift-empty', '今天暂时没有惊喜，明天再来。'));
+}
+
+// 角色走动：RPG 的灵魂交互 —— 点家具，它先走过去，再打开对应的玩法。
+// walkX 记录在 SCENE_OBJECTS；scaleX 让它面向目标。走完回调里再弹对话框。
+var worldPetEl = null;
+var worldEl = null;          // 场景容器引用（位移要用它的实时宽度）
+var worldPetX = 50;          // 当前位置（%）
+// 整页重绘（喂食 / 专注结算 / 摸摸回包）会把场景整个重建。若从固定值重新开始，
+// 角色每次都「瞬移回房间中央」——用户看到的是「它被打断了一下」。
+// 记住上一次站立的位置，重绘后原地续上。
+var worldPetLastX = 30;
+var worldWalking = false;
+// ⚠️ 位移必须用 transform（GPU 合成）而不是 left —— left% 的过渡在
+//    部分 WebView 上直接跳帧，用户看到的就是「瞬移」。
+// 把视频逐帧「降采样」进小画布：这是把平滑素材变像素画的唯一可靠办法。
+// 直接用 CSS 缩放视频只能得到「糊」，得不到硬边像素。
+var worldPetCanvas = null;
+var worldPixelRAF = 0;
+function startWorldPetPixels(video, canvas, c2d) {
+  if (worldPixelRAF) { cancelAnimationFrame(worldPixelRAF); worldPixelRAF = 0; }
+  var w = canvas.width, h = canvas.height;
+  function step() {
+    if (!canvas || !canvas.parentNode) { worldPixelRAF = 0; return; }
+    try {
+      if (video && video.readyState >= 2) {
+        c2d.clearRect(0, 0, w, h);
+        c2d.drawImage(video, 0, 0, w, h);
+        keyPetBackdrop(c2d, w, h);
+      }
+    } catch (e) {}
+    worldPixelRAF = requestAnimationFrame(step);
+  }
+  worldPixelRAF = requestAnimationFrame(step);
+}
+
+// 抠底 + 硬化边缘。
+// ⚠️ 素材的「透明背景」其实是 **纯黑 @ alpha 128**（不是真透明）——
+//    直接画出来就是角色背后一块半透明黑板（截图实证：corner = 0/0/0/128）。
+// 做法：①底色（近黑且 alpha<=140）直接抹成透明；
+//      ②剩下的软边按 alpha 阈值二值化 —— 真像素画没有半透明边缘，
+//        这一步同时消除了缩放带来的抗锯齿，是「像素感」的关键。
+function keyPetBackdrop(c2d, w, h) {
+  var img = c2d.getImageData(0, 0, w, h);
+  var d = img.data;
+  for (var i = 0; i < d.length; i += 4) {
+    var a = d[i + 3];
+    if (a === 0) continue;
+    if (a <= 140 && d[i] < 26 && d[i + 1] < 26 && d[i + 2] < 26) {
+      d[i + 3] = 0;                      // 底色 → 全透明
+    } else {
+      d[i + 3] = a >= 150 ? 255 : 0;     // 软边 → 硬边（消除抗锯齿）
+    }
+  }
+  c2d.putImageData(img, 0, 0);
+}
+
+function worldPetApplyX(ms) {
+  if (!worldPetEl || !worldEl) {
+    if (window.__ciWorldIdle) window.__ciWorldIdle.applySkip++;
+    return 0;
+  }
+  // 半宽从元素自身量，不写死 158 —— 改角色尺寸时这里不会错位
+  var half = (worldPetEl.offsetWidth || 316) / 2;
+  var px = Math.round(worldEl.clientWidth * worldPetX / 100 - half);
+  if (ms) {
+    // 步速跟距离挂钩：原来固定 0.5s，从床头走到门口就是「滑过去」，
+    // 现在按 12ms/10px 折算（420~1300ms 封顶），观感是「走」不是「滑」。
+    worldPetEl.style.transitionDuration = ms + 'ms';
+  }
+  worldPetEl.style.transform = 'translateX(' + px + 'px)';
+  if (window.__ciWorldIdle) {
+    window.__ciWorldIdle.apply++;
+    window.__ciWorldIdle.lastPx = px;
+    window.__ciWorldIdle.lastW = worldEl.clientWidth;
+  }
+  return px;
+}
+
+// 走近一点、慢一点：返回本段走动的时长（毫秒）
+function worldWalkTo(x, done, speedFactor) {
+  if (!worldPetEl) { if (done) done(); return; }
+  if (Math.abs(x - worldPetX) < 1.2) { if (done) done(); return; }
+  var fromX = worldPetX;
+  var width = worldEl ? worldEl.clientWidth : 1080;
+  var distPx = Math.abs(x - fromX) / 100 * width;
+  var ms = Math.round(distPx * (speedFactor || 11));
+  ms = Math.max(380, Math.min(1500, ms));
+
+  worldWalking = true;
+  worldPetEl.classList.toggle('is-flip', x < fromX);
+  worldPetEl.classList.add('is-walk');
+  worldPetX = x;
+  worldPetLastX = x;
+  worldPetApplyX(ms);
+  if (window.__ciWorldIdle) window.__ciWorldIdle.lastMs = ms;
+
+  if (worldWalkTimer) clearTimeout(worldWalkTimer);
+  worldWalkTimer = setTimeout(function() {
+    worldPetEl.classList.remove('is-walk');
+    worldWalking = false;
+    if (done) done();
+  }, ms + 40);
+}
+
+// 张望：左右各看一眼（不是机械地 flip 一次）
+function worldLookAround() {
+  if (!worldPetEl || worldWalking) return;
+  worldPetEl.classList.toggle('is-flip');
+  if (window.__ciWorldIdle) window.__ciWorldIdle.look = (window.__ciWorldIdle.look || 0) + 1;
+  laterWorld(function() {
+    if (!worldPetEl || worldWalking) return;
+    worldPetEl.classList.toggle('is-flip');
+  }, 460);
+}
+
+var worldLaterTimers = [];
+function laterWorld(fn, ms) {
+  worldLaterTimers.push(setTimeout(fn, ms));
+}
+function clearWorldLater() {
+  for (var i = 0; i < worldLaterTimers.length; i++) clearTimeout(worldLaterTimers[i]);
+  worldLaterTimers = [];
+}
+
+function worldHop() {
+  if (!worldPetEl) return;
+  worldPetEl.classList.remove('is-hop');
+  void worldPetEl.offsetWidth;
+  worldPetEl.classList.add('is-hop');
+  if (window.__ciWorldIdle) window.__ciWorldIdle.hop = (window.__ciWorldIdle.hop || 0) + 1;
+}
+
+// ---------- 触屏交互层 ----------
+// ⚠️ 这个应用的主战场是校园平板，而**平板没有 hover**。原来所有交互提示
+//    （物件名、四角选中框、抬起 3px）都挂在 :hover 上 —— 后果有两个：
+//    ①用户从来没见过「小窝 / 喂食 / 专注 / 图鉴 / 冒险」这些标签；
+//    ②WebView 会把 hover 状态「粘」在最后点过的元素上，点一下书柜它就一直浮着，
+//      像卡住了。所以按压反馈改由 pointerdown 驱动，和 hover 彻底解耦。
+// ⚠️ 按压只用「整数位移」，绝不用 scale：像素图缩放会产生 4.8px 这种小数像素点，
+//    边缘当场糊掉（全仓 30 处 :active{scale(.96)} 是同一个问题）。
+function bindObjPress(btn, walkX) {
+  var labelTimer = null;
+  function showLabel(hold) {
+    btn.classList.add('is-label');
+    if (labelTimer) clearTimeout(labelTimer);
+    labelTimer = setTimeout(function() {
+      btn.classList.remove('is-label');
+      labelTimer = null;
+    }, hold || 1400);
+  }
+  btn.__showLabel = showLabel;      // 点击回调要把标签留到「它走过去」之后
+
+  btn.addEventListener('pointerdown', function(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    btn.classList.add('is-press');
+    // 触屏没有 mouseenter —— 按下这一下就是「它在注意你在看什么」的唯一时机。
+    if (walkX != null && worldPetEl && !worldWalking) {
+      worldPetEl.classList.toggle('is-flip', walkX < worldPetX);
+    }
+  });
+
+  var release = function() {
+    if (!btn.classList.contains('is-press')) return;
+    btn.classList.remove('is-press');
+    // 回弹：2 帧的「弹一下」，和像素动画的节奏一致（不是缓动）
+    btn.classList.remove('is-bump');
+    void btn.offsetWidth;
+    btn.classList.add('is-bump');
+    showLabel();
+  };
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('pointerleave', release);
+  btn.addEventListener('animationend', function(e) {
+    if (e.animationName === 'worldObjBump') btn.classList.remove('is-bump');
+  });
+}
+
+// 走动状态对探针可见（和 window.__ciWorldIdle 同一类东西：只读，没有 UI 入口）。
+// 触屏交互（点地板 / 点角色打断）只能靠状态断言，靠截图看不出「它是不是还在走」。
+window.__ciWorldDbg = {
+  stop: worldStopWalk,
+  get x() { return worldPetX; },
+  get walking() { return worldWalking; }
+};
+
+// 点地板的落点：三帧外扩的像素菱形。平滑涟漪属于矢量 UI，和这间屋子不是一套语言。
+function worldTapMark(pct) {
+  if (!worldEl) return;
+  var old = worldEl.querySelector('.world-tap');
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+  var m = h('span', 'world-tap');
+  m.style.left = pct + '%';
+  worldEl.appendChild(m);
+  laterWorld(function() { if (m.parentNode) m.parentNode.removeChild(m); }, 560);
+}
+
+// 走动着被点：停在「当前画到的位置」。
+// 不这么做的话，worldPetX 还停在目标值，下一次走动会按旧目标算距离 → 角色瞬移一格。
+function worldStopWalk() {
+  worldWalking = false;
+  if (worldWalkTimer) { clearTimeout(worldWalkTimer); worldWalkTimer = null; }
+  if (!worldPetEl) return;
+  worldPetEl.classList.remove('is-walk');
+  var el = worldPetEl;
+  var tx = null;
+  try {
+    // getComputedStyle 拿的是过渡中的实时矩阵 —— style.transform 只有目标值
+    var m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    tx = m.m41;
+  } catch (e) {
+    var mm = /translateX\((-?[\d.]+)px\)/.exec(el.style.transform || '');
+    if (mm) tx = parseFloat(mm[1]);
+  }
+  if (tx == null || !worldEl) return;
+  var half = (el.offsetWidth || 340) / 2;
+  var w = worldEl.clientWidth || 1;
+  worldPetX = (tx + half) / w * 100;
+  worldPetLastX = worldPetX;
+  el.style.transitionDuration = '0ms';
+  el.style.transform = 'translateX(' + Math.round(tx) + 'px)';
+  void el.offsetWidth;
+  el.style.transitionDuration = '';
+}
+
+function sceneAction(act, walkX) {
+  var open = function() {
+    if (act === 'focus') { worldSheet('陪它专注', function(body) { body.appendChild(focusPicker()); }); return; }
+    if (act === 'battle') { switchTab('battle'); return; }
+    if (act === 'dex') { switchTab('dex'); return; }
+    if (act === 'rank') { switchTab('rank'); return; }
+    if (act === 'bed') { worldSheet('小窝', nestSheetBody); return; }
+    if (act === 'window') {
+      worldSheet('窗外天气', function(body) {
+        var w = weatherCard();
+        if (w) body.appendChild(w);
+        else body.appendChild(h('div', 'world-gift-empty', '天气数据还没到，稍等一下。'));
+      });
+      return;
+    }
+    if (act === 'easel') { worldSheet('画板 · 形象', easelSheetBody); return; }
+    if (act === 'gift') { worldSheet('今日惊喜', giftSheetBody); return; }
+  };
+  // 喂食不用走过去（食盆就在脚边，直接吃）
+  if (act === 'feed') { bumpInteractCombo(); doFeed('normal', null); return; }
+  worldWalkTo(walkX, open);
+}
+
+// 重绘必须等角色停下来。
+// 场景是整块重建的：clearRoot 之后 worldWalkTimer 被 clearTimeout，
+// 于是「点它摸一下 → 0.5s 后回包重绘」会把用户在这 0.5s 内点的家具正在走的路线直接掐断
+// （面板不弹、角色停在半路）。这不是理论问题，探针里第一次就复现了。
+var pendingHomeRender = false;
+function renderHomeWhenIdle(tries) {
+  if (worldWalking) {
+    if ((tries || 0) < 12) setTimeout(function() { renderHomeWhenIdle((tries || 0) + 1); }, 260);
+    return;
+  }
+  // 面板开着也不能重建：它会把刚弹出的面板连同滚动位置一起抹掉。
+  // 记一笔，等面板关掉再补（见 worldSheetClose 的 170ms 回调）。
+  if (worldSheetEl) { pendingHomeRender = true; return; }
+  try { renderHome(); } catch (e) {}
+}
+
+// 摸摸：点角色本体（复用原按钮的派发与兜底逻辑）
+function scenePoke() {
+  bumpInteractCombo();
+  if (!canPoke()) { sysToast(capMessage('poke'), 'info'); return; }
+  try { window.dispatchEvent(new CustomEvent('ci-pet-poke')); } catch (e) {}
+  pendingReply.poke = false;
+  setTimeout(function() {
+    if (pendingReply.poke) return;
+    api.post('/pet/interact', { type: 'poke' }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      state = d.state || state;
+      if (d.mood) moodInfo = d.mood;
+      if (d.personality) personalityInfo = d.personality;
+      renderHomeWhenIdle();      // 别在它走路时重建场景
+    }, function() {
+      sysToast('它好像没反应…再试一次？', 'info');
+    });
+  }, 500);
+}
+
+// ================= 场景渲染 =================
+var worldIdleTimer = null;
+var worldTipTimer = null;
+var worldWalkTimer = null;
+var worldMutterTimer = null;
+var worldApplyXBound = false;
+// 闲逛诊断计数（只在控制台/探针用；没有 UI 影响）
+window.__ciWorldIdle = { ticks: 0, walk: 0, hop: 0, flip: 0, idle: 0,
+  skipWalk: 0, skipSheet: 0, noPet: 0, apply: 0, applySkip: 0,
+  lastPx: null, lastW: null, lastTarget: null };
+// 闲逛：把「一次大动作」拆成「一直在做小动作」。
+// 上一版 3~8 秒才动一次，用户看到的是「一直待着」——生命感其实取决于间隔，
+// 不是动作幅度。现在 1.2~3.2 秒一个微动作，其中只有 1/3 是走动。
+function scheduleWorldIdle(waitMs) {
+  if (worldIdleTimer) clearTimeout(worldIdleTimer);
+  var wait = waitMs || (1200 + Math.random() * 2000);
+  worldIdleTimer = setTimeout(worldIdleTick, wait);
+}
+
+// 走动目的地：60% 去某件家具跟前（有目的感），40% 随便挪。
+function worldWanderSpot() {
+  if (Math.random() < 0.6) {
+    var spots = [];
+    for (var i = 0; i < SCENE_OBJECTS.length; i++) {
+      if (SCENE_OBJECTS[i].walkX != null) spots.push(SCENE_OBJECTS[i].walkX);
+    }
+    if (spots.length) return spots[Math.floor(Math.random() * spots.length)];
+  }
+  return 16 + Math.round(Math.random() * 60);   // 16~76%：留在「生活区」里，不贴门不贴墙
+}
+
+function worldIdleTick() {
+  var dbg = window.__ciWorldIdle;
+  if (dbg) dbg.ticks++;
+  if (!worldPetEl) { if (dbg) dbg.noPet++; return; }
+  if (worldWalking || worldSheetEl) { scheduleWorldIdle(700); return; }
+
+  var roll = Math.random();
+  if (roll < 0.32) {
+    var x = worldWanderSpot();
+    if (dbg) { dbg.walk++; dbg.lastTarget = x; }
+    worldWalkTo(x, function() { scheduleWorldIdle(260 + Math.random() * 700); });
+  } else if (roll < 0.50) {
+    worldLookAround();
+    scheduleWorldIdle();
+  } else if (roll < 0.64) {
+    worldHop();
+    scheduleWorldIdle();
+  } else if (roll < 0.80) {
+    // 小碎步：原地附近挪一点点，像重心在换脚
+    var near = Math.max(15, Math.min(78, worldPetX + (Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 5)));
+    worldWalkTo(near, function() { scheduleWorldIdle(); }, 26);
+  } else {
+    // 什么都不做，但呼吸在动（视频本身就是待机呼吸）
+    if (dbg) dbg.idle++;
+    scheduleWorldIdle(1400 + Math.random() * 900);
+  }
+}
+
+// 自言自语：RPG 村民式的生活气。35~70 秒一次，出现 2.6 秒就收。
+var MUTTER_LINES = ['嗯…', '（伸懒腰）', '（看窗外）', '有点饿了…', '想被摸摸', '（打了个哈欠）', '今天也不错'];
+function scheduleWorldMutter() {
+  if (worldMutterTimer) clearTimeout(worldMutterTimer);
+  worldMutterTimer = setTimeout(function() {
+    if (worldPetEl && !worldSheetEl && !worldWalking) {
+      var el = h('div', 'world-mutter', MUTTER_LINES[Math.floor(Math.random() * MUTTER_LINES.length)]);
+      worldPetEl.appendChild(el);
+      setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 2600);
+    }
+    scheduleWorldMutter();
+  }, 35000 + Math.random() * 35000);
+}
+
+function sceneHomeBody(container) {
+  // 重入清理：clearRoot 会移除旧 DOM，先掐掉上一间的闲逛定时器
+  if (worldIdleTimer) { clearTimeout(worldIdleTimer); worldIdleTimer = null; }
+  if (worldWalkTimer) { clearTimeout(worldWalkTimer); worldWalkTimer = null; }
+  if (worldMutterTimer) { clearTimeout(worldMutterTimer); worldMutterTimer = null; }
+  if (worldPixelRAF) { cancelAnimationFrame(worldPixelRAF); worldPixelRAF = 0; }
+  worldPetCanvas = null;
+  clearWorldLater();
+  worldPetEl = null;
+  worldEl = null;
+  worldWalking = false;
+
+  var isVideoPet = state.design && state.design.type === 'video';
+
+  var world = h('div', 'ci-pet-world');
+  // ⚠️ stageW 现在只用于日志/调试：家具尺寸改由「原生像素 × 5」决定，
+  // 不再随视口缩放 —— 缩放会让像素点变成 3.7px 这种小数，等于亲手制造 mixel。
+  var stageW = (container && container.clientWidth) || 1080;
+  // 窗光是房间的主光源：位置由窗户物件驱动（CSS 里只写 var，不写死坐标，
+  // 否则挪动窗户时地板光斑会和窗户对不上）。
+  for (var wi = 0; wi < SCENE_OBJECTS.length; wi++) {
+    if (SCENE_OBJECTS[wi].id === 'window') {
+      world.style.setProperty('--win-x', SCENE_OBJECTS[wi].x + '%');
+      world.style.setProperty('--win-w', SCENE_OBJECTS[wi].w + 'px');
+    }
+  }
+  // 漂浮微尘（氛围）：5 枚像素小点缓缓上浮
+  var motes = h('div', 'world-motes');
+  for (var mi = 0; mi < 5; mi++) {
+    var mote = h('span', 'world-mote');
+    mote.style.left = (6 + mi * 19 + Math.random() * 8) + '%';
+    mote.style.animationDelay = (mi * 1.7) + 's';
+    motes.appendChild(mote);
+  }
+  world.appendChild(motes);
+  // ⚠️ 这里原来有个 <div class="world-wall">：它高度为 0，
+  //    而它的两个伪元素用 top:0 / top:46% 定位 —— 百分比在 0 高度上全塌到同一个 y，
+  //    于是「天花板线」和「护墙板腰线」重叠成一条横贯全屋的线。
+  //    「舞台中间那条线」找了八轮的真正根因就是它。职责已由 world-ceiling /
+  //    world-baseboard 承担，删除。
+  // 房间的建筑结构：天花板 / 地板 / 踢脚线。
+  // 它们不是装饰 —— 是把「一面高墙 + 一条地板」框成一个房间的三条边。
+  world.appendChild(h('div', 'world-ceiling'));
+  world.appendChild(h('div', 'world-floor'));
+  // 护墙板：把「一面到顶的空墙」切成「上部留白 + 下部木质板材」，
+  // 这是房间的装修结构，不是装饰 —— 墙面因此不再是一片空墙纸。
+  world.appendChild(h('div', 'world-wainscot'));
+  world.appendChild(h('div', 'world-baseboard'));
+  world.appendChild(h('div', 'world-beam'));   // 窗光光柱：光要有「来路」，不能只有落点
+
+  // ---------- 墙上 HUD：名牌（可点 = 打开小窝） ----------
+  var hud = h('button', 'world-hud-name');
+  hud.appendChild(h('span', 'world-hud-petname', state.name || '小家伙'));
+  var lv = h('span', 'world-hud-lv', 'Lv —');
+  bindLevel(lv);
+  hud.appendChild(lv);
+  hud.appendChild(h('span', 'world-hud-bond', '❤ ' + (state.bond || 0)));
+  hud.addEventListener('click', function() { sceneAction('bed'); });
+  world.appendChild(hud);
+
+  // 右上资源
+  var res = h('div', 'world-hud-res');
+  res.appendChild(h('span', 'world-hud-coin', '🐟 ' + coinCount()));
+  world.appendChild(res);
+
+  // ---------- 家具物件 ----------
+  var objLayer = h('div', 'world-objects');
+  for (var i = 0; i < SCENE_OBJECTS.length; i++) {
+    (function(o) {
+      var art = SCENE_ART[o.art || o.id];
+      var isDeco = !!o.deco;
+      // 像素网格：整间屋子 + 角色全部 5px/像素。
+      // 角色的 canvas 是 68×38 渲染成 340×190 —— 正好 5px。原来每件家具各自
+      // 吸附 3/4/6/8，一张床是 8px 的方块、旁边闹钟是 4px，眼睛一眼就看出「拼贴」。
+      // 所以尺寸不再由表格里的 w 决定，而是「原生像素 × 5」，谁都改不了这个比例。
+      var CELL = 5;
+      var ow = CELL * art.w;
+      var oh = CELL * art.h;
+      var btn = h(isDeco ? 'div' : 'button', 'world-obj' +
+        (o.wall ? ' world-obj--wall' : '') +
+        (o.hang ? ' world-obj--hang' : '') +
+        (isDeco ? ' world-obj--deco' : '') +
+        (o.front ? ' world-obj--front' : '') +
+        (o.hang ? '' : ' world-obj--ground'));
+      btn.setAttribute('data-obj', o.id);
+      // 站位对调试/探针可见：布局一改，walkX 也要跟着改，
+      // 探针从这里读，而不是在脚本里写死一个百分比。
+      if (o.walkX != null) btn.setAttribute('data-walk', String(o.walkX));
+      btn.style.left = 'calc(' + o.x + '% - ' + Math.round(ow / 2) + 'px)';
+      btn.style.width = ow + 'px';
+      if (o.hang) {
+        btn.style.top = (o.topY || 8) + '%';
+      } else if (o.row && GROUND_ROWS[o.row] !== undefined) {
+        // 地面线是「内容底边」。美术四周有 1px 描边留白（5px），必须减回去，
+        // 否则每件家具都浮在地板上 5px —— 在像素尺度上非常刺眼。
+        btn.style.bottom = 'calc(' + GROUND_ROWS[o.row] + '% - ' + CELL + 'px)';
+      }
+      btn.setAttribute('data-row', o.row || 'hang');
+      var artEl = h('span', 'world-obj-art');
+      artEl.innerHTML = pxArt(art.w, art.h, art.rows, art.pal);
+      artEl.style.height = oh + 'px';
+      btn.appendChild(artEl);
+      if (!isDeco) {
+        btn.appendChild(h('span', 'world-obj-name', o.name));
+        bindObjPress(btn, o.walkX);
+        btn.addEventListener('click', function() {
+          bumpInteractCombo();
+          // 标签留 2 秒：角色要先走过去（最远 1.5s），标签不能半路消失 ——
+          // 否则用户刚看清「这是图鉴」，名字已经没了。
+          if (btn.__showLabel) btn.__showLabel(2000);
+          sceneAction(o.act, o.walkX);
+        });
+        // 你把注意力放到哪件家具，它就转过去看 —— 「它在注意你在看什么」，
+        // 是最便宜也最有效的「活着」信号（比任何动画都省）。
+        // 桌面保留 mouseenter（触屏那一路在 bindObjPress 的 pointerdown 里）。
+        if (o.walkX != null) {
+          btn.addEventListener('mouseenter', function() {
+            if (!worldPetEl || worldWalking) return;
+            worldPetEl.classList.toggle('is-flip', o.walkX < worldPetX);
+          });
+        }
+      }
+      objLayer.appendChild(btn);
+    })(SCENE_OBJECTS[i]);
+  }
+
+
+  // 地毯（纯装饰）：像素三色阶椭圆
+  var rug = h('div', 'world-rug');
+  objLayer.appendChild(rug);
+  world.appendChild(objLayer);
+
+
+  // ---------- 角色（生活在家里，会走动） ----------
+  var petBox = h('div', 'world-pet');
+  // ⚠️ 这里必须是 left:0 + margin-left:0，**不能写 left:42%**。
+  //    角色定位的唯一真相是 worldPetApplyX()：它把「百分比 → 像素」算成
+  //    translateX(W × x% − half)，并假设元素的静态中心在 0。
+  //    一旦这里给了 left:42%，静态中心就变成 42%，transform 再叠一次 →
+  //    角色实际站在 66%（实测），而且所有 walkX 都偏右 24%：
+  //    床在小屋最左，它却走到房间中间就停下 —— 用户看到的是「它没走到床边」。
+  petBox.style.left = '0';
+  petBox.style.marginLeft = '0px';
+  petBox.appendChild(h('span', 'world-pet-shadow'));
+  if (isVideoPet) {
+    // ⚠️ 角色原始素材是 640×360 的平滑渲染 —— 直接放进像素房间，
+    //    等于在一屋子硬像素里放了一张高清照片，这是最高级别的「mixel」
+    //    （像素圈的术语：同一画面里混用不同像素密度，人眼一眼就能看出「拼贴感」）。
+    //    修法：把视频画进一张很小的 canvas（85×48），再用 image-rendering:pixelated
+    //    整数倍放大 4x —— 角色因此真正变成「像素画」，和家具同一个世界。
+    var v = document.createElement('video');
+    v.className = 'world-pet-src';
+    v.muted = true;
+    v.loop = true;
+    v.autoplay = true;
+    v.setAttribute('playsinline', 'playsinline');
+    v.setAttribute('webkit-playsinline', 'webkit-playsinline');
+    v.src = poolUrl(heroIdleName());
+    loadHeroPool();
+    petBox.appendChild(v);
+
+    var pv = document.createElement('canvas');
+    pv.className = 'world-pet-vid';
+    // 68x38 原生像素 × 5 = 340x190 CSS（上一版的尺度）
+    pv.width = 68;
+    pv.height = 38;
+    petBox.appendChild(pv);
+    var pctx = pv.getContext('2d');
+    if (pctx) pctx.imageSmoothingEnabled = false;
+    worldPetCanvas = pv;
+    startWorldPetPixels(v, pv, pctx);
+  } else {
+    var pv = document.createElement('canvas');
+    paint(pv, state.design, 9);
+    pv.className = 'world-pet-cv';
+    petBox.appendChild(pv);
+  }
+  // 点角色 = 摸摸（它原地开心跳一下）
+  petBox.addEventListener('click', function() {
+    // 走动中也要有回应：点它就停下、回头、开心跳一下。
+    // 原来这里是 `if (worldWalking) return;` —— 而它走动时恰好是用户最容易去点它的时刻，
+    // 点下去毫无反应，等于告诉用户「这个东西是死的」。
+    if (worldWalking) worldStopWalk();
+    petBox.classList.remove('is-hop');
+    void petBox.offsetWidth;
+    petBox.classList.add('is-hop');
+    scenePoke();
+  });
+  worldPetEl = petBox;
+  worldEl = world;
+  worldPetX = worldPetLastX;
+  world.appendChild(petBox);
+
+  // 首次进入的玩法引导：一条 RPG 台词，5 秒后消失。
+  // 交流靠「点它 / 点屋里的东西」这一句就够 —— 常驻文字说明会把场景切碎。
+  var tip = h('div', 'world-tip', '点屋里的东西 · 点地板它就走过去 · 点它可以摸摸');
+  world.appendChild(tip);
+  if (worldTipTimer) clearTimeout(worldTipTimer);
+  worldTipTimer = setTimeout(function() {
+    if (tip.parentNode) tip.parentNode.removeChild(tip);
+  }, 5200);
+
+  // 闲逛启动（延迟一点，先让玩家看清房间）
+  scheduleWorldIdle(900);
+  scheduleWorldMutter();
+
+  // 头顶气泡（复用现有 thought 内容源）
+  var mood = petMood();
+  // 说话气泡挂在角色容器里 —— 它必须跟着角色走。
+  // 原来固定在全屋 55%/46%，角色一走开，气泡就飘在书架上（"谁在说话？"）。
+  var bubble = h('div', 'world-bubble');
+  bubble.appendChild(h('span', 'ci-pet-hero-mood', (mood && mood.text) ? mood.text : (petMoodText ? petMoodText() : '今天也想被摸摸')));
+  petBox.appendChild(bubble);
+  // 台词只出现 9 秒：常驻的话，场景会变成一块说明牌
+  laterWorld(function() { bubble.classList.add('is-faded'); }, 9000);
+
+  // 点地板 = 走过去。这是 RPG 房间的基本盘：不会走路的房间只是一张背景图。
+  // 排除所有「自己有动作」的命中区（物件 / 角色 / 顶部名牌 / 点击不穿透的），
+  // 否则点一次物件会额外触发一次「走过去」。
+  world.addEventListener('click', function(e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('.world-obj, .world-pet, .world-hud-name, .world-hud-res, .world-tip, .world-sheet-wrap, button')) return;
+    if (worldSheetEl) return;
+    var r = world.getBoundingClientRect();
+    if (!r.width) return;
+    var pct = (e.clientX - r.left) / r.width * 100;
+    pct = Math.max(8, Math.min(92, pct));   // 别走进墙里/门外
+    worldTapMark(pct);
+    worldWalkTo(pct, null, 10);
+  });
+
+  container.appendChild(world);
+
+  // 叠放：闹钟坐桌面、奖杯坐书架顶。
+  // ⚠️ 必须等 world 真的进了文档再算 —— 游离 DOM 的 getBoundingClientRect 全是 0，
+  //    这个坑我踩了两次（第一次在 append(objLayer) 之前算，全跳过）。
+  // ⚠️ 台面行 surface 是「美术内容内的第几行」，不是盒子顶：
+  //    desk 的桌面在第 4 行（上面还摆着书），shelf 的顶板就是第 0 行。
+  //    上一版直接拿盒子顶当台面 → 摆件凭空高 10px（两层 1px 描边留白），
+  //    奖杯看着像浮在柜子上方。
+  (function() {
+    var SIT = { clock: { on: 'desk', surface: 4 }, trophy: { on: 'shelf', surface: 0 } };
+    var CELL = 5;
+    for (var id in SIT) {
+      var host = objLayer.querySelector('[data-obj="' + SIT[id].on + '"]');
+      var sit = objLayer.querySelector('[data-obj="' + id + '"]');
+      if (!host || !sit) continue;
+      var hr = host.getBoundingClientRect();
+      var wr = world.getBoundingClientRect();
+      if (!hr.height || !wr.height) continue;
+      // 盒子底 = 内容顶(hr.top+CELL) + 台面偏移 - 自己的描边留白(CELL)
+      var boxBottom = hr.top + 2 * CELL + SIT[id].surface * CELL;
+      sit.style.bottom = ((wr.bottom - boxBottom) / wr.height * 100) + '%';
+    }
+  })();
+
+  // ⚠️ 角色初始位移必须在这里算（world 已经进文档 → clientWidth 才是真的）。
+  //    放在 world.appendChild(petBox) 之后是没用的：那时 world 还在游离状态，
+  //    clientWidth = 0 → px = -158 → 角色会一直偏在错误位置（首帧「贴左」的根因）。
+  worldPetApplyX(0);
+
+  // 窗口尺寸变了要重算（百分比 → 像素的换算依赖实时宽度）
+  if (!worldApplyXBound) {
+    worldApplyXBound = true;
+    window.addEventListener('resize', function() { worldPetApplyX(0); });
+  }
+}
+
     function renderHomeBody() {
     var isVideoPet = state.design && state.design.type === 'video';
     var bond = state.bond || 0;
@@ -1874,27 +3674,26 @@
     heroInfo.appendChild(stats);
     root.appendChild(hero);
 
-    // ---- 今日天气 + 每日任务 + 它的小日记（v0.10.0 / v0.11.0）----
-    // 顺序即阅读顺序：先看「今天什么情况」，再看「它今天过得怎么样」，最后决定动手做什么。
-    var wcard = weatherCard();
-    if (wcard) root.appendChild(wcard);
-    var dbcard = dailyBonusCard();
-    if (dbcard) root.appendChild(dbcard);
-    var ocard = offlineRecapCard();
-    if (ocard) root.appendChild(ocard);
-    var wcard = wonderCard();
-    if (wcard) root.appendChild(wcard);
-    var acard = autonomyCard();
-    if (acard) root.appendChild(acard);
-    var wc2 = wishCard();
-    if (wc2) root.appendChild(wc2);
-    var scard = storyCard();
-    if (scard) root.appendChild(scard);
+    // ---- 右栏（v0.19.0 横屏分栏）----
+    // 设备是 960x680 的横向屏（用户指正：之前一直按竖屏单列做，横向全浪费）。
+    // 横屏游戏的标准范式：左栏 = 角色与它的直接操作（恒定在视野，永不滚动），
+    // 右栏 = 世界的入口（今日 / 任务 / 商店 / 冒险），自己滚。
+    // 这样角色永远在眼前 —— 这是横屏设备最大的优势，竖屏长滚动把它丢掉了。
+    // 竖屏（窄视口）下这个容器不生效：CSS 里 side 只是普通透明容器，照旧纵排。
+    var side = h('div', 'ci-pet-side');
+
+    // ---- 今日轨道（v0.19.0）----
+    // 天气 / 签到 / 奇遇 / 离线 / 心愿 五件事合成一条横向轨道，
+    // 不再各占一张卡片从���到下堆五屏。
+    var trail = todayRail();
+    if (trail) side.appendChild(trail);
+
+    // ---- 每日任务 ----
+    // 任务是一天一次的清单，留在纵向流里是对的（它是列表不是事件）。
     var qcard = questCard();
     // v0.13.0：外面那层「每日任务」分区标题已去掉 —— questCard 自己的 head
     // 就写着「今日任务 0 / 3」，两个标题上下贴着，读起来像重复了一遍。
-    if (qcard) root.appendChild(qcard);
-    root.appendChild(diaryCard());
+    if (qcard) side.appendChild(qcard);
 
     // ---- 互动（摸摸/呼唤直接驱动桌面上的那只）----
     // v0.14.0 起这四个按钮是舞台底部的「技能栏」，不再是页面中间的一排方块。
@@ -1962,21 +3761,32 @@
       '相伴 ' + daysTogether() + ' 天 · 今日互动 ' + todayInteracts() + ' 次 · 今日羁绊 +' +
       (state.bond_today || 0)));
 
-    if (focus.picking && !focus.active) root.appendChild(focusPicker());
+    if (focus.picking && !focus.active) side.appendChild(focusPicker());
 
     // 小卖部紧贴互动区：'专注赚币 → 换饭 → 喂它' 是一条动作链，
     // 中间隔一个分区标题，视觉上就断了。
-    root.appendChild(shoppeBar());
+    side.appendChild(shoppeBar());
 
-    // ---- 冒险入口（对战 / 图鉴 / 排行 各自独立成页）----
-    // 之前完整对战塞在这里，首页要滚三屏才能看到设置；
-    // 现在首页只回答「它在干什么」，想打就点进去。
-    root.appendChild(sectionTitle('冒险'));
-    root.appendChild(adventureLinks());
-    root.appendChild(buddyHomeCard());
+    // ---- 冒险关卡卡（v0.19.0）----
+    // 旧版是三行「图标 + 文字 + ›」的列表行，读起来像设置菜单；
+    // 现在是三张并列关卡卡，一眼能看到「今天有几场、图鉴收了几只、我排第几」。
+    side.appendChild(sectionTitle('冒险'));
+    side.appendChild(adventureStage());
+    side.appendChild(buddyHomeCard());
+
+    // ---- 更多：形象 / 故事 / 日记 / 设置 收进抽屉（v0.19.0）----
+    // 这四块是低频功能。摊在首页上会让首屏之后变成一列设置项，
+    // 整页读起来就是「配置面板」。收进一个可展开的抽屉，主视线只剩三样：
+    // 它是谁（舞台）、今天做什么（今日轨道）、去哪里玩（关卡卡）。
+    var more = h('details', 'ci-pet-more');
+    var moreSum = h('summary', 'ci-pet-more-sum');
+    moreSum.appendChild(h('span', 'ci-pet-more-title', '更多'));
+    moreSum.appendChild(h('span', 'ci-pet-more-sub', '形象 · 故事 · 日记 · 设置'));
+    more.appendChild(moreSum);
+    var moreBody = h('div', 'ci-pet-more-body');
 
     // ---- 形象（双向卡片式切换）----
-    root.appendChild(sectionTitle('形象'));
+    moreBody.appendChild(sectionTitle('形象'));
     var styles = h('div', 'ci-pet-styles');
     var cWhale = h('div', 'ci-pet-stylecard' + (isVideoPet ? ' is-active' : ''));
     cWhale.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🐳'));
@@ -2025,10 +3835,17 @@
       cPixel.appendChild(usePixel);
     }
     styles.appendChild(cPixel);
-    root.appendChild(styles);
+    moreBody.appendChild(styles);
+
+    // ---- 故事 ----
+    var scard = storyCard();
+    if (scard) moreBody.appendChild(scard);
+
+    // ---- 它的小日记 ----
+    moreBody.appendChild(diaryCard());
 
     // ---- 设置：显示开关 + 改名字 ----
-    root.appendChild(sectionTitle('设置'));
+    moreBody.appendChild(sectionTitle('设置'));
     var misc = h('div', 'ci-pet-misc');
     var toggleRow = h('div', 'ci-pet-toggle-row');
     toggleRow.appendChild(h('span', null, '在桌面显示'));
@@ -2055,7 +3872,7 @@
     });
     renameRow.appendChild(rename);
     misc.appendChild(renameRow);
-    root.appendChild(misc);
+    moreBody.appendChild(misc);
 
     // ---- 诊断折叠到底部（平时不占版面）----
     var adv = h('details', 'ci-pet-adv');
@@ -2065,7 +3882,10 @@
     adv.addEventListener('toggle', function() {
       if (adv.open) diagOut.textContent = buildDiag();
     });
-    root.appendChild(adv);
+    moreBody.appendChild(adv);
+    more.appendChild(moreBody);
+    side.appendChild(more);
+    root.appendChild(side);
   }
 
   // ================= 图鉴 / 进化 / 随行（v0.8.0）====================
@@ -2092,10 +3912,12 @@
     head.appendChild(h('span', 'ci-pet-evo-icon', e.icon || ''));
     var txt = h('div', 'ci-pet-evo-text');
     txt.appendChild(h('div', 'ci-pet-evo-name', e.name + ' · 技能槽 ' + e.slots));
+    // ⚠️ bond/nextAt 兜底：stub 或降级环境下发可能缺这两个字段，
+    //    裸拼接会显示「羁绊 undefined」（fin-land-dex 截图实证）。
     txt.appendChild(h('div', 'ci-pet-evo-sub',
       e.nextAt
-        ? ('羁绊 ' + e.bond + ' / ' + e.nextAt + '，再 +' + (e.nextAt - e.bond) + ' 进化成「' + e.nextName + '」')
-        : ('羁绊 ' + e.bond + '，已经是最终形态')));
+        ? ('羁绊 ' + (e.bond || 0) + ' / ' + e.nextAt + '，再 +' + (e.nextAt - (e.bond || 0)) + ' 进化成「' + (e.nextName || '下一形态') + '」')
+        : ('羁绊 ' + (e.bond || 0) + '，已经是最终形态')));
     head.appendChild(txt);
     box.appendChild(head);
     var bar = h('div', 'ci-pet-evo-bar');
@@ -2130,7 +3952,9 @@
         var on = t.id === cur;
         var chip = h('button', 'ci-pet-type ci-pet-el--' + t.id + (on ? ' is-on' : ''));
         chip.setAttribute('data-type', t.id);
-        chip.appendChild(h('span', 'ci-pet-type-icon', t.icon || ''));
+        // 图标槽固定 24px，换成像素图之后五个属性是一套画风（emoji 是五张系统贴图）
+        var tIco = pixIcon(t.id, 'ci-pet-type-icon');
+        if (tIco) chip.appendChild(tIco);
         chip.appendChild(h('span', 'ci-pet-type-name', t.name));
         chip.addEventListener('click', function() {
           if (battle.battleType === t.id) return;
@@ -2146,13 +3970,26 @@
     var note = h('div', 'ci-pet-types-note');
     note.appendChild(elementChip(cur));
     note.appendChild(h('span', null,
-      ' 克制 ' + beatsEl.icon + beatsEl.name + '，被 ' + weakEl.icon + weakEl.name + ' 克制'));
+      ' 克制 ' + beatsEl.name + '，被 ' + weakEl.name + ' 克制'));
     box.appendChild(note);
     return box;
   }
 
   function currentBuddy() {
-    if (battle && battle.dex && battle.dex.buddy) return battle.dex.buddy;
+    // ⚠️ v0.19.0 修 bug：dex.buddy 是**对象**（后端 buddyPublic() 返回完整的
+    //    精灵档案：name/icon/type/rarity/bonus），不是 id 字符串。
+    //    旧代码直接把它当字符串用，buddyLine 读 b.name / b.icon 就成了
+    //    undefined undefined（截图实证）。
+    //    同时兼容旧形状：万一某个环境下发的是 id 字符串，就去 dex.list 里找。
+    var d = battle && battle.dex;
+    if (d && d.buddy) {
+      if (typeof d.buddy === 'object') return d.buddy;
+      // 旧形状：字符串 id → 从列表里找对应精灵
+      var list = d.list || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === d.buddy) return list[i];
+      }
+    }
     return buddyInfo;
   }
 
@@ -2243,7 +4080,8 @@
       var s = (dex.byType && dex.byType[id]) || { owned: 0, total: 0 };
       var e = elementOf(id);
       var chip = h('span', 'ci-pet-dex-type' + (s.total && s.owned >= s.total ? ' is-full' : ''));
-      chip.appendChild(h('span', 'ci-pet-dex-type-icon', e.icon));
+      var dIco = pixIcon(id, 'ci-pet-dex-type-icon');
+      if (dIco) chip.appendChild(dIco);
       chip.appendChild(h('span', null, e.name + ' ' + s.owned + '/' + s.total));
       row.appendChild(chip);
     }
@@ -2347,7 +4185,7 @@
         if (d.shadows) battle.shadows = d.shadows;
       }
       var e = elementOf(type);
-      sysToast('本命改成 ' + e.icon + e.name + '，对局里的克制关系已经变了', 'success');
+      sysToast('本命改成' + e.name + '，对局里的克制关系已经变了', 'success');
       if (after) after(); else renderHome();
     }, function(err) {
       var msg = (err && err.response && err.response.data && err.response.data.message) || '切换属性失败';
@@ -2360,7 +4198,7 @@
     btn.disabled = true;
     var txt = btn.textContent;
     btn.textContent = '靠近中…';
-    var body = { id: id };
+    var body = { id: id, mode: 'open' };
     if (battle && battle.tactic) body.tactic = battle.tactic;
     api.post('/pet/wild/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
@@ -2368,7 +4206,7 @@
       absorbProgress(d);
       battle = null;    // 图鉴 / 战力都可能变了，回来重新取
       clearEl(dexBox);
-      playFight(dexBox, d, { wild: true, creature: d.creature });
+      playFight(dexBox, d, { wild: true, creature: d.creature, endpoint: '/pet/wild/fight', extra: { id: id } });
       try { dexBox.scrollIntoView({ block: 'start' }); } catch (e) {}
     }, function(err) {
       var msg = (err && err.response && err.response.data && err.response.data.message) || '挑战失败';
@@ -2413,6 +4251,7 @@
   //   1) 展示战力 / 战绩 / 今日场次；2) 把返回的逐回合战报按节奏播出来。
   // 战报格式是通用契约 —— 以后换成真人对手（异步影子 / 实时房间），这一段一行都不用改。
   var battle = null;        // 服务端 profile 缓存
+  var buildEdit = null;     // Build 编辑器草稿（进编辑器初始化，保存/返回清掉）
   var battleLoading = false;
   var battleFailed = false;
   var battleWaiters = [];
@@ -2475,11 +4314,6 @@
     return sec;
   }
 
-  // 对战页的属性条复用图鉴页那一套组件，只是改完要就地重画对手卡。
-  function typeBar(sec) {
-    return typePicker(function() { fillBattle(sec); });
-  }
-
   function fillBattle(sec) {
     if (!sec) return;
     stopFight();
@@ -2504,106 +4338,367 @@
     var c = battle.combat || {};
     var rec = battle.record || {};
 
-    var head = h('div', 'ci-pet-battle-head');
-    var powerBox = h('div', 'ci-pet-power');
-    powerBox.appendChild(h('span', 'ci-pet-power-num', String(c.power || 0)));
-    powerBox.appendChild(h('span', 'ci-pet-power-label', '战力'));
-    head.appendChild(powerBox);
-
-    var meta = h('div', 'ci-pet-battle-meta');
-    meta.appendChild(h('div', 'ci-pet-battle-tier', (c.tierName || '初识') + ' · 羁绊 ' + (c.bond || 0)));
-    meta.appendChild(h('div', 'ci-pet-battle-record',
-      (rec.win || 0) + ' 胜 ' + (rec.lose || 0) + ' 负 · ' + (rec.points || 0) + ' 分'));
-    // 连胜是唯一会「断」的东西，所以放在战绩下面单独一行，赢了才值得看
-    if (rec.streak > 0) {
-      meta.appendChild(h('div', 'ci-pet-battle-streak',
-        '🔥 ' + rec.streak + ' 连胜' + (rec.best > rec.streak ? '（最好 ' + rec.best + '）' : '')));
-    } else if (rec.best > 0) {
-      meta.appendChild(h('div', 'ci-pet-battle-streak ci-pet-battle-streak--idle',
-        '最好连胜 ' + rec.best));
-    }
-    // 次数不限，所以这里改成报「今天打了几场」而不是「还剩几场」。
-    // 上限如果将来恢复（cap > 0），会自动变成 x / N 的写法。
-    var capVal = (battle.cap === undefined ? CAP_FALLBACK : battle.cap);
-    meta.appendChild(h('div', 'ci-pet-battle-quota',
-      capVal > 0
-        ? ('今日 ' + (battle.today || 0) + ' / ' + capVal + ' 场')
-        : ('今日 ' + (battle.today || 0) + ' 场，想打就打')));
-
-    var def = battle.defend || {};
-    if (def.total) {
-      meta.appendChild(h('div', 'ci-pet-battle-quota',
-        '守擂 ' + (def.held || 0) + ' 胜 ' + (def.broken || 0) + ' 负 · ' + (def.points || 0) + ' 分'));
-    }
-    if (battle.myRank) {
-      meta.appendChild(h('div', 'ci-pet-battle-rank',
-        '全班第 ' + battle.myRank + ' 名' +
-        (battle.myRank <= 3 ? ' 🏅' : '')));
-    }
-    head.appendChild(meta);
-    sec.appendChild(head);
-
-    sec.appendChild(typeBar(sec));
-    var bWeather = weatherCard();
-    if (bWeather) sec.appendChild(bWeather);
-    sec.appendChild(inboxBox(sec));
-    sec.appendChild(tacticBar(sec));
-    sec.appendChild(skillBar(sec));
-
-    // left = -1 表示不限次数（后端约定），只有 cap > 0 时才可能是 0
-    var out = !battle || (typeof battle.left === 'number' && battle.left === 0 && battle.cap > 0);
-    sec.appendChild(subTitle('真人影子'));
-    var shadows = battle.shadows || [];
-    if (!shadows.length) {
-      sec.appendChild(h('div', 'ci-pet-battle-none',
-        '暂时没有和你羁绊相近的同学，先打练习赛，过几天再来看看。'));
-    } else {
-      var slist = h('div', 'ci-pet-foes');
-      for (var k = 0; k < shadows.length; k++) slist.appendChild(foeCard(sec, shadows[k], out));
-      sec.appendChild(slist);
-    }
-
-    sec.appendChild(subTitle('练习赛'));
-    var foes = battle.opponents || [];
-    var list = h('div', 'ci-pet-foes');
-    for (var i = 0; i < foes.length; i++) list.appendChild(foeCard(sec, foes[i], out));
-    sec.appendChild(list);
-
-    sec.appendChild(h('div', 'ci-pet-battle-tip',
-      '影子是同学家那只宠物的快照：他不用在线，打完会收到你的挑战留言。' +
-      '练习赛和影子只涨战力积分，都不碰羁绊。' +
-      '不限次数随时能打；当天打得越多，每场积分越少（前 5 场全额）。'));
-
-    sec.appendChild(towerSection(sec));
-    sec.appendChild(historyBox());
-    sec.appendChild(achBox());
-    sec.appendChild(titleBox());
-    sec.appendChild(rankBox());
+    // 布局（v2.1 竞技场制）：默认视野里没有任何卡片——
+    //   场景占满首屏（我方宠物 vs 本周 Boss，双方 HP 牌浮在场景角上），
+    //   底部一条指令条（对战/副本/备战/荣誉），所有信息都收进召唤出来的抽屉。
+    // 这才是游戏的组织方式：先看到「它在打谁」，要做什么再点什么。
+    var arenaPage = h('div', 'ci-pet-arena-page');
+    arenaPage.appendChild(buildArena());
+    arenaPage.appendChild(commandBar(sec));
+    sec.appendChild(arenaPage);
   }
 
-  // 技能：战斗内发生什么。战术决定属性分配，技能决定战斗过程，两者叠加才是 build。
-  function skillBar(sec) {
-    var list = battle.skills || [];
-    if (!list.length) return h('div', '');
+
+  // 对战页的属性条复用图鉴页那一套组件，只是改完要就地重画对手卡。
+    // ==================== 竞技场（v2.1）：场景即页面 ====================
+  function buildArena() {
+    var env = battle.environment || {};
+    var boss = env.boss || {};
+    var c = battle.combat || {};
+    var myPow = c.power || 0;
+
+    var box = h('div', 'ci-pet-arena is-env-' + (env.id || 'wind_valley'));
+    var scene = h('div', 'ci-pet-arena-scene');
+    scene.appendChild(h('div', 'ci-pet-scene-sky'));
+    scene.appendChild(h('div', 'ci-pet-scene-stars'));
+    scene.appendChild(h('div', 'ci-pet-scene-hills'));
+    scene.appendChild(h('div', 'ci-pet-scene-ground'));
+
+    // 敌方 HP 牌（左上，宝可梦式浮牌）+ Boss 大盘（右）
+    scene.appendChild(hpPlate(boss.name || '本周 Boss', boss.type, boss.power, 'foe'));
+    var foeSide = h('div', 'ci-pet-arena-foe');
+    var disc = h('div', 'ci-pet-bstage-foedisc');
+    disc.appendChild(h('span', 'ci-pet-bstage-foeicon', boss.icon || env.icon || '👾'));
+    if (boss.type) disc.appendChild(elementChip(boss.type));
+    foeSide.appendChild(disc);
+    scene.appendChild(foeSide);
+
+    // VS
+    scene.appendChild(h('div', 'ci-pet-bstage-vs', 'VS'));
+
+    // 我方宠物（左下，大）+ 我方 HP 牌（右下）
+    var me = h('div', 'ci-pet-arena-me');
+    if (state && state.design && state.design.type === 'video') {
+      var v = document.createElement('video');
+      v.className = 'ci-pet-arena-video';
+      v.muted = true; v.loop = true; v.autoplay = true;
+      v.setAttribute('playsinline', 'playsinline');
+      v.setAttribute('webkit-playsinline', 'webkit-playsinline');
+      v.src = poolUrl(heroIdleName());
+      loadHeroPool();
+      me.appendChild(v);
+    } else if (state && state.design) {
+      var pv = document.createElement('canvas');
+      paint(pv, state.design, 10);
+      me.appendChild(pv);
+    }
+    scene.appendChild(me);
+    scene.appendChild(hpPlate((state && state.name) || '小家伙', battle.battleType || 'grass', myPow, 'me'));
+
+    // 场景角落的小灰字：战绩一览（能看见但不是主角）
+    var rec = battle.record || {};
+    scene.appendChild(h('div', 'ci-pet-arena-rec',
+      (rec.win || 0) + ' 胜 ' + (rec.lose || 0) + ' 负 · ' + (rec.points || 0) + ' 分' +
+      (rec.streak > 0 ? ' · 🔥' + rec.streak + ' 连胜' : '')));
+    box.appendChild(scene);
+    return box;
+  }
+
+  // 战绩细信息条（荣誉抽屉顶部）
+  function battleMetaStrip() {
+    var rec = battle.record || {};
+    var capVal = (battle.cap === undefined ? CAP_FALLBACK : battle.cap);
+    var parts = [];
+    parts.push((rec.win || 0) + ' 胜 ' + (rec.lose || 0) + ' 负 · ' + (rec.points || 0) + ' 分');
+    if (rec.streak > 0) parts.push('🔥 ' + rec.streak + ' 连胜');
+    parts.push(capVal > 0
+      ? ('今日 ' + (battle.today || 0) + ' / ' + capVal)
+      : ('今日 ' + (battle.today || 0) + ' 场'));
+    if (battle.myRank) parts.push('全班第 ' + battle.myRank + ' 名');
+    var def = battle.defend || {};
+    if (def.total) parts.push('守擂 ' + (def.held || 0) + ' 胜');
+    var strip = h('div', 'ci-pet-bmetastrip');
+    for (var i = 0; i < parts.length; i++) {
+      strip.appendChild(h('span', 'ci-pet-bmetastrip-item', parts[i]));
+    }
+    return strip;
+  }
+
+  // HP 牌：名字 + Lv + 血条 + 战力，宝可梦式浮在场景角上
+  function hpPlate(name, typeId, power, side) {
+    var el = h('div', 'ci-pet-hpplate ci-pet-hpplate--' + side + (typeId ? ' is-t-' + typeId : ''));
+    var top = h('div', 'ci-pet-hpplate-top');
+    top.appendChild(h('span', 'ci-pet-hpplate-name', name));
+    var lv = h('span', 'ci-pet-hpplate-lv', 'Lv');
+    top.appendChild(lv);
+    el.appendChild(top);
+    var bar = h('div', 'ci-pet-hpplate-bar');
+    bar.appendChild(h('span', 'ci-pet-hpplate-fill'));
+    el.appendChild(bar);
+    var bot = h('div', 'ci-pet-hpplate-bot');
+    bot.appendChild(h('span', 'ci-pet-hpplate-hptag', 'HP'));
+    bot.appendChild(h('span', 'ci-pet-hpplate-pow', String(power)));
+    el.appendChild(bot);
+    if (side === 'me') bindLevel(lv);
+    return el;
+  }
+
+  // 指令条：对战的全部入口。游戏只给你四个词，不给报表。
+  function commandBar(sec) {
+    var bar = h('div', 'ci-pet-cmdbar');
+    // v0.25.0：图标全部换成像素图（emoji 的尺寸/配色/描边都不受控，
+    // 四个 26px 彩色 emoji 是整页最吵的一块）。tone 只作为「按键顶部的色条」，
+    // 底色统一是木牌 —— 四个高饱和渐变按钮会让这一页和小家像是两个游戏。
+    var defs = [
+      { id: 'fight', icon: 'fight', label: '对战', tone: 'is-red' },
+      { id: 'env',   icon: 'env',   label: '副本', tone: 'is-teal' },
+      { id: 'build', icon: 'build', label: '备战', tone: 'is-purple' },
+      { id: 'honor', icon: 'honor', label: '荣誉', tone: 'is-gold' }
+    ];
+    for (var i = 0; i < defs.length; i++) {
+      (function(d) {
+        var b = h('button', 'ci-pet-cmdbtn ' + d.tone);
+        var ic = pixIcon(d.icon, 'ci-pet-cmdbtn-icon');
+        if (ic) b.appendChild(ic);
+        b.appendChild(h('span', 'ci-pet-cmdbtn-label', d.label));
+        b.addEventListener('click', function() {
+          if (d.id === 'build') { renderBuildEditor(); return; }
+          openSheet(sec, d.id);
+        });
+        bar.appendChild(b);
+      })(defs[i]);
+    }
+    return bar;
+  }
+
+  // 抽屉：从底部升起的整幅菜单（ scrim + 面板 ）。一次只开一个。
+  function openSheet(sec, kind) {
+    closeSheet(sec);
+    var wrap = h('div', 'ci-pet-sheet-wrap');
+    wrap.setAttribute('data-kind', kind);
+    var scrim = h('div', 'ci-pet-sheet-scrim');
+    scrim.addEventListener('click', function() { closeSheet(sec); });
+    var sheet = h('div', 'ci-pet-sheet');
+    var head = h('div', 'ci-pet-sheet-head');
+    var title = { fight: '选择对手', env: '本周副本', honor: '荣誉室' }[kind] || '';
+    head.appendChild(h('span', 'ci-pet-sheet-title', title));
+    var close = h('button', 'ci-pet-sheet-close');
+    var xIco = pixIcon('close', 'ci-pet-sheet-close-ico');
+    if (xIco) close.appendChild(xIco);
+    close.addEventListener('click', function() { closeSheet(sec); });
+    head.appendChild(close);
+    sheet.appendChild(head);
+    var body = h('div', 'ci-pet-sheet-body');
+    if (kind === 'fight') buildFightSheet(body, sec);
+    else if (kind === 'env') buildEnvSheet(body, sec);
+    else if (kind === 'honor') buildHonorSheet(body, sec);
+    sheet.appendChild(body);
+    wrap.appendChild(scrim);
+    wrap.appendChild(sheet);
+    sec.appendChild(wrap);
+  }
+  function closeSheet(sec) {
+    var old = sec.querySelector('.ci-pet-sheet-wrap');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+  }
+
+  // 对战抽屉：准备（天气/属性/风格）+ 三个标签（影子/练习赛/试炼塔）
+  function buildFightSheet(body, sec) {
+    body.appendChild(battleOpsRow(sec));
+    var out = !battle || (typeof battle.left === 'number' && battle.left === 0 && battle.cap > 0);
+    var tabs = h('div', 'ci-pet-sheettabs');
+    var panes = {};
+    var defs = [
+      { id: 'shadow', label: '真人影子' },
+      { id: 'spar', label: '练习赛' },
+      { id: 'tower', label: '试炼之塔' }
+    ];
+    defs.forEach(function(d, idx) {
+      var t = h('button', 'ci-pet-sheettab' + (idx === 0 ? ' is-on' : ''));
+      t.textContent = d.label;
+      t.addEventListener('click', function() {
+        var kids = tabs.childNodes;
+        for (var m = 0; m < kids.length; m++) kids[m].className = 'ci-pet-sheettab';
+        t.className = 'ci-pet-sheettab is-on';
+        for (var k in panes) {
+          if (Object.prototype.hasOwnProperty.call(panes, k)) {
+            panes[k].style.display = (k === d.id) ? '' : 'none';
+          }
+        }
+      });
+      tabs.appendChild(t);
+      var pane = h('div', 'ci-pet-sheetpane');
+      if (d.id === 'shadow') {
+        var shadows = battle.shadows || [];
+        if (!shadows.length) {
+          pane.appendChild(h('div', 'ci-pet-battle-none',
+            '暂时没有和你羁绊相近的同学，先打练习赛，过几天再来看看。'));
+        } else {
+          pane.appendChild(foesSheet(sec, shadows, out));
+        }
+      } else if (d.id === 'spar') {
+        pane.appendChild(foesSheet(sec, battle.opponents || [], out));
+      } else {
+        pane.appendChild(towerSection(sec));
+      }
+      if (idx > 0) pane.style.display = 'none';
+      panes[d.id] = pane;
+      body.appendChild(pane);
+    });
+    body.appendChild(tabs);
+    // 标签栏固定在抽屉底部（拇指高度），pane 放上面 —— 见 CSS
+    body.appendChild(tabs);
+  }
+
+  // 副本抽屉：环境横幅 + 挑战按钮
+  function buildEnvSheet(body, sec) {
+    body.appendChild(environmentCard(sec));
+    var env = battle.environment || {};
+    var dailyLeft = (env.dailyLeft === undefined) ? 1 : env.dailyLeft;
+    var btn = h('button', 'ci-pet-bstage-fight', dailyLeft > 0 ? '挑战 ' + ((env.boss && env.boss.name) || 'Boss') : '今日 Boss 已挑战');
+    if (dailyLeft <= 0) btn.disabled = true;
+    btn.addEventListener('click', function() {
+      closeSheet(sec);
+      doBossFight(sec, btn);
+    });
+    body.appendChild(btn);
+  }
+
+  // 荣誉抽屉：战绩条 + 战报/成就/称号/积分榜
+  function buildHonorSheet(body, sec) {
+    var inboxEl = inboxBox(sec);
+    if (inboxEl) body.appendChild(inboxEl);
+    body.appendChild(battleMetaStrip());
+    body.appendChild(metaFold());
+    body.appendChild(h('div', 'ci-pet-battle-tip',
+      '影子是同学家那只宠物的快照：他不用在线，打完会收到你的挑战留言。' +
+      '练习赛和影子只涨战力积分，都不碰羁绊。当天打得越多，每场积分越少（前 5 场全额）。'));
+  }
+
+  // ==================== 环境副本（v2.0）====================
+  // 每周轮换的战斗环境。Boss 本体在上方舞台，这里只留横幅与规则注解。
+  function skillTypeLabel(s) {
+    if (s.type === 'stat') return '属性';
+    if (s.type === 'buff') return '增益';
+    if (s.type === 'heal') return '回复';
+    if (s.type === 'active') return '主动';
+    return '被动';
+  }
+  function environmentCard(sec) {
+    var env = battle.environment;
+    if (!env) return h('div', '');
+    var box = h('div', 'ci-pet-env is-env-' + (env.id || 'wind_valley'));
+    // 横幅：大图标 + 环境名 + 效果，一眼「这是本周活动」
+    var banner = h('div', 'ci-pet-env-banner');
+    banner.appendChild(h('span', 'ci-pet-env-bigicon', env.icon || '🌍'));
+    var bt = h('div', 'ci-pet-env-bannertxt');
+    bt.appendChild(h('div', 'ci-pet-env-name', env.name || ''));
+    bt.appendChild(h('div', 'ci-pet-env-effect', env.effectText || ''));
+    banner.appendChild(bt);
+    banner.appendChild(h('span', 'ci-pet-env-week', '第 ' + (env.week || 1) + ' 周'));
+    box.appendChild(banner);
+
+    // 注解：奖励与规则
+    if (env.reward) {
+      box.appendChild(h('div', 'ci-pet-env-rule',
+        '首杀必掉 ' + (env.reward.icon || '') + ' ' + (env.reward.name || '') +
+        ' · Boss 每天一次 · 胜 +8 / 负 +2 分'));
+    }
+    var b = env.boss || {};
+    if (b.desc) box.appendChild(h('div', 'ci-pet-env-desc', b.desc));
+    var footRow = h('div', 'ci-pet-env-foot');
+    if (env.firstKillDone) footRow.appendChild(h('span', 'ci-pet-env-done', '✓ 本周首杀已拿'));
+    else if (env.bossWins) footRow.appendChild(h('span', 'ci-pet-env-done is-dim', '累计击败 ' + env.bossWins + ' 次'));
+    if (env.next) footRow.appendChild(h('span', 'ci-pet-env-next', '下周 · ' + (env.next.icon || '') + ' ' + (env.next.name || '')));
+    if (footRow.childNodes.length) box.appendChild(footRow);
+    return box;
+  }
+
+  function doBossFight(sec, btn) {
+    if (!api) return;
+    btn.disabled = true;
+    btn.textContent = '挑战中…';
+    var body = { mode: 'open' };
+    if (battle && battle.tactic) body.tactic = battle.tactic;
+    api.post('/pet/battle/environment/boss', body).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (!d.steps) { btn.disabled = false; btn.textContent = '挑战本周 Boss'; return; }
+      absorbProgress(d);
+      var envName = (d.env && d.env.name) || '环境副本';
+      battle = null;
+      playFight(sec, d, { boss: true, envName: envName, endpoint: '/pet/battle/environment/boss', extra: {} });
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '挑战失败';
+      sysToast(msg, 'error');
+      btn.disabled = false;
+      btn.textContent = '挑战本周 Boss';
+    });
+  }
+
+  // ==================== 备战面板（v2.0）====================
+  // 一个面板说完「上场带什么」：装备三槽 → 技能库 → 战力与入口。
+  // 之前技能栏和 Build 卡是两张卡，玩家要在两张卡之间来回看——它们本来就是一件事。
+  function buildPanel(sec) {
+    var bd = battle.build || {};
+    var inv = battle.inventory || { owned: [] };
     var equipped = battle.equipped || [];
     var slots = battle.skillSlots || 2;
-    var box = h('div', 'ci-pet-skills');
+    var catalog = battle.skills || [];
+    var box = h('div', 'ci-pet-build');
+    var head = h('div', 'ci-pet-build-head');
+    head.appendChild(h('span', 'ci-pet-build-title',
+      bd.strategy_name ? bd.strategy_name : '我的 Build'));
+    var fit = bd.fitness || {};
+    var stars = fit.stars || 1;
+    head.appendChild(h('span', 'ci-pet-build-fit',
+      '环境适应 ' + '★'.repeat(stars) + '☆'.repeat(Math.max(0, 5 - stars))));
+    box.appendChild(head);
 
-    var headRow = h('div', 'ci-pet-skills-head');
-    headRow.appendChild(h('span', 'ci-pet-skills-title', '技能 ' + equipped.length + ' / ' + slots));
-    headRow.appendChild(h('span', 'ci-pet-skills-hint', '点一下装备 / 卸下'));
-    box.appendChild(headRow);
+    var eq = bd.equipment || {};
+    var slotDefs = [
+      { key: 'weapon', name: '武器' },
+      { key: 'accessory', name: '饰品' },
+      { key: 'consumable', name: '消耗品' }
+    ];
+    var slotsRow = h('div', 'ci-pet-build-slots');
+    for (var i = 0; i < slotDefs.length; i++) {
+      (function(sd) {
+        var item = null;
+        for (var j = 0; j < inv.owned.length; j++) {
+          if (inv.owned[j].id === eq[sd.key]) { item = inv.owned[j]; break; }
+        }
+        var cell = h('div', 'ci-pet-build-slot' +
+          (item ? ' is-filled' : '') + (item && item.rarity ? ' is-r-' + item.rarity : ''));
+        cell.appendChild(h('span', 'ci-pet-build-slot-icon', item ? (item.icon || '') : '+'));
+        cell.appendChild(h('span', 'ci-pet-build-slot-item', item ? item.name : sd.name));
+        if (item && item.type === 'consumable') {
+          cell.appendChild(h('span', 'ci-pet-build-slot-charges', '×' + (item.charges || 0)));
+        }
+        cell.setAttribute('title', item ? (item.effect || '') : (sd.name + '槽还没装'));
+        slotsRow.appendChild(cell);
+      })(slotDefs[i]);
+    }
+    box.appendChild(slotsRow);
 
-    var row = h('div', 'ci-pet-skills-row');
-    for (var i = 0; i < list.length; i++) {
+    // 技能库：卡格式（大图标 + 名字 + 类型角标），选中发亮，品质决定边框色
+    var skHead = h('div', 'ci-pet-build-skhead');
+    skHead.appendChild(h('span', 'ci-pet-build-sktitle', '技能库 ' + equipped.length + ' / ' + slots));
+    skHead.appendChild(h('span', 'ci-pet-build-skhint', '点装备 · 满了顶掉最早的'));
+    box.appendChild(skHead);
+    var grid = h('div', 'ci-pet-skillgrid');
+    for (var g = 0; g < catalog.length; g++) {
       (function(s) {
         var on = equipped.indexOf(s.id) >= 0;
-        var chip = h('button', 'ci-pet-skill' + (on ? ' is-on' : ''));
-        chip.setAttribute('data-skill', s.id);
-        chip.appendChild(h('span', 'ci-pet-skill-icon', s.icon || ''));
-        chip.appendChild(h('span', 'ci-pet-skill-name', s.name));
-        chip.setAttribute('title', s.desc || '');
-        chip.addEventListener('click', function() {
+        var cell = h('button', 'ci-pet-skillcell' + (on ? ' is-on' : '') +
+          (s.rarity ? ' is-r-' + s.rarity : ''));
+        cell.setAttribute('data-skill', s.id);
+        cell.appendChild(h('span', 'ci-pet-skillcell-icon', s.icon || ''));
+        var txt = h('span', 'ci-pet-skillcell-txt');
+        txt.appendChild(h('span', 'ci-pet-skillcell-name', s.name));
+        txt.appendChild(h('span', 'ci-pet-skillcell-type', skillTypeLabel(s)));
+        cell.appendChild(txt);
+        cell.setAttribute('title', s.desc || '');
+        cell.addEventListener('click', function() {
           var next = (battle.equipped || []).slice();
           var idx = next.indexOf(s.id);
           if (idx >= 0) {
@@ -2627,26 +4722,269 @@
             redrawSkills();
           }
         });
-        row.appendChild(chip);
-      })(list[i]);
+        grid.appendChild(cell);
+      })(catalog[g]);
     }
-    box.appendChild(row);
+    box.appendChild(grid);
+
+    var foot = h('div', 'ci-pet-build-foot');
+    var left = h('div', 'ci-pet-build-powerbox');
+    left.appendChild(h('span', 'ci-pet-build-power', String(bd.power_score || 0)));
+    left.appendChild(h('span', 'ci-pet-build-power-label', 'Build 战力'));
+    foot.appendChild(left);
+    var actions = h('div', 'ci-pet-build-actions');
+    var editBtn = h('button', 'ci-pet-build-btn', '配 装');
+    editBtn.addEventListener('click', function() { renderBuildEditor(); });
+    actions.appendChild(editBtn);
+    var shareBtn = h('button', 'ci-pet-build-btn is-ghost', '分享');
+    shareBtn.addEventListener('click', function() { doShareBuild(); });
+    actions.appendChild(shareBtn);
+    var importBtn = h('button', 'ci-pet-build-btn is-ghost', '导入');
+    importBtn.addEventListener('click', function() { doImportBuild(); });
+    actions.appendChild(importBtn);
+    foot.appendChild(actions);
+    box.appendChild(foot);
+    return box;
 
     function redrawSkills() {
-      var chips = row.childNodes;
-      for (var m = 0; m < chips.length; m++) {
-        var c = chips[m];
-        if (!c.className || c.className.indexOf('ci-pet-skill') !== 0) continue;
-        var id = c.getAttribute('data-skill');
+      var cells = grid.childNodes;
+      for (var m = 0; m < cells.length; m++) {
+        var c2 = cells[m];
+        if (!c2.className || c2.className.indexOf('ci-pet-skillcell') !== 0) continue;
+        var id = c2.getAttribute('data-skill');
         if (!id) continue;
         var isOn = (battle.equipped || []).indexOf(id) >= 0;
-        c.className = 'ci-pet-skill' + (isOn ? ' is-on' : '');
+        c2.className = ('ci-pet-skillcell' + (isOn ? ' is-on' : '')).trim();
+        // 品质 class 要从技能表里带回来
+        for (var n = 0; n < (battle.skills || []).length; n++) {
+          if (battle.skills[n].id === id && battle.skills[n].rarity) {
+            c2.className += ' is-r-' + battle.skills[n].rarity;
+          }
+        }
       }
-      var t = box.querySelector('.ci-pet-skills-title');
-      if (t) t.textContent = '技能 ' + (battle.equipped || []).length + ' / ' + slots;
+      var t = box.querySelector('.ci-pet-build-sktitle');
+      if (t) t.textContent = '技能库 ' + (battle.equipped || []).length + ' / ' + slots;
     }
-    // 记录 id，供重绘时判断
-    return box;
+  }
+
+  function doShareBuild() {
+    if (!api) return;
+    api.post('/pet/battle/build/share', {}).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      var code = d.share_code || '';
+      sysToast('分享码 ' + code + '（已尝试复制）', 'success');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code);
+      } catch (e) {}
+    }, function() { sysToast('分享码生成失败', 'error'); });
+  }
+
+  function doImportBuild() {
+    var code = window.prompt('输入同学的分享码（如 a1b2cde-f）：');
+    if (!code) return;
+    if (!api) return;
+    api.post('/pet/battle/build/import', { share_code: String(code).trim() }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      var miss = d.missing || {};
+      var msg = '导入成功！';
+      if (miss.skills && miss.skills.length) msg += '（' + miss.skills.length + ' 个技能还没解锁）';
+      if (miss.equipment && miss.equipment.length) msg += '（' + miss.equipment.length + ' 件装备还没拿到）';
+      sysToast(msg, 'success');
+      battle = null;
+      renderHome();
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '导入失败';
+      sysToast(msg, 'error');
+    });
+  }
+
+  // ==================== Build 编辑器（v2.0）====================
+  // 整页视图（和拼豆工作台同款模式）：clearRoot 起一页，保存/返回回 renderHome。
+  // 每次点选整页重画——技能+装备总量不过二十几个 chips，重画比局部同步可靠得多。
+  var BUILD_CONFLICTS = {
+    blast: ['heavy'], heavy: ['blast'],
+    shield: ['lifesteal'], lifesteal: ['shield'],
+    guard_stance: ['berserk'], berserk: ['guard_stance']
+  };
+  function renderBuildEditor() {
+    if (!battle) { renderHome(); return; }
+    var bd = battle.build || {};
+    var inv = battle.inventory || { owned: [] };
+    var eq0 = bd.equipment || {};
+    buildEdit = {
+      skills: (battle.equipped || []).slice(),
+      equipment: {
+        weapon: eq0.weapon || null,
+        accessory: eq0.accessory || null,
+        consumable: eq0.consumable || null
+      },
+      name: bd.strategy_name || ''
+    };
+    clearRoot();
+    var box = h('div', 'ci-pet-beditor');
+    var head = h('div', 'ci-pet-beditor-head');
+    head.appendChild(h('div', 'ci-pet-beditor-title', 'Build 配置器'));
+    var back = h('button', 'ci-pet-beditor-back', '← 返回');
+    back.addEventListener('click', function() { buildEdit = null; renderHome(); });
+    head.appendChild(back);
+    box.appendChild(head);
+    var slots = battle.skillSlots || 2;
+    box.appendChild(h('div', 'ci-pet-beditor-sub',
+      '技能最多 ' + slots + ' 个（随进化增多）。互斥的技能实战只生效先选的那个。'));
+
+    var nameInput = document.createElement('input');
+    nameInput.className = 'ci-pet-beditor-name';
+    nameInput.maxLength = 12;
+    nameInput.placeholder = '给这套 Build 起个名字（可不填）';
+    nameInput.value = buildEdit.name;
+    nameInput.addEventListener('input', function() { buildEdit.name = nameInput.value; });
+    box.appendChild(nameInput);
+
+    box.appendChild(h('div', 'ci-pet-beditor-sec',
+      '技能 ' + buildEdit.skills.length + ' / ' + slots));
+    var skillRow = h('div', 'ci-pet-beditor-skills');
+    var catalog = battle.skillCatalog || battle.skills || [];
+    for (var i = 0; i < catalog.length; i++) {
+      (function(s) {
+        var on = buildEdit.skills.indexOf(s.id) >= 0;
+        var locked = s.unlocked === false;
+        var cell = h('button', 'ci-pet-beditor-skill' +
+          (on ? ' is-on' : '') + (locked ? ' is-locked' : '') +
+          (s.rarity ? ' is-r-' + s.rarity : ''));
+        cell.appendChild(h('span', 'ci-pet-beditor-skill-icon', s.icon || ''));
+        var txt = h('span', 'ci-pet-beditor-skill-txt');
+        txt.appendChild(h('span', 'ci-pet-beditor-skill-name', s.name));
+        txt.appendChild(h('span', 'ci-pet-beditor-skill-desc',
+          locked ? ('羁绊 ' + s.unlockBond + ' 解锁') : (s.desc || '')));
+        cell.appendChild(txt);
+        cell.appendChild(h('span', 'ci-pet-beditor-skill-sub',
+          locked ? '🔒' : skillTypeLabel(s)));
+        cell.setAttribute('title', s.desc || '');
+        cell.addEventListener('click', function() {
+          if (locked) {
+            sysToast('羁绊到 ' + s.unlockBond + ' 解锁「' + s.name + '」', 'info');
+            return;
+          }
+          var idx = buildEdit.skills.indexOf(s.id);
+          if (idx >= 0) {
+            buildEdit.skills.splice(idx, 1);
+          } else {
+            // 互斥提示：实战里引擎会自动只留先选的那个，这里先说清楚
+            var conflicts = BUILD_CONFLICTS[s.id] || [];
+            for (var c = 0; c < conflicts.length; c++) {
+              if (buildEdit.skills.indexOf(conflicts[c]) >= 0) {
+                sysToast('「' + s.name + '」和先选的技能互斥，实战只生效先选的那个', 'info');
+                break;
+              }
+            }
+            if (buildEdit.skills.length >= slots) buildEdit.skills.shift();
+            buildEdit.skills.push(s.id);
+          }
+          renderBuildEditor();
+        });
+        skillRow.appendChild(cell);
+      })(catalog[i]);
+    }
+    box.appendChild(skillRow);
+
+    box.appendChild(h('div', 'ci-pet-beditor-sec', '装备（Boss 周首杀必掉 · 野怪战斗有概率掉落）'));
+    box.appendChild(beditorEquipRow({ key: 'weapon', name: '武器', types: ['weapon'] }, inv));
+    box.appendChild(beditorEquipRow({ key: 'accessory', name: '饰品', types: ['accessory'] }, inv));
+    box.appendChild(beditorEquipRow({ key: 'consumable', name: '消耗品', types: ['consumable'] }, inv));
+
+    // 实时预览：直接引用技能/装备的描述原文（服务端同一份数据，零口径漂移）
+    var prev = h('div', 'ci-pet-beditor-preview');
+    prev.appendChild(h('span', 'ci-pet-beditor-preview-label', '这套 Build 会生效'));
+    var parts = [];
+    for (var p = 0; p < buildEdit.skills.length; p++) {
+      for (var q = 0; q < catalog.length; q++) {
+        if (catalog[q].id === buildEdit.skills[p]) parts.push(catalog[q].icon + catalog[q].name + '：' + catalog[q].desc);
+      }
+    }
+    var allSlots = ['weapon', 'accessory', 'consumable'];
+    for (var r2 = 0; r2 < allSlots.length; r2++) {
+      var eid = buildEdit.equipment[allSlots[r2]];
+      if (!eid) continue;
+      for (var w = 0; w < inv.owned.length; w++) {
+        if (inv.owned[w].id === eid) parts.push(inv.owned[w].icon + inv.owned[w].name + '：' + inv.owned[w].effect);
+      }
+    }
+    prev.appendChild(h('span', 'ci-pet-beditor-preview-val',
+      parts.length ? parts.join('；') : '（裸装基线）'));
+    box.appendChild(prev);
+
+    var actions = h('div', 'ci-pet-beditor-actions');
+    var save = h('button', 'ci-pet-beditor-save', '保存 Build');
+    save.addEventListener('click', function() {
+      if (!api) { buildEdit = null; renderHome(); return; }
+      save.disabled = true;
+      api.post('/pet/battle/build/update', {
+        skills: buildEdit.skills,
+        equipment: buildEdit.equipment,
+        strategy_name: buildEdit.name
+      }).then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.build) battle.build = d.build;
+        if (d.equipped) battle.equipped = d.equipped;
+        if (d.inventory) battle.inventory = d.inventory;
+        sysToast('Build 已保存', 'success');
+        buildEdit = null;
+        renderHome();
+      }, function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '保存失败';
+        sysToast(msg, 'error');
+        save.disabled = false;
+      });
+    });
+    actions.appendChild(save);
+    var cancel = h('button', 'ci-pet-beditor-cancel', '返回不保存');
+    cancel.addEventListener('click', function() { buildEdit = null; renderHome(); });
+    actions.appendChild(cancel);
+    box.appendChild(actions);
+    root.appendChild(box);
+  }
+
+  function beditorEquipRow(sd, inv) {
+    var row = h('div', 'ci-pet-beditor-equiprow');
+    row.appendChild(h('span', 'ci-pet-beditor-equipname', sd.name));
+    var grid = h('div', 'ci-pet-beditor-equipgrid');
+    var cur = (buildEdit.equipment || {})[sd.key] || null;
+    var none = h('button', 'ci-pet-beditor-equip' + (cur ? '' : ' is-on'));
+    none.appendChild(h('span', 'ci-pet-beditor-equip-item', '不装'));
+    none.addEventListener('click', function() {
+      buildEdit.equipment[sd.key] = null;
+      renderBuildEditor();
+    });
+    grid.appendChild(none);
+    for (var i = 0; i < inv.owned.length; i++) {
+      (function(item) {
+        if (sd.types.indexOf(item.type) < 0) return;
+        var off = item.type === 'consumable' && (item.charges || 0) <= 0;
+        var on = cur === item.id;
+        var cell = h('button', 'ci-pet-beditor-equip' +
+          (on ? ' is-on' : '') + (off ? ' is-empty' : '') +
+          (item.rarity ? ' is-r-' + item.rarity : ''));
+        cell.appendChild(h('span', 'ci-pet-beditor-equip-icon', item.icon || ''));
+        var txt = h('span', 'ci-pet-beditor-equip-txt');
+        txt.appendChild(h('span', 'ci-pet-beditor-equip-item', item.name));
+        txt.appendChild(h('span', 'ci-pet-beditor-equip-desc', item.effect || ''));
+        cell.appendChild(txt);
+        if (item.type === 'consumable') {
+          cell.appendChild(h('span', 'ci-pet-beditor-equip-charges', '×' + (item.charges || 0)));
+        }
+        if (off) {
+          cell.disabled = true;
+        } else {
+          cell.addEventListener('click', function() {
+            buildEdit.equipment[sd.key] = on ? null : item.id;
+            renderBuildEditor();
+          });
+        }
+        grid.appendChild(cell);
+      })(inv.owned[i]);
+    }
+    row.appendChild(grid);
+    return row;
   }
 
   // 试炼塔：线性进度。有终点、有台阶、有过不去的那一层。
@@ -2723,7 +5061,7 @@
     btn.disabled = true;
     var btnText = btn.textContent;
     btn.textContent = '爬塔中…';
-    var body = {};
+    var body = { mode: 'open' };
     if (battle && battle.tactic) body.tactic = battle.tactic;
     api.post('/pet/tower/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
@@ -2746,7 +5084,9 @@
       tower: true,
       floor: d.floor,
       total: d.towerTotal,
-      cleared: d.cleared
+      cleared: d.cleared,
+      endpoint: '/pet/tower/fight',
+      extra: {}
     });
   }
 
@@ -2769,48 +5109,133 @@
 
   function subTitle(t) { return h('div', 'ci-pet-battle-sub', t); }
 
-  // 战术：赛前选一个，它会真的改写属性（服务端 applyTactic），再进结算。
-  // 这是整个对战里唯一的决策点——没有它，玩家只是点「挑战」再看一段动画。
-  function tacticBar(sec) {
-    var list = battle.tactics || [];
-    if (!list.length) return h('div', '');
-    var cur = battle.tactic || 'guard';
-    var box = h('div', 'ci-pet-tactics');
+  // 操作行（无框）：天气徽章 + 属性盘 + 出战风格。
+  // 三个「小设置」原本各占一张卡——报表感的主要来源。这里全部去框，
+  // 直接长在星空上，像游戏的准备界面而不是设置页。
+  function battleOpsRow(sec) {
+    var box = h('div', 'ci-pet-ops');
 
-    var headRow = h('div', 'ci-pet-tactics-head');
-    headRow.appendChild(h('span', 'ci-pet-tactics-title', '出战风格'));
-    var curObj = null;
-    for (var i = 0; i < list.length; i++) if (list[i].id === cur) curObj = list[i];
-    headRow.appendChild(h('span', 'ci-pet-tactics-hint', curObj ? curObj.desc : ''));
-    box.appendChild(headRow);
+    // 天气徽章：今天谁上场有加成
+    var w = battle.weather;
+    if (w) {
+      var wb = h('span', 'ci-pet-ops-weather');
+      wb.appendChild(h('span', 'ci-pet-ops-wicon', w.icon || ''));
+      var wt = h('span', 'ci-pet-ops-wtxt');
+      wt.appendChild(h('b', null, w.name || ''));
+      wt.appendChild(h('span', null, ' ' + (w.bonusText || '')));
+      wb.appendChild(wt);
+      wb.setAttribute('title', (w.desc || '') + (w.typeName ? ' · 本命 ' + w.typeName + ' 吃加成' : ''));
+      box.appendChild(wb);
+    }
 
-    var row = h('div', 'ci-pet-tactics-row');
-    for (var k = 0; k < list.length; k++) {
+    // 属性盘：圆形属性按钮（数据与交互同图鉴页的 typePicker，只是换成圆盘）
+    var list = (battle.elements && battle.elements.length) ? battle.elements : elements;
+    if (!list.length) {
+      list = [];
+      for (var f = 0; f < ELEMENT_ORDER.length; f++) list.push(ELEMENT_FALLBACK[ELEMENT_ORDER[f]]);
+    }
+    var cur = battle.battleType || 'grass';
+    var curInfo = battle.typeInfo || elementOf(cur);
+    var discs = h('div', 'ci-pet-ops-types');
+    for (var i = 0; i < list.length; i++) {
       (function(t) {
         var on = t.id === cur;
-        var chip = h('button', 'ci-pet-tactic' + (on ? ' is-on' : ''));
-        chip.appendChild(h('span', 'ci-pet-tactic-icon', t.icon || ''));
-        chip.appendChild(h('span', 'ci-pet-tactic-name', t.name));
+        var disc = h('button', 'ci-pet-ops-type is-t-' + t.id + (on ? ' is-on' : ''));
+        disc.setAttribute('data-type', t.id);
+        disc.appendChild(h('span', 'ci-pet-ops-typeicon', t.icon || ''));
+        disc.appendChild(h('span', 'ci-pet-ops-typename', t.name));
+        disc.setAttribute('title', t.name + '本命 · 随时可改');
+        disc.addEventListener('click', function() {
+          if (battle.battleType === t.id) return;
+          doBattleType(t.id, function() { fillBattle(sec); });
+        });
+        discs.appendChild(disc);
+      })(list[i]);
+    }
+    box.appendChild(discs);
+
+    // 克制注 + 出战风格 seg
+    var beatsEl = elementOf(curInfo.beats);
+    var weakEl = elementOf(curInfo.weakTo);
+    var row2 = h('div', 'ci-pet-ops-row2');
+    var note = h('span', 'ci-pet-ops-note');
+    note.appendChild(elementChip(cur));
+    note.appendChild(h('span', null, ' 克 ' + beatsEl.icon + beatsEl.name + ' · 弱 ' + weakEl.icon + weakEl.name));
+    row2.appendChild(note);
+
+    var seg = h('div', 'ci-pet-ops-seg');
+    var tlist = battle.tactics || [];
+    var curTac = battle.tactic || 'guard';
+    for (var k = 0; k < tlist.length; k++) {
+      (function(t) {
+        var on = t.id === curTac;
+        var chip = h('button', 'ci-pet-ops-tactic' + (on ? ' is-on' : ''));
+        chip.appendChild(h('span', 'ci-pet-ops-tacticicon', t.icon || ''));
+        chip.appendChild(h('span', null, t.name));
+        chip.setAttribute('title', t.desc || '');
         chip.addEventListener('click', function() {
           if (battle.tactic === t.id) return;
           battle.tactic = t.id;
-          // 只改本地记忆并重渲染战术条：发一次 PUT 太浪费，真正落库在下一次开打时带过去
-          var wrap = chip.parentNode;
-          var kids = wrap.childNodes;
+          var kids = seg.childNodes;
           for (var m = 0; m < kids.length; m++) {
-            if (kids[m].className && kids[m].className.indexOf('ci-pet-tactic') === 0) {
-              kids[m].className = 'ci-pet-tactic';
+            if (kids[m].className && kids[m].className.indexOf('ci-pet-ops-tactic') === 0) {
+              kids[m].className = 'ci-pet-ops-tactic';
             }
           }
-          chip.className = 'ci-pet-tactic is-on';
-          var hint = sec.querySelector('.ci-pet-tactics-hint');
-          if (hint) hint.textContent = t.desc;
+          chip.className = 'ci-pet-ops-tactic is-on';
+          sysToast('出战风格：' + t.name + '——' + t.desc, 'info');
         });
-        row.appendChild(chip);
-      })(list[k]);
+        seg.appendChild(chip);
+      })(tlist[k]);
     }
-    box.appendChild(row);
+    row2.appendChild(seg);
+    box.appendChild(row2);
     return box;
+  }
+
+  // 关卡面板：一个面板装全部对手行，行间用分隔线——
+  // 「每张对手卡独立一个框」是报表感的另一半来源。
+  function foesSheet(sec, list, out) {
+    var box = h('div', 'ci-pet-foesheet');
+    for (var i = 0; i < list.length; i++) box.appendChild(foeCard(sec, list[i], out));
+    return box;
+  }
+
+  // 折叠区：战报 / 成就与称号 / 积分榜。都是「想起来才查一眼」的东西，
+  // 默认收起，页面下半段不再铺四张报表卡。
+  function metaFold() {
+    var wrap = h('div', 'ci-pet-metafold');
+    var hist = battle.history || [];
+    if (hist.length) {
+      var d1 = document.createElement('details');
+      d1.className = 'ci-pet-metafold-g';
+      var s1 = document.createElement('summary');
+      s1.textContent = '📜 最近战报（' + hist.length + ' 条）';
+      d1.appendChild(s1);
+      d1.appendChild(historyBox());
+      wrap.appendChild(d1);
+    }
+    var all = battle.achievementList || [];
+    if (all.length) {
+      var d2 = document.createElement('details');
+      d2.className = 'ci-pet-metafold-g';
+      var s2 = document.createElement('summary');
+      s2.textContent = '🏅 成就 ' + (battle.achievements || []).length + ' / ' + all.length + ' · 称号';
+      d2.appendChild(s2);
+      d2.appendChild(achBox());
+      d2.appendChild(titleBox());
+      wrap.appendChild(d2);
+    }
+    if ((battle.rank || []).length) {
+      var d3 = document.createElement('details');
+      d3.className = 'ci-pet-metafold-g';
+      var s3 = document.createElement('summary');
+      s3.textContent = '🏆 积分榜' + (battle.myRank ? '（我第 ' + battle.myRank + ' 名）' : '');
+      d3.appendChild(s3);
+      d3.appendChild(rankBox());
+      wrap.appendChild(d3);
+    }
+    return wrap;
   }
 
   // 成就：只显示已解锁的（空格子是压力，不是目标）
@@ -2866,7 +5291,9 @@
     if (!msgs.length) return h('div', '');
     var box = h('div', 'ci-pet-inbox');
     var headRow = h('div', 'ci-pet-inbox-head');
-    headRow.appendChild(h('span', 'ci-pet-inbox-title', '⚔️ ' + msgs.length + ' 条挑战留言'));
+    var inTitle = h('span', 'ci-pet-inbox-title');
+    setIconText(inTitle, 'fight', ' ' + msgs.length + ' 条挑战留言');
+    headRow.appendChild(inTitle);
     headRow.appendChild(h('span', 'ci-pet-inbox-hint', '看过了就不再提示'));
     box.appendChild(headRow);
     for (var i = 0; i < msgs.length && i < 3; i++) {
@@ -2899,16 +5326,22 @@
 
   // kind='shadow' 时 foe.owner 是对方同学的昵称，要显示出来——
   // 「打同学」的乐趣一半来自知道那是谁，匿名列表就只剩数值了。
+  // 对手卡（关卡卡）：属性大圆盘 + 战力对比条 + 挑战按钮。
+  // 「我 450 vs 他 402」的长短条一眼读出强弱——比「战力 402」四个字有画面得多。
   function foeCard(sec, foe, out) {
     var card = h('div', 'ci-pet-foe' + (foe.kind === 'shadow' ? ' ci-pet-foe--shadow' : ''));
+    var myPow = (battle && battle.combat && battle.combat.power) || 0;
 
-    // 首行：名字 + 归属/难度 + 按钮（靠右）。按钮必须和名字同一行——
-    // 之前把所有元素平铺进 flex-wrap，按钮会被战力文字挤到第二行，右边留一大块空白。
-    var top = h('div', 'ci-pet-foe-top');
+    // 属性圆盘：属性色渐变底 + 大图标，就是这只/这层关卡的「立绘位」
+    var disc = h('div', 'ci-pet-foe-disc' + (foe.type ? ' is-t-' + foe.type : ''));
+    disc.appendChild(h('span', 'ci-pet-foe-discicon',
+      (foe.typeIcon || '') || (foe.kind === 'shadow' ? '👤' : '❓')));
+    card.appendChild(disc);
+
+    var mid = h('div', 'ci-pet-foe-mid');
     var who = h('div', 'ci-pet-foe-who');
     who.appendChild(h('span', 'ci-pet-foe-name', foe.name || '?'));
     if (foe.owner) who.appendChild(h('span', 'ci-pet-foe-owner', foe.owner));
-    if (foe.type) who.appendChild(elementChip(foe.type));
     if (foe.typeMul && foe.typeMul !== 1) {
       who.appendChild(h('span', 'ci-pet-typetag ' + (foe.typeMul > 1 ? 'is-adv' : 'is-dis'),
         foe.typeMul > 1 ? '克制它' : '被它克'));
@@ -2916,16 +5349,28 @@
     if (foe.oddsText) {
       who.appendChild(h('span', 'ci-pet-odds ci-pet-odds--' + (foe.odds || 'even'), foe.oddsText));
     }
-    top.appendChild(who);
+    mid.appendChild(who);
+
+    // 战力对比条：左金右灰，比例 = 我方战力 / 双方合计
+    var sum = Math.max(1, myPow + (foe.power || 0));
+    var myPct = Math.round(myPow / sum * 100);
+    var duel = h('div', 'ci-pet-foe-duel');
+    var mine = h('span', 'ci-pet-foe-duel-mine');
+    mine.style.width = myPct + '%';
+    duel.appendChild(mine);
+    mid.appendChild(duel);
+    var duelTxt = h('div', 'ci-pet-foe-dueltxt');
+    duelTxt.appendChild(h('span', 'ci-pet-foe-duelnum is-mine', '我 ' + myPow));
+    duelTxt.appendChild(h('span', 'ci-pet-foe-duelmeta',
+      '羁绊 ' + (foe.bond || 0) + (foe.desc ? ' · ' + foe.desc : '')));
+    duelTxt.appendChild(h('span', 'ci-pet-foe-duelnum is-foe', String(foe.power || 0)));
+    mid.appendChild(duelTxt);
+    card.appendChild(mid);
 
     var btn = h('button', 'ci-pet-foe-btn', out ? '今日已打满' : '挑战');
     if (out) btn.disabled = true;
     btn.addEventListener('click', function() { doFight(sec, foe.id, btn); });
-    top.appendChild(btn);
-    card.appendChild(top);
-
-    card.appendChild(h('div', 'ci-pet-foe-meta', '羁绊 ' + foe.bond + ' · 战力 ' + foe.power));
-    if (foe.desc) card.appendChild(h('div', 'ci-pet-foe-desc', foe.desc));
+    card.appendChild(btn);
     return card;
   }
 
@@ -2935,14 +5380,14 @@
     var btnText = btn.textContent;
     btn.textContent = '出战中…';
     // 带上当前选的战术：服务端会用它改写属性，并记住作为下次的默认
-    var body = { oppId: oppId };
+    var body = { oppId: oppId, mode: 'open' };
     if (battle && battle.tactic) body.tactic = battle.tactic;
     api.post('/pet/battle/fight', body).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (!d.steps) { btn.disabled = false; btn.textContent = btnText; return; }
       absorbProgress(d);
       battle = null;                      // 战绩与今日次数都变了，回列表时重新取
-      playFight(sec, d);
+      playFight(sec, d, { endpoint: '/pet/battle/fight', extra: { oppId: oppId } });
     }, function(err) {
       var msg = (err && err.response && err.response.data && err.response.data.message) || '挑战失败';
       sysToast(msg, 'error');
@@ -2999,55 +5444,148 @@
     var logEl = h('div', 'ci-pet-arena-log', '第 1 回合即将开始…');
     arena.appendChild(logEl);
 
+    // ==================== 默契指令（v0.25.0）====================
+    // 这一条是「把录像变成一局」的全部：播放中随时可以按一张牌，
+    // 服务端用同一个 seed 重算，前端快进到打断点接着放。
+    // ⚠️ 没有 fightId 就不画（老响应 / 探针桩）：这时它仍然是一段纯回放，不会报错。
+    var live = {
+      fightId: d.fightId || '',
+      endpoint: opts.endpoint || '',
+      extra: opts.extra || {},
+      cmds: (d.cmds || []).slice(),
+      slots: (d.cmdSlots === undefined ? 0 : d.cmdSlots),
+      commands: d.commands || [],
+      busy: false
+    };
+    var cardEls = {};
+    var countEl = null;
+    var cmdRow = null;
+    function usedKinds() {
+      var m = {};
+      for (var i = 0; i < live.cmds.length; i++) m[live.cmds[i].kind] = 1;
+      return m;
+    }
+    function refreshCmd() {
+      if (!cmdRow) return;
+      var used = usedKinds();
+      var left = live.slots - live.cmds.length;
+      if (countEl) countEl.textContent = left > 0 ? ('×' + left) : '用完了';
+      if (countEl) countEl.className = 'ci-pet-cmdrow-count' + (left > 0 ? '' : ' is-out');
+      for (var k in cardEls) {
+        if (!Object.prototype.hasOwnProperty.call(cardEls, k)) continue;
+        var el = cardEls[k];
+        el.className = 'ci-pet-cmd' + (used[k] ? ' is-used' : '') + (left <= 0 ? ' is-out' : '');
+      }
+      cmdRow.className = 'ci-pet-cmdrow' + (live.slots <= 0 ? ' is-hidden' : '');
+    }
+    if (live.fightId && live.commands.length) {
+      cmdRow = h('div', 'ci-pet-cmdrow');
+      var crowHead = h('div', 'ci-pet-cmdrow-head');
+      crowHead.appendChild(h('span', 'ci-pet-cmdrow-label', '默契'));
+      countEl = h('span', 'ci-pet-cmdrow-count', '×' + live.slots);
+      crowHead.appendChild(countEl);
+      crowHead.appendChild(h('span', 'ci-pet-cmdrow-hint', '点一张，它就会照着做'));
+      cmdRow.appendChild(crowHead);
+      var crowCards = h('div', 'ci-pet-cmdrow-cards');
+      for (var ci = 0; ci < live.commands.length; ci++) {
+        (function(cmd) {
+          var card = h('button', 'ci-pet-cmd');
+          card.setAttribute('data-cmd', cmd.id);
+          card.appendChild(h('span', 'ci-pet-cmd-icon', cmd.icon));
+          var txt = h('span', 'ci-pet-cmd-txt');
+          txt.appendChild(h('span', 'ci-pet-cmd-name', cmd.name));
+          txt.appendChild(h('span', 'ci-pet-cmd-desc', cmd.desc));
+          card.appendChild(txt);
+          card.setAttribute('title', cmd.desc);
+          card.addEventListener('click', function() { fireCommand(cmd.id); });
+          cardEls[cmd.id] = card;
+          crowCards.appendChild(card);
+        })(live.commands[ci]);
+      }
+      cmdRow.appendChild(crowCards);
+      arena.appendChild(cmdRow);
+    }
+
     var skip = h('button', 'ci-pet-arena-skip', '跳过动画');
     arena.appendChild(skip);
     sec.appendChild(arena);
 
-    var steps = d.steps || [];
+    var cur = d;                    // 当前这一版战报（reroll 会整份换掉）
     var idx = 0;
     var lines = [];
     var myName = (d.me && d.me.name) || '你';
+    var settled = false;
+    var finished = false;
 
+    // v2.0 新 tag 的战报文案表：各种回血的来源不同，说人话而不是统一「吸回」
+    var HEAL_WORDS = {
+      lifesteal: '吸回', bluntheal: '剑刃回血', healskill: '紧急治疗恢复',
+      regen: '活力恢复', vial: '恢复药剂回复'
+    };
     function applyStep(s) {
       meSide.set(s.hpMe);
       foeSide.set(s.hpFoe);
-      var who = s.by === 0 ? myName : ((d.foe && d.foe.name) || '对手');
       var tags = s.tags || [];
-      // 游戏感：被打的一方血条抖动 + 浮动伤害数字
-      var damagedSide = s.by === 0 ? foeSide : meSide;
-      var dmgAmt = (s.heal ? -s.heal : (s.dmg || 0));
+      var actor = s.by === 0 ? myName : ((d.foe && d.foe.name) || '对手');
+      var target = s.by === 0 ? ((d.foe && d.foe.name) || '对手') : myName;
+      // 谁在承受这次效果：普通攻击/反击落在 by 的对面；灼烧与重锤自损落在 by 自己；
+      // 回复也落在 by 自己（旧版治疗浮字飘在对手头顶，顺手修掉）。
+      var onSelf = !!s.heal || !!s.self || tags.indexOf('dot') >= 0;
+      var hurtSide = onSelf ? (s.by === 0 ? meSide : foeSide) : (s.by === 0 ? foeSide : meSide);
       var isCrit = !!s.crit || (tags.indexOf('heavy') >= 0);
       try {
-        damagedSide.el.classList.remove('ci-pet-arena-side--hit', 'ci-pet-arena-side--crit');
-        void damagedSide.el.offsetWidth;
-        damagedSide.el.classList.add('ci-pet-arena-side--hit');
-        if (isCrit) damagedSide.el.classList.add('ci-pet-arena-side--crit');
-        setTimeout(function() {
-          if (damagedSide.el) {
-            damagedSide.el.classList.remove('ci-pet-arena-side--hit', 'ci-pet-arena-side--crit');
+        if ((s.dmg || 0) > 0 || s.heal) {
+          hurtSide.el.classList.remove('ci-pet-arena-side--hit', 'ci-pet-arena-side--crit');
+          void hurtSide.el.offsetWidth;
+          hurtSide.el.classList.add('ci-pet-arena-side--hit');
+          if (isCrit) hurtSide.el.classList.add('ci-pet-arena-side--crit');
+          setTimeout(function() {
+            if (hurtSide.el) {
+              hurtSide.el.classList.remove('ci-pet-arena-side--hit', 'ci-pet-arena-side--crit');
+            }
+          }, 320);
+          // 浮动数字：伤害在承受方头顶，治疗在回复方头顶
+          if (!s.heal && (s.dmg || 0) > 0) {
+            var floatEl = document.createElement('span');
+            floatEl.className = 'ci-pet-dmgfloat' + (isCrit ? ' is-crit' : '');
+            floatEl.textContent = (isCrit ? '!' : '') + (s.dmg || 0);
+            hurtSide.el.appendChild(floatEl);
+            setTimeout(function() { if (floatEl.parentNode) floatEl.parentNode.removeChild(floatEl); }, 900);
+          } else if (s.heal) {
+            var healEl = document.createElement('span');
+            healEl.className = 'ci-pet-dmgfloat is-heal';
+            healEl.textContent = '+' + s.heal;
+            hurtSide.el.appendChild(healEl);
+            setTimeout(function() { if (healEl.parentNode) healEl.parentNode.removeChild(healEl); }, 900);
           }
-        }, 320);
-        // 浮动伤害数字
-        if (!s.heal && (s.dmg || 0) > 0) {
-          var floatEl = document.createElement('span');
-          floatEl.className = 'ci-pet-dmgfloat' + (isCrit ? ' is-crit' : '');
-          floatEl.textContent = (isCrit ? '!' : '') + (s.dmg || 0);
-          damagedSide.el.appendChild(floatEl);
-          setTimeout(function() { if (floatEl.parentNode) floatEl.parentNode.removeChild(floatEl); }, 900);
-        } else if (s.heal) {
-          var healEl = document.createElement('span');
-          healEl.className = 'ci-pet-dmgfloat is-heal';
-          healEl.textContent = '+' + s.heal;
-          damagedSide.el.appendChild(healEl);
-          setTimeout(function() { if (healEl.parentNode) healEl.parentNode.removeChild(healEl); }, 900);
         }
       } catch (e) {}
-      if (s.heal) {
-        // 吸血是「回血」不是「伤害」，必须单独成句，否则战报里会出现「打出 0 点」
-        lines.push('第 ' + s.r + ' 回合 · ' + who + ' 吸回 ' + s.heal + ' 点');
+      if (s.skip) {
+        lines.push('第 ' + s.r + ' 回合 · ' + actor +
+          (tags.indexOf('paralyze') >= 0 ? ' 被麻痹了，动弹不得' : ' 在蓄力，这回合动不了'));
+      } else if (s.buff) {
+        lines.push('第 ' + s.r + ' 回合 · ' + actor +
+          (s.buff === 'berserk' ? ' 狂怒了（攻 ↑ 防 ↓）' : ' 摆出钢铁壁垒（防 ↑）'));
+      } else if (s.heal) {
+        var word = '吸回';
+        for (var hk in HEAL_WORDS) {
+          if (Object.prototype.hasOwnProperty.call(HEAL_WORDS, hk) && tags.indexOf(hk) >= 0) word = HEAL_WORDS[hk];
+        }
+        lines.push('第 ' + s.r + ' 回合 · ' + actor + ' ' + word + ' ' + s.heal + ' 点');
+      } else if (tags.indexOf('dot') >= 0) {
+        lines.push('第 ' + s.r + ' 回合 · ' + actor + ' 被灼烧掉 ' + (s.dmg || 0) + ' 点');
+      } else if (tags.indexOf('evade') >= 0) {
+        // 闪避句的主语是挨打的一方（后端 step 的 by 是出手方）
+        lines.push('第 ' + s.r + ' 回合 · ' + target + ' 闪避了这一击');
+      } else if (s.self) {
+        lines.push('第 ' + s.r + ' 回合 · ' + actor + ' 被重锤反噬掉 ' + (s.dmg || 0) + ' 点');
       } else {
+        // 动作词按「最特别优先」：主动技 > 反击 > 千钧 > 追击 > 护盾 > 暴击
         var mark = '';
-        if (tags.indexOf('heavy') >= 0) mark = ' 千钧一击 ';
+        if (tags.indexOf('blast') >= 0) mark = ' 爆发冲击 ';
+        else if (tags.indexOf('smash') >= 0) mark = ' 重锤砸击 ';
+        else if (tags.indexOf('counter') >= 0) mark = ' 反击 ';
+        else if (tags.indexOf('heavy') >= 0) mark = ' 千钧一击 ';
         else if (tags.indexOf('combo') >= 0) mark = ' 追击 ';
         else if (tags.indexOf('shield') >= 0) mark = '（护盾挡下）';
         else if (s.crit) mark = ' 暴击 ';
@@ -3056,44 +5594,154 @@
         // 不该顶掉暴击、千钧这些动作词。
         var eff = '';
         if (tags.indexOf('weak') >= 0) eff = '（效果拔群）';
+        else if (tags.indexOf('fireup') >= 0) eff = '（烈焰加成）';
+        else if (tags.indexOf('flame') >= 0) eff = '（火焰药水）';
         else if (tags.indexOf('resist') >= 0) eff = '（效果一般）';
-        lines.push('第 ' + s.r + ' 回合 · ' + who + mark + (s.dmg || 0) + ' 点' + eff);
+        lines.push('第 ' + s.r + ' 回合 · ' + actor + mark + (s.dmg || 0) + ' 点' + eff);
       }
       if (lines.length > 4) lines.shift();
       logEl.textContent = lines.join('\n');
     }
 
+    // 这一击该挂在哪一回合：本回合我方已经出过手，就只能挂下一回合。
+    // 不是「随便挂一个」——引擎在回合开始就把指令预置好了，挂在已经过去的回合等于白按。
+    function pickRound() {
+      var s = cur.steps[idx];
+      if (!s) return cur.steps.length ? cur.steps[cur.steps.length - 1].r : 1;
+      var r = s.r;
+      if (idx > 0 && cur.steps[idx - 1].r === r && cur.steps[idx - 1].by === 0) return r + 1;
+      return r;
+    }
+    function bodyOf(extra) {
+      var b = {};
+      var k;
+      for (k in live.extra) {
+        if (Object.prototype.hasOwnProperty.call(live.extra, k)) b[k] = live.extra[k];
+      }
+      for (k in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, k)) b[k] = extra[k];
+      }
+      return b;
+    }
+    function cmdOf(kind) {
+      for (var i = 0; i < live.commands.length; i++) {
+        if (live.commands[i].id === kind) return live.commands[i];
+      }
+      return null;
+    }
+    // 指令特写：一行大字 + 舞台轻震，0.9s 自己消失（不占布局，不用清）
+    function commandFx(kind) {
+      var cmd = cmdOf(kind);
+      if (!cmd) return;
+      var fx = h('div', 'ci-pet-cmdfx is-' + kind);
+      fx.appendChild(h('span', 'ci-pet-cmdfx-icon', cmd.icon || ''));
+      fx.appendChild(h('span', 'ci-pet-cmdfx-word', cmd.word || cmd.name));
+      arena.appendChild(fx);
+      arena.classList.remove('is-shake');
+      void arena.offsetWidth;
+      arena.classList.add('is-shake');
+      setTimeout(function() {
+        if (fx.parentNode) fx.parentNode.removeChild(fx);
+        arena.classList.remove('is-shake');
+      }, 900);
+    }
+    // 按下一条默契指令：服务端用**同一个 seed** 重算，我们快进到打断点接着放。
+    // 这是「录像 → 一局」的全部机制，代价只有一次请求和一次静默补血条。
+    function fireCommand(kind) {
+      if (!live.fightId || live.busy || finished) return;
+      if (live.slots - live.cmds.length <= 0) { sysToast('这一场的默契已经用完了', 'info'); return; }
+      if (usedKinds()[kind]) { sysToast('这一手已经打过了', 'info'); return; }
+      var r = pickRound();
+      var next = live.cmds.concat([{ r: r, kind: kind }]);
+      var cmd = cmdOf(kind);
+      live.busy = true;
+      if (cardEls[kind]) cardEls[kind].classList.add('is-busy');
+      if (fightTimer) { clearTimeout(fightTimer); fightTimer = null; }
+      api.post(live.endpoint, bodyOf({ mode: 'reroll', fightId: live.fightId, cmds: next })).then(function(res) {
+        if (token !== fightToken) return;
+        live.busy = false;
+        if (cardEls[kind]) cardEls[kind].classList.remove('is-busy');
+        var nd = (res.data && res.data.data) || {};
+        if (!nd.steps) { tick(); return; }
+        live.cmds = nd.cmds || next;
+        // 第 r 回合之前的部分与旧战报逐位相同（同一个 seed，只多了一条指令），
+        // 所以静默补血条就行——玩家看到的正是「从这一刻起不一样」。
+        var resume = 0;
+        while (resume < nd.steps.length && nd.steps[resume].r < r) resume++;
+        cur = nd;
+        for (var i = 0; i < resume; i++) { meSide.set(nd.steps[i].hpMe); foeSide.set(nd.steps[i].hpFoe); }
+        idx = resume;
+        lines = [];
+        logEl.textContent = (cmd ? (cmd.icon + ' ' + (cmd.word || cmd.name)) : '出手') + ' · 第 ' + r + ' 回合';
+        commandFx(kind);
+        refreshCmd();
+        if (idx >= cur.steps.length) { finish(); return; }
+        tick();
+      }, function(err) {
+        if (token !== fightToken) return;
+        live.busy = false;
+        if (cardEls[kind]) cardEls[kind].classList.remove('is-busy');
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '这一手没能打出去';
+        sysToast(msg, 'error');
+        tick();
+      });
+    }
+
     function finish() {
+      if (finished) return;
+      finished = true;
       skip.style.display = 'none';
-      var banner = h('div', 'ci-pet-arena-result' + (d.win ? ' is-win' : ' is-lose'));
+      if (cmdRow) cmdRow.className = 'ci-pet-cmdrow is-hidden';
+      if (fightTimer) { clearTimeout(fightTimer); fightTimer = null; }
+      // 有会话就一定要走一次 settle：战绩、掉落、成就全在那一步才落地。
+      // 没有会话（老响应 / 探针桩）就按老样子直接画结果。
+      if (live.fightId && live.endpoint && !settled) {
+        settled = true;
+        logEl.textContent = '结算中…';
+        api.post(live.endpoint, bodyOf({ mode: 'settle', fightId: live.fightId })).then(function(res) {
+          if (token !== fightToken) return;
+          showResult((res.data && res.data.data) || {}, false);
+        }, function() {
+          if (token !== fightToken) return;
+          showResult(cur, true);
+        });
+        return;
+      }
+      showResult(cur, false);
+    }
+
+    // 结算横幅。dd 可能是 settle 的返回（没有 steps），也可能是当前战报——
+    // 所以这里一个 steps 都不碰，只读结果字段。
+    function showResult(dd, unsaved) {
+      var banner = h('div', 'ci-pet-arena-result' + (dd.win ? ' is-win' : ' is-lose'));
 
       if (opts.tower) {
         // 塔的结算完全不用「积分」这套说法：它讲的是层数，不是分数
         var fNo = opts.floor;
         banner.appendChild(h('div', 'ci-pet-result-title',
-          d.win ? ('🎉 第 ' + fNo + ' 层通过！') : ('💧 第 ' + fNo + ' 层没过')));
+          dd.win ? ('🎉 第 ' + fNo + ' 层通过！') : ('💧 第 ' + fNo + ' 层没过')));
         banner.appendChild(h('div', 'ci-pet-result-sub',
-          d.win
-            ? ('+ ' + (d.gain || 0) + ' 塔积分 · 现在 ' + (d.towerPoints || 0) + ' 分')
+          dd.win
+            ? ('+ ' + (dd.gain || 0) + ' 塔积分 · 现在 ' + (dd.towerPoints || 0) + ' 分')
             : '差一点。喂饱它、涨了羁绊再来，或者换套技能试试'));
         banner.appendChild(h('div', 'ci-pet-result-quota',
-          '今日爬塔 ' + d.today + ' 次 · 已通 ' + (d.towerFloor || 0) + ' / ' + (d.towerTotal || 10) + ' 层'));
+          '今日爬塔 ' + dd.today + ' 次 · 已通 ' + (dd.towerFloor || 0) + ' / ' + (dd.towerTotal || 10) + ' 层'));
       } else if (opts.wild) {
         // 收服结算：三段只在三种结果里各出现一段，别把「没抓到」写成失败
-        var cr = opts.creature || d.creature || {};
-        if (d.captured) {
+        var cr = opts.creature || dd.creature || {};
+        if (dd.captured) {
           banner.appendChild(h('div', 'ci-pet-result-title', '🎉 收服成功！'));
           banner.appendChild(h('div', 'ci-pet-result-sub',
-            (cr.icon || '') + ' ' + (cr.name || '它') + ' 加入了图鉴 · 图鉴 ' + d.dexCount + ' / ' + d.dexTotal));
-          if (d.buddySet) {
+            (cr.icon || '') + ' ' + (cr.name || '它') + ' 加入了图鉴 · 图鉴 ' + dd.dexCount + ' / ' + dd.dexTotal));
+          if (dd.buddySet) {
             banner.appendChild(h('div', 'ci-pet-result-share',
               '它是你的第一只，已经自动成为随行伙伴。'));
           }
-        } else if (d.win) {
+        } else if (dd.win) {
           banner.appendChild(h('div', 'ci-pet-result-title', '⚡ 打赢了，但它溜走了'));
           banner.appendChild(h('div', 'ci-pet-result-sub',
-            '这次收服率 ' + Math.round((d.chance || 0) * 100) + '% · 下次 ' +
-            Math.round((d.nextChance || 0) * 100) + '%（每失败一次 +12%）'));
+            '这次收服率 ' + Math.round((dd.chance || 0) * 100) + '% · 下次 ' +
+            Math.round((dd.nextChance || 0) * 100) + '%（每失败一次 +12%）'));
         } else {
           banner.appendChild(h('div', 'ci-pet-result-title', '💧 没打过'));
           banner.appendChild(h('div', 'ci-pet-result-sub',
@@ -3101,32 +5749,53 @@
         }
         banner.appendChild(h('div', 'ci-pet-result-quota',
           '收服不消耗练习赛次数，也不涨积分'));
-      } else {
-        banner.appendChild(h('div', 'ci-pet-result-title', d.win ? '🏆 赢了！' : '💧 惜败'));
+      } else if (opts.boss) {
+        // 环境副本 Boss：讲的是「本周的考试」，不是分数
+        var envLabel = opts.envName || '环境副本';
+        banner.appendChild(h('div', 'ci-pet-result-title',
+          dd.win ? ('🎉 ' + envLabel + '通关！') : ('💧 ' + ((dd.foe && dd.foe.name) || 'Boss') + ' 太硬了')));
         banner.appendChild(h('div', 'ci-pet-result-sub',
-          (d.win ? '积分 +' : '保底积分 +') + d.gain + ' · 现在 ' + ((d.record && d.record.points) || 0) + ' 分'));
+          dd.firstKill
+            ? '本周首杀！奖励装备已经进了你的背包'
+            : (dd.win ? '积分 +' + (dd.gain || 0) + ' · Boss 每天一次，明天再来' : '保底积分 +' + (dd.gain || 0) + ' · 配套 Build、换克制属性，明天再试')));
+        banner.appendChild(h('div', 'ci-pet-result-quota',
+          '环境每周轮换 · Boss 每天一次 · 胜 +8 / 负 +2 分'));
+      } else {
+        banner.appendChild(h('div', 'ci-pet-result-title', dd.win ? '🏆 赢了！' : '💧 惜败'));
+        banner.appendChild(h('div', 'ci-pet-result-sub',
+          (dd.win ? '积分 +' : '保底积分 +') + dd.gain + ' · 现在 ' + ((dd.record && dd.record.points) || 0) + ' 分'));
         // 连胜只在赢了的时候报；断了就别在失败横幅上再补一句「连胜断了」——落井下石。
-        if (d.win && d.record && d.record.streak > 1) {
-          banner.appendChild(h('div', 'ci-pet-result-streak', '🔥 ' + d.record.streak + ' 连胜'));
+        if (dd.win && dd.record && dd.record.streak > 1) {
+          banner.appendChild(h('div', 'ci-pet-result-streak', '🔥 ' + dd.record.streak + ' 连胜'));
         }
         // 次数不限之后，这里报的是「今天第几场」+ 积分衰减提示
         banner.appendChild(h('div', 'ci-pet-result-quota',
-          '今日第 ' + d.today + ' 场' + (d.decayed ? '（今天打得多，收益已在递减）' : '')));
+          '今日第 ' + dd.today + ' 场' + (dd.decayed ? '（今天打得多，收益已在递减）' : '')));
+      }
+      // 装备掉落（野怪 / 环境 Boss 通用）：掉东西是打完最想看到的一行
+      if (dd.drop && dd.drop.id) {
+        banner.appendChild(h('div', 'ci-pet-result-drop',
+          '🎁 掉落 ' + (dd.drop.icon || '') + ' ' + (dd.drop.name || '') +
+          (dd.drop.duplicate ? '（重复已分解，+' + (dd.drop.dust || 0) + ' 🐟）' : '')));
       }
       // 打真人时才有的那一行：让「对面是活人」这件事在结算的一瞬间被看见
-      if (d.defended && d.opp && d.opp.kind === 'shadow') {
-        var nick = d.opp.owner ? (d.opp.owner + ' 的 ') : '';
+      if (dd.defended && dd.opp && dd.opp.kind === 'shadow') {
+        var nick = dd.opp.owner ? (dd.opp.owner + ' 的 ') : '';
         banner.appendChild(h('div', 'ci-pet-result-share',
-          '已留言给 ' + nick + (d.opp.name || '对方') +
-          '：他这场' + (d.defended.held ? '守住了（+' + d.defended.gain + ' 分）' : '没守住')));
+          '已留言给 ' + nick + (dd.opp.name || '对方') +
+          '：他这场' + (dd.defended.held ? '守住了（+' + dd.defended.gain + ' 分）' : '没守住')));
       }
       // 新解锁的成就：这是打完之后最该被看到的一行
-      if (d.unlocked && d.unlocked.length) {
+      if (dd.unlocked && dd.unlocked.length) {
         var got = [];
-        for (var u = 0; u < d.unlocked.length; u++) {
-          got.push((d.unlocked[u].icon || '') + ' ' + d.unlocked[u].name);
+        for (var u = 0; u < dd.unlocked.length; u++) {
+          got.push((dd.unlocked[u].icon || '') + ' ' + dd.unlocked[u].name);
         }
         banner.appendChild(h('div', 'ci-pet-result-ach', '🎖 解锁成就：' + got.join('、')));
+      }
+      if (unsaved) {
+        banner.appendChild(h('div', 'ci-pet-result-quota',
+          '这一场没能记账（页面放太久或断线），它不算进战绩，也不算输。'));
       }
       var back = h('button', 'ci-pet-foe-btn',
         opts.wild ? '回到图鉴' : (opts.tower ? '回到塔' : '回到对手列表'));
@@ -3142,7 +5811,7 @@
       });
       banner.appendChild(back);
       arena.appendChild(banner);
-      if (d.win) { try { window.dispatchEvent(new CustomEvent('ci-pet-win')); } catch (e) {} }
+      if (dd.win) { try { window.dispatchEvent(new CustomEvent('ci-pet-win')); } catch (e) {} }
     }
 
     function tick() {

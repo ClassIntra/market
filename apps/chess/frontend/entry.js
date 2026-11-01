@@ -927,15 +927,15 @@
       t('button', 'is-secondary', { type: 'button', 'data-action': 'draw', text: '和棋' }),
       t('button', 'is-secondary', { type: 'button', 'data-action': 'leave', text: '离开房间' })
     ]);
-    // 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
-    // 本头部承担标题栏职责。布局：返回 → 标题 → 对局信息段 → 右区灯+按钮
-    var head = t('div', 'chess-header', null, [
-      t('div', 'chess-header-left', null, [
-        t('button', 'chess-back', { type: 'button', 'data-action': 'home', text: '返回' })
-      ]),
-      t('h1', 'chess-title', { text: '中国象棋' }),
-      t('span', 'chess-subtitle', null, [status, room, identity]),
-      t('div', 'chess-header-right', null, [connection, actions])
+    // 标题栏职责（返回 + 标题 + 状态 + 右侧操作）已全部移交宿主 AppNavBar：
+    // 返回/标题由宿主导航栏承担；状态/房间/身份打包成 .chess-nav-status 注入
+    // 导航栏中轴（标题右侧灰色小字）；连接灯与操作按钮注入右区。
+    // 节点仍先挂进页面 statusbar：querySelector 缓存照常工作，且宿主导航栏
+    // 不可用（旧版宿主）时原地可见，优雅降级。节点全部搬走后 statusbar 变空，
+    // CSS :empty 把它整个藏掉——导航栏下方不再占一行。
+    var head = t('div', 'chess-statusbar', null, [
+      t('span', 'chess-nav-status', null, [status, room, identity]),
+      t('div', 'chess-statusbar-right', null, [connection, actions])
     ]);
 
     var roomInput = t('input', null, { 'data-field': 'room', maxlength: '6', autocomplete: 'off', placeholder: '4 位房间码', inputmode: 'numeric' });
@@ -1233,6 +1233,9 @@
     // 渲染热路径复用的节点引用：render 每次点击/推送都会跑，
     // querySelector 全家桶挪到 mount 时一次性缓存
     var headerActionButtons = root.querySelectorAll('.chess-actions [data-action], .chess-room-tools [data-action]');
+    // 标题栏右区的按钮组容器：节点会整块搬进宿主导航栏（见 mount 收尾的 hostNavbar 注入），
+    // 但引用始终有效——render 的显隐/禁用逻辑与 setBusy 的补充遍历都靠它
+    var actionsDivElement = root.querySelector('.chess-actions');
     var leaveButton = root.querySelector('[data-action="leave"]');
     var undoButton = root.querySelector('[data-action="undo"]');
     var hintButton = root.querySelector('[data-action="hint"]');
@@ -1793,7 +1796,16 @@
         actionButtons[a].hidden = isLocal && (kind === 'copy' || kind === 'share-chat' || kind === 'share-community' || kind === 'color' || kind === 'resign');
       }
       root.classList.toggle('chess-room-mode', mode === 'room' && !!roomCode);
-      setText(roomElement, mode === 'solo' ? '人机练习' : mode === 'local' ? '本地对战' : (roomCode ? '房间 ' + roomCode : '未进入房间'));
+      // 宿主导航栏标题：进入房间后带上房号（store 有同值短路，render 热路径随便调）
+      if (hostNavbarApi) {
+        hostNavbarApi.setTitle(mode === 'room' && roomCode ? '中国象棋 · 房 ' + roomCode : '中国象棋');
+      }
+      // 房间段：导航栏标题已带「· 房 XXXX」时，中轴状态里再报一遍房号是重复——
+      // 宿主导航栏可用时入场态/房间态都省略，只有单机模式文案（人机练习/本地对战）保留；
+      // 旧宿主（无 hostNavbar，信息条兜底显示）维持原文案不变
+      setText(roomElement, mode === 'solo' ? '人机练习'
+        : mode === 'local' ? '本地对战'
+        : (roomCode ? (hostNavbarApi ? '' : '房间 ' + roomCode) : (hostNavbarApi ? '' : '未进入房间')));
       setText(identityElement, mode === 'solo'
         // 档位含义是「思考时间」而非让子，所以要写清楚它代表强弱而非棋份。
         // 引擎名不放这里（副标题已经很长），改由连接灯位置的 chip 显示 Pikafish / 内置。
@@ -1959,7 +1971,11 @@
       // 房主关掉「走子提示」的房间：按钮整个隐藏（禁用反而让人以为是坏了）。
       if (hintButton) {
         var hintRoomOff = mode === 'room' && !roomSettings().hint;
-        hintButton.hidden = hintRoomOff;
+        // ⚠️ mode === '' 必须保持隐藏：上面主循环把全部按钮置 hidden 了，
+        // 这里无条件写 hintRoomOff（false）会把入场态的提示按钮重新放出来
+        // （1.15.0 迁宿主导航栏后按钮脱离了原来的 CSS 状态作用域，纯靠 hidden 属性，
+        //  这行覆盖就藏不住了——实测入场页右上角挂着一个灰「提示」）。
+        hintButton.hidden = mode === '' || hintRoomOff;
         hintButton.disabled = hintRoomOff || !hintSide() || aiPending || pending;
       }
       if (resignButton) {
@@ -3001,6 +3017,12 @@
       pending = flag;
       var buttons = root.querySelectorAll('[data-action]:not([data-action="home"])');
       for (var i = 0; i < buttons.length; i++) buttons[i].disabled = flag;
+      // 标题栏按钮组已搬进宿主导航栏（不在 root 子树内），单独遍历——
+      // 漏掉这组的话走子在途时导航栏按钮仍可点，连点「认输」会发两次请求
+      if (actionsDivElement) {
+        var navButtons = actionsDivElement.querySelectorAll('[data-action]');
+        for (var n = 0; n < navButtons.length; n++) navButtons[n].disabled = flag;
+      }
     }
     function onAction(event) {
       var action = event.target.closest('[data-action]');
@@ -3359,8 +3381,25 @@
         clearChildren(container);
       });
     }
+    // 标题栏职责移交宿主 AppNavBar（1.15.0）：返回/标题由宿主导航栏承担，
+    // 连接灯与操作按钮整块搬进宿主导航栏右区。DOM 搬运 = appendChild 自动从
+    // statusbar 摘除，事件监听随节点走，render 的显隐/禁用逻辑零改动。
+    // 宿主导航栏不可用（旧版宿主 / navbar:'custom'）时节点原地留在 statusbar，优雅降级。
+    var hostNavbarApi = (context.ui && typeof context.ui.hostNavbar === 'object') ? context.ui.hostNavbar : null;
+    if (hostNavbarApi) {
+      hostNavbarApi.setTitle(roomCode ? '中国象棋 · 房 ' + roomCode : '中国象棋');
+      // 状态段（轮次/房间/身份）注入导航栏中轴：整块搬运，render 零改动
+      hostNavbarApi.setStatus(root.querySelector('.chess-nav-status'));
+      hostNavbarApi.setActions([
+        { id: 'connection', element: connectionElement },
+        { id: 'actions', element: actionsDivElement }
+      ]);
+    }
     container.__chessUnmount = function() {
       disposed = true;
+      if (hostNavbarApi) {
+        try { hostNavbarApi.clear(); } catch (e) {}
+      }
       aiAbort();
       analysisAbort();
       aiToken += 1;   // 双保险：卸载后任何在途回调都失效

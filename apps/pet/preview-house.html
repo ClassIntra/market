@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - House Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: linear-gradient(135deg, #87ceeb 0%, #b8d4e8 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ===== 小屋全景 ===== */
+.house-scene {
+  background: #f5ecd8;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 
+    0 8px 24px rgba(107, 87, 56, 0.15),
+    0 2px 8px rgba(107, 87, 56, 0.1);
+  position: relative;
+}
+
+/* 天空背景 */
+.sky-layer {
+  height: 180px;
+  background: linear-gradient(180deg, #87ceeb 0%, #b8d4e8 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.cloud {
+  position: absolute;
+  background: white;
+  border-radius: 50%;
+  opacity: 0.9;
+  animation: float-cloud 20s linear infinite;
+}
+
+.cloud::after {
+  content: '';
+  position: absolute;
+  background: white;
+  border-radius: 50%;
+  top: -50%; left: 10%;
+  width: 60%; height: 150%;
+}
+
+@keyframes float-cloud {
+  from { transform: translateX(-100px); }
+  to { transform: translateX(600px); }
+}
+
+.sun {
+  position: absolute;
+  top: 30px; right: 40px;
+  width: 50px; height: 50px;
+  background: radial-gradient(circle, #ffd93d 0%, #ffbe5b 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 40px rgba(255, 217, 61, 0.6);
+  animation: pulse-sun 4s ease-in-out infinite;
+}
+
+@keyframes pulse-sun {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.9; }
+}
+
+/* 小屋主体 */
+.house-body {
+  background: linear-gradient(180deg, #eecfa1 0%, #dcb891 50%, #c9a078 100%);
+  padding: 40px 30px 30px;
+  position: relative;
+  min-height: 500px;
+}
+
+/* 屋顶 */
+.roof {
+  position: absolute;
+  top: -30px; left: -10px; right: -10px;
+  height: 70px;
+  background: linear-gradient(180deg, #8b4513 0%, #6b3410 100%);
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  z-index: 5;
+}
+
+/* 室内区域 */
+.room-floor {
+  background: linear-gradient(180deg, #dcb891 0%, #c9a078 100%);
+  border-radius: 20px;
+  padding: 40px 30px;
+  position: relative;
+  min-height: 400px;
+  box-shadow: inset 0 4px 12px rgba(139, 69, 19, 0.1);
+}
+
+/* 地毯 */
+.rug {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 280px;
+  height: 180px;
+  background: radial-gradient(ellipse, #6b9c5a 0%, #5b8a4a 100%);
+  border-radius: 50%;
+  box-shadow: 
+    inset 0 2px 8px rgba(0, 0, 0, 0.1),
+    0 4px 12px rgba(107, 156, 90, 0.3);
+}
+
+/* ===== 宠物位置 ===== */
+.pet-position {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 10;
+}
+
+.avatar-wrapper {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 12px;
+  position: relative;
+}
+
+.avatar-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffe8d4 0%, #ffdab8 100%);
+  box-shadow: 
+    0 8px 24px rgba(107, 156, 90, 0.25),
+    inset 0 4px 12px rgba(255, 200, 160, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+  position: relative;
+  z-index: 2;
+}
+
+.avatar-inner {
+  font-size: 64px;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+.avatar-inner:hover {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.level-badge {
+  background: linear-gradient(135deg, #6b9c5a 0%, #5b8a4a 100%);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(107, 156, 90, 0.3);
+}
+
+/* ===== 场景中的入口按钮 ===== */
+.scene-btn {
+  position: absolute;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 8;
+}
+
+.scene-btn:hover {
+  transform: translateY(-6px);
+}
+
+.scene-btn .label {
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5a4a3a;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(107, 87, 56, 0.15);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.scene-btn:hover .label {
+  opacity: 1;
+}
+
+/* 左上角 - 技能书 */
+.btn-skills {
+  left: 30px; top: 80px;
+  width: 60px; height: 60px;
+}
+
+.skills-icon {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #6b5b9c 0%, #5b4b8a 100%);
+  border-radius: 12px 12px 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  box-shadow: 
+    0 4px 12px rgba(107, 91, 156, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+
+.skills-icon::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 0; bottom: 0;
+  width: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px 0 0 4px;
+}
+
+/* 右上角 - 装备柜 */
+.btn-equip {
+  right: 30px; top: 60px;
+  width: 70px; height: 70px;
+}
+
+.equip-icon {
+  width: 70px;
+  height: 70px;
+  background: linear-gradient(180deg, #5b9bc4 0%, #4b8ab5 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  box-shadow: 
+    0 4px 12px rgba(91, 155, 196, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+}
+
+/* 左下角 - 食物台 */
+.btn-feed {
+  left: 40px; bottom: 60px;
+  width: 50px; height: 50px;
+}
+
+.feed-icon {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(180deg, #ffb347 0%, #ff8c42 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-shadow: 
+    0 4px 12px rgba(255, 179, 71, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+}
+
+/* 右下角 - 对战擂台 */
+.btn-battle {
+  right: 50px; bottom: 80px;
+  width: 80px; height: 60px;
+}
+
+.battle-icon {
+  width: 80px;
+  height: 60px;
+  background: linear-gradient(180deg, #c45b5b 0%, #b54b4b 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  box-shadow: 
+    0 4px 12px rgba(196, 91, 91, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+
+.battle-icon::after {
+  content: '';
+  position: absolute;
+  bottom: -8px; left: 0; right: 0;
+  height: 8px;
+  background: #8b735b;
+  border-radius: 4px;
+}
+
+/* 顶部中央 - 窗户 */
+.window {
+  position: absolute;
+  top: 120px; left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 100px;
+  background: linear-gradient(180deg, #87ceeb 0%, #b8d4e8 100%);
+  border: 6px solid #6b4a3a;
+  border-radius: 8px;
+  box-shadow: 
+    inset 0 2px 8px rgba(255, 255, 255, 0.3),
+    0 4px 12px rgba(107, 87, 56, 0.2);
+  cursor: pointer;
+  transition: transform 0.2s;
+  z-index: 7;
+}
+
+.window::before, .window::after {
+  content: '';
+  position: absolute;
+  background: #6b4a3a;
+}
+
+.window::before {
+  width: 80%;
+  height: 4px;
+  top: 50%; left: 10%;
+}
+
+.window::after {
+  width: 4px;
+  height: 80%;
+  left: 50%; top: 10%;
+}
+
+.window:hover {
+  transform: translateX(-50%) scale(1.05);
+}
+
+/* 右侧门 */
+.door {
+  position: absolute;
+  right: 40px; bottom: 40px;
+  width: 70px;
+  height: 110px;
+  background: linear-gradient(180deg, #8b6d4e 0%, #6b4a3a 100%);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 
+    0 4px 12px rgba(107, 87, 56, 0.3),
+    inset 2px 0 4px rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: transform 0.2s;
+  z-index: 7;
+}
+
+.door-handle {
+  position: absolute;
+  right: 12px; top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: radial-gradient(circle, #ffd93d 0%, #ffbe5b 100%);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.door:hover {
+  transform: rotateY(-10deg);
+  transform-origin: right;
+}
+
+/* 左侧柜子 */
+.cabinet {
+  position: absolute;
+  left: 20px; bottom: 40px;
+  width: 90px;
+  height: 100px;
+  background: linear-gradient(180deg, #6b5b4a 0%, #5b4a3a 100%);
+  border-radius: 8px;
+  box-shadow: 
+    0 4px 12px rgba(107, 87, 56, 0.3),
+    inset 0 2px 4px rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: transform 0.2s;
+  z-index: 7;
+}
+
+.cabinet-doors {
+  position: absolute;
+  top: 8px; left: 8px; right: 8px; bottom: 8px;
+  background: linear-gradient(180deg, #7b6b5a 0%, #6b5a4a 100%);
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  padding: 30px 8px;
+}
+
+.cabinet-knob {
+  width: 8px;
+  height: 8px;
+  background: radial-gradient(circle, #ffd93d 0%, #ffbe5b 100%);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.cabinet:hover {
+  transform: scale(1.05);
+}
+
+/* 底部窗 - Gacha */
+.gacha-window {
+  position: absolute;
+  left: 50%; bottom: 40px;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 80px;
+  background: linear-gradient(135deg, #9c5bb4 0%, #8a4b9c 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  box-shadow: 
+    0 4px 16px rgba(156, 91, 180, 0.3),
+    inset 0 2px 8px rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: transform 0.2s;
+  z-index: 7;
+}
+
+.gacha-window:hover {
+  transform: translateX(-50%) scale(1.05);
+  box-shadow: 
+    0 6px 20px rgba(156, 91, 180, 0.4),
+    inset 0 2px 8px rgba(255, 255, 255, 0.3);
+}
+
+/* 训练区 */
+.training-area {
+  position: absolute;
+  right: 20px; top: 100px;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(ellipse, #c4c45b 0%, #b5b54b 100%);
+  border-radius: 50%;
+  opacity: 0.3;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: opacity 0.2s;
+  z-index: 6;
+}
+
+.training-area:hover {
+  opacity: 0.5;
+}
+
+/* 底部状态栏 */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  padding: 12px 24px;
+  border-radius: 20px;
+  display: flex;
+  gap: 24px;
+  box-shadow: 
+    0 -4px 16px rgba(107, 87, 56, 0.15),
+    0 -2px 8px rgba(107, 87, 56, 0.1);
+  z-index: 100;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5a4a3a;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-icon {
+  font-size: 16px;
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .house-body {
+    padding: 30px 20px 20px;
+  }
+  
+  .room-floor {
+    padding: 30px 20px;
+  }
+  
+  .pet-position {
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  
+  .scene-btn {
+    transform: scale(0.8);
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- 小屋全景 -->
+  <div class="house-scene">
+    <!-- 天空层 -->
+    <div class="sky-layer">
+      <div class="sun"></div>
+      <div class="cloud" style="top: 30px; left: 50px; width: 80px; height: 30px;"></div>
+      <div class="cloud" style="top: 80px; left: 200px; width: 100px; height: 40px; animation-delay: -10s;"></div>
+    </div>
+
+    <!-- 房子主体 -->
+    <div class="house-body">
+      <div class="roof"></div>
+      
+      <!-- 室内 -->
+      <div class="room-floor">
+        <!-- 地毯 -->
+        <div class="rug"></div>
+        
+        <!-- 窗口 -->
+        <div class="window"></div>
+        
+        <!-- 柜子 -->
+        <div class="cabinet">
+          <div class="cabinet-doors">
+            <div class="cabinet-knob"></div>
+            <div class="cabinet-knob"></div>
+          </div>
+        </div>
+        
+        <!-- 门 -->
+        <div class="door">
+          <div class="door-handle"></div>
+        </div>
+        
+        <!-- 训练区标记 -->
+        <div class="training-area"></div>
+        
+        <!-- 宠物居中 -->
+        <div class="pet-position">
+          <div class="avatar-wrapper">
+            <div class="avatar-circle">
+              <div class="avatar-inner">🐾</div>
+            </div>
+          </div>
+          <div class="level-badge">Lv. 42 • 完全体</div>
+        </div>
+        
+        <!-- 场景按钮 -->
+        <div class="scene-btn btn-skills">
+          <div class="skills-icon">📖</div>
+          <div class="label">技能書</div>
+        </div>
+        
+        <div class="scene-btn btn-equip">
+          <div class="equip-icon">🎒</div>
+          <div class="label">裝備櫃</div>
+        </div>
+        
+        <div class="scene-btn btn-feed">
+          <div class="feed-icon">🍖</div>
+          <div class="label">飼料台</div>
+        </div>
+        
+        <div class="scene-btn btn-battle">
+          <div class="battle-icon">⚔️</div>
+          <div class="label">對戰區</div>
+        </div>
+        
+        <div class="gacha-window">🃏</div>
+        <div class="scene-btn" style="left: 50%; bottom: 28px; transform: translateX(-50%);">
+          <div class="label">轉蛋機</div>
+        </div>
+        
+        <div class="training-area" style="right: 20px; top: 100px;">✨</div>
+        <div class="scene-btn" style="right: 30px; bottom: 100px;">
+          <div class="label">訓練場</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部状态栏 -->
+<div class="status-bar">
+  <div class="status-item">
+    <span class="status-icon">❤️</span>
+    <span>128/128</span>
+  </div>
+  <div class="status-item">
+    <span class="status-icon">⚡</span>
+    <span>64/80</span>
+  </div>
+  <div class="status-item">
+    <span class="status-icon">💚</span>
+    <span>Bond 42</span>
+  </div>
+  <div class="status-item">
+    <span class="status-icon">🍪</span>
+    <span>1,280</span>
+  </div>
+</div>
+
+<script>
+// 点击交互效果
+document.querySelectorAll('.scene-btn, .window, .door, .cabinet, .gacha-window, .training-area').forEach(btn => {
+  btn.addEventListener('click', function() {
+    this.style.transform = 'scale(0.9)';
+    setTimeout(() => {
+      this.style.transform = '';
+    }, 150);
+  });
+});
+
+document.querySelector('.avatar-circle').addEventListener('click', function() {
+  this.style.transform = 'scale(1.1)';
+  setTimeout(() => {
+    this.style.transform = '';
+  }, 200);
+});
+</script>
+</body>
+</html>

@@ -123,7 +123,7 @@
 }
 
 /* ===== 布局原语：用相邻兄弟 margin 替代 flex gap ===== */
-.chess-header,
+.chess-statusbar,
 .chess-layout,
 .chess-entry-row {
   display: -webkit-box;
@@ -146,94 +146,43 @@
 }
 
 /*
- * 头部即标题栏：manifest layout.navbar=custom 隐藏系统导航栏后，
- * 本头部吸顶承担标题栏职责（返回 + 标题 + 状态 + 操作），
- * 与宿主 AppShell 导航栏同款毛玻璃质感。
+ * 对局信息条（1.15.1）：标题栏职责（返回/标题/状态/操作按钮）已全部移交宿主 AppNavBar——
+ * 状态/房间/身份打包在 .chess-nav-status 里注入导航栏中轴（标题右侧灰色小字），
+ * 右区（连接灯+操作按钮）注入导航栏右区；本 statusbar 只是节点搬运前的兜底宿主，
+ * 节点全部搬走后变空壳，:empty 整行藏掉，导航栏下方不再占任何高度。
  */
-.chess-header {
-  position: -webkit-sticky;
-  position: sticky;
-  top: 0;
-  z-index: 40;
+.chess-statusbar {
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  /* 左对齐流式布局：返回 → 标题 → 对局信息段 →（推最右）连接灯+操作 */
+  /* 左对齐流式布局：信息段包装 →（推最右）连接灯+操作 */
   -webkit-box-pack: start;
   -ms-flex-pack: start;
   justify-content: flex-start;
-  margin: 0 0 14px;
-  min-height: 44px;
-  padding: 4px 8px;
-  background-color: var(--nav-bg, rgba(255, 255, 255, 0.8));
-  -webkit-backdrop-filter: var(--glass-blur-container, blur(20px)); backdrop-filter: var(--glass-blur-container, blur(20px));
-  border-bottom: 0.5px solid var(--separator-color, rgba(0, 0, 0, 0.1));
+  margin: 0 0 10px;
+  min-height: 30px;
+  padding: 2px 8px;
 }
 
-.chess-back {
-  display: -webkit-box;
-  display: -ms-flexbox;
-  display: flex;
+/* 节点被宿主导航栏搬空后不留空行（appendChild 摘除后无任何子节点） */
+.chess-statusbar:empty {
+  display: none;
+}
+
+/* 状态段包装：statusbar 兜底与导航栏中轴（.ci-host-navbar 内）共用同一套外观 */
+.chess-nav-status {
+  display: -webkit-inline-box;
+  display: -ms-inline-flexbox;
+  display: inline-flex;
   -webkit-box-align: center;
   -ms-flex-align: center;
   align-items: center;
-  border: 0;
-  background: transparent;
-  /* 对齐 AppShell 返回按钮：主题主色 + 17px 正文 */
-  color: var(--primary-color, var(--chess-accent, #007aff));
-  font: inherit;
-  font-size: var(--font-size-body, 17px);
-  padding: 6px 8px 6px 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
-  transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
-}
-
-/* 纯 CSS 左箭头（不依赖图标字体） */
-.chess-back::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  margin-right: 5px;
-  border-left: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  -webkit-transform: rotate(45deg);
-  transform: rotate(45deg);
-}
-
-@media (hover: hover) {
-  .chess-back:not(:disabled):hover { opacity: .72; }
-}
-.chess-back:active { opacity: .6; }
-
-/* 三区布局镜像 AppShell 导航栏：左返回 / 中标题 / 右状态+操作 */
-.chess-header-left {
-  display: -webkit-box;
-  display: -ms-flexbox;
-  display: flex;
-  -webkit-box-align: center;
-  -ms-flex-align: center;
-  align-items: center;
-  min-width: 70px;
-  margin: 0;
-}
-
-.chess-header h1.chess-title {
-  margin: 0 0 0 10px;
-  -ms-flex-negative: 0;
-  flex-shrink: 0;
-  font-size: 15px;
-  line-height: 1.2;
-  font-weight: var(--font-weight-bold, 700);
-  color: var(--text-primary, #000);
-  white-space: nowrap;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.chess-header-right {
+/* 右区（连接灯 + 操作按钮）：注入宿主导航栏后此处通常为空壳 */
+.chess-statusbar-right {
   display: -webkit-box;
   display: -ms-flexbox;
   display: flex;
@@ -243,50 +192,59 @@
   -webkit-box-pack: end;
   -ms-flex-pack: end;
   justify-content: flex-end;
-  min-width: 70px;
   margin: 0 0 0 auto;
 }
 
-/* 右区三类信息（对局信息段/连接灯/操作按钮）统一 10px 间距 */
-.chess-header-right > * + * { margin-left: 10px; }
+/* 右区两类信息（连接灯/操作按钮）统一 10px 间距 */
+.chess-statusbar-right > * + * { margin-left: 10px; }
 
-/* 标题栏按钮间距收紧：房间模式五按钮总宽压到 ~335px */
-.chess-header .chess-actions > * + * { margin-left: 12px; }
+/* 操作按钮间距收紧：房间模式五按钮总宽压到 ~335px */
+.chess-statusbar .chess-actions > * + *,
+.ci-host-navbar .chess-actions > * + * { margin-left: 12px; }
 
-/* 对局信息段（标题右侧）：轮次 + 模式/房间 + 身份，三段「·」分隔 */
-.chess-header .chess-subtitle {
-  display: block;
-  min-width: 0;
-  -ms-flex-negative: 1;
-  flex-shrink: 1;
-  margin: 0 0 0 12px;
+/* 信息段文字（状态/房间/身份）：小号灰字，导航栏中轴与标题同行 */
+.chess-nav-status > * {
   font-size: 11px;
   line-height: 1.3;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* 三段之间的间隔点；空段自身的 ::before 一并不渲染 */
-.chess-subtitle > * + *::before {
+.chess-nav-status > * + *::before {
   content: '·';
   margin: 0 9px;
 }
 
-.chess-subtitle [data-role="identity"]:empty {
+/* 空段整段不渲染（含自身的间隔点）：房号段在导航栏标题已带房号时会被清空，
+   不藏的话会留下一个孤立的「·」 */
+.chess-nav-status > *:empty {
   display: none;
 }
 
-/* 状态在副标题段内必须 inline：<p> 默认块级会独占一行撑破 44px 标题栏 */
-.chess-header .chess-status {
+.chess-nav-status [data-role="identity"]:empty {
+  display: none;
+}
+
+/* 状态必须 inline：<p> 默认块级会独占一行撑破信息条/导航栏 */
+.chess-nav-status .chess-status {
   display: inline;
   margin: 0;
   color: var(--text-secondary, rgba(60, 60, 67, .6));
 }
+@media (hover: hover) {
+  .chess-back:not(:disabled):hover { opacity: .72; }
+}
+.chess-back:active { opacity: .6; }
+
+/* ===== 状态条样式：标题栏按钮/连接灯桥接 =====
+ * 标题栏按钮组与连接灯会被整块搬进宿主导航栏（.ci-host-navbar 注入槽），
+ * 原标题栏内的紧凑外观靠这两个桥接选择器在搬家后依然生效；
+ * 兜底显示在 statusbar 里时也用同一套紧凑外观。 */
 
 /* 标题栏内的操作按钮：对齐 iOS 导航栏动作项——主色文字、透明背景、无投影 */
-.chess-header .chess-actions button {
+.chess-statusbar .chess-actions button,
+.ci-host-navbar .chess-actions button {
   padding: 4px 8px;
   font-size: 13px;
   font-weight: 500;
@@ -303,16 +261,19 @@
   transition: opacity var(--duration-fast, 0.15s) var(--ease-standard, ease);
 }
 
-.chess-header .chess-actions button.is-secondary {
+.chess-statusbar .chess-actions button.is-secondary,
+.ci-host-navbar .chess-actions button.is-secondary {
   color: var(--text-secondary, rgba(60, 60, 67, .6));
   background: transparent;
   box-shadow: none;
 }
 
-.chess-header .chess-actions button:disabled { opacity: .35; }
+.chess-statusbar .chess-actions button:disabled,
+.ci-host-navbar .chess-actions button:disabled { opacity: .35; }
 
 @media (hover: hover) {
-  .chess-header .chess-actions button:not(:disabled):hover {
+  .chess-statusbar .chess-actions button:not(:disabled):hover,
+.ci-host-navbar .chess-actions button:not(:disabled):hover {
     -webkit-filter: none;
     filter: none;
     -webkit-transform: none;
@@ -320,7 +281,8 @@
     opacity: .7;
   }
 }
-.chess-header .chess-actions button:not(:disabled):active {
+.chess-statusbar .chess-actions button:not(:disabled):active,
+.ci-host-navbar .chess-actions button:not(:disabled):active {
   -webkit-transform: none;
   transform: none;
   opacity: .5;
@@ -978,11 +940,13 @@
 }
 
 /* 标题栏内灯体纯化为圆点：文字转存 title，右区宽度从 ~150px 压到 8px */
-.chess-header .chess-conn {
+.chess-statusbar .chess-conn,
+.ci-host-navbar .chess-conn {
   font-size: 0;
 }
 
-.chess-header .chess-conn::before {
+.chess-statusbar .chess-conn::before,
+.ci-host-navbar .chess-conn::before {
   margin-right: 0;
 }
 
@@ -2358,13 +2322,13 @@
   .chess-shell {
     padding: 12px;
   }
-  /* 窄屏两行布局：返回+标题+信息段+右区单行放不下时右区整行换到下 */
-  .chess-header {
+  /* 窄屏两行布局：信息段+右区单行放不下时右区整行换到下 */
+  .chess-statusbar {
     margin: 0 0 12px;
     -ms-flex-wrap: wrap;
     flex-wrap: wrap;
   }
-  .chess-header-right {
+  .chess-statusbar-right {
     -ms-flex-preferred-size: 100%;
     flex-basis: 100%;
     margin: 8px 0 0;
@@ -2452,7 +2416,7 @@
     -ms-flex-align: center;
     align-items: center;
   }
-  .chess-header {
+  .chess-statusbar {
     -webkit-flex-shrink: 0;
     -ms-flex-negative: 0;
     flex-shrink: 0;
@@ -2528,8 +2492,9 @@
   .chess-point.is-hint-capture::after {
     border-width: 3px;
   }
-  /* 触屏标题栏按钮加高到 ~36px：44px 标准放不下横屏，取可用上限 */
-  .chess-header .chess-actions button {
+  /* 触屏导航栏按钮加高到 ~36px：44px 标准放不下横屏，取可用上限 */
+  .chess-statusbar .chess-actions button,
+  .ci-host-navbar .chess-actions button {
     padding: 9px 14px;
   }
 }

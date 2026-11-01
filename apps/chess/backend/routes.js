@@ -1,7 +1,9 @@
 // 中国象棋 —— 市场应用后端路由
 // 房间制联机对战：房间/成员/对局/落子四张表，走子经 rules.js 服务端权威校验，
 // 状态变化经 realtimeBus 广播给房间全体成员（chess.room.changed）。
-// 结构对齐 gomoku 应用（去掉跨班中继，暂不支持跨服对局）。
+// 结构对齐 gomoku 应用，跨班对局同样沿用 gomoku 已验证的「家服务器单写者」模型：
+// 房间数据只存在于创建它的服务器上，其他班的学生凭房间码加入时经中继目录找到
+// 家服务器并把请求转发过去（单写者，避免双机各自改棋盘状态）。
 var express = require('express');
 var path = require('path');
 var router = express.Router();
@@ -9,7 +11,14 @@ var db = require(path.resolve(process.cwd(), 'src/utils/db'));
 var requireAuth = require(path.resolve(process.cwd(), 'src/middleware/auth')).requireAuth;
 var crypto = require('crypto');
 var realtimeBus = require(path.resolve(process.cwd(), 'src/utils/realtime-bus'));
+var relayBus = require(path.resolve(process.cwd(), 'src/utils/relay-bus'));
+var config = require(path.resolve(process.cwd(), 'src/config'));
+var http = require('http');
 var rules = require('./rules');
+var SELF_SERVER_ID = (config.relay && config.relay.serverId) || '';
+var RELAY_SECRET = (config.relay && config.relay.secret) || '';
+// 跨班对局前提：配置了中继服务器且本机有服务器标识
+var RELAY_ACTIVE = !!((config.relay && config.relay.servers && config.relay.servers.length) && SELF_SERVER_ID);
 
 function userId(req) {
   return String((req.user && (req.user.user_id || req.user.id)) || 'guest');
@@ -96,6 +105,9 @@ function notifyRoom(roomCode, state) {
     payload: { roomCode: roomCode, state: state },
     created_at: new Date().toISOString()
   });
+  // 跨班：把状态变化中继给成员所在的其他服务器，由对方投递给本机在线成员。
+  // 漏掉这条 = 对班玩家看到的是「对手走了一步，我这棋盘纹丝不动」。
+  if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_event', { room_code: roomCode, member_ids: memberIds, state: state });
 }
 
 // ===== 房间快捷聊天 =====
@@ -122,6 +134,10 @@ function notifyRoomMessage(roomCode, message) {
     payload: { roomCode: roomCode, message: message },
     created_at: new Date().toISOString()
   });
+  // 跨班房间的成员分布在不同服务器上，聊天同样要经中继送到对端本机在线成员手里。
+  // 漏掉这条则跨班对局的聊天单向可见（本机能看到对端发言，对端看不到本机发言），
+  // 现象是「他明明回了我，我这边没显示」，排查成本很高。
+  if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_message', { room_code: roomCode, member_ids: memberIds, message: message });
 }
 // 房间销毁（关房 / 空置）时清空消息。调用方保证时机，这里只做删除。
 function purgeRoomMessages(roomCode) {
@@ -157,6 +173,143 @@ db.exec("CREATE TABLE IF NOT EXISTS chess_messages (id INTEGER PRIMARY KEY AUTOI
 db.exec('CREATE INDEX IF NOT EXISTS idx_chess_games_room ON chess_games(room_code)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_chess_moves_game ON chess_moves(game_id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_chess_messages_room ON chess_messages(room_code, id)');
+
+// ===== 跨班对局：房间目录 + 请求转发 =====
+// 房间数据只存在于创建它的「家服务器」上；其他服务器的学生凭房间码加入时，
+// 通过中继同步的目录找到家服务器，把请求原样转发过去（单写者，避免双机状态冲突）。
+db.exec("CREATE TABLE IF NOT EXISTS chess_room_directory (room_code TEXT PRIMARY KEY, server_id TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))");
+function directoryGet(roomCode) { return db.prepare('SELECT room_code, server_id FROM chess_room_directory WHERE room_code = ?').get(roomCode); }
+function directorySet(roomCode, serverId) { db.prepare("INSERT OR REPLACE INTO chess_room_directory (room_code, server_id, updated_at) VALUES (?, ?, datetime('now'))").run(roomCode, serverId); }
+function directoryDelete(roomCode) { db.prepare('DELETE FROM chess_room_directory WHERE room_code = ?').run(roomCode); }
+
+// 中继事件处理器：目录同步（建/关房广播）、房间事件跨机投递
+relayBus.register('chess_room_directory_sync', function(payload) {
+  if (payload && payload.room_code && payload.server_id) directorySet(payload.room_code, payload.server_id);
+});
+relayBus.register('chess_room_directory_remove', function(payload) {
+  if (payload && payload.room_code) directoryDelete(payload.room_code);
+});
+relayBus.register('chess_room_event', function(payload) {
+  if (!payload || !payload.room_code || !payload.state) return;
+  var ids = Array.isArray(payload.member_ids) ? payload.member_ids : [];
+  var targets = [];
+  for (var i = 0; i < ids.length; i++) { if (realtimeBus.isRegistered(ids[i])) targets.push(ids[i]); }
+  if (!targets.length) return;
+  realtimeBus.publishToUsers(targets, {
+    type: 'extension_event',
+    app_name: 'chess',
+    event: 'chess.room.changed',
+    payload: { roomCode: payload.room_code, state: payload.state },
+    created_at: new Date().toISOString()
+  });
+});
+// 聊天消息的跨机投递：只推给本机在线成员，避免向全机广播无关流量
+relayBus.register('chess_room_message', function(payload) {
+  if (!payload || !payload.room_code || !payload.message) return;
+  var ids = Array.isArray(payload.member_ids) ? payload.member_ids : [];
+  var targets = [];
+  for (var i = 0; i < ids.length; i++) { if (realtimeBus.isRegistered(ids[i])) targets.push(ids[i]); }
+  if (!targets.length) return;
+  realtimeBus.publishToUsers(targets, {
+    type: 'extension_event',
+    app_name: 'chess',
+    event: 'chess.room.message',
+    payload: { roomCode: payload.room_code, message: payload.message },
+    created_at: new Date().toISOString()
+  });
+});
+
+// ===== 跨班请求转发（经中继 WS 通道，零配置）=====
+// 不直接猜测对端 HTTP 地址（relay hub 可能与本机同机，URL 推导不可靠），
+// 改为把请求打包成中继事件发给对端，对端自调用本地 HTTP 后把响应事件发回。
+var pendingForwards = {};
+relayBus.register('chess_room_response', function(payload) {
+  if (!payload || !payload.req_id) return;
+  var entry = pendingForwards[payload.req_id];
+  if (!entry) return; // 非本机发起或已超时
+  delete pendingForwards[payload.req_id];
+  clearTimeout(entry.timer);
+  entry.resolve(payload);
+});
+relayBus.register('chess_room_request', function(payload) {
+  // 家服务器侧：收到对端转发来的房间请求 → 自调用本地 HTTP → 回发响应
+  if (!payload || !payload.req_id || !payload.path || !payload.user_id) return;
+  var hasBody = payload.method !== 'GET' && payload.method !== 'HEAD';
+  var body = hasBody ? JSON.stringify(payload.body || {}) : null;
+  var options = {
+    hostname: '127.0.0.1',
+    port: config.port || 9001,
+    path: payload.path,
+    method: payload.method || 'GET',
+    headers: { 'X-Relay-Secret': RELAY_SECRET, 'X-Chess-User': payload.user_id }
+  };
+  if (body) {
+    options.headers['Content-Type'] = 'application/json';
+    options.headers['Content-Length'] = Buffer.byteLength(body);
+  }
+  var upstream = http.request(options, function(upRes) {
+    var chunks = [];
+    upRes.on('data', function(chunk) { chunks.push(chunk); });
+    upRes.on('end', function() {
+      var parsed = null;
+      try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) {}
+      if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_response', { req_id: payload.req_id, status: upRes.statusCode, body: parsed });
+    });
+  });
+  upstream.setTimeout(6000, function() { upstream.destroy(new Error('timeout')); });
+  upstream.on('error', function() {
+    if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_response', { req_id: payload.req_id, status: 502, body: { code: 502, message: '家服务器处理失败' } });
+  });
+  if (body) upstream.write(body);
+  upstream.end();
+});
+
+// 把房间请求经中继转发到家服务器，并把响应透传回本机客户端
+function forwardRoomRequest(req, res) {
+  if (!RELAY_ACTIVE) return res.status(502).json({ code: 502, message: '跨班对局不可用：本机未配置中继服务器' });
+  var reqId = crypto.randomBytes(8).toString('hex');
+  var done = false;
+  var timer = setTimeout(function() {
+    if (done) return;
+    done = true;
+    delete pendingForwards[reqId];
+    res.status(502).json({ code: 502, message: '跨班对局不可用：对方服务器无响应（可能离线）' });
+  }, 8000);
+  pendingForwards[reqId] = {
+    timer: timer,
+    resolve: function(reply) {
+      if (done) return;
+      done = true;
+      // 家服务器已无此房 → 目录失效，就地清理
+      if (reply.status === 404) directoryDelete(req.params.roomCode);
+      res.status(reply.status || 502);
+      if (reply.body) return res.json(reply.body);
+      res.status(502);
+      return res.json({ code: 502, message: '跨班对局响应异常' });
+    }
+  };
+  relayBus.relayOnly('chess_room_request', {
+    req_id: reqId,
+    method: req.method,
+    path: '/api/chess' + req.path,
+    body: (req.method === 'GET' || req.method === 'HEAD') ? null : (req.body || {}),
+    user_id: userId(req)
+  });
+}
+
+// 房间路由认证：中继转发请求凭 X-Relay-Secret + 显式用户身份直通；
+// 普通客户端仍走 JWT（requireAuth）。转发请求没有浏览器的 JWT，
+// 用 requireAuth 会被判未登录 → 跨班加入房间必 401。
+function roomAuth(req, res, next) {
+  var secret = req.get('X-Relay-Secret') || '';
+  var fwdUser = req.get('X-Chess-User') || '';
+  if (RELAY_SECRET && secret && secret === RELAY_SECRET && /^[A-Za-z0-9_-]{1,64}$/.test(fwdUser)) {
+    req.user = { user_id: fwdUser };
+    req.fromRelay = true;
+    return next();
+  }
+  return requireAuth(req, res, next);
+}
 
 // 房间分析规则（1.10.0）：房主建房时选择是否开启「走子提示」与「候选分析」。
 // 胜率条不受此开关影响——看局势是观棋的基本需求，禁掉它等于蒙眼下棋。
@@ -211,6 +364,14 @@ function requireRoom(req, res, next) {
     req.chessRoom = room;
     return next();
   }
+  // 本地无房 → 查跨班目录，转发到家服务器（来自中继的请求不允许再转发，防环）
+  var entry = directoryGet(req.params.roomCode);
+  if (entry && entry.server_id && entry.server_id !== SELF_SERVER_ID && RELAY_ACTIVE && !req.fromRelay) {
+    req.chessForwarding = true;
+    return forwardRoomRequest(req, res);
+  }
+  // 目录指向自己但房间已不存在 → 陈旧目录，清理
+  if (entry) directoryDelete(req.params.roomCode);
   return res.status(404).json({ code: 404, message: '房间不存在或已关闭' });
 }
 
@@ -228,8 +389,10 @@ function join(roomCode, id) {
 }
 
 function createRoom(req, res) {
+  // 撞号检测必须同时避开跨班目录：房号只有 4 位，两班各自生成很容易撞上，
+  // 撞了就会出现「我建的房，对班的人一加入就进了别人的房间」。
   var code;
-  do { code = makeCode(); } while (roomRow(code));
+  do { code = makeCode(); } while (roomRow(code) || directoryGet(code));
   var body = req.body || {};
   var hintEnabled = settingFlag(body.hintEnabled);
   var analyseEnabled = settingFlag(body.analyseEnabled);
@@ -238,6 +401,9 @@ function createRoom(req, res) {
   db.prepare("UPDATE chess_rooms SET updated_at = datetime('now') WHERE room_code = ?").run(code);
   var createdState = stateFor(code, ensureGame(code));
   notifyRoom(code, createdState);
+  // 跨班：登记目录并广播给其他服务器，让他们能凭房间码找到本机
+  directorySet(code, SELF_SERVER_ID);
+  if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_directory_sync', { room_code: code, server_id: SELF_SERVER_ID });
   return res.status(201).json({ code: 201, data: createdState });
 }
 router.post('/rooms', requireAuth, createRoom);
@@ -248,7 +414,7 @@ router.get('/rooms/:roomCode', requireRoom, function(req, res) {
 
 // 聊天记录：只对房间成员开放（房间码只有 4 位，不校验成员等于把聊天内容暴露给猜码者）。
 // 倒序取最近 N 条再反转 —— 长会话下要拿的是最新一段而不是最早一段。
-router.get('/rooms/:roomCode/messages', requireAuth, requireRoom, function(req, res) {
+router.get('/rooms/:roomCode/messages', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT user_id FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member) return res.status(403).json({ code: 403, message: '不在房间中' });
@@ -259,7 +425,7 @@ router.get('/rooms/:roomCode/messages', requireAuth, requireRoom, function(req, 
 
 // 发言：玩家与观战者都可发（观战者不能走子，聊天是其唯一参与方式）。
 // 内容以 textContent 在前端渲染，不做 HTML 解析；这里仍做长度与空值约束。
-router.post('/rooms/:roomCode/messages', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/messages', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT user_id FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member) return res.status(403).json({ code: 403, message: '请先进入房间再发言' });
@@ -276,10 +442,12 @@ router.post('/rooms/:roomCode/messages', requireAuth, requireRoom, function(req,
   notifyRoomMessage(roomCode, message);
   res.status(201).json({ code: 201, data: message });
 });
-// 房间操作一律挂 requireAuth：此前 join/move 等未认证，userId(req) 恒为 'guest'——
+// 房间操作一律要认证：此前 join/move 等未认证，userId(req) 恒为 'guest'——
 // 第二个玩家加入后被登记为 guest 而非真实学号，前端 currentMember() 匹配不上自己
 // → canSelectPiece 恒 false → 「联机进房后点棋子毫无反应」（2026-09-21 用户实测）
-router.post('/rooms/:roomCode/join', requireAuth, requireRoom, function(req, res) {
+// 这里挂 roomAuth 而非 requireAuth：跨班房间的请求会被 requireRoom 转发回家服务器，
+// 转发请求凭 X-Relay-Secret 直通，用 requireAuth 会被判未登录（跨班加入必 401）。
+router.post('/rooms/:roomCode/join', roomAuth, requireRoom, function(req, res) {
   join(req.params.roomCode, userId(req));
   var result = stateFor(req.params.roomCode, ensureGame(req.params.roomCode));
   notifyRoom(req.params.roomCode, result);
@@ -287,7 +455,7 @@ router.post('/rooms/:roomCode/join', requireAuth, requireRoom, function(req, res
 });
 // 观战：进入房间但强制降级为观战者（邀请卡片直达 + 用户主动选择「观战」共用入口）。
 // 已是有色玩家时不降级（对局中不该把自己踢下场），由前端按钮可用性兜住。
-router.post('/rooms/:roomCode/watch', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/watch', roomAuth, requireRoom, function(req, res) {
   var roomCode = req.params.roomCode, id = userId(req);
   var member = join(roomCode, id);
   if (member.color) {
@@ -298,7 +466,7 @@ router.post('/rooms/:roomCode/watch', requireAuth, requireRoom, function(req, re
 
 // 离开房间。若离开者带色（是正在进行的一方的玩家），把该色位让给最早加入的观战者——
 // 即「替补」：玩家掉线/退出后对局不会退化成单色孤立，观战者可以接着下。
-router.post('/rooms/:roomCode/leave', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/leave', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT * FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member) return res.status(404).json({ code: 404, message: '不在房间中' });
@@ -321,14 +489,17 @@ router.post('/rooms/:roomCode/leave', requireAuth, requireRoom, function(req, re
   if (room && room.status !== 'closed') notifyRoom(roomCode, stateFor(roomCode, ensureGame(roomCode)));
   res.json({ code: 200, data: { roomCode: roomCode } });
 });
-router.post('/rooms/:roomCode/close', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/close', roomAuth, requireRoom, function(req, res) {
   if (req.chessRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以关闭房间' });
   db.prepare("UPDATE chess_rooms SET status = 'closed', updated_at = datetime('now') WHERE room_code = ?").run(req.params.roomCode);
   purgeRoomMessages(req.params.roomCode);  // 关房即销毁聊天记录
+  // 跨班：目录下线并广播，否则其他服务器会一直把请求转发到一个已关闭的房间
+  directoryDelete(req.params.roomCode);
+  if (RELAY_ACTIVE) relayBus.relayOnly('chess_room_directory_remove', { room_code: req.params.roomCode });
   res.json({ code: 200, data: { roomCode: req.params.roomCode, status: 'closed' } });
 });
 // 房主重开一局：旧局标记结束，同房间同色位开新局
-router.post('/rooms/:roomCode/reset', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/reset', roomAuth, requireRoom, function(req, res) {
   if (req.chessRoom.owner_id !== userId(req)) return res.status(403).json({ code: 403, message: '只有房主可以重开对局' });
   var game = currentGame(req.params.roomCode);
   if (game) db.prepare("UPDATE chess_games SET status = 'finished', ended_at = datetime('now') WHERE id = ?").run(game.id);
@@ -340,13 +511,13 @@ router.post('/rooms/:roomCode/reset', requireAuth, requireRoom, function(req, re
 // ===== 战事回顾（1.11.0）=====
 // 房间历史局列表：只要房间还在（房主未退出销毁），历史局全部可看，观战者同权。
 // chess_moves 按 game_id 隔离，悔棋删记录 → 棋谱自动与最终局面一致。
-router.get('/rooms/:roomCode/games', requireAuth, requireRoom, function(req, res) {
+router.get('/rooms/:roomCode/games', roomAuth, requireRoom, function(req, res) {
   var rows = db.prepare('SELECT id, winner, result, status, started_at, ended_at, (SELECT COUNT(*) FROM chess_moves m WHERE m.game_id = chess_games.id) AS moveCount FROM chess_games WHERE room_code = ? ORDER BY id').all(req.params.roomCode);
   res.json({ code: 200, data: { games: rows } });
 });
 
 // 单局棋谱：房间成员可看（房间码只有 4 位，不校验成员等于把棋谱暴露给猜码者，口径对齐聊天）
-router.get('/rooms/:roomCode/games/:gameId/moves', requireAuth, requireRoom, function(req, res) {
+router.get('/rooms/:roomCode/games/:gameId/moves', roomAuth, requireRoom, function(req, res) {
   var member = db.prepare('SELECT user_id FROM chess_members WHERE room_code = ? AND user_id = ?').get(req.params.roomCode, userId(req));
   if (!member) return res.status(403).json({ code: 403, message: '不在房间中' });
   var gameId = Number(req.params.gameId);
@@ -365,7 +536,7 @@ router.get('/rooms/:roomCode/games/:gameId/moves', requireAuth, requireRoom, fun
 // 换方：与对手互换红黑；对手未加入时直接翻转自己颜色（空出的色位留给后来者，
 // join 按空色分配——房主可以让出先手红方）。已有走子一律禁止：
 // 换方后棋盘上既有棋子的归属会与成员颜色错位，等于换了一盘棋。
-router.post('/rooms/:roomCode/color', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/color', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT * FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以换方' });
@@ -386,7 +557,7 @@ router.post('/rooms/:roomCode/color', requireAuth, requireRoom, function(req, re
 });
 
 // 认输：对方获胜（result=resign）
-router.post('/rooms/:roomCode/resign', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/resign', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT * FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以认输' });
@@ -399,7 +570,7 @@ router.post('/rooms/:roomCode/resign', requireAuth, requireRoom, function(req, r
 
 // 悔棋：撤销本局最后一手。双人对局只能悔「自己刚下的那一手」（必须轮到自己）；
 // 对手未加入时可悔任意最后一手。悔棋后该色重下。
-router.post('/rooms/:roomCode/undo', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/undo', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var member = db.prepare('SELECT * FROM chess_members WHERE room_code = ? AND user_id = ?').get(roomCode, id);
   if (!member || !member.color) return res.status(403).json({ code: 403, message: '只有玩家可以悔棋' });
@@ -420,7 +591,7 @@ router.post('/rooms/:roomCode/undo', requireAuth, requireRoom, function(req, res
 
 // 走子：服务端权威校验（轮次/棋子归属/走法规则/送将/将见面），
 // 走后判定：将死 / 困毙（判负）/ 长将（判负）/ 六十回合自然限着（判和）。
-router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/move', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var game = ensureGame(roomCode);
   var fr = req.body && req.body.fromRow, fc = req.body && req.body.fromCol;
@@ -487,7 +658,7 @@ router.post('/rooms/:roomCode/move', requireAuth, requireRoom, function(req, res
 // 和棋提议（1.14.0）：官方「和棋」第 2 条是双方协商——「一方提议作和，另一方表示同意」。
 // 一个端点三种动作（action = offer | accept | decline），状态存在 chess_rooms.draw_offer_by。
 // 规则要点：① 只有玩家（有 color）能提；② 不能同意自己的提议；③ 走子即拒绝（见 move 路由）。
-router.post('/rooms/:roomCode/draw', requireAuth, requireRoom, function(req, res) {
+router.post('/rooms/:roomCode/draw', roomAuth, requireRoom, function(req, res) {
   var id = userId(req), roomCode = req.params.roomCode;
   var action = req.body && req.body.action;
   // ⚠️ 这里不能用 ensureGame：它只在「没有进行中的对局」时才建新局，而**上一局刚结束**

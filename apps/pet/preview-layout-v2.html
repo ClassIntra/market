@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - Better Layout</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f5f7fa;
+  min-height: 100vh;
+  padding: 40px 20px;
+}
+
+.game-container {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+/* ===== 主舞台区 ===== */
+.pet-stage {
+  background: white;
+  border-radius: 24px;
+  padding: 48px 32px 32px;
+  text-align: center;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.pet-avatar {
+  font-size: 96px;
+  margin-bottom: 32px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.pet-avatar:hover {
+  transform: scale(1.05);
+}
+
+.level-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 24px;
+}
+
+/* 数据行布局 */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 12px;
+  background: #f8fafc;
+  border-radius: 12px;
+  transition: background 0.2s;
+}
+
+.stat-item:hover {
+  background: #f1f5f9;
+}
+
+.stat-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* 进度条样式 */
+.progress-bar {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ===== 两栏布局 ===== */
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.section-card {
+  background: white;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.section-count {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+/* 技能列表 */
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skill-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.skill-item:hover {
+  background: #f1f5f9;
+  transform: translateX(4px);
+}
+
+.skill-icon {
+  font-size: 32px;
+  margin-right: 12px;
+}
+
+.skill-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+
+.skill-desc {
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skill-tier {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.skill-tier.common { background: #e2e8f0; color: #64748b; }
+.skill-tier.uncommon { background: #d1fae5; color: #059669; }
+.skill-tier.rare { background: #dbeafe; color: #2563eb; }
+.skill-tier.epic { background: #ede9fe; color: #7c3aed; }
+
+/* 装备槽布局 */
+.equipment-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.equipment-item {
+  display: flex;
+  align-items: center;
+  padding: 14px;
+  background: #f8fafc;
+  border-radius: 10px;
+  position: relative;
+}
+
+.equipment-slot-bg {
+  position: absolute;
+  inset: 0;
+  border: 2px dashed #e2e8f0;
+  border-radius: 10px;
+}
+
+.equipment-inner {
+  display: flex;
+  align-items: center;
+  position: relative;
+  z-index: 1;
+}
+
+.slot-icon {
+  font-size: 36px;
+  margin-right: 14px;
+}
+
+.slot-info {
+  flex: 1;
+}
+
+.slot-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+
+.slot-type {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.slot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #cbd5e1;
+  font-size: 24px;
+}
+
+/* ===== 行动按钮区 ===== */
+.action-section {
+  background: white;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px;
+}
+
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
+}
+
+.action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.35);
+}
+
+.action-icon {
+  font-size: 36px;
+}
+
+.action-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.action-cost {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .stats-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .action-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .pet-stage {
+    padding: 32px 20px 24px;
+  }
+  
+  .stat-icon {
+    font-size: 24px;
+  }
+  
+  .stat-value {
+    font-size: 18px;
+  }
+}
+</style>
+</head>
+<body>
+<div class="game-container">
+  <!-- 主舞台 -->
+  <div class="pet-stage">
+    <div class="level-badge">Lv. 42 • 完全体</div>
+    <div class="pet-avatar">🐾</div>
+    
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-icon">❤️</div>
+        <div class="stat-value">128/128</div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: 100%;"></div>
+        </div>
+        <div class="stat-label">HP</div>
+      </div>
+      
+      <div class="stat-item">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-value">64/80</div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: 80%; background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);"></div>
+        </div>
+        <div class="stat-label">Energy</div>
+      </div>
+      
+      <div class="stat-item">
+        <div class="stat-icon">💚</div>
+        <div class="stat-value">42</div>
+        <div class="stat-label">Bond</div>
+      </div>
+      
+      <div class="stat-item">
+        <div class="stat-icon">🍪</div>
+        <div class="stat-value">1,280</div>
+        <div class="stat-label">Coins</div>
+      </div>
+      
+      <div class="stat-item">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value">S</div>
+        <div class="stat-label">Rank</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 两栏内容区 -->
+  <div class="content-grid">
+    <!-- 技能栏 -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-title">Active Skills</div>
+        <div class="section-count">3/5 equipped</div>
+      </div>
+      <div class="skill-list">
+        <div class="skill-item">
+          <div class="skill-icon">💥</div>
+          <div class="skill-info">
+            <div class="skill-name">Heavy Blast</div>
+            <div class="skill-desc">Every 3rd hit deals 160% damage</div>
+          </div>
+          <div class="skill-tier rare">RARE</div>
+        </div>
+        
+        <div class="skill-item">
+          <div class="skill-icon">💫</div>
+          <div class="skill-info">
+            <div class="skill-name">Life Steal</div>
+            <div class="skill-desc">Heals 12% of damage dealt</div>
+          </div>
+          <div class="skill-tier uncommon">UNCOMMON</div>
+        </div>
+        
+        <div class="skill-item">
+          <div class="skill-icon">🔵</div>
+          <div class="skill-info">
+            <div class="skill-name">Bubble Shield</div>
+            <div class="skill-desc">Blocks 50% damage when HP &lt; 20%</div>
+          </div>
+          <div class="skill-tier common">COMMON</div>
+        </div>
+        
+        <div class="skill-item" style="opacity: 0.5;">
+          <div class="skill-icon">❓</div>
+          <div class="skill-info">
+            <div class="skill-name">Locked</div>
+            <div class="skill-desc">Reach Bond 80 to unlock</div>
+          </div>
+          <div class="skill-tier common">LOCKED</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 装备栏 -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-title">Equipment</div>
+        <div class="section-count">2/4 slots</div>
+      </div>
+      <div class="equipment-slots">
+        <div class="equipment-item">
+          <div class="equipment-slot-bg"></div>
+          <div class="equipment-inner">
+            <div class="slot-icon">🗡️</div>
+            <div class="slot-info">
+              <div class="slot-name">Void Blade</div>
+              <div class="slot-type">Weapon • ATK +15%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equipment-item">
+          <div class="equipment-slot-bg"></div>
+          <div class="equipment-inner">
+            <div class="slot-icon">💎</div>
+            <div class="slot-info">
+              <div class="slot-name">Crystal Amulet</div>
+              <div class="slot-type">Accessory • DEF +10%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equipment-item">
+          <div class="equipment-slot-bg"></div>
+          <div class="equipment-inner">
+            <div class="slot-empty">+</div>
+          </div>
+        </div>
+        
+        <div class="equipment-item">
+          <div class="equipment-slot-bg"></div>
+          <div class="equipment-inner">
+            <div class="slot-empty">+</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 行动按钮区 -->
+  <div class="action-section">
+    <div class="action-grid">
+      <div class="action-btn">
+        <div class="action-icon">🍖</div>
+        <div class="action-label">Feed</div>
+        <div class="action-cost">Free</div>
+      </div>
+      
+      <div class="action-btn">
+        <div class="action-icon">💚</div>
+        <div class="action-label">Play</div>
+        <div class="action-cost">50 Energy</div>
+      </div>
+      
+      <div class="action-btn">
+        <div class="action-icon">⚔️</div>
+        <div class="action-label">Battle</div>
+        <div class="action-cost">100 Energy</div>
+      </div>
+      
+      <div class="action-btn">
+        <div class="action-icon">✨</div>
+        <div class="action-label">Train</div>
+        <div class="action-cost">80 Energy</div>
+      </div>
+      
+      <div class="action-btn">
+        <div class="action-icon">🃏</div>
+        <div class="action-label">Gacha</div>
+        <div class="action-cost">500 Coins</div>
+      </div>
+      
+      <div class="action-btn">
+        <div class="action-icon">🔧</div>
+        <div class="action-label">Build</div>
+        <div class="action-cost">Edit Loadout</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

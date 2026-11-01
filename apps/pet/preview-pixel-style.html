@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - Pixel Art Style</title>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'VT323', monospace;
+  background: #1a1a2e;
+  min-height: 100vh;
+  padding: 40px 20px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* CRT 扫描线效果 */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.05) 0px,
+    rgba(0, 0, 0, 0.05) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index: 9999;
+}
+
+/* ===== 主舞台区 ===== */
+.pet-stage {
+  background: #0f0f23;
+  border: 8px solid #6b5b95;
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+  position: relative;
+  margin-bottom: 32px;
+  box-shadow: 
+    0 0 0 4px #3a2a5e,
+    0 0 40px rgba(107, 91, 149, 0.3);
+}
+
+/* 背景网格纹理 */
+.pet-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(107, 91, 149, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(107, 91, 149, 0.1) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.level-title {
+  font-size: 28px;
+  color: #ffd700;
+  letter-spacing: 2px;
+  margin-bottom: 32px;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.level-badge {
+  background: #6b5b95;
+  color: #fff;
+  padding: 6px 16px;
+  font-size: 20px;
+  border: 4px solid #3a2a5e;
+  text-transform: uppercase;
+}
+
+.avatar-wrapper {
+  margin-bottom: 40px;
+}
+
+/* 像素宠物形象 - 大尺寸 */
+.pixel-avatar {
+  width: 160px;
+  height: 160px;
+  background: #2a2a4a;
+  border: 8px solid #8b7baf;
+  box-shadow: 
+    0 0 0 4px #5a4a8e,
+    0 0 30px rgba(139, 123, 175, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.pixel-avatar:hover {
+  transform: scale(1.05);
+  box-shadow: 
+    0 0 0 4px #5a4a8e,
+    0 0 50px rgba(139, 123, 175, 0.6);
+}
+
+.pixel-avatar::after {
+  content: '';
+  position: absolute;
+  top: -16px; left: -16px; right: -16px; bottom: -16px;
+  border: 4px dashed #8b7baf;
+  border-radius: 8px;
+  animation: spin-border 20s linear infinite;
+}
+
+@keyframes spin-border {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.pixel-inner {
+  font-size: 96px;
+  filter: none;
+}
+
+/* 数据行 - 像素块风格 */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.stat-block {
+  background: #1a1a3a;
+  border: 4px solid #5a4a8e;
+  border-radius: 8px;
+  padding: 16px 12px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.stat-block:hover {
+  background: #2a2a4a;
+  border-color: #7b6ba5;
+  transform: translateY(-4px);
+}
+
+.stat-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #9a8ab4;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* 进度条 - 像素格风格 */
+.progress-pixel {
+  height: 12px;
+  background: #0a0a1a;
+  border: 2px solid #3a2a5e;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #4a9d42;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.3);
+  position: relative;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 8px,
+    rgba(255, 255, 255, 0.1) 8px,
+    rgba(255, 255, 255, 0.1) 16px
+  );
+}
+
+.progress-bar.hp {
+  background: #d94242;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.3);
+}
+
+.progress-bar.energy {
+  background: #f5a623;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ===== 双栏面板 ===== */
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.pixel-panel {
+  background: #1a1a3a;
+  border: 4px solid #5a4a8e;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #3a2a5e;
+}
+
+.panel-title {
+  font-size: 20px;
+  color: #b8a9d4;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.panel-count {
+  font-size: 14px;
+  color: #7b6ba5;
+  background: #2a2a4a;
+  padding: 4px 10px;
+  border: 2px solid #5a4a8e;
+}
+
+/* 技能列表 */
+.skill-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #2a2a4a;
+  border: 2px solid #5a4a8e;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+}
+
+.skill-item:hover {
+  background: #3a3a5a;
+  border-color: #8b7bc4;
+  transform: translateX(4px);
+}
+
+.skill-icon {
+  font-size: 32px;
+}
+
+.skill-info {
+  flex: 1;
+}
+
+.skill-name {
+  font-size: 16px;
+  color: #e8d8ff;
+  margin-bottom: 2px;
+  letter-spacing: 1px;
+}
+
+.skill-desc {
+  font-size: 12px;
+  color: #7b6ba5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tier-tag {
+  font-size: 10px;
+  padding: 4px 8px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: bold;
+}
+
+.tier-common {
+  background: #2a2a4a;
+  color: #8a8a9a;
+  border-color: #6a6a7a;
+}
+
+.tier-uncommon {
+  background: #1a3a2a;
+  color: #5cd98d;
+  border-color: #3c996d;
+}
+
+.tier-rare {
+  background: #1a2a4a;
+  color: #5cb3e8;
+  border-color: #3c7fc4;
+}
+
+.tier-epic {
+  background: #2a1a4a;
+  color: #d95ce8;
+  border-color: #9e3cc4;
+  animation: pulse-epic 2s ease-in-out infinite;
+}
+
+@keyframes pulse-epic {
+  0%, 100% { box-shadow: 0 0 4px #d95ce8; }
+  50% { box-shadow: 0 0 12px #d95ce8; }
+}
+
+/* 装备槽 */
+.equipment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.equ-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: #2a2a4a;
+  border: 2px solid #5a4a8e;
+  border-radius: 6px;
+}
+
+.equ-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a2a;
+  border: 2px dashed #3a3a5a;
+  border-radius: 6px;
+  padding: 14px;
+  color: #5a5a7a;
+  font-size: 14px;
+}
+
+.equ-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.equ-icon {
+  font-size: 30px;
+}
+
+.equ-text {
+  flex: 1;
+}
+
+.equ-name {
+  font-size: 14px;
+  color: #e8d8ff;
+  margin-bottom: 2px;
+}
+
+.equ-type {
+  font-size: 11px;
+  color: #7b6ba5;
+}
+
+/* ===== 底部行动栏 ===== */
+.action-panel {
+  background: #1a1a3a;
+  border: 4px solid #5a4a8e;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+}
+
+.action-btn {
+  background: #6b5b95;
+  color: #fff;
+  padding: 16px 12px;
+  border: 4px solid #3a2a5e;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.action-btn:hover {
+  background: #7b6ba5;
+  border-color: #5a4a8e;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(107, 91, 149, 0.4);
+}
+
+.action-btn.secondary {
+  background: #5b7b95;
+}
+
+.action-icon {
+  font-size: 32px;
+}
+
+.action-text {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.action-cost {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* CRT 闪烁效果 */
+@keyframes flicker {
+  0% { opacity: 0.98; }
+  5% { opacity: 0.95; }
+  10% { opacity: 0.98; }
+  15% { opacity: 0.94; }
+  20% { opacity: 0.98; }
+  100% { opacity: 0.98; }
+}
+
+.crt-overlay {
+  animation: flicker 10s ease-in-out infinite;
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .stats-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .stat-block:nth-child(4) { grid-column: span 2; }
+  .stat-block:nth-child(5) { grid-column: span 2; }
+  
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .action-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .pixel-avatar {
+    width: 120px;
+    height: 120px;
+  }
+  
+  .pixel-inner {
+    font-size: 72px;
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="crt-overlay"></div>
+  
+  <!-- 主舞台 -->
+  <div class="pet-stage">
+    <div class="level-title">
+      <span>Lv.</span>
+      <span class="level-badge">42 • 完全体</span>
+    </div>
+    
+    <div class="avatar-wrapper">
+      <div class="pixel-avatar">
+        <div class="pixel-inner">🐾</div>
+      </div>
+    </div>
+    
+    <!-- 数据行 -->
+    <div class="stats-row">
+      <div class="stat-block">
+        <div class="stat-icon">❤️</div>
+        <div class="stat-value">128/128</div>
+        <div class="progress-pixel">
+          <div class="progress-bar" style="width: 100%;"></div>
+        </div>
+        <div class="stat-label">HP</div>
+      </div>
+      
+      <div class="stat-block">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-value">64/80</div>
+        <div class="progress-pixel">
+          <div class="progress-bar energy" style="width: 80%;"></div>
+        </div>
+        <div class="stat-label">Energy</div>
+      </div>
+      
+      <div class="stat-block">
+        <div class="stat-icon">💚</div>
+        <div class="stat-value">42</div>
+        <div class="stat-label">Bond</div>
+      </div>
+      
+      <div class="stat-block">
+        <div class="stat-icon">🍪</div>
+        <div class="stat-value">1,280</div>
+        <div class="stat-label">Coins</div>
+      </div>
+      
+      <div class="stat-block">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value">S</div>
+        <div class="stat-label">Rank</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 双栏内容区 -->
+  <div class="content-grid">
+    <!-- 技能面板 -->
+    <div class="pixel-panel">
+      <div class="panel-header">
+        <div class="panel-title">⚔️ Skills</div>
+        <div class="panel-count">3 / 5</div>
+      </div>
+      
+      <div class="skill-item">
+        <div class="skill-icon">💥</div>
+        <div class="skill-info">
+          <div class="skill-name">Heavy Blast</div>
+          <div class="skill-desc">每 3 次攻击造成 160% 伤害</div>
+        </div>
+        <div class="tier-tag tier-rare">RARE</div>
+      </div>
+      
+      <div class="skill-item">
+        <div class="skill-icon">💫</div>
+        <div class="skill-info">
+          <div class="skill-name">Life Steal</div>
+          <div class="skill-desc">回复造成伤害的 12%</div>
+        </div>
+        <div class="tier-tag tier-uncommon">UNCOMMON</div>
+      </div>
+      
+      <div class="skill-item">
+        <div class="skill-icon">🛡️</div>
+        <div class="skill-info">
+          <div class="skill-name">Bubble Shield</div>
+          <div class="skill-desc">血量低于 20% 时挡下 50% 伤害</div>
+        </div>
+        <div class="tier-tag tier-common">COMMON</div>
+      </div>
+      
+      <div class="skill-item" style="opacity: 0.5;">
+        <div class="skill-icon">❓</div>
+        <div class="skill-info">
+          <div class="skill-name">Locked</div>
+          <div class="skill-desc">Bond 达到 80 解锁</div>
+        </div>
+        <div class="tier-tag tier-common">LOCKED</div>
+      </div>
+    </div>
+
+    <!-- 装备面板 -->
+    <div class="pixel-panel">
+      <div class="panel-header">
+        <div class="panel-title">🎒 Equipment</div>
+        <div class="panel-count">2 / 4</div>
+      </div>
+      
+      <div class="equipment-list">
+        <div class="equ-block">
+          <div class="equ-inner">
+            <div class="equ-icon">🗡️</div>
+            <div class="equ-text">
+              <div class="equ-name">Void Blade</div>
+              <div class="equ-type">武器 • 攻击力 +15%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equ-block">
+          <div class="equ-inner">
+            <div class="equ-icon">💎</div>
+            <div class="equ-text">
+              <div class="equ-name">Crystal Amulet</div>
+              <div class="equ-type">饰品 • 防御力 +10%</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="equ-empty">+ Empty Slot</div>
+        <div class="equ-empty">+ Empty Slot</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部操作栏 -->
+  <div class="action-panel">
+    <div class="action-row">
+      <div class="action-btn">
+        <div class="action-icon">🍖</div>
+        <div class="action-text">Feed</div>
+        <div class="action-cost">Free</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">💚</div>
+        <div class="action-text">Play</div>
+        <div class="action-cost">50 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">⚔️</div>
+        <div class="action-text">Battle</div>
+        <div class="action-cost">100 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">✨</div>
+        <div class="action-text">Train</div>
+        <div class="action-cost">80 Energy</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">🃏</div>
+        <div class="action-text">Gacha</div>
+        <div class="action-cost">500 Coins</div>
+      </div>
+      
+      <div class="action-btn secondary">
+        <div class="action-icon">🔧</div>
+        <div class="action-text">Build</div>
+        <div class="action-cost">Edit Loadout</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 点击互动效果
+document.querySelector('.pixel-avatar').addEventListener('click', function() {
+  this.style.transform = 'scale(1.1)';
+  setTimeout(() => {
+    this.style.transform = '';
+  }, 200);
+});
+</script>
+</body>
+</html>

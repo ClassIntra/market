@@ -477,11 +477,23 @@
     var vw = Number(window.innerWidth) || 1280;
     var vh = Number(window.innerHeight) || 787;
     var box = visualSize();
+    var floorY = Math.max(4, vh - box.h - 60);
+    // 地面感知 Dock：桌面 Dock（grid/dock-only 同一元素）在底部时，地面抬到 Dock 顶边之上，
+    // 避免桌宠站着时盖住 Dock 图标；Dock 隐藏（rect 高 0）或不在底部时不干预
+    try {
+      var dock = document.querySelector('.dock-bar');
+      if (dock && dock.getBoundingClientRect) {
+        var dr = dock.getBoundingClientRect();
+        if (dr && dr.height > 8 && dr.bottom > vh * 0.5) {
+          floorY = Math.min(floorY, Math.max(4, Math.round(dr.top - box.h - 6)));
+        }
+      }
+    } catch (e) {}
     return {
       minX: 4,
       maxX: Math.max(4, vw - box.w - 4),
       maxY: Math.max(4, vh - box.h - 4),
-      floorY: Math.max(4, vh - box.h - 60),
+      floorY: floorY,
       minY: 4
     };
   }
@@ -506,6 +518,9 @@
     }
     var nx = Math.max(b.minX, Math.min(b.maxX, pos.x));
     var ny = Math.max(b.minY, Math.min(b.maxY, pos.y));
+    // 地面即下界：不允许低于 walking floor（floorY 已感知 Dock 顶边），
+    // 否则旧存档坐标会让桌宠站进 Dock 里盖住图标
+    ny = Math.min(ny, b.floorY);
     pos.x = Number.isFinite(nx) ? nx : (Number(b.maxX) ? b.maxX - 24 : 1280 - 88);
     pos.y = Number.isFinite(ny) ? ny : (Number(b.floorY) ? b.floorY : 627);
     applyPos();
@@ -1022,12 +1037,64 @@
   }
 
   // 公共收尾：坐标/拖拽/调度（两形态共用——任何分支 return 都不会再跳过这些）
+  // ---------- 路由感知：在桌宠自己的页面上不显示这只悬浮宠物 ----------
+  // 页面里已经有一只在场景里生活了，同屏两只同样的宠物非常怪。
+  // 路由是 history 模式（无 hashchange），所以：包一层 pushState/replaceState
+  // 派发一个自定义事件 + popstate + 兜底轮询（1.2s，极轻）。
+  var ROUTE_PET = '/pet';
+  var routeHidden = false;
+  function isPetRoute() {
+    var p = (location.pathname || '');
+    // /pet 与 /pet/xxx 都算；用前缀 + 边界判断，避免误伤 /petition 之类
+    return p === ROUTE_PET || p.indexOf(ROUTE_PET + '/') === 0;
+  }
+  // 桌面宿主要求让位：设置面板/文件夹展开/widget 配置/编辑态打开时
+  // body 挂 ci-pet-suppressed（Desktop.vue watcher 同步，ci-route-changed 即时触发本函数）
+  function isSuppressed() {
+    try { return document.body.classList.contains('ci-pet-suppressed'); } catch (e) { return false; }
+  }
+  function syncRouteVisibility() {
+    var hide = isPetRoute() || isSuppressed();
+    if (hide === routeHidden) return;
+    routeHidden = hide;
+    if (el) el.style.display = hide ? 'none' : '';
+    // 快捷菜单/分身是挂在 body 上的独立节点，主元素藏了它们也要收
+    if (hide) {
+      // 快捷菜单是挂在 body 上的独立节点，主元素藏了它也要收
+      // （分身 twin 是 cloneRun 里的局部变量，1.6s 后自己会移除，不用管）
+      if (menuEl && menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
+    }
+    if (!hide && typeof clamp === 'function') clamp();
+  }
+  function hookRouteWatch() {
+    syncRouteVisibility();
+    window.addEventListener('popstate', syncRouteVisibility);
+    window.addEventListener('ci-route-changed', syncRouteVisibility);
+    if (!window.__ciPetRouteHooked) {
+      window.__ciPetRouteHooked = true;
+      ['pushState', 'replaceState'].forEach(function(name) {
+        var orig = history[name];
+        if (typeof orig !== 'function') return;
+        history[name] = function() {
+          var ret = orig.apply(this, arguments);
+          try { window.dispatchEvent(new Event('ci-route-changed')); } catch (e) {}
+          return ret;
+        };
+      });
+    }
+    // 兜底：某些跳转不走 history API（例如整页刷新之外的编程式导航）
+    if (!window.__ciPetRouteTimer) {
+      window.__ciPetRouteTimer = setInterval(syncRouteVisibility, 1200);
+    }
+  }
+
   function afterBuild(isPixel) {
     var sp = storage ? storage.get('pos', null) : null;
     if (sp && Number.isFinite(sp.x) && Number.isFinite(sp.y)) { pos.x = sp.x; pos.y = sp.y; }
     else { var bb = bounds(); pos.x = bb.maxX - 24; pos.y = bb.floorY; }
     clamp();
     bindDrag();
+    hookRouteWatch();
     if (isPixel) {
       anim('ci-pet-squash', 500);
       every(function() { if (mode === 'sleep' && Math.random() < 0.4) bubbleSay(pick(LINES.dream), 2000); }, 11000);

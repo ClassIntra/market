@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - Scene-Based Layout</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* 背景粒子效果 */
+.background-particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+.particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  animation: particle-float 15s infinite linear;
+}
+
+@keyframes particle-float {
+  0% { transform: translateY(100vh) scale(0); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.6; }
+  100% { transform: translateY(-100vh) scale(1); opacity: 0; }
+}
+
+/* 主舞台 - 全屏渐变背景上的焦点区域 */
+.pet-stage {
+  max-width: 520px;
+  margin: 60px auto 40px;
+  position: relative;
+  z-index: 10;
+}
+
+/* 宠物形象 - 超大居中 */
+.pet-avatar-container {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.pet-avatar {
+  font-size: 140px;
+  filter: drop-shadow(0 12px 36px rgba(0, 0, 0, 0.3));
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pet-avatar:hover {
+  transform: scale(1.1) rotate(5deg);
+  filter: drop-shadow(0 16px 48px rgba(102, 126, 234, 0.5));
+}
+
+.level-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  color: #764ba2;
+  padding: 10px 24px;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  margin-top: 16px;
+}
+
+/* HUD 层叠区 - 不在卡片里，直接浮在背景上 */
+.hud-layer {
+  position: relative;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+/* 状态栏 - 左侧垂直排列 */
+.stats-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(15, 15, 35, 0.85);
+  backdrop-filter: blur(12px);
+  padding: 14px 18px;
+  border-radius: 16px;
+  border-left: 3px solid #fff;
+}
+
+.stat-icon {
+  font-size: 24px;
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.stat-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 进度条 - 更细更精致 */
+.progress-mini {
+  width: 120px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.progress-fill-mini {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill-mini.hp {
+  background: linear-gradient(90deg, #ff6b6b, #ee5a5a);
+  box-shadow: 0 0 8px rgba(255, 107, 107, 0.5);
+}
+
+.progress-fill-mini.energy {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+}
+
+/* 右侧功能面板 - 技能 + 装备 */
+.function-panel {
+  margin-left: 220px; /* 给左侧 stats 留出空间 */
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.skill-group {
+  background: rgba(15, 15, 35, 0.75);
+  backdrop-filter: blur(12px);
+  border-radius: 20px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px;
+}
+
+.skill-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 12px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.skill-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.skill-btn.locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.skill-icon-large {
+  font-size: 28px;
+}
+
+.skill-name-small {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+.equipment-group {
+  background: rgba(15, 15, 35, 0.75);
+  backdrop-filter: blur(12px);
+  border-radius: 20px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.equipment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.equipment-item {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+  gap: 12px;
+}
+
+.equipment-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 14px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+}
+
+.slot-icon-small {
+  font-size: 24px;
+}
+
+.slot-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.slot-name-small {
+  font-size: 12px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.slot-type-small {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 底部行动栏 - 横排而不是网格 */
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(15, 15, 35, 0.95);
+  backdrop-filter: blur(20px);
+  padding: 20px 40px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 100;
+}
+
+.action-btn-mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 100px;
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+}
+
+.action-btn-mini:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.45);
+}
+
+.action-icon-medium {
+  font-size: 28px;
+}
+
+.action-label-small {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.action-cost-small {
+  font-size: 8px;
+  opacity: 0.7;
+}
+
+/* 响应式适配 */
+@media (max-width: 600px) {
+  .pet-avatar {
+    font-size: 100px;
+  }
+  
+  .stats-panel {
+    position: relative;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  
+  .stat-row {
+    flex: 1;
+    min-width: 120px;
+  }
+  
+  .function-panel {
+    margin-left: 0;
+    margin-top: 20px;
+  }
+  
+  .action-bar {
+    padding: 16px 20px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  
+  .action-btn-mini {
+    flex: 1;
+    min-width: 70px;
+    padding: 10px 14px;
+  }
+  
+  .action-icon-medium {
+    font-size: 24px;
+  }
+  
+  .action-label-small {
+    font-size: 10px;
+  }
+}
+</style>
+</head>
+<body>
+<!-- 背景粒子 -->
+<div class="background-particles" id="particles"></div>
+
+<!-- 主舞台区 -->
+<div class="pet-stage">
+  <div class="pet-avatar-container">
+    <div class="pet-avatar">🐾</div>
+    <div class="level-badge">Lv. 42 • 完全体</div>
+  </div>
+  
+  <!-- HUD 层叠区 -->
+  <div class="hud-layer">
+    <!-- 左侧状态栏 -->
+    <div class="stats-panel">
+      <div class="stat-row">
+        <div class="stat-icon">❤️</div>
+        <div class="stat-info">
+          <div class="stat-value">128/128</div>
+          <div class="progress-mini">
+            <div class="progress-fill-mini hp" style="width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-icon">⚡</div>
+        <div class="stat-info">
+          <div class="stat-value">64/80</div>
+          <div class="progress-mini">
+            <div class="progress-fill-mini energy" style="width: 80%;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-icon">💚</div>
+        <div class="stat-info">
+          <div class="stat-value">42</div>
+          <div class="stat-label">Bond Level</div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-icon">🍪</div>
+        <div class="stat-info">
+          <div class="stat-value">1,280</div>
+          <div class="stat-label">Fish Coins</div>
+        </div>
+      </div>
+      
+      <div class="stat-row">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-info">
+          <div class="stat-value">S Rank</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 右侧功能面板 -->
+    <div class="function-panel">
+      <!-- 技能区 -->
+      <div class="skill-group">
+        <div class="section-title">⚔️ Active Skills (3/5)</div>
+        <div class="skills-grid">
+          <div class="skill-btn">
+            <div class="skill-icon-large">💥</div>
+            <div class="skill-name-small">Blast</div>
+          </div>
+          
+          <div class="skill-btn">
+            <div class="skill-icon-large">💫</div>
+            <div class="skill-name-small">LifeSteal</div>
+          </div>
+          
+          <div class="skill-btn">
+            <div class="skill-icon-large">🛡️</div>
+            <div class="skill-name-small">Shield</div>
+          </div>
+          
+          <div class="skill-btn locked">
+            <div class="skill-icon-large">❓</div>
+            <div class="skill-name-small">Locked</div>
+          </div>
+          
+          <div class="skill-btn locked">
+            <div class="skill-icon-large">❓</div>
+            <div class="skill-name-small">Locked</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 装备区 -->
+      <div class="equipment-group">
+        <div class="section-title">🎒 Equipment (2/4)</div>
+        <div class="equipment-list">
+          <div class="equipment-item">
+            <div class="slot-icon-small">🗡️</div>
+            <div class="slot-text">
+              <div class="slot-name-small">Void Blade</div>
+              <div class="slot-type-small">Weapon • ATK +15%</div>
+            </div>
+          </div>
+          
+          <div class="equipment-item">
+            <div class="slot-icon-small">💎</div>
+            <div class="slot-text">
+              <div class="slot-name-small">Crystal Amulet</div>
+              <div class="slot-type-small">Accessory • DEF +10%</div>
+            </div>
+          </div>
+          
+          <div class="equipment-empty">
+            <span>Empty Slot</span>
+          </div>
+          
+          <div class="equipment-empty">
+            <span>Empty Slot</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部行动栏 -->
+<div class="action-bar">
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">🍖</div>
+    <div class="action-label-small">Feed</div>
+    <div class="action-cost-small">Free</div>
+  </div>
+  
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">💚</div>
+    <div class="action-label-small">Play</div>
+    <div class="action-cost-small">50 Energy</div>
+  </div>
+  
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">⚔️</div>
+    <div class="action-label-small">Battle</div>
+    <div class="action-cost-small">100 Energy</div>
+  </div>
+  
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">✨</div>
+    <div class="action-label-small">Train</div>
+    <div class="action-cost-small">80 Energy</div>
+  </div>
+  
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">🃏</div>
+    <div class="action-label-small">Gacha</div>
+    <div class="action-cost-small">500 Coins</div>
+  </div>
+  
+  <div class="action-btn-mini">
+    <div class="action-icon-medium">🔧</div>
+    <div class="action-label-small">Build</div>
+    <div class="action-cost-small">Edit Loadout</div>
+  </div>
+</div>
+
+<script>
+// 生成粒子
+const particlesContainer = document.getElementById('particles');
+for (let i = 0; i < 40; i++) {
+  const particle = document.createElement('div');
+  particle.className = 'particle';
+  particle.style.left = Math.random() * 100 + '%';
+  particle.style.animationDuration = (Math.random() * 10 + 15) + 's';
+  particle.style.animationDelay = (Math.random() * 5) + 's';
+  particle.style.width = (Math.random() * 4 + 4) + 'px';
+  particle.style.height = particle.style.width;
+  particlesContainer.appendChild(particle);
+}
+
+// 点击互动效果
+document.querySelector('.pet-avatar').addEventListener('click', function() {
+  this.style.transform = 'scale(1.2) rotate(10deg)';
+  setTimeout(() => {
+    this.style.transform = '';
+  }, 200);
+});
+</script>
+</body>
+</html>

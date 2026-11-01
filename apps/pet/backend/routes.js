@@ -940,44 +940,635 @@ function applyTactic(c, tacticId) {
     atk: Math.max(1, Math.round(c.atk * t.atk + (t.atkAdd || 0))),
     def: Math.max(0, Math.round(c.def * t.def + (t.defAdd || 0))),
     spd: c.spd + (t.spd || 0),
-    crit: Math.min(90, c.crit + (t.crit || 0))
+    crit: Math.min(90, c.crit + (t.crit || 0)),
+    // v2.0：Build 的暴击伤害/治疗倍率要一路带到引擎，不能在战术层断掉
+    critMul: c.critMul || 1, healMul: c.healMul || 1
   };
 }
 
-// ==================== 技能（v0.7.0）====================
+// ==================== 技能系统 v2.0（Roguelike Build）====================
 // 战术改的是「属性怎么分配」，技能改的是「战斗里发生什么」。
 // 两者叠加才算 build：同样的属性，带「千钧一击」和带「鲸吞」是两种宠物。
 //
-// 技能按羁绊档位解锁（tier 就是 TIER_NAMES 的下标），同时只能带 2 个——
-// 有取舍才有搭配，全带满就变成「数值总和」了。
+// v2.0 落地说明（与 docs/battle-build-system.md 的差异都写在这里）：
+//   - 技能池 5 → 18（BASE + ACTIVE + PASSIVE 三张表，下方合并进 SKILLS/SKILL_IDS）
+//   - 「技能池洗牌」实现为确定性展示顺序重排（seed = uid + 进化阶段），不随机剥夺
+//     已解锁技能的访问权——剥夺会让「我攒了很久就想带这个」落空，和
+//     「羁绊是确定性成长」的基调冲突。
+//   - 技能槽位 2/3/4/5（幼生体/成长期/完全体/传说体），用户已确认的平滑阶梯
+//   - 装备 3 槽位（武器/饰品/消耗品），消耗品按库存次数消耗，掉落补给
+//   - 分享码格式 SSSSSEE-K（7 位载荷 + 1 位校验，共 9 字符）：5 技能槽需要 5 字符，
+//     装备混合进制压进 2 字符；doc 的 SSSS-WWWW(8) 是示意格式
 //
-// ⚠️ 解锁门槛必须平缓：班里 25 只宠物绝大多数在 bond 17–40（tier 1），
-//    如果技能要 tier 3/4 才能用，等于绝大多数人永远看不到这套玩法。
-//    实测门槛定成 0/0/1/1/2 之后，bond 20 就能选 3 个技能，选择立刻成立。
-var SKILLS = {
-  heavy:     { id: 'heavy',     name: '千钧一击', icon: '💥', tier: 0, desc: '每 3 回合打出 1.6 倍伤害' },
-  lifesteal: { id: 'lifesteal', name: '鲸吞',     icon: '💫', tier: 0, desc: '造成伤害的 12% 回血' },
-  shield:    { id: 'shield',    name: '泡泡护盾', icon: '🔵', tier: 1, desc: '血量快见底时挡下一半伤害（一次）' },
-  combo:     { id: 'combo',     name: '连打',     icon: '⚡', tier: 1, desc: '25% 概率追加半次攻击' },
-  // ⚠️ 破甲用「无视 40% 防御 + 至少 1 点」而不是纯百分比：
-  //    低羁绊时 def 只有 3，`def*0.6*0.6` 取整后和没带一样（实测与不带完全重合），
-  //    等于这个技能在低档位不存在。加一条最小值保证它在任何档位都有手感。
-  // 同时把解锁门槛降到 tier 1（bond 20），让新手也能摸到破甲这条线。
-  pierce:    { id: 'pierce',    name: '破甲',     icon: '🔨', tier: 1, desc: '无视对手 30% 防御，至少多打 1 点' }
-};
-var SKILL_IDS = ['heavy', 'lifesteal', 'shield', 'combo', 'pierce'];
-var SKILL_SLOTS = 2;
+// ⚠️ 技能互斥规则（同一套 Build 不能同时带，引擎结算时无条件保留靠前者）：
+//    heavy vs blast（都是爆发类）、lifesteal vs shield（都是续航）、berserk vs guard_stance（增益互斥）
 
-// 已解锁的技能（按羁绊档位）
+// ---------- 基础技能（保留原有平衡数据，数值冻结）----------
+var BASE_SKILLS = {
+  heavy:     { id: 'heavy',     name: '千钧一击', icon: '💥', tier: 0, type: 'passive',
+              desc: '每 3 回合打出 1.6 倍伤害' },
+  lifesteal: { id: 'lifesteal', name: '鲸吞',       icon: '💫', tier: 0, type: 'passive',
+              desc: '造成伤害的 12% 回血' },
+  shield:    { id: 'shield',    name: '泡泡护盾',   icon: '🔵', tier: 1, type: 'passive',
+              desc: '血量快见底时挡下一半伤害（一次）' },
+  combo:     { id: 'combo',     name: '连打',       icon: '⚡', tier: 1, type: 'passive',
+              desc: '25% 概率追加半次攻击' },
+  pierce:    { id: 'pierce',    name: '破甲',       icon: '🔨', tier: 1, type: 'passive',
+              desc: '无视对手 30% 防御，至少多打 1 点' }
+};
+
+// ---------- v2.0 新增主动技能----------
+var ACTIVE_SKILLS = {
+  blast: {
+    id: 'blast',
+    name: '爆发冲击',
+    icon: '💢',
+    tier: 1,
+    type: 'active',
+    cooldown: 2,
+    desc: '单回合造成 200% 伤害，下回合无法行动',
+    effect: { damage_mult: 2.0, skip_next_turn: true }
+  },
+  berserk: {
+    id: 'berserk',
+    name: '狂怒',
+    icon: '🔥',
+    tier: 1,
+    type: 'buff',
+    duration: 3,
+    desc: '攻击 +50%，防御 -30%，持续 3 回合',
+    effect: { atk_mul: 1.5, def_mul: 0.7, turns: 3 }
+  },
+  guard_stance: {
+    id: 'guard_stance',
+    name: '钢铁壁垒',
+    icon: '🛡️',
+    tier: 2,
+    type: 'buff',
+    duration: 3,
+    desc: '防御 +40%，速度 -20%，持续 3 回合',
+    effect: { def_mul: 1.4, spd_sub: 0.2, turns: 3 }
+  },
+  heal: {
+    id: 'heal',
+    name: '紧急治疗',
+    icon: '💚',
+    tier: 0,
+    type: 'heal',
+    cooldown: 4,
+    desc: '立即恢复 30% 最大 HP',
+    effect: { hp_percent: 0.3 }
+  },
+  smash: {
+    id: 'smash',
+    name: '重锤砸击',
+    icon: '🔨',
+    tier: 2,
+    type: 'active',
+    cooldown: 3,
+    desc: '本回合伤害翻倍，但自身掉 15% 血',
+    effect: { damage_mult: 2.0, self_damage: 0.15 }
+  }
+};
+
+// ---------- v2.0 新增被动技能----------
+var PASSIVE_SKILLS = {
+  counter: {
+    id: 'counter',
+    name: '反击领域',
+    icon: '⚔️',
+    tier: 2,
+    type: 'passive',
+    desc: '受到攻击时有 40% 概率自动反击',
+    effect: { counter_chance: 0.4 }
+  },
+  aura: {
+    id: 'aura',
+    name: '斗志光环',
+    icon: '✨',
+    tier: 1,
+    type: 'passive',
+    desc: '每场战斗首回合攻击力 +25%',
+    effect: { first_turn_atk_mul: 1.25 }
+  },
+  evade: {
+    id: 'evade',
+    name: '闪避精通',
+    icon: '🌀',
+    tier: 2,
+    type: 'passive',
+    desc: '闪避率 +15%，连续触发时提升至 25%',
+    effect: { evasion_base: 0.15, consecutive_evasion: 0.25 }
+  },
+  toughness: {
+    id: 'toughness',
+    name: '坚韧',
+    icon: '💪',
+    tier: 0,
+    type: 'stat',
+    stat: 'hp',
+    bonus: '+15%',
+    desc: '最大 HP +15%',
+    effect: { hp_bonus: 0.15 }
+  },
+  strength: {
+    id: 'strength',
+    name: '力量',
+    icon: '🏋️',
+    tier: 0,
+    type: 'stat',
+    stat: 'atk',
+    bonus: '+12%',
+    desc: '攻击力 +12%',
+    effect: { atk_bonus: 0.12 }
+  },
+  finesse: {
+    id: 'finesse',
+    name: '敏捷',
+    icon: '🦶',
+    tier: 1,
+    type: 'stat',
+    stat: 'spd',
+    bonus: '+10%',
+    desc: '速度 +10%',
+    effect: { spd_bonus: 0.1 }
+  },
+  sharp: {
+    id: 'sharp',
+    name: '精准',
+    icon: '🎯',
+    tier: 2,
+    type: 'stat',
+    stat: 'crit_dmg',
+    bonus: '+20%',
+    desc: '暴击伤害 +20%',
+    effect: { crit_dmg_bonus: 0.2 }
+  },
+  regen: {
+    id: 'regen',
+    name: '活力',
+    icon: '🍀',
+    tier: 1,
+    type: 'passive',
+    desc: '每回合结束恢复 2% 最大 HP',
+    effect: { regen_percent: 0.02 }
+  }
+};
+
+// ---------- 合并注册表 ----------
+// SKILLS 是技能唯一查询入口；SKILL_IDS 的顺序 = 分享码编码顺序。
+// ⚠️ SKILL_IDS 一旦有真实分享码在外流转就冻结——中间插新技能会让已发出的码整体错位，
+//    新技能只能 push 到尾部。
+var SKILLS = {};
+var SKILL_IDS = [];
+(function() {
+  var groups = [BASE_SKILLS, ACTIVE_SKILLS, PASSIVE_SKILLS];
+  for (var g = 0; g < groups.length; g++) {
+    var ids = Object.keys(groups[g]);
+    for (var i = 0; i < ids.length; i++) {
+      SKILLS[ids[i]] = groups[g][ids[i]];
+      SKILL_IDS.push(ids[i]);
+    }
+  }
+})();
+
+// 技能档位元数据（doc §8 的 tier 分级；cost/slot_weight 的「构建点数」经济暂不实现，
+// 解锁门槛直接用 tier ≤ tierOf(bond)，与羁绊档位 0/20/60/120 自然对齐）
+var SKILL_TIER_META = [
+  { tier: 0, name: '普通', rarity: 'common',   unlockBond: 0 },
+  { tier: 1, name: '优良', rarity: 'uncommon', unlockBond: 20 },
+  { tier: 2, name: '稀有', rarity: 'rare',     unlockBond: 60 },
+  { tier: 3, name: '史诗', rarity: 'epic',     unlockBond: 120 }
+];
+function skillTierMeta(tier) {
+  return SKILL_TIER_META[tier] || SKILL_TIER_META[0];
+}
+
+// ========== 装备系统 v2.0 ==========
+// 3 个槽位：武器/饰品/消耗品
+// 提供被动效果 + Buff/Debuff
+
+// ---------- 武器类 ----------
+var WEAPONS = {
+  blunt_sword: {
+    id: 'blunt_sword',
+    name: '钝剑',
+    icon: '⚔️',
+    type: 'weapon',
+    effect: '攻击后回复 5% 最大 HP',
+    effect_fn: function(atk, def, victim) { 
+      return { heal: Math.round(victim.max_hp * 0.05) }; 
+    },
+    rarity: 'common'
+  },
+  electric_lance: {
+    id: 'electric_lance',
+    name: '电矛',
+    icon: '🔱',
+    type: 'weapon',
+    effect: '有 30% 概率使目标麻痹（下回合速度 -50%)',
+    effect_fn: function() { 
+      return { stun_chance: 0.3, spd_reduction: 0.5, duration: 1 }; 
+    },
+    rarity: 'uncommon'
+  },
+  void_blade: {
+    id: 'void_blade',
+    name: '虚空之刃',
+    icon: '🗡️',
+    type: 'weapon',
+    effect: '无视对手 20% 防御',
+    effect_fn: function() {
+      return { ignore_def_percent: 0.2 };
+    },
+    rarity: 'rare'
+  },
+  // doc 只列了 3 件武器，但掉落四档里 epic 档不能为空（roll 到了没东西发）。
+  // 每一档至少一件，30+ 件的完整库留给后续版本。
+  star_hammer: {
+    id: 'star_hammer',
+    name: '星陨锤',
+    icon: '☄️',
+    type: 'weapon',
+    effect: '暴击伤害 +25%',
+    effect_fn: function() {
+      return { crit_dmg_mul: 1.25 };
+    },
+    rarity: 'epic'
+  }
+};
+
+// ---------- 饰品类 ----------
+var ACCESSORIES = {
+  crystal_amulet: {
+    id: 'crystal_amulet',
+    name: '水晶护符',
+    icon: '💎',
+    type: 'accessory',
+    effect: '防御 +15%',
+    effect_fn: function() { 
+      return { def_mul: 1.15 }; 
+    },
+    rarity: 'common'
+  },
+  lightning_stone: {
+    id: 'lightning_stone',
+    name: '闪电石',
+    icon: '⚡',
+    type: 'accessory',
+    effect: '速度 +20%，暴击率 +10%',
+    effect_fn: function() { 
+      return { spd_mul: 1.2, crit_bonus: 10 }; 
+    },
+    rarity: 'rare'
+  },
+  life_orb: {
+    id: 'life_orb',
+    name: '生命宝珠',
+    icon: '🔮',
+    type: 'accessory',
+    effect: '所有治疗效果 +25%',
+    effect_fn: function() {
+      return { healing_bonus: 0.25 };
+    },
+    rarity: 'epic'
+  },
+  wind_charm: {
+    id: 'wind_charm',
+    name: '风之铃',
+    icon: '🎐',
+    type: 'accessory',
+    effect: '闪避率 +5%',
+    effect_fn: function() {
+      return { evasion_add: 0.05 };
+    },
+    rarity: 'uncommon'
+  },
+  phantom_cloak: {
+    id: 'phantom_cloak',
+    name: '幻影斗篷',
+    icon: '🌫️',
+    type: 'accessory',
+    effect: '闪避率 +8%',
+    effect_fn: function() {
+      return { evasion_add: 0.08 };
+    },
+    rarity: 'epic'
+  }
+};
+
+// ---------- 消耗品类 ----------
+var CONSUMABLES = {
+  flame_potion: {
+    id: 'flame_potion',
+    name: '火焰药水',
+    icon: '🧪',
+    type: 'consumable',
+    effect: '首回合伤害翻倍（仅使用一次）',
+    effect_fn: function() { 
+      return { first_turn_damage_mult: 2.0, single_use: true }; 
+    },
+    stack: 3,
+    rarity: 'uncommon'
+  },
+  restore_vial: {
+    id: 'restore_vial',
+    name: '恢复药剂',
+    icon: '💊',
+    type: 'consumable',
+    effect: '战斗开始时立即恢复 40% HP',
+    effect_fn: function() { 
+      return { initial_heal_percent: 0.4 }; 
+    },
+    stack: 2,
+    rarity: 'common'
+  },
+  strength_tonic: {
+    id: 'strength_tonic',
+    name: '力量合剂',
+    icon: '💉',
+    type: 'consumable',
+    effect: '攻击力 +50%，持续整场战斗',
+    effect_fn: function() {
+      return { atk_mul: 1.5, full_battle_duration: true };
+    },
+    stack: 1,
+    rarity: 'rare'
+  },
+  swift_draught: {
+    id: 'swift_draught',
+    name: '迅捷药剂',
+    icon: '💨',
+    type: 'consumable',
+    effect: '速度 +15%，持续整场战斗',
+    effect_fn: function() {
+      return { spd_mul: 1.15, full_battle_duration: true };
+    },
+    stack: 2,
+    rarity: 'uncommon'
+  },
+  healing_herb: {
+    id: 'healing_herb',
+    name: '治愈草',
+    icon: '🌿',
+    type: 'consumable',
+    effect: '每回合结束恢复 3% 最大 HP',
+    effect_fn: function() {
+      return { regen_percent: 0.03 };
+    },
+    stack: 3,
+    rarity: 'common'
+  }
+};
+
+// 合并所有装备
+var EQUIP_ITEMS = Object.assign({}, WEAPONS, ACCESSORIES, CONSUMABLES);
+var WEAPON_IDS = Object.keys(WEAPONS);
+var ACCESSORY_IDS = Object.keys(ACCESSORIES);
+var CONSUMABLE_IDS = Object.keys(CONSUMABLES);
+
+// 装备槽位定义
+var EQUIP_SLOTS = ['weapon', 'accessory', 'consumable'];
+
+// ---------- Build 配置系统 ----------
+// 数据结构：
+//   state.battle_build = { skills: [...镜像], equipment: { weapon, accessory, consumable }, strategy_name }
+//   state.equip_inventory = { owned: [...装备 ID], charges: { 消耗品 ID: 剩余次数 } }
+// ⚠️ 技能的唯一真源是 state.battle_skills（equippedSkills 读它），
+//    battle_build.skills 只是镜像——两份真源必然漂移，所以读永远走 equippedSkills。
+//    镜像只在 /battle/skills 与 /battle/build/update 两个写入点同步，供分享码编码用。
+
+// 装备库存。首次读取时发新手包（钝剑 + 水晶护符 + 火焰药水×1），
+// 否则 Build 编辑器一进来就是空的，玩家不知道这系统是干嘛的。
+// _kit2 标记保证只发一次；即使标记还没来得及落盘，重复发放也是幂等的（owned 去重）。
+var STARTER_KIT = ['blunt_sword', 'crystal_amulet'];
+function inventoryOf(st) {
+  if (!st.equip_inventory || typeof st.equip_inventory !== 'object') {
+    st.equip_inventory = { owned: [], charges: {} };
+  }
+  var inv = st.equip_inventory;
+  if (!Object.prototype.toString.call(inv.owned).match(/^\[object Array\]$/)) inv.owned = [];
+  if (!inv.charges || typeof inv.charges !== 'object') inv.charges = {};
+  if (!st._kit2) {
+    for (var i = 0; i < STARTER_KIT.length; i++) {
+      if (inv.owned.indexOf(STARTER_KIT[i]) < 0) inv.owned.push(STARTER_KIT[i]);
+    }
+    if (!inv.charges.flame_potion || inv.charges.flame_potion < 1) inv.charges.flame_potion = 1;
+    st._kit2 = true;
+  }
+  return inv;
+}
+
+// 获取当前 Build（含旧存档迁移，doc §9）
+// 旧战术 → 默认推荐 Build；技能永远以 battle_skills 为准。
+function buildOf(st) {
+  if (!st) return { skills: [], equipment: {}, strategy_name: '' };
+  var b = st.battle_build;
+  if (!b || typeof b !== 'object') {
+    b = { skills: [], equipment: {}, strategy_name: '' };
+    if (st.battle_tactic === 'assault') {
+      b.strategy_name = '猛攻';
+    } else if (st.battle_tactic === 'guard') {
+      b.strategy_name = '稳守';
+    } else if (st.battle_tactic === 'nimble') {
+      b.strategy_name = '灵巧';
+    }
+    st.battle_build = b;
+  }
+  if (!b.equipment || typeof b.equipment !== 'object') b.equipment = {};
+  if (Object.prototype.toString.call(b.skills) !== '[object Array]') b.skills = [];
+  return b;
+}
+
+// ---------- 战斗包：把「属性 + 技能 + 装备」合成一份开打用的数据 ----------
+// 返回 { combat, kit, skills }：
+//   combat 战斗数值（含 stat 技能/饰品/静态消耗品），critMul/healMul 一并带上供引擎用
+//   kit    引擎内才生效的动态效果（武器、药水、闪避加成）
+// consume=true 时真的扣掉 1 个消耗品库存（只有真人上场才扣；影子是快照，白嫖不扣——
+// 影子本来就「不需要参与」，扣他的库存等于替他做了决定）。
+function battleKitOf(st, env, consume) {
+  var build = buildOf(st);
+  var skillIds = equippedSkills(st);
+  var inv = inventoryOf(st);
+  var eq = build.equipment || {};
+  var kit = {
+    weapon: null, flame: false, vial: false, herb: false, tonic: false, swift: false,
+    evadeAdd: 0, critMul: 1, healMul: 1
+  };
+
+  var w = eq.weapon ? WEAPONS[eq.weapon] : null;
+  if (w && inv.owned.indexOf(w.id) >= 0) {
+    kit.weapon = w.id;
+    if (w.id === 'star_hammer') kit.critMul *= 1.25;      // 暴击伤害是静态倍率
+  }
+  var acc = eq.accessory ? ACCESSORIES[eq.accessory] : null;
+  if (acc && inv.owned.indexOf(acc.id) >= 0) {
+    if (acc.id === 'wind_charm') kit.evadeAdd += 0.05;
+    else if (acc.id === 'phantom_cloak') kit.evadeAdd += 0.08;
+    else if (acc.id === 'life_orb') kit.healMul *= 1.25;
+  }
+  var cons = eq.consumable ? CONSUMABLES[eq.consumable] : null;
+  // 消耗品的「拥有」看的是库存次数（用掉即无，不进 owned 列表）
+  if (cons && (inv.charges[cons.id] || 0) > 0) {
+    if (consume) inv.charges[cons.id] -= 1;
+    if (cons.id === 'flame_potion') kit.flame = true;
+    else if (cons.id === 'restore_vial') kit.vial = true;
+    else if (cons.id === 'healing_herb') kit.herb = true;
+    else if (cons.id === 'strength_tonic') kit.tonic = true;
+    else if (cons.id === 'swift_draught') kit.swift = true;
+  }
+
+  var c = combatOf(st);
+  var out = {
+    bond: c.bond, tier: c.tier, tierName: c.tierName,
+    hp: c.hp, atk: c.atk, def: c.def, spd: c.spd, crit: c.crit,
+    critMul: kit.critMul, healMul: kit.healMul
+  };
+  for (var i = 0; i < skillIds.length; i++) {
+    var s = SKILLS[skillIds[i]];
+    if (!s) continue;
+    if (s.id === 'toughness') out.hp = Math.round(out.hp * 1.15);
+    else if (s.id === 'strength') out.atk = Math.round(out.atk * 1.12);
+    else if (s.id === 'finesse') out.spd = Math.round(out.spd * (env && env.id === 'wind_valley' ? 1.15 : 1.10));
+    else if (s.id === 'sharp') out.critMul *= 1.2;
+  }
+  if (acc && acc.id === 'crystal_amulet') out.def = Math.round(out.def * 1.15);
+  if (acc && acc.id === 'lightning_stone') {
+    out.spd = Math.round(out.spd * 1.2);
+    out.crit = Math.min(90, out.crit + 10);
+  }
+  if (kit.tonic) out.atk = Math.round(out.atk * 1.5);
+  if (kit.swift) out.spd = Math.round(out.spd * 1.15);
+  // 环境的暴击/治疗加成挂在 critMul/healMul 上，引擎直接乘
+  if (env && env.critMul) out.critMul *= env.critMul;
+  if (env && env.healMul) out.healMul *= env.healMul;
+  return { combat: out, kit: kit, skills: skillIds };
+}
+
+// Build 评分：装备+技能全部生效后的实际战力。
+// doc 里的 calcBuildPower（技能数×50 之类的计分）被替换成真实战力——
+// 玩家看到的分数必须和打出来的强度是同一个数，否则「分数涨了却打不过」没法解释。
+function buildScoreOf(st) {
+  var k = battleKitOf(st, null, false);
+  return powerOf(k.combat);
+}
+
+// 对当前环境的适配度：按环境的「吃香技能/装备/属性」数一数命中几条。
+// 星级 = 1 + 命中数（封顶 5）。保底 1 星：不带任何适配也不该显示 0 星挨骂。
+function buildFitnessOf(st, env) {
+  if (!env || !env.fit) return { score: 0, stars: 1, max: 5 };
+  var k = battleKitOf(st, null, false);
+  var score = 0;
+  var i;
+  for (i = 0; i < k.skills.length; i++) {
+    if (env.fit.skills[k.skills[i]]) score++;
+  }
+  var eq = buildOf(st).equipment || {};
+  if (eq.weapon && env.fit.equip[eq.weapon]) score++;
+  if (eq.accessory && env.fit.equip[eq.accessory]) score++;
+  var t = normType(st && st.battle_type);
+  if (env.fit.types[t]) score++;
+  return { score: score, stars: Math.min(5, 1 + score), max: 5 };
+}
+
+// ---------- Build 分享码 ----------
+// 格式：SSSSSEE-K（9 字符，含 1 个连字符）
+//   SSSSS：5 个技能槽，每槽 1 个 base36 字符（'0' = 空，1..N = SKILL_IDS 索引+1）
+//   EE：   3 个装备槽混合进制压成 2 字符（武器 5 选 1 × 饰品 6 选 1 × 消耗品 6 选 1 = 180 < 36²）
+//   K：    校验位 = fnv1a(SECRET | 周桶 | 载荷) % 36
+// 有效期：校验位接受当前周或上一周 → 约 7-14 天，跟着环境周轮换自然过期。
+// ⚠️ 校验只防「手滑/过期/瞎编」，不防「故意构造」——真正的防线在导入时的
+//    解锁/拥有校验：码里编了没解锁的技能，导入也会被剔掉。
+var BUILD_SECRET = process.env.CI_JWT_SECRET || 'ci-pet-build-v2';
+var B36 = '0123456789abcdefghijklmnopqrstuvwxyz';
+function buildChecksum(payload, week) {
+  return B36[fnv1a(BUILD_SECRET + '|' + week + '|' + payload) % 36];
+}
+function encodeBuildCode(build) {
+  var skills = (build && build.skills) || [];
+  var eq = (build && build.equipment) || {};
+  var s = '';
+  for (var i = 0; i < 5; i++) {
+    var idx = skills[i] ? SKILL_IDS.indexOf(skills[i]) : -1;
+    s += idx >= 0 ? B36[idx + 1] : '0';
+  }
+  var lists = [WEAPON_IDS, ACCESSORY_IDS, CONSUMABLE_IDS];
+  var wi = eq.weapon ? lists[0].indexOf(eq.weapon) : -1;
+  var ai = eq.accessory ? lists[1].indexOf(eq.accessory) : -1;
+  var ci = eq.consumable ? lists[2].indexOf(eq.consumable) : -1;
+  var n = (wi >= 0 ? wi + 1 : 0) * 36 + (ai >= 0 ? ai + 1 : 0) * 6 + (ci >= 0 ? ci + 1 : 0);
+  var e = B36[Math.floor(n / 36)] + B36[n % 36];
+  var payload = s + e;
+  return payload + '-' + buildChecksum(payload, envWeekIndex());
+}
+function decodeBuildCode(code) {
+  try {
+    var raw = String(code || '').trim().toLowerCase().replace(/\s+/g, '');
+    var parts = raw.split('-');
+    if (parts.length !== 2 || parts[0].length !== 7 || !/^[0-9a-z]{7}$/.test(parts[0]) ||
+        !/^[0-9a-z]$/.test(parts[1])) return null;
+    var payload = parts[0];
+    var week = envWeekIndex();
+    if (buildChecksum(payload, week) !== parts[1] && buildChecksum(payload, week - 1) !== parts[1]) {
+      return null;
+    }
+    var skills = [];
+    for (var i = 0; i < 5; i++) {
+      var v = B36.indexOf(payload[i]);
+      if (v > 0 && SKILL_IDS[v - 1]) skills.push(SKILL_IDS[v - 1]);
+      else skills.push(null);
+    }
+    var n = B36.indexOf(payload[5]) * 36 + B36.indexOf(payload[6]);
+    if (n < 0 || n > 179) return null;
+    var lists = [WEAPON_IDS, ACCESSORY_IDS, CONSUMABLE_IDS];
+    var wi = Math.floor(n / 36), rest = n % 36;
+    var ai = Math.floor(rest / 6), ci = rest % 6;
+    var equipment = {
+      weapon: wi > 0 ? lists[0][wi - 1] : null,
+      accessory: ai > 0 ? lists[1][ai - 1] : null,
+      consumable: ci > 0 ? lists[2][ci - 1] : null
+    };
+    return { skills: skills, equipment: equipment };
+  } catch (e2) {
+    return null;
+  }
+}
+
+// 已解锁的技能（按羁绊档位）。
+// 「技能池洗牌」：顺序按 fnv1a('pool|' + bond + '|' + id) 排——bond 一涨顺序就变，
+// 正好实现「每次升级重新洗牌」；但它只是展示顺序，不剥夺任何已解锁技能的访问权。
 function skillsOf(st) {
+  var t = tierOf((st && st.bond) || 0);
+  var bond = (st && st.bond) || 0;
+  var out = [];
+  for (var i = 0; i < SKILL_IDS.length; i++) {
+    var s = SKILLS[SKILL_IDS[i]];
+    if (s.tier <= t) {
+      var meta = skillTierMeta(s.tier);
+      out.push({ id: s.id, name: s.name, icon: s.icon, tier: s.tier, type: s.type || 'passive',
+                 rarity: meta.rarity, tierName: meta.name, desc: s.desc,
+                 _sort: fnv1a('pool|' + bond + '|' + s.id) });
+    }
+  }
+  out.sort(function(a, b) { return a._sort - b._sort; });
+  for (var j = 0; j < out.length; j++) delete out[j]._sort;
+  return out;
+}
+
+// 全技能目录（含未解锁的，供 Build 编辑器画锁定态）。unlocked 是已解锁 ID 集合。
+function skillCatalogOf(st) {
   var t = tierOf((st && st.bond) || 0);
   var out = [];
   for (var i = 0; i < SKILL_IDS.length; i++) {
     var s = SKILLS[SKILL_IDS[i]];
-    if (s.tier <= t) out.push({ id: s.id, name: s.name, icon: s.icon, tier: s.tier, desc: s.desc });
+    var meta = skillTierMeta(s.tier);
+    out.push({ id: s.id, name: s.name, icon: s.icon, tier: s.tier, type: s.type || 'passive',
+               rarity: meta.rarity, tierName: meta.name,
+               unlockBond: meta.unlockBond, unlocked: s.tier <= t, desc: s.desc });
   }
   return out;
 }
+
 // 实际生效的技能：只认「已解锁 + 已装备」的，防止改了存档就带上没解锁的。
 //
 // ⚠️ 这里不能「没选就自动装满」：那样玩家永远没法选择「不带技能」，
@@ -1004,37 +1595,63 @@ function equippedSkills(st) {
   return out;
 }
 
-// 把技能列表压成结算时用的标记表
+// 把技能列表压成结算时用的标记表。
+// stat 类技能（坚韧/力量/敏捷/精准）不在这里——它们改的是开场属性，走 battleKitOf。
 function skillSet(ids) {
-  var e = { heavy: false, lifesteal: 0, shield: false, combo: 0, pierce: 0 };
-  for (var i = 0; i < (ids || []).length; i++) {
-    var id = ids[i];
+  var e = {
+    // 基线 5 技能（数值冻结，别动）
+    heavy: false, lifesteal: 0, shield: false, combo: 0, pierce: 0,
+    // v2.0 被动
+    counter: 0, aura: 0, evade: 0, regen: 0,
+    // v2.0 主动（数值 = 伤害倍率 / 回复比）
+    blast: 0, smash: 0, heal: 0,
+    // v2.0 增益
+    berserk: false, guard_stance: false
+  };
+  var list = ids || [];
+  for (var i = 0; i < list.length; i++) {
+    var id = list[i];
     if (!SKILLS[id]) continue;
     if (id === 'heavy') e.heavy = true;
     else if (id === 'lifesteal') e.lifesteal = 0.12;
     else if (id === 'shield') e.shield = true;
     else if (id === 'combo') e.combo = 0.25;
     else if (id === 'pierce') e.pierce = 0.3;
+    else if (id === 'counter') e.counter = 0.4;
+    else if (id === 'aura') e.aura = 1.25;
+    else if (id === 'evade') e.evade = 0.15;
+    else if (id === 'regen') e.regen = 0.02;
+    else if (id === 'blast') e.blast = 2.0;
+    else if (id === 'smash') e.smash = 2.0;
+    else if (id === 'heal') e.heal = 0.3;
+    else if (id === 'berserk') e.berserk = true;
+    else if (id === 'guard_stance') e.guard_stance = true;
   }
-  // ⚠️ 两个互斥规则，都是为了压住「叠乘」：
-  //    1) 千钧 vs 连打：都是单回合增伤，叠起来是乘算（实测把最难层推到 95%）
+  // ⚠️ 互斥规则（无条件保留规则表靠前者），都是为了压住「叠乘」：
+  //    1) 千钧 vs 爆发/连打：都是单回合增伤，叠起来是乘算（实测把最难层推到 95%）
   //    2) 鲸吞 vs 护盾：都是续航，叠起来等于「打不死」，boss 胜率从 79% 冲到 90%
+  //    3) 狂怒 vs 壁垒：两个增益各带一半代价，同时开等于没有代价
   //    互斥之后每个技能都对应一条明确的路线，选择才有意义。
+  if (e.heavy && e.blast > 0) e.blast = 0;
   if (e.heavy && e.combo > 0) e.combo = 0;
   if (e.lifesteal > 0 && e.shield) e.shield = false;
+  if (e.berserk && e.guard_stance) e.guard_stance = false;
   return e;
 }
 
-// ==================== 进化（v0.8.0）====================
+// ==================== 进化（v0.8.0 / v2.0 调整槽位）====================
 // 进化不改形象（形象是玩家自己画的/选的，不能替他换），改的是**能装几个技能**。
-// 这是最像宝可梦、又不会破坏已有平衡的奖励：
-//   - 前两阶段仍是 2 个槽位，所以 bond 82 以下的所有旧平衡数据完全不变；
-//   - bond 120 起开第 3 个槽位，给「养了很久」一个质变，而不是只多几点属性。
+// 这是最像宝可梦、又不会破坏已有平衡的奖励。
+//
+// v2.0 起槽位走平滑阶梯 2/3/4/5（用户确认）：每个进化阶段都有实质成长。
+// ⚠️ 这意味着 bond 60+ 的玩家比旧版多一个槽位，中后期平衡整体上移一档——
+//    对手（NPC/野怪/塔）不吃这个加成，所以「带满槽」是真实的成长红利；
+//    _pet-build-selftest.mjs 里的平衡抽样会盯住「不要一键通关」这条线。
 var EVOLUTIONS = [
   { stage: 0, name: '幼生体', icon: '🥚', at: 0,   slots: 2, desc: '刚来到你桌面的样子' },
-  { stage: 1, name: '成长期', icon: '🌱', at: 60,  slots: 2, desc: '开始有自己的脾气了' },
-  { stage: 2, name: '完全体', icon: '✨', at: 120, slots: 3, desc: '解锁第 3 个技能槽' },
-  { stage: 3, name: '传说体', icon: '👑', at: 200, slots: 3, desc: '已经不需要再证明什么' }
+  { stage: 1, name: '成长期', icon: '🌱', at: 60,  slots: 3, desc: '解锁第 3 个技能槽' },
+  { stage: 2, name: '完全体', icon: '✨', at: 120, slots: 4, desc: '解锁第 4 个技能槽' },
+  { stage: 3, name: '传说体', icon: '👑', at: 200, slots: 5, desc: '第 5 个技能槽，Build 的完全形态' }
 ];
 function evolutionOf(st) {
   var bond = (st && st.bond) || 0;
@@ -1072,6 +1689,8 @@ var RARITY = {
 var CAPTURE_FAIL_BONUS = 0.12;
 var CAPTURE_MAX = 0.95;
 var CAPTURE_SPOTLIGHT_BONUS = 0.10;
+// 野怪胜利的装备掉落率：低于一半，让掉落是「惊喜」而不是「刷材料的日常」
+var WILD_DROP_CHANCE = 0.35;
 
 var WILD = [
   // ---- 常见 ----
@@ -1892,6 +2511,337 @@ function rngFrom(seed) {
   };
 }
 
+// ==================== 环境副本（v2.0）====================
+// 每周轮换一个战斗环境，全班同步：按周序号取模，不是个人随机。
+// 与天气同一条底线：环境不改 seed、不改先手，只在数值层叠固定倍率，同一场重放一致。
+var ENVIRONMENTS = {
+  wind_valley: {
+    id: 'wind_valley', name: '风之峡谷', icon: '🍃',
+    effects: { evasion_rate: 1.2, speed_skill_power: 1.5 },
+    effectText: '闪避率 +20% · 速度系技能 +50%',
+    boss: { name: '风元素精灵', icon: '🌪️', type: 'electric', skills: ['evade', 'finesse', 'lifesteal'],
+            desc: '峡谷的风里全是残影，打不中它什么都白搭' },
+    rewardItem: 'lightning_stone',
+    fit: {
+      skills: { evade: 1, finesse: 1 },
+      equip: { lightning_stone: 1, wind_charm: 1 },
+      types: { electric: 1 }
+    }
+  },
+  magma_cave: {
+    id: 'magma_cave', name: '岩浆洞窟', icon: '🔥',
+    // doc 原文 fire_skill_power: 1.8 与注释「冷却减半」矛盾：两个都做，
+    // 倍率收敛到 1.5（1.8 实测会碾压），冷却按 -1 结算
+    effects: { fire_skill_power: 1.5, damage_over_time: true },
+    effectText: '火属性伤害 +50% · 主动技能冷却 -1 · 每回合双方灼烧 5% HP',
+    boss: { name: '熔岩巨兽', icon: '🌋', type: 'fire', skills: ['smash', 'toughness', 'lifesteal'],
+            desc: '洞窟尽头的那团火，砸下去自己也要掉血' },
+    rewardItem: 'void_blade',
+    fit: {
+      skills: { blast: 1, smash: 1, toughness: 1, regen: 1 },
+      equip: { void_blade: 1, flame_potion: 1 },
+      types: { fire: 1 }
+    }
+  },
+  moon_altar: {
+    id: 'moon_altar', name: '月光祭坛', icon: '🌙',
+    effects: { night_crit_multiplier: 1.5, healing_bonus: 1.3 },
+    effectText: '暴击伤害 +50% · 治疗效果 +30%',
+    boss: { name: '月影猎手', icon: '🌙', type: 'water', skills: ['counter', 'aura', 'lifesteal'],
+            desc: '你打它的每一拳，都可能有半拳还回来' },
+    rewardItem: 'life_orb',
+    fit: {
+      skills: { sharp: 1, heal: 1, lifesteal: 1 },
+      equip: { life_orb: 1, star_hammer: 1 },
+      types: { water: 1 }
+    }
+  }
+};
+var ENV_IDS = ['wind_valley', 'magma_cave', 'moon_altar'];
+var ENV_EPOCH = Date.UTC(2026, 0, 5);   // 2026-01-05（周一）为第 0 周
+var ENV_BOSS_DAILY_CAP = 1;
+var ENV_BOSS_SCALE = 1.10;              // Boss 属性随玩家羁绊缩放
+// Boss 血量独立系数：拉长战局让乘区平均化的旋钮。扫描结论 1.0 最优
+//（1.15 会把中坚档胜率压到 22%，见 _tmp-boss-probe 的矩阵），保留做后续调参用。
+var ENV_BOSS_HP_MUL = 1.0;
+var ENV_BOSS_WIN_POINTS = 8;
+var ENV_BOSS_LOSE_POINTS = 2;
+var EQUIP_DUST_POINTS = 3;              // 重复装备「分解」的小鱼干
+
+function envWeekIndex(now) {
+  return Math.floor(((now || Date.now()) - ENV_EPOCH) / (7 * 86400000));
+}
+function currentEnvironment(now) {
+  var idx = envWeekIndex(now);
+  return ENVIRONMENTS[ENV_IDS[((idx % 3) + 3) % 3]];
+}
+// 环境数值层：给引擎与 battleKitOf 消费的扁平倍率
+function envModsOf(env) {
+  if (!env) return null;
+  var e = env.effects || {};
+  return {
+    id: env.id,
+    evadeMul: e.evasion_rate || 1,
+    fireMul: e.fire_skill_power || 1,
+    dotPercent: e.damage_over_time ? 0.05 : 0,
+    cdBonus: e.fire_skill_power ? 1 : 0,
+    critMul: e.night_crit_multiplier || 1,
+    healMul: e.healing_bonus || 1
+  };
+}
+// 环境页 / profile 用：把「当前环境 + Boss + 我的进度」打包。Boss 数值按玩家羁绊现算。
+function envView(uid, st) {
+  var env = currentEnvironment();
+  var week = envWeekIndex();
+  var boss = env.boss;
+  var bossBond = Math.max(4, Math.round(((st && st.bond) || 0) * ENV_BOSS_SCALE));
+  var bc = combatOf({ bond: bossBond });
+  var prog = (st && st.env_progress) || {};
+  var bossWeek = prog.boss_week || {};
+  var wins = prog.boss_wins || {};
+  var today = todayKey();
+  var usedToday = (st && st.env_boss_date === today) ? (st.env_boss_today || 0) : 0;
+  var reward = EQUIP_ITEMS[env.rewardItem];
+  var nextId = ENV_IDS[(((week + 1) % 3) + 3) % 3];
+  return {
+    id: env.id, name: env.name, icon: env.icon,
+    week: week + 1,
+    effectText: env.effectText,
+    mods: envModsOf(env),
+    boss: {
+      name: boss.name, icon: boss.icon || '', desc: boss.desc || '',
+      type: boss.type, typeName: ELEMENTS[boss.type].name, typeIcon: ELEMENTS[boss.type].icon,
+      bond: bossBond, hp: bc.hp, power: powerOf(bc), skills: boss.skills || []
+    },
+    reward: reward ? { id: reward.id, name: reward.name, icon: reward.icon } : null,
+    firstKillDone: bossWeek[env.id] === week,
+    bossWins: wins[env.id] || 0,
+    dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - usedToday),
+    dailyCap: ENV_BOSS_DAILY_CAP,
+    next: { id: nextId, name: ENVIRONMENTS[nextId].name, icon: ENVIRONMENTS[nextId].icon, preview: '下周开放' },
+    bestScore: prog.best_score || 0
+  };
+}
+
+// 装备掉落（doc §8 DROP_RATES）。返回掉落的装备 ID 或 null。
+// 稀有度先 roll 后挑货：epic 桶里现在有 3 件，roll 到哪件看运气。
+var DROP_RATES = [
+  { rarity: 'epic', p: 0.05 },
+  { rarity: 'rare', p: 0.15 },
+  { rarity: 'uncommon', p: 0.30 },
+  { rarity: 'common', p: 0.50 }
+];
+function rollDropItem(rnd) {
+  var r = rnd();
+  var acc = 0;
+  var rarity = 'common';
+  for (var i = 0; i < DROP_RATES.length; i++) {
+    acc += DROP_RATES[i].p;
+    if (r < acc) { rarity = DROP_RATES[i].rarity; break; }
+  }
+  var pool = [];
+  var ids = Object.keys(EQUIP_ITEMS);
+  for (var j = 0; j < ids.length; j++) {
+    if (EQUIP_ITEMS[ids[j]].rarity === rarity) pool.push(ids[j]);
+  }
+  if (!pool.length) return null;
+  return pool[Math.floor(rnd() * pool.length) % pool.length];
+}
+// 入库：新装备 → owned + 消耗品按 stack 充能；重复装备 → 分解成小鱼干。
+// 返回 { item, duplicate, dust }（item=null 表示没掉东西）。
+function grantEquip(st, id) {
+  var item = EQUIP_ITEMS[id];
+  if (!item) return { item: null, duplicate: false, dust: 0 };
+  var inv = inventoryOf(st);
+  if (item.type === 'consumable') {
+    inv.charges[id] = (inv.charges[id] || 0) + (item.stack || 1);
+    return { item: item, duplicate: false, dust: 0 };
+  }
+  if (inv.owned.indexOf(id) >= 0) {
+    return { item: item, duplicate: true, dust: EQUIP_DUST_POINTS };
+  }
+  inv.owned.push(id);
+  return { item: item, duplicate: false, dust: 0 };
+}
+
+// 前端视图：当前 Build（技能只列实际生效的；装备原样返回 + 评分/适配度）
+function buildViewOf(st) {
+  var env = envModsOf(currentEnvironment());
+  var k = battleKitOf(st, env, false);
+  var build = buildOf(st);
+  return {
+    skills: k.skills,
+    equipment: build.equipment,
+    strategy_name: build.strategy_name || '',
+    power_score: powerOf(k.combat),
+    fitness: buildFitnessOf(st, currentEnvironment()),
+    slots: skillSlotsOf(st)
+  };
+}
+// 前端视图：装备库存（owned 出完整物品表）。
+// 消耗品不进 owned（用掉即无），有库存的按 charges 单独列出——编辑器靠这个画货架。
+function inventoryView(st) {
+  var inv = inventoryOf(st);
+  var items = [];
+  var seen = {};
+  for (var i = 0; i < inv.owned.length; i++) {
+    var it = EQUIP_ITEMS[inv.owned[i]];
+    if (it) {
+      seen[it.id] = true;
+      items.push({
+        id: it.id, name: it.name, icon: it.icon, type: it.type,
+        effect: it.effect, rarity: it.rarity,
+        charges: it.type === 'consumable' ? (inv.charges[it.id] || 0) : null
+      });
+    }
+  }
+  var ids = Object.keys(CONSUMABLES);
+  for (var j = 0; j < ids.length; j++) {
+    var cid = ids[j];
+    var ch = inv.charges[cid] || 0;
+    if (seen[cid] || ch <= 0) continue;
+    var c2 = CONSUMABLES[cid];
+    items.push({ id: c2.id, name: c2.name, icon: c2.icon, type: c2.type,
+                 effect: c2.effect, rarity: c2.rarity, charges: ch });
+  }
+  return { owned: items };
+}
+// 前端视图：Build 相对裸装的可读增减摘要（编辑器实时预览用）
+function kitEffectsView(st) {
+  var base = combatOf(st);
+  var env = envModsOf(currentEnvironment());
+  var k = battleKitOf(st, env, false);
+  var c = k.combat;
+  function pct(a, b) {
+    if (!b) return null;
+    var d = Math.round((a - b) / b * 100);
+    return d === 0 ? null : (d > 0 ? '+' + d + '%' : d + '%');
+  }
+  return {
+    hp: pct(c.hp, base.hp), atk: pct(c.atk, base.atk),
+    def: pct(c.def, base.def), spd: pct(c.spd, base.spd),
+    crit: (c.crit - base.crit) || null,
+    crit_dmg: c.critMul !== 1 ? '+' + Math.round((c.critMul - 1) * 100) + '%' : null,
+    heal: c.healMul !== 1 ? '+' + Math.round((c.healMul - 1) * 100) + '%' : null,
+    evade: k.kit.evadeAdd ? '+' + Math.round(k.kit.evadeAdd * 100) + '%' : null
+  };
+}
+
+// ==================== 默契指令（v0.25.0）====================
+// 为什么加这个：v0.24 之前，一场战斗在服务端第 0 帧就演完了，前端只是按 340ms
+// 一步把它放出来，玩家唯一能按的键叫「跳过动画」。赢是算出来的，输是注定的——
+// 这不是玩法，是录像。
+//
+// 解法不是把引擎改成实时会话（每回合一个请求、战斗状态入库、断线续战全要重做），
+// 而是吃「引擎是 seed 决定的纯函数」这口红利：
+//   演算 → 播放中插一条指令 → 用**同一个 seed** 重算 → 快进到打断点接着放。
+// 同一场、同一条随机流，只多了一条指令，所以「换一种打法会不会更好」是可比的；
+// 而「什么时候按」是玩家的事，不是 seed 的事。
+//
+// 三条硬约束：
+//   1) 指令**不进 seed**（和战术/技能同理），否则换打法连运气一起换掉；
+//   2) 指令条数由羁绊决定，服务端钳制，客户端报多少都不认；
+//   3) 一个回合只认一条指令；同一回合叠两条直接丢后面的。
+var COMMANDS = {
+  strike: {
+    id: 'strike', name: '全力一击', icon: '💥', word: '豁出去了',
+    desc: '这一击 ×1.8，代价是接下来两回合挨打 ×1.25'
+  },
+  guard: {
+    id: 'guard', name: '护住它', icon: '🛡️', word: '挡在它前面',
+    desc: '这一击只吃 35% 伤害，但自己这一回合的攻击只剩 75%'
+  },
+  charge: {
+    id: 'charge', name: '憋一发', icon: '✨', word: '深吸一口气',
+    desc: '这一回合不出手，下一击 ×1.2 且必定暴击'
+  }
+};
+var COMMAND_IDS = ['strike', 'guard', 'charge'];
+
+// ---- 战斗会话（open / reroll / settle）----
+// 为什么必须延迟结算：玩家要在**播放中**才决定插不插手。如果开战就把药水扣了、
+// 败场记了，而他中途关掉页面，这场就变成「扣了东西没结果」。
+// 反过来「先演算、后结算」让「中途退出 = 这场没打」成为自然语义，一行回滚代码都不用写。
+//
+// 会话存在 st.battle_open 里，30 分钟过期。过期后重开会覆盖；
+// 因为还没扣过任何东西，所以不存在「白扣一个药水」。
+var OPEN_TTL_MS = 30 * 60 * 1000;
+function newFightId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+// 这一场会用掉哪个消耗品（**结算时**才真正扣）。open 与 reroll 必须得到同一个答案，
+// 否则重算一次就多吃一个药水。
+function consumableInPlay(st) {
+  var eq = buildOf(st).equipment || {};
+  var id = eq.consumable;
+  if (!id || !CONSUMABLES[id]) return null;
+  var inv = inventoryOf(st);
+  return (inv.charges[id] || 0) > 0 ? id : null;
+}
+// 结算时扣一个。库存已经在别处被清空（并发/改配置）就静默跳过。
+function spendConsumable(st, id) {
+  if (!id) return;
+  var inv = inventoryOf(st);
+  if ((inv.charges[id] || 0) > 0) inv.charges[id] -= 1;
+}
+
+// ---- 四个战斗入口共用的小工具 ----
+// 每个入口自己拼「最后返回什么」，但「怎么开、怎么接、怎么收」必须是同一套。
+function parseFightMode(req) {
+  var m = String((req.body && req.body.mode) || '');
+  return (m === 'open' || m === 'reroll' || m === 'settle') ? m : 'legacy';
+}
+// 取会话；拿不到就返回 { err }，调用方直接回错误即可（不在这里写响应，免得各入口文案不一）。
+function loadOpen(st, kind, req) {
+  var id = String((req.body && req.body.fightId) || '');
+  var ob = st.battle_open;
+  if (!ob || ob.kind !== kind || !id || ob.id !== id) return { err: 409, ob: null };
+  if (Date.now() - (ob.at || 0) > OPEN_TTL_MS) return { err: 410, ob: null };
+  return { err: 0, ob: ob };
+}
+function saveOpen(st, kind, seed, useCons, cmds, r, ref) {
+  var id = (st.battle_open && st.battle_open.id) || newFightId();
+  st.battle_open = {
+    id: id, kind: kind, at: Date.now(), seed: seed, useCons: useCons,
+    cmds: cmds, ref: ref || null,
+    res: { win: r.win, rounds: r.rounds, hpMe: r.hpMe, hpFoe: r.hpFoe, maxMe: r.maxMe, maxFoe: r.maxFoe }
+  };
+  return id;
+}
+// settle 时不重算：把存下来的结果拼成引擎同样的形状（steps 为空，前端此时已经播完）。
+function settledRes(ob) {
+  return { win: ob.res.win, rounds: ob.res.rounds, hpMe: ob.res.hpMe, hpFoe: ob.res.hpFoe,
+           maxMe: ob.res.maxMe, maxFoe: ob.res.maxFoe, steps: [] };
+}
+// 指令点：羁绊越深，它越信你。2 → 3 的台阶放在「亲密」，和第三个技能槽同档——
+// 两处一起涨，玩家能感觉到「关系变好 = 打法变宽」，而不是两个各自为政的进度条。
+function cmdSlotsOf(st) {
+  return tierOf((st && st.bond) || 0) >= 2 ? 3 : 2;
+}
+// 清洗客户端上报的指令：只留合法回合、合法类型、不重复、不超上限。
+// ⚠️ 每种指令**每场只能用一次**：三张牌是三选一的口味，不是三份同款弹药。
+// 不加这条时实测「三回合全猛攻」把 rival 胜率从 61% 推到 98%，
+// 玩家也永远不会去碰另外两张牌——同一种牌能重复，另外两张就永远是摆设。
+function sanitizeCmds(raw, max, maxRound) {
+  if (Object.prototype.toString.call(raw) !== '[object Array]') return [];
+  var out = [];
+  var seenR = {};
+  var seenK = {};
+  var limit = max > 0 ? max : 0;
+  for (var i = 0; i < raw.length && out.length < limit; i++) {
+    var c = raw[i] || {};
+    var r = parseInt(c.r, 10);
+    var k = String(c.kind || '');
+    if (!(r >= 1 && r <= (maxRound || BATTLE_MAX_ROUNDS))) continue;
+    if (COMMAND_IDS.indexOf(k) < 0) continue;
+    if (seenR[r] || seenK[k]) continue;
+    seenR[r] = 1; seenK[k] = 1;
+    out.push({ r: r, kind: k });
+  }
+  out.sort(function(x, y) { return x.r - y.r; });
+  return out;
+}
+
 // 回合制结算：速度高者先手；同速由 seed 决定先后（固定玩家先手对低速度宠物不公平）
 //
 // 技能全部在这里生效。⚠️ 技能**不进 seed**（和战术同理）：
@@ -1900,7 +2850,16 @@ function rngFrom(seed) {
 //   1) 吸血按「实际造成的伤害」算，不是按攻击力——否则打高防对手时吸血会虚高
 //   2) 护盾是「一次性的」，触发后永久失效（一场只保一条命），且必须在血量归零前判定
 //   3) 破甲改的是防御系数（0.6 → 0.6*(1-0.5)），不是直接减防御
-function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
+//
+// v2.0 起支持（第 8 参 extra = { env, myKit, foeKit }）：
+//   主动技能（爆发冲击/重锤砸击/紧急治疗）、增益（狂怒/壁垒）、反击/闪避/活力/光环、
+//   武器与消耗品的动态效果、环境（火伤/灼烧/闪避/冷却）。
+// ⚠️ 随机流守恒：所有新增 rnd() 消耗都以「对应技能/装备/环境存在」为前提——
+//    基线 build（⊆5 技能、无装备、无环境）的随机流与 v0.7 逐位一致，
+//    _pet-build-selftest.mjs 用同 seed 断言新旧引擎 steps 完全相等。
+function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, extra) {
+  extra = extra || {};
+  var env = extra.env || null;
   var rnd = rngFrom(seed);
   var ms = skillSet(mySkills);
   var fs = skillSet(foeSkills);
@@ -1912,14 +2871,76 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
   // foeBuff：对手的伤害乘区（试炼塔专用）。1 = 无加成。
   // 之所以要这个参数：塔的难度必须是连续值，而属性只能取整（见 towerBuffFor 的注释）。
   var fBuff = typeof foeBuff === 'number' && foeBuff > 0 ? foeBuff : 1;
-  var a = { hp: mine.hp, max: mine.hp, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, sk: ms, shield: ms.shield };
-  var b = { hp: foe.hp, max: foe.hp, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, sk: fs, shield: fs.shield };
+  // 默契指令：{r, kind} 的数组，只作用于我方（who === 0）。
+  var cmdBy = {};
+  var cmds = (extra.cmds && Object.prototype.toString.call(extra.cmds) === '[object Array]') ? extra.cmds : [];
+  for (var ci = 0; ci < cmds.length; ci++) {
+    var cc = cmds[ci] || {};
+    if (cc.r >= 1 && COMMAND_IDS.indexOf(cc.kind) >= 0) cmdBy[cc.r] = cc.kind;
+  }
+
+  function mkSide(c, sk, kit) {
+    return {
+      hp: c.hp, max: c.hp, atk: c.atk, def: c.def, spd: c.spd, crit: c.crit,
+      critMul: c.critMul || 1, healMul: c.healMul || 1,
+      sk: sk, shield: sk.shield, kit: kit || {},
+      buffAtk: 1, buffDef: 1, buffTurns: 0,   // 狂怒/壁垒的乘区（回合数每轮结束递减）
+      cd: {},                                  // 主动技能冷却
+      skipNext: false,                         // 爆发冲击的后摇
+      auraDone: false,                         // 斗志光环：本场第一击生效
+      evadeStreak: 0,                          // 连续闪避计数（第二次起 +10 个点）
+      stunNext: false,                         // 被电矛麻痹：下回合 50% 无法行动
+      flameUsed: false,                        // 火焰药水首击一次性
+      // ---- 默契指令的回合状态（每回合开始重置）----
+      cmd: null,                               // 本回合挂着的指令
+      striking: false,                         // 全力一击：本击 ×1.8
+      guarding: false,                         // 护住它：本回合受伤 ×0.3
+      charging: false,                         // 憋一发：本回合不出手
+      charged: false,                          // 憋完了，下一击 ×2.2 必暴
+      vulnTurns: 0                             // 全力一击的破防：受到伤害 ×1.25
+    };
+  }
+  var a = mkSide(mine, ms, extra.myKit);
+  var b = mkSide(foe, fs, extra.foeKit);
   var first = a.spd === b.spd ? (rnd() < 0.5 ? 0 : 1) : (a.spd > b.spd ? 0 : 1);
   var steps = [];
   var round = 0;
 
-  function strike(atkSide, defSide, who, r) {
-    // 破甲：无视对手一部分防御。
+  function pushStep(r, who, obj) {
+    obj.r = r; obj.by = who; obj.hpMe = a.hp; obj.hpFoe = b.hp;
+    steps.push(obj);
+  }
+  // 所有回复统一走这里：受治疗加成（生命宝珠/月光祭坛）影响，不能溢出上限
+  function healBy(S, who, amount, tag, r) {
+    var heal = Math.max(1, Math.round(amount * S.healMul));
+    var before = S.hp;
+    S.hp = Math.min(S.max, S.hp + heal);
+    if (S.hp > before) pushStep(r, who, { heal: S.hp - before, tags: [tag] });
+  }
+  // 主动技能冷却：岩浆洞窟的「冷却减半」实现为冷却 -1（doc 原文「1.8 倍」与
+  // 「冷却减半」自相矛盾，两个都做但倍率收敛到 1.5，见 docs 差异说明）
+  function cdOf(id) {
+    var base = (ACTIVE_SKILLS[id] && ACTIVE_SKILLS[id].cooldown) || 1;
+    return Math.max(1, base - (env && env.cdBonus ? env.cdBonus : 0));
+  }
+
+  function strike(atkSide, defSide, who, r, opts) {
+    opts = opts || {};
+
+    // 闪避（只判主击；连打的半次、反击不再触发）
+    var dodge = (defSide.sk.evade || 0) + (defSide.kit.evadeAdd || 0);
+    if (dodge > 0) {
+      dodge = dodge * (env && env.evadeMul ? env.evadeMul : 1);
+      if (defSide.evadeStreak > 0) dodge = Math.min(0.5, dodge + 0.10);
+      if (rnd() < dodge) {
+        defSide.evadeStreak++;
+        pushStep(r, who, { dmg: 0, crit: false, tags: ['evade'] });
+        return;
+      }
+      defSide.evadeStreak = 0;
+    }
+
+    // 破甲：无视对手一部分防御（虚空之刃与之叠加，封顶 60%）。
     // ⚠️ 只做百分比在低防御时会退化成 0（def=3 时 floor(1.8)=floor(1.08)=1），
     //    所以补一个保底增伤；但它是**无条件**生效的，比千钧/连打（有概率和回合限制）
     //    更容易赢，实测在 bond 50 档把 boss 推到 88%。
@@ -1927,13 +2948,26 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
     //    而不是「对所有对手都稳赚」。
     var defCoef = 0.6;
     var pierceBonus = 0;
-    if (atkSide.sk.pierce) {
-      defCoef = 0.6 * (1 - atkSide.sk.pierce);
+    var ignore = (atkSide.sk.pierce || 0) + (atkSide.kit.weapon === 'void_blade' ? 0.2 : 0);
+    if (ignore > 0) {
+      ignore = Math.min(0.6, ignore);
+      defCoef = 0.6 * (1 - ignore);
       pierceBonus = Math.max(1, Math.round(atkSide.atk * 0.06));
     }
-    var dmg = Math.max(2, atkSide.atk - Math.floor(defSide.def * defCoef) + Math.floor(rnd() * 4));
+    // 攻防有效值：狂怒/壁垒的乘区在这里生效；斗志光环只加成本场第一击
+    var auraMul = 1;
+    if (atkSide.sk.aura > 0 && !atkSide.auraDone) {
+      auraMul = atkSide.sk.aura;
+      atkSide.auraDone = true;
+    }
+    var atkEff = Math.round(atkSide.atk * atkSide.buffAtk * auraMul);
+    var defEff = Math.floor(defSide.def * defSide.buffDef * defCoef);
+    var dmg = Math.max(2, atkEff - defEff + Math.floor(rnd() * 4));
     var crit = rnd() * 100 < atkSide.crit;
-    if (crit) dmg = Math.round(dmg * 1.8);
+    // 蓄力的「必定暴击」只是把结果改成 true，rnd() 照常消耗——
+    // 否则带指令的战斗会整体错开随机流，和基线对不上（自测 [11] 会红）。
+    if (atkSide.charged) crit = true;
+    if (crit) dmg = Math.round(dmg * 1.8 * atkSide.critMul);
     // 破甲的保底增伤放在暴击之后加：放在前面会被 1.8 倍放大，
     // 实测 bond 50 时把 boss 胜率从 79% 推到 89%。
     dmg += pierceBonus;
@@ -1949,14 +2983,71 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
       if (em > 1) tags.push('weak'); else tags.push('resist');
     }
 
+    // 岩浆洞窟：火属性伤害 ×1.5（双方同规则——带火本命上场才有意义）
+    if (env && env.fireMul && env.fireMul !== 1 &&
+        ((who === 0 && myType === 'fire') || (who === 1 && foeType === 'fire'))) {
+      dmg = Math.max(1, Math.round(dmg * env.fireMul));
+      tags.push('fireup');
+    }
+
     // 塔的伤害乘区：只对手对手（who===1）生效。
     // 这是塔唯一的连续难度旋钮——属性只能取整，取整会把难度压成台阶。
     if (who === 1 && fBuff !== 1) dmg = Math.max(1, Math.round(dmg * fBuff));
+
+    // 主动技能倍率（爆发冲击/重锤砸击）
+    if (opts.mult && opts.mult !== 1) {
+      dmg = Math.round(dmg * opts.mult);
+      tags.push(opts.tag || 'active');
+    }
+
+    // 护住它的代价：防守的那一回合，自己打出去只剩 60%。
+    // ⚠️ 这条不能省——省掉之后「三回合全格挡」实测把练习赛推到 99%、boss 推到 39%，
+    //    因为玩家只吃减伤、不吃任何代价，格挡就变成了纯粹的数值膨胀。
+    if (atkSide.guarding) {
+      dmg = Math.max(1, Math.round(dmg * 0.75));
+      tags.push('cmd-guard-atk');
+    }
+
+    // 全力一击：这一击 ×1.8。放在主动技能之后乘——两个都吃会让「爆发冲击 + 全力一击」
+    // 变成 3.6 倍一发秒杀，boss 胜率直接翻倍。
+    // ⚠️ vulnTurns 设 3 而不是 2：它在**回合结束**递减，设 2 只能盖住 1 个回合。
+    if (atkSide.striking) {
+      dmg = Math.round(dmg * 1.8);
+      atkSide.vulnTurns = 3;
+      tags.push('cmd-strike');
+    }
+    // 蓄力释放：×1.5。暴击已经在上面的判定里被强制为真，所以实际是 1.5×1.8≈2.7 倍——
+    // 原来写 2.2 时实测 2.2×1.8≈4 倍，配合「跳过一回合」的代价仍然把 boss 胜率推到 95%。
+    if (atkSide.charged) {
+      dmg = Math.round(dmg * 1.2);
+      atkSide.charged = false;
+      tags.push('cmd-charge');
+    }
+
+    // ---- 承受方的默契指令：护住它 / 破防 ----
+    // 格挡只挡主击，不挡连打与反击：一次「挡在它前面」是挡一下，不是开无敌，
+    // 而且连打/反击各走各的分支，硬塞进去会把伤害公式变成一团没法解释的乘区。
+    if (defSide.guarding) {
+      dmg = Math.max(1, Math.round(dmg * 0.35));
+      tags.push('cmd-guard');
+    }
+    // 全力一击的代价：接下来两回合挨打 ×1.25（和格挡可以叠加 → 0.375 倍）
+    if (defSide.vulnTurns > 0) {
+      dmg = Math.max(1, Math.round(dmg * 1.25));
+      tags.push('cmd-vuln');
+    }
 
     // 千钧一击：每 3 回合一次重击
     if (atkSide.sk.heavy && r % 3 === 0) {
       dmg = Math.round(dmg * 1.6);
       tags.push('heavy');
+    }
+
+    // 火焰药水：首回合伤害 ×2（一次性）
+    if (atkSide.kit.flame && !atkSide.flameUsed) {
+      atkSide.flameUsed = true;
+      dmg = Math.round(dmg * 2);
+      tags.push('flame');
     }
 
     // 泡泡护盾：血量会归零时挡下一半（一次性）
@@ -1967,28 +3058,44 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
     }
 
     defSide.hp = Math.max(0, defSide.hp - dmg);
-    steps.push({
-      r: r, by: who, dmg: dmg, crit: crit,
-      tags: tags, hpMe: a.hp, hpFoe: b.hp
-    });
+    pushStep(r, who, { dmg: dmg, crit: crit, tags: tags });
+
+    // 重锤砸击的代价：自身掉 15% 最大血（保底 1，不能把自己砸死）
+    if (opts.selfPct) {
+      var selfDmg = Math.max(1, Math.round(atkSide.max * opts.selfPct));
+      atkSide.hp = Math.max(1, atkSide.hp - selfDmg);
+      pushStep(r, who, { dmg: selfDmg, self: true, crit: false, tags: ['smashcost'] });
+    }
 
     // 鲸吞：按实际伤害回血，且不能溢出上限。
     // ⚠️ 单纯按伤害百分比会奖励低血量宠物（同样伤害占血量比例更高），
     //    实测 bond 20 时把 boss 胜率推到 90%。加一条「单次回血不超过最大血量 8%」
     //    的上限，让它在高血量时也有意义，低血量时不至于变成无限续航。
     if (atkSide.sk.lifesteal > 0 && dmg > 0 && atkSide.hp > 0) {
-      var heal = Math.min(
+      var lsHeal = Math.min(
         Math.round(dmg * atkSide.sk.lifesteal),
         Math.max(1, Math.round(atkSide.max * 0.08))
       );
-      var before = atkSide.hp;
-      atkSide.hp = Math.min(atkSide.max, atkSide.hp + heal);
-      if (atkSide.hp > before) {
-        steps.push({
-          r: r, by: who, heal: atkSide.hp - before, tags: ['lifesteal'],
-          hpMe: a.hp, hpFoe: b.hp
-        });
-      }
+      healBy(atkSide, who, lsHeal, 'lifesteal', r);
+    }
+
+    // 钝剑：攻击后回复 5% 最大 HP（受治疗加成影响）
+    if (atkSide.kit.weapon === 'blunt_sword' && dmg > 0) {
+      healBy(atkSide, who, Math.round(atkSide.max * 0.05), 'bluntheal', r);
+    }
+
+    // 电矛：30% 概率麻痹。doc 字面是「下回合速度 -50%」，但先手序固定是
+    // 可复现性的底线，中途改速度在固定序引擎里没有意义——实现为
+    // 「下回合 50% 概率无法行动」，同样是白拿一个回合的差距。
+    if (atkSide.kit.weapon === 'electric_lance' && dmg > 0 && defSide.hp > 0) {
+      if (rnd() < 0.3) defSide.stunNext = true;
+    }
+
+    // 反击领域：受击后 40% 反击（半伤、不暴击、不触发护盾/吸血/反击链）
+    if (defSide.sk.counter > 0 && defSide.hp > 0 && dmg > 0 && rnd() < defSide.sk.counter) {
+      var cdmg = Math.max(1, Math.round(defSide.atk * 0.5 * defSide.buffAtk));
+      atkSide.hp = Math.max(0, atkSide.hp - cdmg);
+      pushStep(r, who === 0 ? 1 : 0, { dmg: cdmg, crit: false, tags: ['counter'] });
     }
 
     // 连打：追加半次攻击（不再触发连打，避免无限链）
@@ -1996,23 +3103,104 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types) {
       var dmg2 = Math.max(1, Math.round(atkSide.atk * 0.5 - defSide.def * defCoef * 0.5));
       if (em !== 1) dmg2 = Math.max(1, Math.round(dmg2 * em));
       defSide.hp = Math.max(0, defSide.hp - dmg2);
-      steps.push({
-        r: r, by: who, dmg: dmg2, crit: false, tags: ['combo'],
-        hpMe: a.hp, hpFoe: b.hp
-      });
+      pushStep(r, who, { dmg: dmg2, crit: false, tags: ['combo'] });
+    }
+  }
+
+  // 一方的整回合行动：麻痹/后摇 → 增益 → 治疗 → 爆发 → 普攻。
+  // 主动技能的使用是确定性策略（不掷随机数），否则「AI 会不会放大招」本身变成运气。
+  function act(S, D, who, r) {
+    if (S.stunNext) {
+      S.stunNext = false;
+      if (rnd() < 0.5) {
+        pushStep(r, who, { skip: true, tags: ['paralyze'] });
+        return;
+      }
+    }
+    if (S.skipNext) {
+      S.skipNext = false;
+      pushStep(r, who, { skip: true, tags: ['skip'] });
+      return;
+    }
+    // 憋一发：这回合不出手，把力气存到下一击。
+    // 放在麻痹/后摇之后：动不了的人没资格蓄力（否则「被麻痹反而攒出大招」很荒谬）。
+    if (S.charging) {
+      S.charging = false;
+      S.charged = true;
+      pushStep(r, who, { cmd: 'charge', skip: true, tags: ['cmd-charge'] });
+      return;
+    }
+    if (r === 1 && S.sk.berserk) {
+      S.buffAtk = 1.5; S.buffDef = 0.7; S.buffTurns = 3;
+      pushStep(r, who, { buff: 'berserk', tags: ['berserk'] });
+    } else if (r === 1 && S.sk.guard_stance) {
+      S.buffDef = 1.4; S.buffTurns = 3;
+      pushStep(r, who, { buff: 'guard_stance', tags: ['guard'] });
+    }
+    if (S.sk.heal > 0 && (S.cd.heal || 0) <= 0 && S.hp < S.max * 0.5) {
+      S.cd.heal = cdOf('heal');
+      healBy(S, who, Math.round(S.max * S.sk.heal), 'healskill', r);
+      return;
+    }
+    if (S.sk.blast > 0 && (S.cd.blast || 0) <= 0) {
+      S.cd.blast = cdOf('blast');
+      S.skipNext = true;
+      strike(S, D, who, r, { mult: S.sk.blast, tag: 'blast' });
+      return;
+    }
+    if (S.sk.smash > 0 && (S.cd.smash || 0) <= 0) {
+      S.cd.smash = cdOf('smash');
+      strike(S, D, who, r, { mult: S.sk.smash, tag: 'smash', selfPct: 0.15 });
+      return;
+    }
+    strike(S, D, who, r, {});
+  }
+
+  // 回合结束：冷却/增益递减、活力与治愈草回复、恢复药剂（第 1 回合末）、环境灼烧
+  function roundEnd(S, who, r) {
+    for (var k in S.cd) {
+      if (Object.prototype.hasOwnProperty.call(S.cd, k) && S.cd[k] > 0) S.cd[k]--;
+    }
+    if (S.buffTurns > 0) {
+      S.buffTurns--;
+      if (S.buffTurns === 0) { S.buffAtk = 1; S.buffDef = 1; }
+    }
+    // 破防计时（全力一击的代价）。见 strike 里为什么初值是 3。
+    if (S.vulnTurns > 0) S.vulnTurns--;
+    if (S.hp > 0) {
+      var regenPct = (S.sk.regen || 0) + (S.kit.herb ? 0.03 : 0);
+      if (regenPct > 0) healBy(S, who, Math.round(S.max * regenPct), 'regen', r);
+      if (S.kit.vial && r === 1) healBy(S, who, Math.round(S.max * 0.4), 'vial', r);
+    }
+    if (env && env.dotPercent > 0 && S.hp > 0) {
+      var dot = Math.max(1, Math.round(S.max * env.dotPercent));
+      S.hp = Math.max(0, S.hp - dot);
+      pushStep(r, who, { dmg: dot, crit: false, tags: ['dot'] });
     }
   }
 
   while (a.hp > 0 && b.hp > 0 && round < BATTLE_MAX_ROUNDS) {
     round++;
+    // 回合开始先把这一轮的默契指令预置到双方身上，再依次行动。
+    // ⚠️ 必须在双方行动**之前**置位：后手方挨打时也要能吃到「护住它」，
+    //    否则「对手先手」这一半的情况里格挡完全失效（而且不会报错，只是悄悄没用）。
+    var myCmd = cmdBy[round] || null;
+    a.cmd = myCmd;
+    a.striking = !!(myCmd && myCmd === 'strike');
+    a.guarding = !!(myCmd && myCmd === 'guard');
+    a.charging = !!(myCmd && myCmd === 'charge');
+    b.cmd = null; b.striking = false; b.guarding = false; b.charging = false;
     for (var k = 0; k < 2; k++) {
       var who = (first + k) % 2;               // 0 = 我方，1 = 对手
       var atkSide = who === 0 ? a : b;
       var defSide = who === 0 ? b : a;
       if (atkSide.hp <= 0 || defSide.hp <= 0) continue;
-      strike(atkSide, defSide, who, round);
+      act(atkSide, defSide, who, round);
       if (defSide.hp <= 0) break;
     }
+    // 回合结束效果（灼烧可能致死，交给上面的 while 条件收尾）
+    roundEnd(a, 0, round);
+    roundEnd(b, 1, round);
   }
   var win;
   if (b.hp <= 0 && a.hp > 0) win = true;
@@ -2060,7 +3248,8 @@ function applyWeather(c, type, w) {
   return {
     bond: c.bond, tier: c.tier, tierName: c.tierName,
     hp: c.hp, atk: c.atk + WEATHER_ATK, def: c.def,
-    spd: c.spd + WEATHER_SPD, crit: c.crit
+    spd: c.spd + WEATHER_SPD, crit: c.crit,
+    critMul: c.critMul || 1, healMul: c.healMul || 1
   };
 }
 
@@ -2188,6 +3377,11 @@ router.get('/battle/profile', requireAuth, function(req, res) {
     skills: skillsOf(st),
     equipped: equippedSkills(st),
     skillSlots: skillSlotsOf(st),
+    skillCatalog: skillCatalogOf(st),
+    build: buildViewOf(st),
+    inventory: inventoryView(st),
+    equippedEffects: kitEffectsView(st),
+    environment: envView(uid, st),
     evolution: evo,
     elements: elementList(),
     battleType: myType,
@@ -2334,9 +3528,31 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     return res.status(429).json({ code: 429, message: '今天打满 ' + BATTLE_DAILY_CAP + ' 场啦，明天再来' });
   }
 
-  var opp = resolveOpponent(st, uid, (req.body && req.body.oppId) || '');
+  // ---- 战斗会话（v0.25.0）：open / reroll / settle ----
+  // mode 缺省 = 老路径（一次算完 + 立即结算）。老客户端不会因为这次改动卡住。
+  var mode = String((req.body && req.body.mode) || '');
+  var openId = String((req.body && req.body.fightId) || '');
+  var ob = null;
+  if (mode === 'reroll' || mode === 'settle') {
+    ob = st.battle_open;
+    if (!ob || ob.kind !== 'fight' || !openId || ob.id !== openId) {
+      return res.status(409).json({ code: 409, message: '这场战斗已经结束了，重新打一场吧' });
+    }
+    if (Date.now() - (ob.at || 0) > OPEN_TTL_MS) {
+      delete st.battle_open;
+      writePet(uid, st);
+      return res.status(409).json({ code: 409, message: '这一场放太久了，重新打一场吧' });
+    }
+  }
+  // settle 用「会话里记着的那一套指令」，不信客户端这一刻再报一遍——
+  // 否则前端漏传一次 cmds，结算出来的就是另一场（而且玩家会看到「赢了却算输」）。
+  var cmds = (mode === 'settle' && ob)
+    ? (ob.cmds || [])
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+
+  var opp = ob ? ob.opp : resolveOpponent(st, uid, (req.body && req.body.oppId) || '');
   if (!opp) return res.status(400).json({ code: 400, message: '未知对手' });
-  if (opp.kind === 'shadow' && opp.realId === String(uid)) {
+  if (!ob && opp.kind === 'shadow' && opp.realId === String(uid)) {
     return res.status(400).json({ code: 400, message: '不能挑战自己的影子' });
   }
 
@@ -2353,15 +3569,30 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   st.battle_skills = mySkillIds;
 
   var weather = weatherOf(today);
+  var env = envModsOf(currentEnvironment());
   var baseMine = combatOf(st);
   var myType = normType(st.battle_type);
-  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
+  // 我的 Build：技能 + 装备全部生效；消耗品每场扣 1 个（只有真人上场才扣）。
+  // ⚠️ v0.25 起这里**不扣**（consume=false）：扣费挪到 settle。battleKitOf 在
+  //    consume=false 时依然让消耗品生效（只看库存 > 0），所以战斗强度一点没变。
+  var myKit = battleKitOf(st, env, false);
+  var useCons = consumableInPlay(st);
+  st.battle_skills = myKit.skills;
+  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
   mine.power = powerOf(mine);
   var foeType = normType(opp.type);
   var foe = applyWeather(combatOf({ bond: opp.bond }), foeType, weather);
   foe.power = powerOf(foe);
-  // 对手带的技能：影子会带上他自己的（真实感），NPC 练习赛不带
-  var foeSkillIds = (opp.kind === 'shadow') ? equippedSkills(readPet(opp.realId) || {}) : [];
+  // 对手带的技能：影子会带上他自己的（真实感），NPC 练习赛不带。
+  // 影子的装备同样生效（那就是他「长这样」），但消耗品不扣库存——
+  // 快照语义：不能替对方做「用掉一个药水」的决定。
+  var foeSkillIds = [];
+  var foeKit = null;
+  if (opp.kind === 'shadow') {
+    var dKit = battleKitOf(readPet(opp.realId) || {}, env, false);
+    foeSkillIds = dKit.skills;
+    foeKit = dKit.kit;
+  }
 
   var rec = st.battles || { total: 0, win: 0, lose: 0, points: 0 };
   rec.total = rec.total || 0;
@@ -2373,10 +3604,53 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   rec.streak = rec.streak || 0;
   rec.best = rec.best || 0;
 
-  // ⚠️ seed 里不带战术：同一对手、同一天、同一场次，换战术要能对比出「是不是这一招更好」。
-  // 如果战术进了 seed，每次换战术连运气都换了，玩家永远学不到东西。
-  var seed = fnv1a([uid, opp.id, String(rec.total + 1), today].join('|'));
-  var r = simulateBattle(mine, foe, seed, mySkillIds, foeSkillIds, 1, { me: myType, foe: foeType });
+  // ⚠️ seed 里不带战术、也不带默契指令：同一对手、同一天、同一场次，换打法要能对比出
+  // 「是不是这一招更好」。如果战术/指令进了 seed，每次换打法连运气都换了，玩家永远学不到东西。
+  var seed = ob ? ob.seed : fnv1a([uid, opp.id, String(rec.total + 1), today].join('|'));
+  // 演算视图：open / reroll 两次返回的形状必须一模一样，否则前端「快进到打断点」
+  // 会因为少一个字段而画出另一个舞台。
+  function previewData() {
+    return {
+      win: r.win, rounds: r.rounds, steps: r.steps, seed: seed,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      foe: { name: opp.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: foeType, typeName: ELEMENTS[foeType].name, typeIcon: ELEMENTS[foeType].icon },
+      opp: opp,
+      types: { me: myType, foe: foeType, mulMe: typeMul(myType, foeType), mulFoe: typeMul(foeType, myType) },
+      weather: weather,
+      tactic: tacticId,
+      skills: mySkillIds,
+      foeSkills: foeSkillIds,
+      cmdSlots: cmdSlotsOf(st),
+      commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+      cmds: cmds
+    };
+  }
+  // settle 直接用会话里存下的结果，**不再重算**：从 reroll 到 settle 之间万一
+  // 羁绊/装备有变动（另一个标签页在喂食），重算会得出另一场，玩家会看到「赢了算输」。
+  var r;
+  if (mode === 'settle') {
+    r = { win: ob.res.win, rounds: ob.res.rounds, hpMe: ob.res.hpMe, hpFoe: ob.res.hpFoe,
+          maxMe: ob.res.maxMe, maxFoe: ob.res.maxFoe, steps: [] };
+  } else {
+    r = simulateBattle(mine, foe, seed, myKit.skills, foeSkillIds, 1, { me: myType, foe: foeType },
+      { env: env, myKit: myKit.kit, foeKit: foeKit, cmds: cmds });
+  }
+
+  // 只演算、不落任何副作用：不扣药水、不记战绩、不涨次数、不发成就。
+  if (mode === 'open' || mode === 'reroll') {
+    var sid = (ob && ob.id) || newFightId();
+    st.battle_open = {
+      id: sid, kind: 'fight', at: Date.now(), seed: seed,
+      useCons: useCons, cmds: cmds, opp: opp,
+      res: { win: r.win, rounds: r.rounds, hpMe: r.hpMe, hpFoe: r.hpFoe, maxMe: r.maxMe, maxFoe: r.maxFoe }
+    };
+    writePet(uid, st);
+    var pd = previewData();
+    pd.fightId = sid;
+    return res.json({ code: 200, data: pd });
+  }
+  // settle 时才真正扣掉这一场用过的消耗品
+  spendConsumable(st, useCons);
 
   var gamesToday = st.battle_today || 0;
   var baseGain = r.win ? 10 : 3;   // 输了也给保底分，别让玩家觉得白打
@@ -2422,12 +3696,16 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   if (rec.streak >= 3) wanted.push('streak_3');
   if (rec.streak >= 5) wanted.push('streak_5');
   if (r.win && opp.id === 'boss') wanted.push('beat_boss');
-  if (r.win && baseMine.power < foe.power) wanted.push('underdog');   // 用原始战力比，不算战术加成
+  // 用原始战力比（不算战术/装备加成）。⚠️ 之前写成 baseMine.power——combatOf 不带 power
+  // 字段，这个成就从来没触发过；这里改成现算。
+  if (r.win && powerOf(baseMine) < foe.power) wanted.push('underdog');
   if ((st.shadow_fought || 0) >= 10) wanted.push('shadow_10');
   if (rec.points >= 100) wanted.push('points_100');
   if (rec.total >= 30) wanted.push('veteran_30');
   var fresh = unlock(st, wanted);
 
+  // 结算完成，会话作废。留着会让下一场「重算」打到一场已经记过账的战斗上。
+  delete st.battle_open;
   writePet(uid, st);
 
   // ---- 影子专属：给对方留一条留言，顺便记他自己的「守擂」战绩 ----
@@ -2464,6 +3742,9 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     titles: titlesOf(st),
     defended: defended,
     weather: weather,
+    cmdSlots: cmdSlotsOf(st),
+    commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+    cmds: cmds,
     quests: questsView(uid, st)
   }});
 });
@@ -2484,19 +3765,37 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   }
 
   var cleared = st.tower_floor || 0;
-  var floorDef = towerFloorOf(cleared + 1);
+  // v0.25：reroll/settle 用会话里记住的层，不信"此刻的下一层"——
+  // 中途在另一个标签页通了关，这里会变成另一层，结算出来的就是别人的战报。
+  var mode = parseFightMode(req);
+  var ob = null;
+  if (mode === 'reroll' || mode === 'settle') {
+    var lo = loadOpen(st, 'tower', req);
+    if (lo.err) {
+      delete st.battle_open;
+      writePet(uid, st);
+      return res.status(lo.err).json({ code: lo.err, message: '这一层已经打完了，重新挑战吧' });
+    }
+    ob = lo.ob;
+  }
+  var floorDef = ob ? towerFloorOf(ob.ref.f) : towerFloorOf(cleared + 1);
   if (!floorDef) return res.status(400).json({ code: 400, message: '塔已经爬完了，你是塔顶传说' });
+  var cmds = (mode === 'settle' && ob)
+    ? (ob.cmds || [])
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
 
   var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
   if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
   st.battle_tactic = tacticId;
-  var mySkillIds = equippedSkills(st);
-  st.battle_skills = mySkillIds;
 
   var weather = weatherOf(today);
-  var baseMine = combatOf(st);
+  var env = envModsOf(currentEnvironment());
+  // consume=false：扣费挪到 settle，见 /battle/fight 的同名注释
+  var myKit = battleKitOf(st, env, false);
+  var useCons = consumableInPlay(st);
+  st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
-  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
+  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
   mine.power = powerOf(mine);
   var foeBond = towerFoeBond(st, floorDef);
   var foe = applyWeather(combatOf({ bond: foeBond }), TOWER_TYPE, weather);
@@ -2506,13 +3805,40 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   // seed 带上「这一层已经试了多少次」：同一层反复挑战会拿到不同的随机流，
   // 否则「打不过就是永远打不过」，反复尝试没有任何意义。
   // 但同一次的结果依然可复现（相同 uid + 层 + 次数 + 日期 → 相同战报）。
+  // ⚠️ 递增挪到 settle：reroll 一次就多算一次「试过」，同一次战斗会被洗成另一场。
   var tries = (st.tower_tries && st.tower_tries[String(floorDef.f)]) || 0;
+
+  var seed = ob ? ob.seed : fnv1a([uid, 'tower', String(floorDef.f), String(tries), today].join('|'));
+  var r;
+  if (mode === 'settle') {
+    r = settledRes(ob);
+  } else {
+    r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills || [], foeBuff, { me: myType, foe: TOWER_TYPE },
+      { env: env, myKit: myKit.kit, cmds: cmds });
+  }
+
+  // 只演算：不涨次数、不推进层数、不发成就
+  if (mode === 'open' || mode === 'reroll') {
+    var sid = saveOpen(st, 'tower', seed, useCons, cmds, r, { f: floorDef.f });
+    writePet(uid, st);
+    return res.json({ code: 200, data: {
+      win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
+      floor: floorDef.f, cleared: false,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: TOWER_TYPE, typeName: ELEMENTS[TOWER_TYPE].name, typeIcon: ELEMENTS[TOWER_TYPE].icon },
+      types: { me: myType, foe: TOWER_TYPE, mulMe: typeMul(myType, TOWER_TYPE), mulFoe: typeMul(TOWER_TYPE, myType) },
+      skills: myKit.skills, foeSkills: floorDef.skills || [],
+      towerFloor: st.tower_floor || 0, towerTotal: TOWER_FLOORS.length, towerPoints: st.tower_points || 0,
+      today: st.tower_today || 0, cap: TOWER_DAILY_CAP,
+      cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
+      weather: weather
+    }});
+  }
+
+  // ---- settle：到这里才动存档 ----
+  spendConsumable(st, useCons);
   st.tower_tries = st.tower_tries || {};
   st.tower_tries[String(floorDef.f)] = tries + 1;
-
-  var seed = fnv1a([uid, 'tower', String(floorDef.f), String(tries), today].join('|'));
-  var r = simulateBattle(mine, foe, seed, mySkillIds, floorDef.skills || [], foeBuff, { me: myType, foe: TOWER_TYPE });
-
   st.tower_today = (st.tower_today || 0) + 1;
 
   var clearedNow = false;
@@ -2543,6 +3869,8 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     gain: gain,
     points: st.tower_points || 0
   });
+  // 结算完成，会话作废
+  delete st.battle_open;
   writePet(uid, st);
   // 塔积分也会进榜，所以同样要失效缓存
   shadowCache.at = 0;
@@ -2563,11 +3891,14 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     towerFloor: st.tower_floor || 0,
     towerTotal: TOWER_FLOORS.length,
     towerPoints: st.tower_points || 0,
-    skills: mySkillIds,
+    skills: myKit.skills,
     foeSkills: floorDef.skills || [],
     unlocked: fresh,
     titles: titlesOf(st),
     weather: weather,
+    cmdSlots: cmdSlotsOf(st),
+    commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+    cmds: cmds,
     quests: questsView(uid, st)
   }});
 });
@@ -2618,8 +3949,9 @@ router.post('/battle/skills', requireAuth, function(req, res) {
   st.battle_skills = want.slice(0, skillSlotsOf(st));
   var finalIds = equippedSkills(st);   // equippedSkills 会剔掉未解锁的、并自动补齐
   st.battle_skills = finalIds;
+  buildOf(st).skills = finalIds;       // 同步 battle_build.skills 镜像（分享码编码用）
   writePet(uid, st);
-  res.json({ code: 200, data: { equipped: finalIds, skills: skillsOf(st) } });
+  res.json({ code: 200, data: { equipped: finalIds, skills: skillsOf(st), build: buildViewOf(st) } });
 });
 
 // ==================== 野生精灵（v0.8.0）====================
@@ -2630,9 +3962,26 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   var st = readPet(uid);
   if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
 
-  var w = wildById(req.body && req.body.id);
+  var mode = parseFightMode(req);
+  var ob = null;
+  if (mode === 'reroll' || mode === 'settle') {
+    var lo = loadOpen(st, 'wild', req);
+    if (lo.err) {
+      delete st.battle_open;
+      writePet(uid, st);
+      return res.status(lo.err).json({ code: lo.err, message: '这一场已经结束了，重新找它吧' });
+    }
+    ob = lo.ob;
+  }
+  var cmds = (mode === 'settle' && ob)
+    ? (ob.cmds || [])
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+
+  var w = ob ? wildById(ob.ref.w) : wildById(req.body && req.body.id);
   if (!w) return res.status(400).json({ code: 400, message: '未知的野生精灵' });
-  if (ownedMap(st)[w.id]) return res.status(400).json({ code: 400, message: '这只已经在你的图鉴里了' });
+  // 只有新开这一场才拦「已经收过」；reroll/settle 时它本来就在图鉴里（或不在），
+  // 再判一次会让刚刚收服成功的那一场结算不了。
+  if (!ob && ownedMap(st)[w.id]) return res.status(400).json({ code: 400, message: '这只已经在你的图鉴里了' });
 
   var today = todayKey();
   if (st.wild_date !== today) { st.wild_date = today; st.wild_today = 0; }
@@ -2640,36 +3989,77 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
   if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
   st.battle_tactic = tacticId;
-  var mySkillIds = equippedSkills(st);
-  st.battle_skills = mySkillIds;
 
   var weather = weatherOf(today);
-  var baseMine = combatOf(st);
+  var env = envModsOf(currentEnvironment());
+  var myKit = battleKitOf(st, env, false);
+  var useCons = consumableInPlay(st);
+  st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
-  var mine = applyWeather(applyTactic(baseMine, tacticId), myType, weather);
+  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
   mine.power = powerOf(mine);
   var foe = applyWeather(combatOf({ bond: w.bond }), w.type, weather);
   foe.power = powerOf(foe);
 
+  // ⚠️ 递增挪到 settle：reroll 一次就多算一次「找过它」，同一次遭遇会被洗成另一场。
   st.wild_tries = st.wild_tries || {};
   var tries = st.wild_tries[w.id] || 0;
   // 每次尝试都换一条随机流：同一只怪反复挑战不会永远同一个结果，
   // 但同一次尝试仍可复现（uid + 怪 + 第几次 + 日期）。
-  var seed = fnv1a([uid, 'wild', w.id, String(tries), today].join('|'));
-  st.wild_tries[w.id] = tries + 1;
+  var seed = ob ? ob.seed : fnv1a([uid, 'wild', w.id, String(tries), today].join('|'));
 
   var spot = spotlightOf(uid, st);
   var chance = captureChanceOf(st, w, spot);
-  var r = simulateBattle(mine, foe, seed, mySkillIds, w.skills || [], 1, { me: myType, foe: w.type });
+  var r;
+  if (mode === 'settle') {
+    r = settledRes(ob);
+  } else {
+    r = simulateBattle(mine, foe, seed, myKit.skills, w.skills || [], 1, { me: myType, foe: w.type },
+      { env: env, myKit: myKit.kit, cmds: cmds });
+  }
 
+  // 只演算：不抓、不掉、不涨次数、进不了图鉴
+  if (mode === 'open' || mode === 'reroll') {
+    var sid = saveOpen(st, 'wild', seed, useCons, cmds, r, { w: w.id });
+    writePet(uid, st);
+    return res.json({ code: 200, data: {
+      win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
+      captured: false, buddySet: false, nextChance: null, drop: null,
+      chance: chance,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      foe: { name: w.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: w.type, typeName: ELEMENTS[w.type].name, typeIcon: ELEMENTS[w.type].icon },
+      creature: wildPublic(w),
+      dexCount: (st.dex || []).length, dexTotal: WILD.length,
+      types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) },
+      cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
+      weather: weather
+    }});
+  }
+
+  // ---- settle：到这里才动存档 ----
+  spendConsumable(st, useCons);
+  st.wild_tries[w.id] = tries + 1;
   st.wild_fights = (st.wild_fights || 0) + 1;
   st.wild_today = (st.wild_today || 0) + 1;
   var captured = false;
   var buddySet = false;
   var fresh = [];
   var nextChance = null;
+  var drop = null;
 
   if (r.win) {
+    // 掉落随机流也独立成一条：掉不掉装备和「这只怪今天给不给收服」互不干扰，
+    // 玩家不会研究出「用什么阵容能同时提高两样」的玄学。
+    // 重复装备直接分解成小鱼干（装备满背包没有意义，给点零钱更实在）。
+    var dropRoll = rngFrom(fnv1a([uid, 'drop', w.id, String(tries), today].join('|')));
+    if (dropRoll() < WILD_DROP_CHANCE) {
+      var got = grantEquip(st, rollDropItem(dropRoll));
+      if (got.item) {
+        drop = { id: got.item.id, name: got.item.name, icon: got.item.icon,
+                 duplicate: got.duplicate, dust: got.dust };
+        if (got.dust) st.coins = (st.coins || 0) + got.dust;
+      }
+    }
     // 捕捉随机流和战斗随机流分开：换战术/换技能不会改变「这只怪今天给不给」，
     // 否则玩家会开始研究「用什么阵容才能刷出高捕捉率」——那不是收集，是玄学。
     var cr = rngFrom(fnv1a([uid, 'capture', w.id, String(tries), todayKey()].join('|')))();
@@ -2703,6 +4093,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     points: (st.battles && st.battles.points) || 0
   });
   if (captured) diaryPush(st, todayKey(), { k: 'capture', n: 1 });
+  delete st.battle_open;
   writePet(uid, st);
   shadowCache.at = 0;   // 随行会让战力变化，排行榜缓存要跟着失效
 
@@ -2718,11 +4109,15 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
     foe: { name: w.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, type: w.type, typeName: ELEMENTS[w.type].name, typeIcon: ELEMENTS[w.type].icon },
     creature: wildPublic(w),
+    drop: drop,
     dexCount: (st.dex || []).length,
     dexTotal: WILD.length,
     unlocked: fresh,
     types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) },
     weather: weather,
+    cmdSlots: cmdSlotsOf(st),
+    commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+    cmds: cmds,
     quests: questsView(uid, st)
   }});
 });
@@ -2774,6 +4169,304 @@ router.post('/battle/inbox/read', requireAuth, function(req, res) {
   st.battle_inbox = [];
   writePet(userId(req), st);
   res.json({ code: 200, data: { ok: true } });
+});
+
+// ==================== Build API（v2.0，doc §6）====================
+// 反作弊边界：战力评分/适配度全部服务端现算，客户端只传「配置」，不传任何数值。
+
+// 当前 Build 配置 + 技能目录 + 装备库存（编辑器一次拉全）
+router.get('/battle/build', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  res.json({ code: 200, data: {
+    build: buildViewOf(st),
+    inventory: inventoryView(st),
+    skillCatalog: skillCatalogOf(st),
+    equippedEffects: kitEffectsView(st)
+  }});
+});
+
+// 更新 Build：{ skills: [...], equipment: { weapon, accessory, consumable }, strategy_name }
+// 技能只收「已解锁 + 槽位内」（与 /battle/skills 同语义）；装备必须已拥有；
+// 消耗品库存为 0 时不能装（装了也是空槽，不如直接拒绝，让前端提示去刷掉落）。
+router.post('/battle/build/update', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var body = req.body || {};
+  var build = buildOf(st);
+  var inv = inventoryOf(st);
+
+  if (body.skills !== undefined) {
+    if (Object.prototype.toString.call(body.skills) !== '[object Array]') {
+      return res.status(400).json({ code: 400, message: '技能列表格式不对' });
+    }
+    st.battle_skills = body.skills.slice(0, skillSlotsOf(st));
+  }
+  if (body.equipment !== undefined) {
+    if (!body.equipment || typeof body.equipment !== 'object') {
+      return res.status(400).json({ code: 400, message: '装备配置格式不对' });
+    }
+    var eq = {};
+    var w = body.equipment.weapon;
+    if (w) {
+      if (!WEAPONS[w] || inv.owned.indexOf(w) < 0) {
+        return res.status(400).json({ code: 400, message: '武器还没拿到：' + w });
+      }
+      eq.weapon = w;
+    }
+    var a = body.equipment.accessory;
+    if (a) {
+      if (!ACCESSORIES[a] || inv.owned.indexOf(a) < 0) {
+        return res.status(400).json({ code: 400, message: '饰品还没拿到：' + a });
+      }
+      eq.accessory = a;
+    }
+    var c = body.equipment.consumable;
+    if (c) {
+      if (!CONSUMABLES[c] || (inv.charges[c] || 0) <= 0) {
+        return res.status(400).json({ code: 400, message: '消耗品没有库存：' + c });
+      }
+      eq.consumable = c;
+    }
+    build.equipment = eq;
+  }
+  if (body.strategy_name !== undefined) {
+    var name = String(body.strategy_name || '').trim().slice(0, 12);
+    build.strategy_name = name;
+  }
+  var finalSkills = equippedSkills(st);
+  st.battle_skills = finalSkills;
+  build.skills = finalSkills;          // 镜像同步
+  writePet(uid, st);
+  res.json({ code: 200, data: {
+    build: buildViewOf(st),
+    inventory: inventoryView(st),
+    equipped: finalSkills
+  }});
+});
+
+// 生成分享码：对当前「实际生效」的 Build 编码，无副作用、可重复调用
+router.post('/battle/build/share', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var code = encodeBuildCode({ skills: equippedSkills(st), equipment: buildOf(st).equipment });
+  res.json({ code: 200, data: { share_code: code, expires_hint: '约 7-14 天内有效' } });
+});
+
+// 导入分享码：{ share_code }
+// 技能只收已解锁的（没解锁的列进 missing.skills）；装备只收已拥有的
+//（没有的列进 missing.equipment，不自动穿上）。导入即保存。
+router.post('/battle/build/import', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var decoded = decodeBuildCode(req.body && req.body.share_code);
+  if (!decoded) return res.status(400).json({ code: 400, message: '分享码无效或已过期' });
+
+  var unlocked = skillsOf(st);
+  var okSkill = {};
+  for (var i = 0; i < unlocked.length; i++) okSkill[unlocked[i].id] = true;
+  var inv = inventoryOf(st);
+  var missing = { skills: [], equipment: [] };
+
+  var skills = [];
+  for (var j = 0; j < decoded.skills.length; j++) {
+    var sid = decoded.skills[j];
+    if (!sid) continue;
+    if (!okSkill[sid]) { missing.skills.push(sid); continue; }
+    if (skills.indexOf(sid) < 0) skills.push(sid);
+  }
+  var eq = {};
+  var lists = [[WEAPONS, 'weapon'], [ACCESSORIES, 'accessory'], [CONSUMABLES, 'consumable']];
+  for (var k = 0; k < lists.length; k++) {
+    var table = lists[k][0];
+    var slot = lists[k][1];
+    var iid = decoded.equipment[slot];
+    if (!iid) continue;
+    var has = table[iid] && (table === CONSUMABLES
+      ? (inv.charges[iid] || 0) > 0
+      : inv.owned.indexOf(iid) >= 0);
+    if (has) eq[slot] = iid;
+    else missing.equipment.push(iid);
+  }
+
+  st.battle_skills = skills.slice(0, skillSlotsOf(st));
+  var finalSkills = equippedSkills(st);
+  st.battle_skills = finalSkills;
+  var build = buildOf(st);
+  build.equipment = eq;
+  build.skills = finalSkills;
+  writePet(uid, st);
+  res.json({ code: 200, data: {
+    build: buildViewOf(st),
+    inventory: inventoryView(st),
+    import_success: true,
+    applied: { skills: finalSkills, equipment: eq },
+    missing: missing
+  }});
+});
+
+// 当前环境信息（含 Boss 与我的进度）
+router.get('/battle/environment', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  res.json({ code: 200, data: envView(uid, st) });
+});
+
+// 环境副本 Boss 战：POST /pet/battle/environment/boss
+// 每日 1 次；本周首杀必掉环境奖励装备，之后的胜利按 50% 再 roll 一次 DROP_RATES。
+router.post('/battle/environment/boss', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+
+  var today = todayKey();
+  if (st.env_boss_date !== today) { st.env_boss_date = today; st.env_boss_today = 0; }
+  if (ENV_BOSS_DAILY_CAP > 0 && (st.env_boss_today || 0) >= ENV_BOSS_DAILY_CAP) {
+    return res.status(429).json({ code: 429, message: '今天的 Boss 挑战过了，明天再来' });
+  }
+
+  var env = currentEnvironment();
+  var envDef = env.boss;
+  var mods = envModsOf(env);
+  var mode = parseFightMode(req);
+  var ob = null;
+  if (mode === 'reroll' || mode === 'settle') {
+    var lo = loadOpen(st, 'boss', req);
+    if (lo.err) {
+      delete st.battle_open;
+      writePet(uid, st);
+      return res.status(lo.err).json({ code: lo.err, message: '这一场已经结束了，重新挑战吧' });
+    }
+    ob = lo.ob;
+  }
+  var cmds = (mode === 'settle' && ob)
+    ? (ob.cmds || [])
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+  var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
+  if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
+  st.battle_tactic = tacticId;
+
+  var myKit = battleKitOf(st, mods, false);
+  var useCons = consumableInPlay(st);
+  st.battle_skills = myKit.skills;
+  var myType = normType(st.battle_type);
+  var weather = weatherOf(today);
+  var mine = applyWeather(applyTactic(myKit.combat, tacticId), myType, weather);
+  mine.power = powerOf(mine);
+
+  var bossBond = Math.max(4, Math.round((st.bond || 0) * ENV_BOSS_SCALE));
+  var foe = applyWeather(combatOf({ bond: bossBond }), envDef.type, weather);
+  foe.hp = Math.round(foe.hp * ENV_BOSS_HP_MUL);
+  foe.power = powerOf(foe);
+
+  // ⚠️ 递增挪到 settle：reroll 一次就多算一次「试过」，同一次挑战会被洗成另一场。
+  var tries = (st.env_boss_tries && st.env_boss_tries[env.id]) || 0;
+  st.env_boss_tries = st.env_boss_tries || {};
+  var seed = ob ? ob.seed : fnv1a([uid, 'envboss', env.id, String(tries), today].join('|'));
+  var r;
+  if (mode === 'settle') {
+    r = settledRes(ob);
+  } else {
+    r = simulateBattle(mine, foe, seed, myKit.skills, envDef.skills || [], 1,
+      { me: myType, foe: envDef.type }, { env: mods, myKit: myKit.kit, cmds: cmds });
+  }
+
+  // 只演算：不消耗今日次数、不发奖励、不写战绩
+  if (mode === 'open' || mode === 'reroll') {
+    var sid = saveOpen(st, 'boss', seed, useCons, cmds, r, { env: env.id });
+    writePet(uid, st);
+    return res.json({ code: 200, data: {
+      win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
+      env: { id: env.id, name: env.name, icon: env.icon },
+      firstKill: false, drop: null,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+      foe: { name: envDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: envDef.skills || [], type: envDef.type, typeName: ELEMENTS[envDef.type].name, typeIcon: ELEMENTS[envDef.type].icon },
+      types: { me: myType, foe: envDef.type, mulMe: typeMul(myType, envDef.type), mulFoe: typeMul(envDef.type, myType) },
+      dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - (st.env_boss_today || 0)),
+      skills: myKit.skills, foeSkills: envDef.skills || [],
+      cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
+      weather: weather
+    }});
+  }
+
+  // ---- settle：到这里才动存档 ----
+  spendConsumable(st, useCons);
+  st.env_boss_tries[env.id] = tries + 1;
+  st.env_boss_today = (st.env_boss_today || 0) + 1;
+
+  // 结算：积分进练习赛分（社交货币），奖励装备进库存
+  var rec = st.battles || { total: 0, win: 0, lose: 0, points: 0 };
+  rec.total = (rec.total || 0) + 1;
+  var gain = r.win ? ENV_BOSS_WIN_POINTS : ENV_BOSS_LOSE_POINTS;
+  rec.points = (rec.points || 0) + gain;
+  st.battles = rec;
+
+  var drop = null;
+  var firstKill = false;
+  if (r.win) {
+    st.env_progress = st.env_progress || { best_score: 0, boss_week: {}, boss_wins: {} };
+    if (!st.env_progress.boss_week) st.env_progress.boss_week = {};
+    if (!st.env_progress.boss_wins) st.env_progress.boss_wins = {};
+    st.env_progress.boss_wins[env.id] = (st.env_progress.boss_wins[env.id] || 0) + 1;
+    st.env_progress.best_score = Math.max(st.env_progress.best_score || 0, powerOf(myKit.combat));
+    // 本周首杀：必掉环境奖励；之后的胜利 50% 再 roll 一次
+    if (st.env_progress.boss_week[env.id] !== envWeekIndex()) {
+      st.env_progress.boss_week[env.id] = envWeekIndex();
+      firstKill = true;
+      drop = grantEquip(st, env.rewardItem);
+    } else {
+      var dr = rngFrom(fnv1a([uid, 'envdrop', env.id, String(tries), today].join('|')));
+      if (dr() < 0.5) drop = grantEquip(st, rollDropItem(dr));
+    }
+    if (drop && drop.item) {
+      drop = { id: drop.item.id, name: drop.item.name, icon: drop.item.icon,
+               duplicate: drop.duplicate, dust: drop.dust };
+      if (drop.dust) st.coins = (st.coins || 0) + drop.dust;
+    } else {
+      drop = null;
+    }
+  }
+
+  pushHistory(st, {
+    at: new Date().toISOString(),
+    kind: 'env',
+    win: r.win,
+    title: env.name + ' · ' + envDef.name,
+    sub: '环境副本 · ' + r.rounds + ' 回合' + (firstKill ? ' · 周首杀' : ''),
+    gain: gain,
+    points: rec.points || 0
+  });
+  if (r.win) diaryPush(st, todayKey(), { k: 'win', n: 1 });
+  delete st.battle_open;
+  writePet(uid, st);
+  shadowCache.at = 0;
+
+  res.json({ code: 200, data: {
+    win: r.win,
+    rounds: r.rounds,
+    steps: r.steps,
+    seed: seed,
+    env: { id: env.id, name: env.name, icon: env.icon },
+    firstKill: firstKill,
+    drop: drop,
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon },
+    foe: { name: envDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: envDef.skills || [], type: envDef.type, typeName: ELEMENTS[envDef.type].name, typeIcon: ELEMENTS[envDef.type].icon },
+    types: { me: myType, foe: envDef.type, mulMe: typeMul(myType, envDef.type), mulFoe: typeMul(envDef.type, myType) },
+    gain: gain,
+    dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - (st.env_boss_today || 0)),
+    skills: myKit.skills,
+    foeSkills: envDef.skills || [],
+    weather: weather,
+    cmdSlots: cmdSlotsOf(st),
+    commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+    cmds: cmds,
+    quests: questsView(uid, st)
+  }});
 });
 
 module.exports = router;

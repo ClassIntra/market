@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pet Desktop - Game Style Preview</title>
+<style>
+@keyframes pixelFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes neonPulse {
+  0%, 100% { box-shadow: 0 0 5px var(--glow-color), 0 0 10px var(--glow-color); }
+  50% { box-shadow: 0 0 20px var(--glow-color), 0 0 30px var(--glow-color); }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Courier New', monospace;
+  background: linear-gradient(180deg, #0a0a1e 0%, #1a1a3e 50%, #0f0f2a 100%);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* CRT 扫描线效果 */
+.crt-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.15) 0px,
+    rgba(0, 0, 0, 0.15) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  z-index: 9999;
+}
+
+.game-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
+  position: relative;
+}
+
+/* 宠物主体区域 - 像素风格容器 */
+.pet-stage {
+  background: linear-gradient(180deg, #1a1a4e 0%, #0d0d2a 100%);
+  border: 4px solid #4a4a8a;
+  border-radius: 20px;
+  padding: 40px;
+  text-align: center;
+  position: relative;
+  margin-bottom: 30px;
+  animation: neonPulse 3s infinite;
+  --glow-color: #ff6b9d;
+}
+
+.pet-avatar {
+  font-size: 120px;
+  animation: pixelFloat 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 20px rgba(255, 107, 157, 0.8));
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.pet-avatar:hover {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 30px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.status-item {
+  background: rgba(10, 10, 30, 0.9);
+  border: 2px solid #6a6a9a;
+  border-radius: 12px;
+  padding: 12px 20px;
+  min-width: 100px;
+  position: relative;
+  overflow: hidden;
+}
+
+.status-item::before {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transform: rotate(45deg);
+  animation: scanline 3s linear infinite;
+}
+
+.status-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.status-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.status-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+/* 进度条样式 - 游戏化设计 */
+.progress-container {
+  background: rgba(0, 0, 0, 0.6);
+  border: 2px solid #5a5a8a;
+  border-radius: 10px;
+  height: 20px;
+  margin-top: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b9d, #f7ed8a);
+  border-radius: 8px;
+  transition: width 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 10px,
+    rgba(255, 255, 255, 0.1) 10px,
+    rgba(255, 255, 255, 0.1) 20px
+  );
+}
+
+/* 技能面板 */
+.skills-section {
+  background: rgba(15, 15, 40, 0.95);
+  border: 3px solid #6a3ac4;
+  border-radius: 16px;
+  padding: 25px;
+  margin-bottom: 25px;
+}
+
+.section-title {
+  font-size: 20px;
+  color: #c48bff;
+  margin-bottom: 20px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 10px rgba(196, 139, 255, 0.5);
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 15px;
+}
+
+.skill-card {
+  background: linear-gradient(180deg, #2a1a4e 0%, #1a0a3e 100%);
+  border: 3px solid #5a3a9a;
+  border-radius: 12px;
+  padding: 15px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.skill-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--rarity-color);
+}
+
+.skill-card.common::before { background: #8E8E93; }
+.skill-card.uncommon::before { background: #34C759; }
+.skill-card.rare::before { background: #0A84FF; }
+.skill-card.epic::before { 
+  background: linear-gradient(90deg, #BF5AF2, #64D2FF);
+  animation: skillHalo 2s ease-in-out infinite;
+}
+
+@keyframes skillHalo {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.skill-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 30px rgba(196, 139, 255, 0.4);
+}
+
+.skill-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.skill-name {
+  font-size: 12px;
+  color: #f0f0ff;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.skill-tier {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 装备栏 */
+.equipment-section {
+  background: rgba(15, 15, 40, 0.95);
+  border: 3px solid #3a8ac4;
+  border-radius: 16px;
+  padding: 25px;
+  margin-bottom: 25px;
+}
+
+.equipment-slots {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.equipment-slot {
+  width: 100px;
+  height: 100px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 3px dashed #5a7a9a;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.equipment-slot.filled {
+  border: 3px solid #3a8ac4;
+  border-style: solid;
+  background: linear-gradient(180deg, #1a2a3e 0%, #0a1520 100%);
+}
+
+.equipment-slot.filled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  box-shadow: inset 0 0 20px rgba(58, 138, 196, 0.3);
+  pointer-events: none;
+}
+
+.slot-icon {
+  font-size: 42px;
+}
+
+.slot-type {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+/* 功能按钮网格 */
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 15px;
+}
+
+.action-btn {
+  background: linear-gradient(180deg, #4a2a8e 0%, #2a1a5e 100%);
+  border: 3px solid #7a5ac4;
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.action-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent, rgba(196, 139, 255, 0.2));
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.action-btn:hover::after {
+  opacity: 1;
+}
+
+.action-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(196, 139, 255, 0.4);
+  border-color: #9a7ad4;
+}
+
+.action-icon {
+  font-size: 32px;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.action-label {
+  font-size: 13px;
+  color: #f0f0ff;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.action-cost {
+  font-size: 10px;
+  color: rgba(255, 215, 0, 0.7);
+  margin-top: 5px;
+}
+
+/* 装饰性元素 */
+.particles {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  animation: floatParticle linear infinite;
+}
+
+@keyframes floatParticle {
+  0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+  10% { opacity: 0.5; }
+  90% { opacity: 0.5; }
+  100% { transform: translateY(-100vh) translateX(50px); opacity: 0; }
+}
+</style>
+</head>
+<body>
+<div class="crt-overlay"></div>
+
+<!-- 粒子背景 -->
+<div class="particles" id="particles"></div>
+
+<div class="game-container">
+  <!-- 宠物舞台 -->
+  <div class="pet-stage">
+    <div class="pet-avatar" id="petAvatar">🐾</div>
+    
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-icon">❤️</span>
+        <div class="progress-container">
+          <div class="progress-fill" style="width: 75%;"></div>
+        </div>
+        <span class="status-label">HP</span>
+      </div>
+      
+      <div class="status-item">
+        <span class="status-icon">⚡</span>
+        <div class="progress-container">
+          <div class="progress-fill" style="width: 60%; background: linear-gradient(90deg, #f7ed8a, #ff6b9d);"></div>
+        </div>
+        <span class="status-label">Energy</span>
+      </div>
+      
+      <div class="status-item">
+        <span class="status-icon">💚</span>
+        <div class="status-value">42</div>
+        <span class="status-label">Bond Level</span>
+      </div>
+      
+      <div class="status-item">
+        <span class="status-icon">🍪</span>
+        <div class="status-value">1,280</div>
+        <span class="status-label">Fish Coins</span>
+      </div>
+      
+      <div class="status-item">
+        <span class="status-icon">⭐</span>
+        <div class="status-value">S</div>
+        <span class="status-label">Rank</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 技能配置 -->
+  <div class="skills-section">
+    <div class="section-title">⚔️ Active Skills ⚔️</div>
+    <div class="skills-grid">
+      <div class="skill-card epic">
+        <span class="skill-icon">💥</span>
+        <div class="skill-name">Blast</div>
+        <div class="skill-tier">EPIC • Lvl 5</div>
+      </div>
+      
+      <div class="skill-card rare">
+        <span class="skill-icon">⚡</span>
+        <div class="skill-name">Berserk</div>
+        <div class="skill-tier">RARE • Lvl 3</div>
+      </div>
+      
+      <div class="skill-card uncommon">
+        <span class="skill-icon">🛡️</span>
+        <div class="skill-name">Guard</div>
+        <div class="skill-tier">UNCOMMON • Lvl 2</div>
+      </div>
+      
+      <div class="skill-card common">
+        <span class="skill-icon">💚</span>
+        <div class="skill-name">Heal</div>
+        <div class="skill-tier">COMMON • Lvl 1</div>
+      </div>
+      
+      <div class="skill-card rare">
+        <span class="skill-icon">🌀</span>
+        <div class="skill-name">Smash</div>
+        <div class="skill-tier">RARE • Lvl 2</div>
+      </div>
+      
+      <div class="skill-card" style="opacity: 0.4; cursor: not-allowed;">
+        <span class="skill-icon">❓</span>
+        <div class="skill-name">Locked</div>
+        <div class="skill-tier">Level 15</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 装备栏 -->
+  <div class="equipment-section">
+    <div class="section-title">🎒 Equipment 🎒</div>
+    <div class="equipment-slots">
+      <div class="equipment-slot filled">
+        <span class="slot-icon">🗡️</span>
+        <div class="slot-type">Void Blade</div>
+      </div>
+      
+      <div class="equipment-slot filled">
+        <span class="slot-icon">💎</span>
+        <div class="slot-type">Crystal Amulet</div>
+      </div>
+      
+      <div class="equipment-slot">
+        <span class="slot-icon">+</span>
+        <div class="slot-type">Weapon</div>
+      </div>
+      
+      <div class="equipment-slot">
+        <span class="slot-icon">+</span>
+        <div class="slot-type">Accessory</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 行动按钮 -->
+  <div class="action-grid">
+    <div class="action-btn">
+      <span class="action-icon">🍖</span>
+      <div class="action-label">Feed</div>
+      <div class="action-cost">Free</div>
+    </div>
+    
+    <div class="action-btn">
+      <span class="action-icon">💚</span>
+      <div class="action-label">Play</div>
+      <div class="action-cost">50 Energy</div>
+    </div>
+    
+    <div class="action-btn">
+      <span class="action-icon">⚔️</span>
+      <div class="action-label">Battle</div>
+      <div class="action-cost">100 Energy</div>
+    </div>
+    
+    <div class="action-btn">
+      <span class="action-icon">✨</span>
+      <div class="action-label">Train</div>
+      <div class="action-cost">80 Energy</div>
+    </div>
+    
+    <div class="action-btn">
+      <span class="action-icon">🃏</span>
+      <div class="action-label">Gacha</div>
+      <div class="action-cost">500 Coins</div>
+    </div>
+    
+    <div class="action-btn">
+      <span class="action-icon">🔧</span>
+      <div class="action-label">Build</div>
+      <div class="action-cost">Configure</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 创建漂浮粒子
+const particlesContainer = document.getElementById('particles');
+for (let i = 0; i < 30; i++) {
+  const particle = document.createElement('div');
+  particle.className = 'particle';
+  particle.style.left = Math.random() * 100 + '%';
+  particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
+  particle.style.animationDelay = (Math.random() * 5) + 's';
+  particlesContainer.appendChild(particle);
+}
+
+// 点击宠物互动效果
+const petAvatar = document.getElementById('petAvatar');
+petAvatar.addEventListener('click', () => {
+  // 简单的缩放动画反馈
+  petAvatar.style.transform = 'scale(1.2) rotate(10deg)';
+  setTimeout(() => {
+    petAvatar.style.transform = '';
+  }, 200);
+});
+</script>
+</body>
+</html>
