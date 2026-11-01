@@ -11466,7 +11466,7 @@
 }
 
 /* ---------- 27.6 对战舞台：蓝天草地（压 §21.9） ---------- */
-.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-sky {
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-sky {
   background:
     radial-gradient(circle at 76% 17%,
       #fff6cf 0 22px, #ffd76e 22px 26px,
@@ -11478,12 +11478,12 @@
       #aad8f4 44%, #aad8f4 68%,
       #c4e6fa 68%, #c4e6fa 100%) !important;
 }
-.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-hills {
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-hills {
   background-image:
     radial-gradient(circle at 24% 100%, #7aa85a 0 44px, rgba(122, 168, 90, 0) 45px),
     radial-gradient(circle at 74% 100%, #5c8f44 0 54px, rgba(92, 143, 68, 0) 55px) !important;
 }
-.ci-pethome.is-day .ci-pet-battle .ci-pet-scene-ground {
+.ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-ground {
   background: linear-gradient(180deg, #8fbf62 0%, #6f9e4a 100%) !important;
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35) !important;
 }
@@ -11791,4 +11791,108 @@
   color: #ffd76e;
   background: rgba(255, 215, 110, 0.1);
   box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.4);
+}
+
+/* ============================================================
+   28. 战斗舞台统一（v0.28.0）
+   ============================================================
+   练习赛 / 真人影子 / 试炼塔 / 收服 / 深渊的对战原来是一块
+   「血条卡 + 文字 log」的裸面板（v0.4.0 遗留），全屏舞台只有
+   Boss 独享。现在 playFight 与 buildArena 用同一套场景层，
+   这里只负责把 HP 牌从「网页卡」升格成「场景浮牌」。
+   ------------------------------------------------------------ */
+
+/* ---------- 28.1 舞台容器：场景满幅，控制台退到下方 ---------- */
+.ci-pethome .ci-pet-arena.is-stage {
+  padding: 0;
+  overflow: hidden;
+}
+/* ⚠️ ≥900px 时 .ci-pet-battle 是 58/42 双列网格，playFight 的裸 arena
+   会被自动放进第一列（只有 58% 宽）—— 和 arena-page 一样强制通栏。 */
+@media (min-width: 900px) {
+  .ci-pet-battle > .ci-pet-arena.is-stage {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+}
+/* log 是舞台下方的「解说条」：深底金字压住它自带的浅色底 */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-log {
+  margin: 12px 14px 0;
+  background: rgba(18, 14, 40, 0.62);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+  color: var(--ci-pet-soft, rgba(226, 233, 250, 0.82));
+}
+
+/* ---------- 28.2 HP 浮牌：网页卡 → 场景对角的暗面板 ---------- */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side {
+  position: absolute;
+  z-index: 6;
+  width: 236px;
+  padding: 9px 12px 10px;
+  background: rgba(18, 14, 40, 0.78);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.16),
+    0 6px 18px rgba(4, 7, 18, 0.5);
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side--foe { left: 14px; top: 12px; }
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side--me { right: 14px; bottom: 14px; }
+/* ⚠️ 牌内文字必须在这里定死颜色：.ci-pet-battle 容器会把 --ci-color-text-*
+   就近重定义成冷白，继承进米黄/暗牌都会隐形（血量数字消失的元凶）。 */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-name { color: #f2f6ff; }
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-power { color: rgba(214, 224, 247, 0.78); }
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hptext { color: rgba(226, 233, 250, 0.78); }
+/* 阵营色条：敌粉我金，一眼分清谁是谁 */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: #ff6482;
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side--me::before { background: #ffd76e; }
+/* 受击浮字在暗牌上要够亮 */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-dmgfloat {
+  color: #ff8ba0;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- 28.3 对手盘里的像素图标：必须给尺寸（0.25 的教训） ---------- */
+.ci-pethome .ci-pet-bstage-foeicon-pix {
+  width: 44px;
+  height: 44px;
+}
+
+/* ---------- 28.4 白天：舞台浮牌跟米黄纸走 ---------- */
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-side {
+  background: rgba(253, 246, 226, 0.9);
+  box-shadow:
+    inset 0 0 0 2px rgba(138, 100, 56, 0.55),
+    0 6px 18px rgba(120, 84, 40, 0.3);
+}
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-name { color: #4a3527; }
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-power { color: #7a5f45; }
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-hptext { color: #7a5f45; }
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-side::before {
+  background: #b8434f;
+}
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-side--me::before { background: #b06a20; }
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-log {
+  background: rgba(253, 246, 226, 0.82);
+  box-shadow: inset 0 0 0 2px rgba(138, 100, 56, 0.45);
+  color: #4a3527;
+}
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-dmgfloat {
+  color: #c22a44;
+  text-shadow: 0 2px 6px rgba(255, 255, 255, 0.6);
+}
+/* 舞台自身与默契指令行：夜版是深蓝 literal，白天跟米黄纸走 */
+.ci-pethome.is-day .ci-pet-arena.is-stage {
+  background: linear-gradient(180deg, #f2e6ca 0%, #e4d0aa 100%);
+}
+.ci-pethome.is-day .ci-pet-cmdrow {
+  background: rgba(253, 246, 226, 0.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 100, 56, 0.4),
+    0 0 0 2px #cbb48a,
+    3px 3px 0 rgba(120, 84, 40, 0.25);
 }

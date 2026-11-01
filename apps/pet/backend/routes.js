@@ -2914,6 +2914,20 @@ var COMMANDS = {
   }
 };
 var COMMAND_IDS = ['strike', 'guard', 'charge'];
+// 技能牌（v0.28.2）：装备了的主动技可以由玩家点牌出手。冷却在引擎里逐回合生效。
+var MANUAL_SKILL_KINDS = ['blast', 'smash', 'heal'];
+// 技能牌视图：从装备表筛出主动技，前端据此渲染「由你出手」的牌
+function manualSkillView(skillIds) {
+  var out = [];
+  var ids = (skillIds && Object.prototype.toString.call(skillIds) === '[object Array]') ? skillIds : [];
+  for (var i = 0; i < MANUAL_SKILL_KINDS.length; i++) {
+    var id = MANUAL_SKILL_KINDS[i];
+    if (ids.indexOf(id) < 0) continue;
+    var d = ACTIVE_SKILLS[id];
+    if (d) out.push({ id: id, name: d.name, icon: d.icon, cooldown: d.cooldown, desc: d.desc });
+  }
+  return out;
+}
 
 // ---- 战斗会话（open / reroll / settle）----
 // 为什么必须延迟结算：玩家要在**播放中**才决定插不插手。如果开战就把药水扣了、
@@ -2983,21 +2997,36 @@ function cmdSlotsOf(st) {
 // ⚠️ 每种指令**每场只能用一次**：三张牌是三选一的口味，不是三份同款弹药。
 // 不加这条时实测「三回合全猛攻」把 rival 胜率从 61% 推到 98%，
 // 玩家也永远不会去碰另外两张牌——同一种牌能重复，另外两张就永远是摆设。
-function sanitizeCmds(raw, max, maxRound) {
+function sanitizeCmds(raw, max, maxRound, mySkills) {
   if (Object.prototype.toString.call(raw) !== '[object Array]') return [];
   var out = [];
   var seenR = {};
   var seenK = {};
+  var tacCount = 0;                        // 默契牌单独计数：额度只属于三张默契牌
   var limit = max > 0 ? max : 0;
-  for (var i = 0; i < raw.length && out.length < limit; i++) {
+  var skills = (mySkills && Object.prototype.toString.call(mySkills) === '[object Array]') ? mySkills : [];
+  for (var i = 0; i < raw.length; i++) {
     var c = raw[i] || {};
     var r = parseInt(c.r, 10);
     var k = String(c.kind || '');
     if (!(r >= 1 && r <= (maxRound || BATTLE_MAX_ROUNDS))) continue;
-    if (COMMAND_IDS.indexOf(k) < 0) continue;
-    if (seenR[r] || seenK[k]) continue;
-    seenR[r] = 1; seenK[k] = 1;
-    out.push({ r: r, kind: k });
+    if (seenR[r]) continue;                 // 一个回合只认一张牌（默契牌/技能牌同权）
+    // 默契牌：三种口味各一次，共用额度上限（cmdSlots）
+    if (COMMAND_IDS.indexOf(k) >= 0) {
+      if (tacCount >= limit) continue;
+      if (seenK[k]) continue;
+      seenR[r] = 1; seenK[k] = 1; tacCount++;
+      out.push({ r: r, kind: k });
+      continue;
+    }
+    // 技能牌（v0.28.2）：爆发冲击/重锤砸击/紧急治疗从 AI 手里还给玩家。
+    // 前提是「真的装备了」；冷却由引擎逐回合查（报了没冷却好的会被当普攻略过）。
+    // 不占默契额度——它的限制是冷却，不是次数。
+    if (MANUAL_SKILL_KINDS.indexOf(k) >= 0) {
+      if (skills.indexOf(k) < 0) continue;
+      seenR[r] = 1;
+      out.push({ r: r, kind: k });
+    }
   }
   out.sort(function(x, y) { return x.r - y.r; });
   return out;
@@ -3039,6 +3068,9 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
   // 只在有词缀时才生效，无词缀路径的随机流与基线逐位一致（自测基线 [1] 会红）。
   var modsG = extra.mods || {};
   if (modsG.dotPercent && env) env.dotPercent = (env.dotPercent || 0) + modsG.dotPercent;
+  // 技能玩家化（v0.28.2）：true = 我方主动技交给玩家点牌，引擎不再代放。
+  // 缺省 false——老路径与 v0.7 基线保持「自动放」逐位一致。
+  var playerCtl = !!extra.playerCtl;
   for (var ci = 0; ci < cmds.length; ci++) {
     var cc = cmds[ci] || {};
     if (cc.r >= 1 && COMMAND_IDS.indexOf(cc.kind) >= 0) cmdBy[cc.r] = cc.kind;
@@ -3315,21 +3347,51 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
       S.buffDef = 1.4; S.buffTurns = 3;
       pushStep(r, who, { buff: 'guard_stance', tags: ['guard'] });
     }
-    if (S.sk.heal > 0 && (S.cd.heal || 0) <= 0 && S.hp < S.max * 0.5) {
-      S.cd.heal = cdOf('heal');
-      healBy(S, who, Math.round(S.max * S.sk.heal), 'healskill', r);
-      return;
-    }
-    if (S.sk.blast > 0 && (S.cd.blast || 0) <= 0) {
-      S.cd.blast = cdOf('blast');
-      S.skipNext = true;
-      strike(S, D, who, r, { mult: S.sk.blast, tag: 'blast' });
-      return;
-    }
-    if (S.sk.smash > 0 && (S.cd.smash || 0) <= 0) {
-      S.cd.smash = cdOf('smash');
-      strike(S, D, who, r, { mult: S.sk.smash, tag: 'smash', selfPct: 0.15 });
-      return;
+    // ---- 主动技能（v0.28.2 技能玩家化）----
+    // 玩家侧（playerCtl）：爆发冲击/重锤砸击/紧急治疗**不再自动释放**——
+    // 它们是玩家手里的技能牌，什么时候按、值不值得按，是战中决策的一部分。
+    // 之前自动策略下「AI 第一回合就放大招」，碾压局两回合结束，
+    // 玩家原话是「技能还没放就打完了」——技能系统存在感为零。
+    // 对手侧照旧自动（NPC 的强度需要它；玩家对手的快照也保留 AI 行为）。
+    var manual = who === 0 && !!playerCtl;
+    if (manual) {
+      // 玩家的技能牌：回合开始预置在 S.cmd 上，条件不满足就当普攻（白按不亏）。
+      if (S.cmd === 'heal' && S.sk.heal > 0 && (S.cd.heal || 0) <= 0 && S.hp < S.max) {
+        S.cmd = null;
+        S.cd.heal = cdOf('heal');
+        healBy(S, who, Math.round(S.max * S.sk.heal), 'healskill', r);
+        return;
+      }
+      if (S.cmd === 'blast' && S.sk.blast > 0 && (S.cd.blast || 0) <= 0) {
+        S.cmd = null;
+        S.cd.blast = cdOf('blast');
+        S.skipNext = true;
+        strike(S, D, who, r, { mult: S.sk.blast, tag: 'blast' });
+        return;
+      }
+      if (S.cmd === 'smash' && S.sk.smash > 0 && (S.cd.smash || 0) <= 0) {
+        S.cmd = null;
+        S.cd.smash = cdOf('smash');
+        strike(S, D, who, r, { mult: S.sk.smash, tag: 'smash', selfPct: 0.15 });
+        return;
+      }
+    } else {
+      if (S.sk.heal > 0 && (S.cd.heal || 0) <= 0 && S.hp < S.max * 0.5) {
+        S.cd.heal = cdOf('heal');
+        healBy(S, who, Math.round(S.max * S.sk.heal), 'healskill', r);
+        return;
+      }
+      if (S.sk.blast > 0 && (S.cd.blast || 0) <= 0) {
+        S.cd.blast = cdOf('blast');
+        S.skipNext = true;
+        strike(S, D, who, r, { mult: S.sk.blast, tag: 'blast' });
+        return;
+      }
+      if (S.sk.smash > 0 && (S.cd.smash || 0) <= 0) {
+        S.cd.smash = cdOf('smash');
+        strike(S, D, who, r, { mult: S.sk.smash, tag: 'smash', selfPct: 0.15 });
+        return;
+      }
     }
     strike(S, D, who, r, {});
   }
@@ -3740,7 +3802,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   // 否则前端漏传一次 cmds，结算出来的就是另一场（而且玩家会看到「赢了却算输」）。
   var cmds = (mode === 'settle' && ob)
     ? (ob.cmds || [])
-    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS, equippedSkills(st));
 
   var opp = ob ? ob.opp : resolveOpponent(st, uid, (req.body && req.body.oppId) || '');
   if (!opp) return res.status(400).json({ code: 400, message: '未知对手' });
@@ -3814,6 +3876,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
       foeSkills: foeSkillIds,
       cmdSlots: cmdSlotsOf(st),
       commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }),
+      manualSkills: manualSkillView(mySkillIds),
       cmds: cmds
     };
   }
@@ -3825,7 +3888,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
           maxMe: ob.res.maxMe, maxFoe: ob.res.maxFoe, steps: [] };
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, foeSkillIds, 1, { me: myType, foe: foeType },
-      { env: env, myKit: myKit.kit, foeKit: foeKit, cmds: cmds });
+      { env: env, myKit: myKit.kit, foeKit: foeKit, cmds: cmds, playerCtl: true });
   }
 
   // 只演算、不落任何副作用：不扣药水、不记战绩、不涨次数、不发成就。
@@ -3929,6 +3992,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
     decayed: decayed,
     tactic: tacticId,
     skills: mySkillIds,
+    manualSkills: manualSkillView(mySkillIds),
     foeSkills: foeSkillIds,
     unlocked: fresh,
     titles: titlesOf(st),
@@ -3988,7 +4052,7 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   var isAbyss = !!floorDef.depth;
   var cmds = (mode === 'settle' && ob)
     ? (ob.cmds || [])
-    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS, equippedSkills(st));
 
   var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
   if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
@@ -4024,7 +4088,7 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills || [], foeBuff, { me: myType, foe: foeType2 },
-      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh });
+      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh, playerCtl: true });
   }
 
   // 只演算：不涨次数、不推进层数、不发成就
@@ -4038,6 +4102,7 @@ router.post('/tower/fight', requireAuth, function(req, res) {
       foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills || [], type: foeType2, typeName: ELEMENTS[foeType2].name, typeIcon: ELEMENTS[foeType2].icon },
       types: { me: myType, foe: foeType2, mulMe: typeMul(myType, foeType2), mulFoe: typeMul(foeType2, myType) },
       skills: myKit.skills, foeSkills: floorDef.skills || [],
+      manualSkills: manualSkillView(myKit.skills),
       towerFloor: st.tower_floor || 0, towerTotal: TOWER_FLOORS.length, towerPoints: st.tower_points || 0,
       today: st.tower_today || 0, cap: TOWER_DAILY_CAP,
       dailyMods: dailyMods.map(function(m) { return { id: m.id, name: m.name, icon: m.icon, text: m.text }; }),
@@ -4122,6 +4187,7 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     abyssFloor: st.abyss_floor || 0,
     towerPoints: st.tower_points || 0,
     skills: myKit.skills,
+    manualSkills: manualSkillView(myKit.skills),
     foeSkills: floorDef.skills || [],
     unlocked: fresh,
     titles: titlesOf(st),
@@ -4206,7 +4272,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   }
   var cmds = (mode === 'settle' && ob)
     ? (ob.cmds || [])
-    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS, equippedSkills(st));
 
   var w = ob ? wildById(ob.ref.w) : wildById(req.body && req.body.id);
   if (!w) return res.status(400).json({ code: 400, message: '未知的野生精灵' });
@@ -4246,7 +4312,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, w.skills || [], 1, { me: myType, foe: w.type },
-      { env: env, myKit: myKit.kit, cmds: cmds });
+      { env: env, myKit: myKit.kit, cmds: cmds, playerCtl: true });
   }
 
   // 只演算：不抓、不掉、不涨次数、进不了图鉴
@@ -4262,6 +4328,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
       creature: wildPublic(w),
       dexCount: (st.dex || []).length, dexTotal: WILD.length,
       types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) },
+      skills: myKit.skills, manualSkills: manualSkillView(myKit.skills),
       cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
       weather: weather
     }});
@@ -4343,6 +4410,8 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     drop: drop,
     dexCount: (st.dex || []).length,
     dexTotal: WILD.length,
+    skills: myKit.skills,
+    manualSkills: manualSkillView(myKit.skills),
     unlocked: fresh,
     types: { me: myType, foe: w.type, mulMe: typeMul(myType, w.type), mulFoe: typeMul(w.type, myType) },
     weather: weather,
@@ -4615,7 +4684,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
   }
   var cmds = (mode === 'settle' && ob)
     ? (ob.cmds || [])
-    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS);
+    : sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS, equippedSkills(st));
   var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
   if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
   st.battle_tactic = tacticId;
@@ -4642,7 +4711,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, envDef.skills || [], 1,
-      { me: myType, foe: envDef.type }, { env: mods, myKit: myKit.kit, cmds: cmds });
+      { me: myType, foe: envDef.type }, { env: mods, myKit: myKit.kit, cmds: cmds, playerCtl: true });
   }
 
   // 只演算：不消耗今日次数、不发奖励、不写战绩
@@ -4658,6 +4727,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
       types: { me: myType, foe: envDef.type, mulMe: typeMul(myType, envDef.type), mulFoe: typeMul(envDef.type, myType) },
       dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - (st.env_boss_today || 0)),
       skills: myKit.skills, foeSkills: envDef.skills || [],
+      manualSkills: manualSkillView(myKit.skills),
       cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
       weather: weather
     }});
@@ -4729,6 +4799,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
     gain: gain,
     dailyLeft: Math.max(0, ENV_BOSS_DAILY_CAP - (st.env_boss_today || 0)),
     skills: myKit.skills,
+    manualSkills: manualSkillView(myKit.skills),
     foeSkills: envDef.skills || [],
     weather: weather,
     cmdSlots: cmdSlotsOf(st),

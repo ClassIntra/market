@@ -5854,18 +5854,61 @@ function sceneHomeBody(container) {
     stopFight();
     clearEl(sec);
     var token = ++fightToken;
-    var arena = h('div', 'ci-pet-arena');
+    var arena = h('div', 'ci-pet-arena is-stage');
 
+    // ==================== v0.28.0 战斗上舞台 ====================
+    // 之前练习赛/影子/塔/收服的对战是一块「血条卡 + 文字 log」的裸面板
+    // （v0.4.0 遗留布局），全屏舞台只有 Boss 独享 —— 用户问
+    // 「为什么打练习赛根本不显示舞台」。现在与 buildArena 用同一套场景层：
+    // 天光/星/远山/地面 + 我方立绘 + 对手盘，HP 牌浮到场景对角。
+    var scene = h('div', 'ci-pet-arena-scene');
+    scene.appendChild(h('div', 'ci-pet-scene-sky'));
+    scene.appendChild(h('div', 'ci-pet-scene-stars'));
+    scene.appendChild(h('div', 'ci-pet-scene-hills'));
+    scene.appendChild(h('div', 'ci-pet-scene-ground'));
+
+    // 对手盘：塔战用塔像素图标，其余用对手的属性像素图标
+    // （后端 foe.typeIcon 是 emoji 家族，这里统一走 PIX_ICONS 保持像素语言）
+    var foeInfo = d.foe || {};
+    var foeBox = h('div', 'ci-pet-arena-foe');
+    var disc = h('div', 'ci-pet-bstage-foedisc');
+    var foeIconKind = opts.tower ? 'tower' : foeInfo.type;
+    var foeIco = pixIcon(PIX_ICONS[foeIconKind] ? foeIconKind : 'fight', 'ci-pet-bstage-foeicon-pix');
+    if (foeIco) disc.appendChild(foeIco);
+    if (foeInfo.type) disc.appendChild(elementChip(foeInfo.type));
+    foeBox.appendChild(disc);
+    scene.appendChild(foeBox);
+
+    scene.appendChild(h('div', 'ci-pet-bstage-vs', 'VS'));
+
+    // 我方立绘：视频宠放视频，像素宠画 canvas（与 buildArena 同源）
+    var meBox = h('div', 'ci-pet-arena-me');
+    if (state && state.design && state.design.type === 'video') {
+      var fv = document.createElement('video');
+      fv.className = 'ci-pet-arena-video';
+      fv.muted = true; fv.loop = true; fv.autoplay = true;
+      fv.setAttribute('playsinline', 'playsinline');
+      fv.setAttribute('webkit-playsinline', 'webkit-playsinline');
+      fv.src = poolUrl(heroIdleName());
+      loadHeroPool();
+      meBox.appendChild(fv);
+    } else if (state && state.design) {
+      var fpv = document.createElement('canvas');
+      paint(fpv, state.design, 10);
+      meBox.appendChild(fpv);
+    }
+    scene.appendChild(meBox);
+
+    arena.appendChild(scene);
+
+    // HP 牌（动态血条 + 受击抖动 + 伤害浮字都挂在这两块上），
+    // 绝对定位到场景对角（is-stage 的 CSS 在 §28）——不再是网页卡片。
     var meSide = arenaSide(d.me || {}, 'me');
     var foeSide = arenaSide(d.foe || {}, 'foe');
     meSide.set((d.me || {}).hp);
     foeSide.set((d.foe || {}).hp);
-
-    var sides = h('div', 'ci-pet-arena-sides');
-    sides.appendChild(meSide.el);
-    sides.appendChild(h('div', 'ci-pet-arena-vs', 'VS'));
-    sides.appendChild(foeSide.el);
-    arena.appendChild(sides);
+    scene.appendChild(foeSide.el);
+    scene.appendChild(meSide.el);
 
     var logEl = h('div', 'ci-pet-arena-log', '第 1 回合即将开始…');
     arena.appendChild(logEl);
@@ -5881,8 +5924,24 @@ function sceneHomeBody(container) {
       cmds: (d.cmds || []).slice(),
       slots: (d.cmdSlots === undefined ? 0 : d.cmdSlots),
       commands: d.commands || [],
+      manualSkills: d.manualSkills || [],
       busy: false
     };
+    // 技能牌的冷却参数（与服务端 ACTIVE_SKILLS.cooldown 对齐）与战报 tag 映射。
+    // 冷却靠扫 steps 推断：上次释放回合 + 冷却数 + 1 = 再次可用回合。
+    var SKILL_CD = { blast: 2, smash: 3, heal: 4 };
+    var SKILL_TAG = { blast: 'blast', smash: 'smash', heal: 'healskill' };
+    function skillCdLeft(kind) {
+      var cd = SKILL_CD[kind] || 2;
+      var tag = SKILL_TAG[kind] || kind;
+      var last = -99;
+      for (var i = 0; i < cur.steps.length; i++) {
+        var st = cur.steps[i];
+        if (st.by === 0 && (st.tags || []).indexOf(tag) >= 0 && st.r > last) last = st.r;
+      }
+      var now = cur.steps[idx] ? cur.steps[idx].r : (cur.steps.length ? cur.steps[cur.steps.length - 1].r : 1);
+      return (last + cd + 1) - now;
+    }
     var cardEls = {};
     var countEl = null;
     var cmdRow = null;
@@ -5900,9 +5959,23 @@ function sceneHomeBody(container) {
       for (var k in cardEls) {
         if (!Object.prototype.hasOwnProperty.call(cardEls, k)) continue;
         var el = cardEls[k];
-        el.className = 'ci-pet-cmd' + (used[k] ? ' is-used' : '') + (left <= 0 ? ' is-out' : '');
+        var cls = 'ci-pet-cmd';
+        if (COMMAND_IDS.indexOf(k) >= 0) {
+          // 默契牌：用过即灰
+          cls += (used[k] ? ' is-used' : '') + (left <= 0 ? ' is-out' : '');
+        } else {
+          // 技能牌：冷却中显示剩余回合
+          var cd = skillCdLeft(k);
+          if (cd > 0) {
+            cls += ' is-cd';
+            el.setAttribute('data-cdleft', String(cd));
+          } else {
+            el.removeAttribute('data-cdleft');
+          }
+        }
+        el.className = cls;
       }
-      cmdRow.className = 'ci-pet-cmdrow' + (live.slots <= 0 ? ' is-hidden' : '');
+      cmdRow.className = 'ci-pet-cmdrow' + (live.slots <= 0 && !live.manualSkills.length ? ' is-hidden' : '');
     }
     if (live.fightId && live.commands.length) {
       cmdRow = h('div', 'ci-pet-cmdrow');
@@ -6312,6 +6385,36 @@ function sceneHomeBody(container) {
         root = null;
       });
     }
+    // 调试/探针钩子：罐头战报直接上舞台（不发请求、不落战绩），
+    // 用来验证「战斗舞台」——练习/影子/塔与 Boss 共用同一套场景层。
+    window.__ciPetFightDemo = function() {
+      if (!root) return 'no-root';
+      var sec = root.querySelector('.ci-pet-battle');
+      if (!sec) return 'no-battle';
+      // 十一回合剧本：互相有来有回，第 5 回合重锤暴击，第 11 回合终结
+      var steps = [
+        { r: 1, by: 0, dmg: 14, hpMe: 88, hpFoe: 62, tags: [] },
+        { r: 2, by: 1, dmg: 9,  hpMe: 79, hpFoe: 62, tags: [] },
+        { r: 3, by: 0, dmg: 18, hpMe: 79, hpFoe: 44, tags: [] },
+        { r: 4, by: 1, dmg: 7,  hpMe: 72, hpFoe: 44, tags: [] },
+        { r: 5, by: 0, dmg: 12, hpMe: 72, hpFoe: 32, tags: ['heavy'], crit: true },
+        { r: 6, by: 1, dmg: 15, hpMe: 57, hpFoe: 32, tags: [] },
+        { r: 7, by: 0, dmg: 8,  hpMe: 57, hpFoe: 24, tags: [] },
+        { r: 8, by: 1, dmg: 21, hpMe: 36, hpFoe: 24, tags: [] },
+        { r: 9, by: 0, dmg: 12, hpMe: 36, hpFoe: 12, tags: ['heavy'], crit: true },
+        { r: 10, by: 1, dmg: 6, hpMe: 30, hpFoe: 12, tags: [] },
+        { r: 11, by: 0, dmg: 14, hpMe: 30, hpFoe: 0, tags: ['heavy'], crit: true }
+      ];
+      playFight(sec, {
+        me: { name: (state && state.name) || '小家伙', power: 312, hp: 88, type: (battle && battle.battleType) || 'grass' },
+        foe: { name: '练习桩 · 木人', power: 240, hp: 76, type: 'earth' },
+        steps: steps,
+        win: true, gain: 6, today: 1, decayed: false,
+        record: { points: 120, streak: 2 }
+      }, {});
+      return 'ok';
+    };
+
     window.addEventListener('resize', onResize);
     renderSkeleton();
     // 昼夜：读回设备偏好 + 每分钟对表（auto 模式跨过 6:30/18:30 界线时自动换景）
