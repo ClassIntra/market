@@ -11896,3 +11896,468 @@
     0 0 0 2px #cbb48a,
     3px 3px 0 rgba(120, 84, 40, 0.25);
 }
+
+/* ---------- 技能牌行（v0.28.2）：主动技由玩家出手 ---------- */
+.ci-pet-cmdrow.is-skills .ci-pet-cmdrow-label { color: #9fd8ff; }
+.ci-pet-cmd.is-skill {
+  background: linear-gradient(180deg, #2f3f5e 0%, #24314a 58%, #1a2438 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(120, 190, 255, 0.3);
+}
+.ci-pet-cmd.is-cd { opacity: 0.45; }
+.ci-pet-cmd.is-cd .ci-pet-cmd-cd::after {
+  content: '冷却 ' attr(data-cdleft);
+}
+.ci-pet-cmd-cd {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffd76e;
+}
+
+/* ==============================================================================
+   31. 远征（v0.29.0）—— roguelite 跑趟 + 祝福三选一
+   与深渊同血统（深紫 + 星点），但远征是「出发去冒险」：暖一点的紫、
+   祝福卡像战利品徽章而不是又一颗按钮。
+   ============================================================================== */
+.ci-pet-exp-pendtitle {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 900;
+  color: #ffd76e;
+  letter-spacing: 1px;
+}
+.ci-pet-exp-boons {
+  display: -webkit-flex; display: flex;
+  margin-top: 8px;
+}
+.ci-pet-exp-boon {
+  -webkit-flex: 1; flex: 1;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  margin-left: 8px;
+  padding: 12px 8px 10px;
+  border: 0;
+  text-align: center;
+  color: #f6f1e3;
+  background: linear-gradient(180deg, #3a2f55 0%, #2e2444 58%, #221a33 100%);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(202, 191, 255, 0.3);
+  -webkit-transition: -webkit-transform 0.08s steps(2, end);
+  transition: transform 0.08s steps(2, end);
+}
+.ci-pet-exp-boon:first-child { margin-left: 0; }
+.ci-pet-exp-boon:active { transform: translateY(2px); }
+.ci-pet-exp-boon.is-once {
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.4);
+}
+.ci-pet-exp-boon-icon { font-size: 26px; line-height: 1; }
+.ci-pet-exp-boon-name { margin-top: 6px; font-size: 13px; font-weight: 800; color: #cabfff; }
+.ci-pet-exp-boon-text {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(226, 233, 250, 0.62);
+}
+.ci-pet-exp-pips { display: -webkit-flex; display: flex; margin-top: 10px; }
+.ci-pet-exp-pip {
+  -webkit-flex: 1; flex: 1;
+  margin-left: 5px;
+  padding: 3px 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(226, 233, 250, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1px #17111f;
+}
+.ci-pet-exp-pip:first-child { margin-left: 0; }
+.ci-pet-exp-pip.is-done { color: #241f3a; background: #9d8fe0; }
+.ci-pet-exp-pip.is-next {
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.16);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(255, 215, 110, 0.4);
+}
+.ci-pet-exp-owned {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin-top: 8px;
+}
+.ci-pet-exp-chip {
+  margin: 0 6px 6px 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #cabfff;
+  background: rgba(160, 140, 255, 0.14);
+  box-shadow: 0 0 0 1px #17111f, inset 0 0 0 1px rgba(160, 140, 255, 0.3);
+}
+.ci-pet-exp-abandon {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px;
+  border: 0;
+  font-size: 11px;
+  color: rgba(226, 233, 250, 0.45);
+  background: transparent;
+}
+
+/* ==============================================================================
+   32. 舞台装修（v0.30.0）—— 从毛坯到剧场
+   用户吐槽「舞台有点太简陋了」：四层渐变 + 两颗圆盘确实是毛坯交房。
+   这一层把道具铺进场景（JS 侧 decorateStage + STAGE_ART 像素画）：
+     天上：太阳（白天）/ 月亮（夜）+ 三朵流云（白天）+ 萤火虫（夜）
+     地上：三排纵深的草丛 / 小花 / 石子（远小近大）
+     两侧：旗杆（白天挂彩旗、夜里换火盆火苗）
+     演出：我方/对手待机浮动、出手扑击、受击闪白抖动、脚下扬尘、
+           暴击爆星、回复疗愈粒子、血量分档换色、行动方血牌亮灯
+   昼夜显隐全走 .is-day CSS 门：切换昼夜舞台即时换装，不用重打一场。
+   ============================================================================== */
+
+/* ---------- 32.1 道具基座 ---------- */
+.ci-pethome .ci-pet-bstage-prop {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-bstage-prop.is-far  { z-index: 1; }
+.ci-pethome .ci-pet-bstage-prop.is-mid  { z-index: 1; }
+.ci-pethome .ci-pet-bstage-prop.is-near { z-index: 2; }
+
+/* ---------- 32.2 天体：太阳（昼）/ 月亮（夜），挂在各自光晕中心 ---------- */
+.ci-pethome .ci-pet-bstage-sun,
+.ci-pethome .ci-pet-bstage-moon {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-bstage-sun {
+  left: 76%; top: 17%;
+  width: 56px; height: 56px;
+  margin: -28px 0 0 -28px;
+  animation: ciPetSkyFloat 9s ease-in-out infinite;
+}
+.ci-pethome .ci-pet-bstage-moon {
+  left: 77%; top: 21%;
+  width: 48px; height: 48px;
+  margin: -24px 0 0 -24px;
+  animation: ciPetSkyFloat 11s ease-in-out infinite;
+}
+.ci-pethome .ci-pet-bstage-sun-pix  { width: 56px; height: 56px; }
+.ci-pethome .ci-pet-bstage-moon-pix { width: 48px; height: 48px; }
+@keyframes ciPetSkyFloat {
+  0%, 100% { -webkit-transform: translateY(0); transform: translateY(0); }
+  50%      { -webkit-transform: translateY(-5px); transform: translateY(-5px); }
+}
+/* 显隐门：夜里只看月亮，白天只看太阳 */
+.ci-pethome .ci-pet-bstage-sun { display: none; }
+.ci-pethome.is-day .ci-pet-bstage-sun { display: block; }
+.ci-pethome.is-day .ci-pet-bstage-moon { display: none; }
+
+/* ---------- 32.3 流云（白天）：三条不同高度/速度横飘全场 ---------- */
+.ci-pethome .ci-pet-bstage-cloud { display: none; }
+.ci-pethome.is-day .ci-pet-bstage-cloud {
+  display: block;
+  animation: ciPetCloudDrift linear infinite;
+}
+.ci-pethome.is-day .ci-pet-bstage-cloud.is-d1 { top: 8%;  animation-duration: 80s;  animation-delay: -22s; }
+.ci-pethome.is-day .ci-pet-bstage-cloud.is-d2 { top: 24%; animation-duration: 115s; animation-delay: -64s; }
+.ci-pethome.is-day .ci-pet-bstage-cloud.is-d3 { top: 15%; animation-duration: 95s;  animation-delay: -41s; }
+@keyframes ciPetCloudDrift {
+  from { left: -20%; }
+  to   { left: 104%; }
+}
+
+/* ---------- 32.4 萤火虫（夜）：漂移 + 呼吸明灭 ---------- */
+.ci-pethome .ci-pet-bstage-fly {
+  position: absolute;
+  z-index: 2;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: #ffe9a0;
+  box-shadow: 0 0 8px 2px rgba(255, 220, 120, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  animation: ciPetFirefly ease-in-out infinite;
+}
+@keyframes ciPetFirefly {
+  0%   { opacity: 0;    -webkit-transform: translate(0, 0);      transform: translate(0, 0); }
+  18%  { opacity: 0.95; }
+  45%  { opacity: 0.3;  -webkit-transform: translate(9px, -12px); transform: translate(9px, -12px); }
+  62%  { opacity: 0.9; }
+  100% { opacity: 0;    -webkit-transform: translate(-7px, -24px); transform: translate(-7px, -24px); }
+}
+.ci-pethome.is-day .ci-pet-bstage-fly { display: none; }
+
+/* ---------- 32.5 旗杆 ×2：白天彩旗 / 夜晚火盆火苗 ---------- */
+.ci-pethome .ci-pet-bstage-pole {
+  position: absolute;
+  z-index: 2;
+  bottom: 8px;
+  width: 22px; height: 150px;
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-bstage-polepix { position: absolute; left: 0; bottom: 0; width: 22px; height: 150px; }
+.ci-pethome .ci-pet-bstage-flag {
+  position: absolute;
+  left: 9px; top: -8px;
+  display: none;
+  -webkit-transform-origin: 0 60%;
+  transform-origin: 0 60%;
+  animation: ciPetFlagWave 1.1s steps(2, end) infinite;
+}
+@keyframes ciPetFlagWave {
+  0%, 100% { -webkit-transform: rotate(0deg);   transform: rotate(0deg); }
+  50%      { -webkit-transform: rotate(-3.5deg); transform: rotate(-3.5deg); }
+}
+.ci-pethome .ci-pet-bstage-pole.is-r .ci-pet-bstage-flag {
+  left: auto; right: 9px;
+  -webkit-transform: scaleX(-1); transform: scaleX(-1);
+  animation: none;   /* 镜像旗不摆（rotate 会打架 scaleX），静态即可 */
+}
+.ci-pethome .ci-pet-bstage-bowl {
+  position: absolute;
+  left: -5px; top: -4px;
+}
+.ci-pethome .ci-pet-bstage-flame {
+  position: absolute;
+  left: -2px; top: -32px;
+  -webkit-transform-origin: 50% 100%;
+  transform-origin: 50% 100%;
+  animation: ciPetFlame 0.5s steps(2, end) infinite;
+}
+@keyframes ciPetFlame {
+  0%, 100% { -webkit-transform: scale(1, 1);       transform: scale(1, 1); }
+  25%      { -webkit-transform: scale(0.93, 1.09); transform: scale(0.93, 1.09); }
+  50%      { -webkit-transform: scale(1.06, 0.93); transform: scale(1.06, 0.93); }
+  75%      { -webkit-transform: scale(0.96, 1.05); transform: scale(0.96, 1.05); }
+}
+.ci-pethome .ci-pet-bstage-flameglow {
+  position: absolute;
+  left: -21px; top: -40px;
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 170, 70, 0.34), rgba(255, 140, 50, 0) 68%);
+  animation: ciPetGlowPulse 1.2s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes ciPetGlowPulse {
+  from { opacity: 0.55; -webkit-transform: scale(0.92); transform: scale(0.92); }
+  to   { opacity: 0.95; -webkit-transform: scale(1.1);  transform: scale(1.1); }
+}
+/* 昼夜门：白天彩旗上杆，夜里火盆点火 */
+.ci-pethome.is-day .ci-pet-bstage-flag { display: block; }
+.ci-pethome.is-day .ci-pet-bstage-bowl,
+.ci-pethome.is-day .ci-pet-bstage-flame,
+.ci-pethome.is-day .ci-pet-bstage-flameglow { display: none; }
+
+/* ---------- 32.6 舞台晕影：四边压暗一圈，画面立刻有「剧场」纵深 ---------- */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-scene::after {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  left: 0; right: 0; top: 0; bottom: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 72px rgba(4, 7, 22, 0.55);
+}
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-scene::after {
+  box-shadow: inset 0 0 72px rgba(110, 74, 28, 0.2);
+}
+
+/* ---------- 32.7 待机浮动：双方都活着（对手盘反向相位） ---------- */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me {
+  animation: ciPetBobMe 3.4s ease-in-out infinite;
+}
+@keyframes ciPetBobMe {
+  0%, 100% { -webkit-transform: translateX(-50%) translateY(0); transform: translateX(-50%) translateY(0); }
+  50%      { -webkit-transform: translateX(-50%) translateY(-5px); transform: translateX(-50%) translateY(-5px); }
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-foe {
+  animation: ciPetBobFoe 2.8s ease-in-out infinite;
+}
+@keyframes ciPetBobFoe {
+  0%, 100% { -webkit-transform: translateX(50%) translateY(0); transform: translateX(50%) translateY(0); }
+  50%      { -webkit-transform: translateX(50%) translateY(-7px); transform: translateX(50%) translateY(-7px); }
+}
+
+/* ---------- 32.8 招式演出：扑击 / 受击 / 疗愈 ---------- */
+/* 出手方立绘扑向对面（me 向右 / foe 向左） */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-act > canvas,
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-act > video {
+  animation: ciPetLungeMe 0.5s ease-out;
+}
+@keyframes ciPetLungeMe {
+  0%   { -webkit-transform: translateX(0); transform: translateX(0); }
+  35%  { -webkit-transform: translateX(30px) translateY(-8px); transform: translateX(30px) translateY(-8px); }
+  100% { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-foe.is-act > .ci-pet-bstage-foedisc {
+  animation: ciPetLungeFoe 0.5s ease-out;
+}
+@keyframes ciPetLungeFoe {
+  0%   { -webkit-transform: translateX(0); transform: translateX(0); }
+  35%  { -webkit-transform: translateX(-30px) translateY(-8px); transform: translateX(-30px) translateY(-8px); }
+  100% { -webkit-transform: translateX(0); transform: translateX(0); }
+}
+/* 承受方立绘：闪白 + 硬抖（steps 保像素颗粒感） */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-hurt > canvas,
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-hurt > video,
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-foe.is-hurt > .ci-pet-bstage-foedisc {
+  animation: ciPetHurt 0.52s steps(2, end);
+}
+@keyframes ciPetHurt {
+  0%   { -webkit-transform: translateX(0);  transform: translateX(0);  -webkit-filter: brightness(2.1) saturate(0.35); filter: brightness(2.1) saturate(0.35); }
+  25%  { -webkit-transform: translateX(-6px); transform: translateX(-6px); }
+  50%  { -webkit-transform: translateX(5px); transform: translateX(5px);  -webkit-filter: brightness(2.3) saturate(0.2); filter: brightness(2.3) saturate(0.2); }
+  75%  { -webkit-transform: translateX(-3px); transform: translateX(-3px); }
+  100% { -webkit-transform: translateX(0);  transform: translateX(0); }
+}
+/* 回复方：轻轻鼓一下 + 泛起绿光 */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-glow > canvas,
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-me.is-glow > video,
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-foe.is-glow > .ci-pet-bstage-foedisc {
+  animation: ciPetGlowUp 0.7s ease-in-out;
+}
+@keyframes ciPetGlowUp {
+  0%   { -webkit-transform: scale(1); transform: scale(1); }
+  40%  { -webkit-transform: scale(1.05); transform: scale(1.05); }
+  100% { -webkit-transform: scale(1); transform: scale(1); }
+}
+/* 行动方血牌亮灯（金边一圈，牌不动） */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-arena-side.is-turn {
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 215, 110, 0.9),
+    0 0 16px rgba(255, 205, 100, 0.45),
+    0 6px 18px rgba(4, 7, 18, 0.5);
+}
+.ci-pethome.is-day .ci-pet-arena.is-stage .ci-pet-arena-side.is-turn {
+  box-shadow:
+    inset 0 0 0 2px rgba(176, 106, 32, 0.9),
+    0 0 14px rgba(214, 150, 60, 0.5),
+    0 6px 18px rgba(120, 84, 40, 0.3);
+}
+
+/* ---------- 32.9 舞台粒子：扬尘 / 疗愈 / 爆星 ---------- */
+.ci-pethome .ci-pet-bstage-fx {
+  position: absolute;
+  z-index: 4;
+  left: 50%; bottom: -2px;
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-bstage-fx .p {
+  position: absolute;
+  left: -3px; bottom: 0;
+  width: 6px; height: 6px;
+  background: #d8c9a8;
+  opacity: 0;
+}
+/* 扬尘：向两侧溅起 */
+.ci-pethome .ci-pet-bstage-fx.is-dust .p1 { animation: ciPetDust1 0.55s steps(4, end) forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-dust .p2 { animation: ciPetDust2 0.55s steps(4, end) forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-dust .p3 { width: 5px; height: 5px; animation: ciPetDust3 0.5s steps(4, end) forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-dust .p4 { width: 5px; height: 5px; animation: ciPetDust4 0.5s steps(4, end) forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-dust .p5 { width: 4px; height: 4px; animation: ciPetDust5 0.6s steps(4, end) forwards; }
+@keyframes ciPetDust1 { 0% { opacity: 0.95; -webkit-transform: translate(0, 0);        transform: translate(0, 0); }        100% { opacity: 0; -webkit-transform: translate(-26px, -10px); transform: translate(-26px, -10px); } }
+@keyframes ciPetDust2 { 0% { opacity: 0.95; -webkit-transform: translate(0, 0);        transform: translate(0, 0); }        100% { opacity: 0; -webkit-transform: translate(24px, -12px);  transform: translate(24px, -12px); } }
+@keyframes ciPetDust3 { 0% { opacity: 0.9;  -webkit-transform: translate(-4px, -6px);  transform: translate(-4px, -6px); }  100% { opacity: 0; -webkit-transform: translate(-12px, -20px); transform: translate(-12px, -20px); } }
+@keyframes ciPetDust4 { 0% { opacity: 0.9;  -webkit-transform: translate(4px, -6px);   transform: translate(4px, -6px); }   100% { opacity: 0; -webkit-transform: translate(12px, -18px);  transform: translate(12px, -18px); } }
+@keyframes ciPetDust5 { 0% { opacity: 0.85; -webkit-transform: translate(0, -8px);     transform: translate(0, -8px); }     100% { opacity: 0; -webkit-transform: translate(-2px, -26px);  transform: translate(-2px, -26px); } }
+/* 疗愈：绿色粒子慢慢升 */
+.ci-pethome .ci-pet-bstage-fx.is-heal .p { background: #8fe08a; }
+.ci-pethome .ci-pet-bstage-fx.is-heal .p1 { animation: ciPetHeal1 0.72s ease-out forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-heal .p2 { animation: ciPetHeal2 0.72s ease-out forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-heal .p3 { animation: ciPetHeal3 0.66s ease-out forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-heal .p4 { animation: ciPetHeal4 0.78s ease-out forwards; }
+.ci-pethome .ci-pet-bstage-fx.is-heal .p5 { animation: ciPetHeal5 0.7s ease-out forwards; }
+@keyframes ciPetHeal1 { 0% { opacity: 0; -webkit-transform: translate(0, 0);       transform: translate(0, 0); }       30% { opacity: 0.95; } 100% { opacity: 0; -webkit-transform: translate(-10px, -34px); transform: translate(-10px, -34px); } }
+@keyframes ciPetHeal2 { 0% { opacity: 0; -webkit-transform: translate(0, 0);       transform: translate(0, 0); }       30% { opacity: 0.95; } 100% { opacity: 0; -webkit-transform: translate(9px, -30px);  transform: translate(9px, -30px); } }
+@keyframes ciPetHeal3 { 0% { opacity: 0; -webkit-transform: translate(0, 0);       transform: translate(0, 0); }       30% { opacity: 0.9; }  100% { opacity: 0; -webkit-transform: translate(-4px, -40px); transform: translate(-4px, -40px); } }
+@keyframes ciPetHeal4 { 0% { opacity: 0; -webkit-transform: translate(0, 0);       transform: translate(0, 0); }       30% { opacity: 0.9; }  100% { opacity: 0; -webkit-transform: translate(12px, -44px); transform: translate(12px, -44px); } }
+@keyframes ciPetHeal5 { 0% { opacity: 0; -webkit-transform: translate(0, 0);       transform: translate(0, 0); }       30% { opacity: 0.85; } 100% { opacity: 0; -webkit-transform: translate(0, -36px);   transform: translate(0, -36px); } }
+/* 爆星：两道金光十字 + 一圈冲击环（暴击专属） */
+.ci-pethome .ci-pet-bstage-fx.is-burst { bottom: 34px; }
+.ci-pethome .ci-pet-bstage-fx.is-burst::before,
+.ci-pethome .ci-pet-bstage-fx.is-burst::after {
+  content: '';
+  position: absolute;
+  left: -22px; top: -2px;
+  width: 44px; height: 5px;
+  background: #ffd76e;
+  box-shadow: 0 0 10px rgba(255, 200, 80, 0.8);
+  animation: ciPetBurstBar 0.46s ease-out forwards;
+}
+.ci-pethome .ci-pet-bstage-fx.is-burst::before { -webkit-transform: rotate(45deg); transform: rotate(45deg); }
+.ci-pethome .ci-pet-bstage-fx.is-burst::after  { -webkit-transform: rotate(-45deg); transform: rotate(-45deg); }
+@keyframes ciPetBurstBar {
+  0%   { opacity: 1; -webkit-transform: scale(0.3) rotate(45deg);  transform: scale(0.3) rotate(45deg); }
+  100% { opacity: 0; -webkit-transform: scale(1.25) rotate(45deg); transform: scale(1.25) rotate(45deg); }
+}
+.ci-pethome .ci-pet-bstage-fx.is-burst::after {
+  animation-name: ciPetBurstBar2;
+}
+@keyframes ciPetBurstBar2 {
+  0%   { opacity: 1; -webkit-transform: scale(0.3) rotate(-45deg);  transform: scale(0.3) rotate(-45deg); }
+  100% { opacity: 0; -webkit-transform: scale(1.25) rotate(-45deg); transform: scale(1.25) rotate(-45deg); }
+}
+.ci-pethome .ci-pet-bstage-fx.is-burst .ring {
+  position: absolute;
+  left: -27px; top: -26px;
+  width: 54px; height: 54px;
+  border: 3px solid rgba(255, 215, 110, 0.9);
+  border-radius: 50%;
+  animation: ciPetBurstRing 0.5s ease-out forwards;
+}
+@keyframes ciPetBurstRing {
+  0%   { opacity: 1;   -webkit-transform: scale(0.25); transform: scale(0.25); }
+  100% { opacity: 0;   -webkit-transform: scale(1.45); transform: scale(1.45); }
+}
+
+/* ---------- 32.10 血条：像素刻度 + 分档换色 ---------- */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hpbar {
+  position: relative;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px rgba(8, 5, 2, 0.4);
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hpbar::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  background: repeating-linear-gradient(90deg,
+    rgba(10, 6, 2, 0.26) 0 1px,
+    rgba(10, 6, 2, 0) 1px 10%);
+  pointer-events: none;
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hpfill {
+  border-radius: 2px;
+}
+/* 过半告警 / 残血求救（覆盖敌粉我绿两套底色） */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hpfill.is-mid {
+  background: linear-gradient(90deg, #f2a93c, #ffd76e);
+}
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-hpfill.is-low {
+  background: linear-gradient(90deg, #e04848, #ff7a5e);
+  animation: ciPetHpLow 0.9s steps(2, end) infinite;
+}
+@keyframes ciPetHpLow {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.72; }
+}
+
+/* ---------- 32.11 VS 徽章：玻璃粉块 → 像素木牌（v0.30.1） ---------- */
+/* 白天版曾被 §27.6 洗成米黄圆角块，悬在蓝天上像一张空白卡片。
+   改成与房间家具同一套木头的深木牌 + 金字 + 硬投影，昼夜都站得住。
+   （§27.6 的白天规则带 !important，这里必须同级别才盖得住。） */
+.ci-pethome .ci-pet-arena.is-stage .ci-pet-bstage-vs {
+  padding: 5px 12px !important;
+  border-radius: 4px !important;
+  font-size: 15px !important;
+  letter-spacing: 2px !important;
+  color: #ffd76e !important;
+  background: linear-gradient(180deg, #6b4a2e 0%, #59391f 100%) !important;
+  border: 2px solid #43290f !important;
+  box-shadow: 0 3px 0 #2e1a0a, inset 0 1px 0 rgba(255, 220, 150, 0.35) !important;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45) !important;
+}

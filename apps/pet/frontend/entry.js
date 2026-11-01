@@ -445,6 +445,249 @@
       '............'
     ] }
   };
+
+  // ==================== v0.30.0 舞台装修：小道具像素画 ====================
+  // 毛坯场景（天/星/山/地四层渐变）读起来像「没布置的剧场」——用户吐槽
+  // 「舞台有点太简陋了」。这一版往场景里铺道具：天上的太阳/月亮复用
+  // PIX_ICONS，草地的草丛/小花/石子、两侧的旗杆/彩旗/火盆/火苗在这画。
+  // 全部走 pxArt 内描边，与房间像素语言同一套（.workbuddy/tmp/pet-art/_art8.py 生成）。
+  var STAGE_ART = {
+    cloud: { w: 26, h: 10, pal: {'n': '#ffffff', 'm': '#d6e6f2'}, rows: [
+      '..........................',
+      '..........nnnnnnn.........',
+      '.......nnnnnnnnnnnnn......',
+      '.......nnnnnnnnnnnnn......',
+      '.....nnnnnnnnnnnnnnnnn....',
+      '.....nnnnnnnnnnnnnnnnn....',
+      '...nnnnnnnnnnnnnnnnnnnnn..',
+      '...nnnnnnnnnnnnnnnnnnnnn..',
+      '....mmmmmmmmmmmmmmmmmmm...',
+      '.....mmmmmmmmmmmmmmmmm....',
+    ] },
+    cloud2: { w: 16, h: 8, pal: {'n': '#ffffff', 'm': '#d6e6f2'}, rows: [
+      '................',
+      '.....nnnnnnn....',
+      '....nnnnnnnnn...',
+      '....nnnnnnnnn...',
+      '...nnnnnnnnnnn..',
+      '...nnnnnnnnnnn..',
+      '....mmmmmmmmm...',
+      '................',
+    ] },
+    grassA: { w: 10, h: 8, pal: {'g': '#5f9a4c', 'h': '#8cc46a', 'd': '#3f7038'}, rows: [
+      '....h.....',
+      '....g.h...',
+      '....dg....',
+      '.g..dd..g.',
+      'hd..dd..dh',
+      '.d..dd..d.',
+      '.d..dd..d.',
+      'dddddddddd',
+    ] },
+    grassB: { w: 12, h: 9, pal: {'g': '#5f9a4c', 'h': '#8cc46a', 'd': '#3f7038'}, rows: [
+      '.....h......',
+      '.....gh.....',
+      '.g...d......',
+      'h.g..d..g...',
+      '..d..d..dg..',
+      '..dd.d..d.h.',
+      '..dd.d..dd..',
+      '..dd.d..dd..',
+      '.dddddddddd.',
+    ] },
+    flower: { w: 8, h: 10, pal: {'p': '#e895a8', 'q': '#f9cdd8', 'y': '#f2c94c', 's': '#4e7c46', 'l': '#6f9e4a'}, rows: [
+      '........',
+      '..qppq..',
+      '.q.pp.q.',
+      '.ppyypp.',
+      '.pqyyqp.',
+      '..pppp..',
+      '...s....',
+      '...sll..',
+      '..ls.s..',
+      '...s....',
+    ] },
+    pebble: { w: 11, h: 6, pal: {'a': '#9a917f', 'b': '#b8ae9a', 'c': '#7a7264'}, rows: [
+      '...........',
+      '...........',
+      '...ab......',
+      '..abaaa.c..',
+      '..aaaaaccac',
+      '..aaaaacccc',
+    ] },
+    pole: { w: 6, h: 48, pal: {'k': '#5c3d22', 'w': '#7a5230', 'l': '#96683c', 'i': '#4a3018'}, rows: [
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'iiiiii', 'iiiiii',
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'iiiiii', 'iiiiii',
+      'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk', 'kwlwkk',
+      'iiiiii', 'iiiiii',
+    ] },
+    flag: { w: 15, h: 11, pal: {'r': '#cf5b47', 'd': '#a03e33', 'l': '#ea8068', 'k': '#5c3d22'}, rows: [
+      'k..............',
+      'klrllrllrllrl..',
+      'krllrllrllrldr.',
+      '.llrllrllrllrd.',
+      '.rrrrrrrrrrrr..',
+      '.rrrrrrrrrrr...',
+      '.ddddrrrrr.....',
+      '.ddddrrr.......',
+      '.ddddr.........',
+      '.ddk...........',
+      '...k...........',
+    ] },
+    bowl: { w: 12, h: 7, pal: {'m': '#3f3a4a', 'R': '#5a5468', 'i': '#2a2634', 's': '#6e687e'}, rows: [
+      '............',
+      '.RRRRRRRRRR.',
+      '..mssmmmmm..',
+      '..smmmmmmm..',
+      '..mmmmmmmm..',
+      '...mmmmmm...',
+      '....iiii....',
+    ] },
+    flame: { w: 10, h: 13, pal: {'o': '#f2903c', 'y': '#ffd76e', 'w': '#fff3c0', 'r': '#e06a2e'}, rows: [
+      '.....oo...',
+      '.....oo...',
+      '...oooo...',
+      '...oooo...',
+      '..oyyyyo..',
+      '..oyyyyo..',
+      '..oyyyyo..',
+      '.ooywwyoo.',
+      '.roywwyor.',
+      '.roywwyor.',
+      '.royywyor.',
+      '..oyyyyo..',
+      '..roooor..',
+    ] }
+  };
+  // 道具通用拼装：pxArt 画进固定尺寸的绝对定位 span（位置由调用方 inline 给）
+  function stageProp(name, cls, w, hpx, palOverride) {
+    var a = STAGE_ART[name];
+    if (!a) return null;
+    var el = h('span', 'ci-pet-bstage-prop' + (cls ? ' ' + cls : ''));
+    el.style.width = w + 'px';
+    el.style.height = hpx + 'px';
+    el.innerHTML = pxArt(a.w, a.h, a.rows, palOverride || a.pal);
+    return el;
+  }
+
+  // ==================== 舞台道具编排（v0.30.0） ====================
+  // 三排纵深：远排贴山脚（最小）、中排草坡、近排放大——越近越大才有「场地」感。
+  // 避让表：我方立绘在左 22%（近排让开左下），我方血牌在右下角（近排不让 x>70%），
+  // 对手盘浮在右上（只避天体/云的位置）。昼夜显隐不在这里判断——白天/夜晚两套
+  // 都画上，交给 CSS 的 .is-day 门（切换昼夜时舞台即时换装，不用重打一场）。
+  function decorateStage(scene) {
+    if (!scene) return;
+    // ---- 天体：太阳（白天）/ 月亮（夜），挂在各自光晕的中心 ----
+    var sun = pixIcon('sun', 'ci-pet-bstage-sun-pix');
+    if (sun) {
+      var sunBox = h('span', 'ci-pet-bstage-sun');
+      sunBox.appendChild(sun);
+      scene.appendChild(sunBox);
+    }
+    var moon = pixIcon('moon', 'ci-pet-bstage-moon-pix');
+    if (moon) {
+      var moonBox = h('span', 'ci-pet-bstage-moon');
+      moonBox.appendChild(moon);
+      scene.appendChild(moonBox);
+    }
+    // ---- 流云（白天专属）：三朵不同高度/速度横飘，animation-delay 负值让开场就在半路 ----
+    var clouds = [
+      ['cloud', 100, 39, 'is-d1'],
+      ['cloud2', 58, 29, 'is-d2'],
+      ['cloud2', 74, 37, 'is-d3']
+    ];
+    for (var i = 0; i < clouds.length; i++) {
+      var cl = stageProp(clouds[i][0], 'ci-pet-bstage-cloud ' + clouds[i][3], clouds[i][1], clouds[i][2]);
+      if (cl) scene.appendChild(cl);
+    }
+    // ---- 萤火虫（夜）：7 只，各自的漂移节奏由 inline delay/duration 错开 ----
+    var flies = [
+      ['8%', '44%', 0, 4.2], ['22%', '56%', 1.3, 3.6], ['40%', '38%', 2.1, 4.8],
+      ['55%', '58%', 0.6, 3.9], ['70%', '42%', 1.8, 4.4], ['84%', '54%', 2.7, 3.4],
+      ['93%', '36%', 0.9, 4.6]
+    ];
+    for (var f = 0; f < flies.length; f++) {
+      var fly = h('span', 'ci-pet-bstage-fly');
+      fly.style.left = flies[f][0];
+      fly.style.bottom = flies[f][1];
+      fly.style.animationDelay = flies[f][2] + 's';
+      fly.style.animationDuration = flies[f][3] + 's';
+      scene.appendChild(fly);
+    }
+    // ---- 旗杆 ×2：白天挂彩旗，夜里换火盆 + 抖动的火苗（CSS 门） ----
+    var poleX = ['4.5%', '92.5%'];
+    for (var p = 0; p < 2; p++) {
+      var poleBox = h('span', 'ci-pet-bstage-pole' + (p ? ' is-r' : ''));
+      poleBox.style.left = poleX[p];
+      var pole = stageProp('pole', 'ci-pet-bstage-polepix', 22, 150);
+      if (pole) poleBox.appendChild(pole);
+      var flag = stageProp('flag', 'ci-pet-bstage-flag', 46, 34);
+      if (flag) poleBox.appendChild(flag);
+      var bowl = stageProp('bowl', 'ci-pet-bstage-bowl', 32, 19);
+      if (bowl) poleBox.appendChild(bowl);
+      var flame = stageProp('flame', 'ci-pet-bstage-flame', 26, 34);
+      if (flame) poleBox.appendChild(flame);
+      poleBox.appendChild(h('span', 'ci-pet-bstage-flameglow'));
+      scene.appendChild(poleBox);
+    }
+    // ---- 草地道具：[美术名, left%, bottom%, 宽px, 高px, 配色覆盖?] ----
+    // 远排（贴山脚，最小）
+    var farRow = [
+      ['grassA', 6, 47, 18, 14], ['grassB', 30, 48, 20, 15],
+      ['flower', 46, 47, 14, 18, 'white'], ['grassA', 60, 48, 18, 14],
+      ['pebble', 74, 47, 16, 9], ['grassB', 88, 47, 20, 15]
+    ];
+    // 中排（草坡中部，避开我方立绘 x 12-32%）
+    var midRow = [
+      ['grassA', 40, 29, 26, 21], ['flower', 54, 26, 18, 22],
+      ['grassB', 72, 29, 26, 20], ['pebble', 88, 27, 20, 11],
+      ['flower', 6, 27, 16, 20, 'pink']
+    ];
+    // 近排（最大、最抢眼；避开我方血牌 x>70%）
+    var nearRow = [
+      ['grassB', 8, 5, 32, 24], ['flower', 19, 9, 22, 28, 'pink'],
+      ['grassB', 41, 4, 34, 26], ['pebble', 50, 3, 22, 12],
+      ['flower', 57, 8, 22, 28, 'white'], ['grassA', 65, 5, 30, 24]
+    ];
+    function layRow(row, zcls) {
+      for (var r = 0; r < row.length; r++) {
+        var it = row[r];
+        var pal = null;
+        if (it[5] === 'white') pal = { 'p': '#f7f0dc', 'q': '#ffffff', 'y': '#e8a83c', 's': '#4e7c46', 'l': '#6f9e4a' };
+        var el2 = stageProp(it[0], zcls, it[3], it[4], pal);
+        if (!el2) continue;
+        el2.style.left = it[1] + '%';
+        el2.style.bottom = it[2] + '%';
+        scene.appendChild(el2);
+      }
+    }
+    layRow(farRow, 'is-far');
+    layRow(midRow, 'is-mid');
+    layRow(nearRow, 'is-near');
+  }
+
+  // ==================== 舞台粒子发生器（v0.30.0） ====================
+  // kind: dust（土黄尘土向两侧溅）/ heal（绿色疗愈粒子上升）/ burst（金色爆星）。
+  // 挂在承受方的站位盒里（box 内 absolute，left 50%），播放完整体移除。
+  var FX_N = 5;
+  function spawnStageFx(box, kind) {
+    if (!box) return;
+    var fx = h('span', 'ci-pet-bstage-fx is-' + kind);
+    for (var i = 0; i < FX_N; i++) {
+      fx.appendChild(h('span', 'p p' + (i + 1)));
+    }
+    if (kind === 'burst') fx.appendChild(h('span', 'ring'));
+    box.appendChild(fx);
+    setTimeout(function() {
+      if (fx.parentNode) fx.parentNode.removeChild(fx);
+    }, kind === 'burst' ? 560 : 760);
+  }
+
   // 取图标：拿不到就返回 null，调用方自行回退（绝不抛错，图标缺一个不该白屏）
   function pixIcon(name, cls) {
     var ic = PIX_ICONS[name];
@@ -4845,7 +5088,8 @@ function sceneHomeBody(container) {
     var defs = [
       { id: 'shadow', label: '真人影子' },
       { id: 'spar', label: '练习赛' },
-      { id: 'tower', label: '试炼之塔' }
+      { id: 'tower', label: '试炼之塔' },
+      { id: 'exp', label: '远征' }
     ];
     defs.forEach(function(d, idx) {
       var t = h('button', 'ci-pet-sheettab' +
@@ -4873,6 +5117,8 @@ function sceneHomeBody(container) {
         }
       } else if (d.id === 'spar') {
         pane.appendChild(foesSheet(sec, battle.opponents || [], out));
+      } else if (d.id === 'exp') {
+        pane.appendChild(expeditionSection(sec));
       } else {
         pane.appendChild(towerSection(sec));
       }
@@ -5137,6 +5383,14 @@ function sceneHomeBody(container) {
   // ==================== Build 编辑器（v2.0）====================
   // 整页视图（和拼豆工作台同款模式）：clearRoot 起一页，保存/返回回 renderHome。
   // 每次点选整页重画——技能+装备总量不过二十几个 chips，重画比局部同步可靠得多。
+  // 互斥提示（v0.28.3）：与后端 SKILL_CONFLICTS / 引擎 skillEffects 三处同源。
+  // 之前提示「先选的生效」是错误承诺——引擎固定保留规则表靠前者（heavy>blast 等），
+  // 玩家按提示以为 blast 生效，实战永远不触发。现在直接指名谁生效。
+  var BUILD_HINTS = {
+    blast: '爆发类互斥：实战只生效「千钧一击」',
+    shield: '续航类互斥：实战只生效「鲸吞」',
+    guard_stance: '增益类互斥：实战只生效「狂怒」'
+  };
   var BUILD_CONFLICTS = {
     blast: ['heavy'], heavy: ['blast'],
     shield: ['lifesteal'], lifesteal: ['shield'],
@@ -5166,7 +5420,7 @@ function sceneHomeBody(container) {
     box.appendChild(head);
     var slots = battle.skillSlots || 2;
     box.appendChild(h('div', 'ci-pet-beditor-sub',
-      '技能最多 ' + slots + ' 个（随进化增多）。互斥的技能实战只生效先选的那个。'));
+      '技能最多 ' + slots + ' 个（随进化增多）。互斥的技能只生效其一：爆发留千钧、续航留鲸吞、增益留狂怒。'));
 
     var nameInput = document.createElement('input');
     nameInput.className = 'ci-pet-beditor-name';
@@ -5209,7 +5463,7 @@ function sceneHomeBody(container) {
             var conflicts = BUILD_CONFLICTS[s.id] || [];
             for (var c = 0; c < conflicts.length; c++) {
               if (buildEdit.skills.indexOf(conflicts[c]) >= 0) {
-                sysToast('「' + s.name + '」和先选的技能互斥，实战只生效先选的那个', 'info');
+                sysToast(BUILD_HINTS[s.id] || ('「' + s.name + '」与已选技能互斥'), 'info');
                 break;
               }
             }
@@ -5488,6 +5742,135 @@ function sceneHomeBody(container) {
     15: '深度 15：教室里可能没有第二个人到过这里',
     20: '深度 20：传说。真的。'
   };
+
+  // 远征的战斗回放：与塔同构，结算分支走 opts.expedition
+  function playExpeditionFight(sec, btn) {
+    var txt = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '出发…';
+    api.post('/pet/expedition/fight', { mode: 'open' }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (!d.steps) { btn.disabled = false; btn.textContent = txt; return; }
+      absorbProgress(d);
+      battle = null;    // 远征进度变了，回来重新取
+      playFight(sec, d, { expedition: true, depth: d.depth, endpoint: '/pet/expedition/fight', extra: {} });
+    }, function(err) {
+      btn.disabled = false;
+      btn.textContent = txt;
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '出发失败';
+      sysToast(msg, 'error');
+    });
+  }
+
+  // 远征 pane：锁定 / 待出发 / 进行中（深度点 + 祝福）/ 等挑祝福（三选一）
+  function expeditionSection(sec) {
+    var box = h('div', 'ci-pet-exp');
+    var ex = (battle && battle.expedition) || {};
+    var headRow = h('div', 'ci-pet-tower-head');
+    headRow.appendChild(h('span', 'ci-pet-tower-title', '🏕 远征'));
+    headRow.appendChild(h('span', 'ci-pet-tower-quota', ex.best ? ('最佳深度 ' + ex.best) : '尚未出发'));
+    box.appendChild(headRow);
+    box.appendChild(h('div', 'ci-pet-tower-tip',
+      '一次最多五层，赢了挑一个祝福接着往下走，输了就地结算。祝福只在这一次远征里有效——' +
+      '每天路线全班相同，看谁走得深。'));
+
+    if (ex.locked) {
+      var lk = h('div', 'ci-pet-abyss is-locked');
+      lk.appendChild(h('div', 'ci-pet-abyss-head', '🏕 远征 · 尚未开启'));
+      lk.appendChild(h('div', 'ci-pet-abyss-depth',
+        '通过试炼塔第 ' + (ex.unlockTower || 3) + ' 层解锁'));
+      lk.appendChild(h('div', 'ci-pet-abyss-tip',
+        '先把塔爬到三层，证明你能带它出门远行。'));
+      box.appendChild(lk);
+      return box;
+    }
+
+    if (ex.pending && ex.pending.length === 3) {
+      // 层间三选一（Hades boons）：本局生效，输了就蒸发
+      box.appendChild(h('div', 'ci-pet-exp-pendtitle',
+        '第 ' + (ex.depth || 0) + ' 层已通过——选一个祝福带走'));
+      var pickRow = h('div', 'ci-pet-exp-boons');
+      for (var pi = 0; pi < ex.pending.length; pi++) {
+        (function(b) {
+          var card = h('button', 'ci-pet-exp-boon' + (b.once ? ' is-once' : ''));
+          card.appendChild(h('span', 'ci-pet-exp-boon-icon', b.icon || ''));
+          card.appendChild(h('span', 'ci-pet-exp-boon-name', b.name || b.id));
+          card.appendChild(h('span', 'ci-pet-exp-boon-text', b.text || ''));
+          card.addEventListener('click', function() {
+            card.disabled = true;
+            api.post('/pet/expedition/boon', { id: b.id }).then(function(res) {
+              var d = (res.data && res.data.data) || {};
+              if (d.expedition && battle) battle.expedition = d.expedition;
+              sysToast('祝福到手：' + (b.icon || '') + ' ' + (b.name || ''), 'success');
+              openSheet(sec, 'fight', 'exp');
+            }, function(err) {
+              card.disabled = false;
+              var msg = (err && err.response && err.response.data && err.response.data.message) || '没能拿走这个祝福';
+              sysToast(msg, 'error');
+            });
+          });
+          pickRow.appendChild(card);
+        })(ex.pending[pi]);
+      }
+      box.appendChild(pickRow);
+      return box;
+    }
+
+    if (ex.active) {
+      // 进行中：深度点 + 已持祝福 + 继续按钮
+      var pips = h('div', 'ci-pet-exp-pips');
+      for (var d2 = 1; d2 <= (ex.maxDepth || 5); d2++) {
+        pips.appendChild(h('span', 'ci-pet-exp-pip' +
+          (d2 <= ex.depth ? ' is-done' : '') + (d2 === ex.depth + 1 ? ' is-next' : ''),
+          String(d2)));
+      }
+      box.appendChild(pips);
+      if (ex.boons && ex.boons.length) {
+        var chipRow = h('div', 'ci-pet-exp-owned');
+        for (var ci = 0; ci < ex.boons.length; ci++) {
+          chipRow.appendChild(h('span', 'ci-pet-exp-chip',
+            (ex.boons[ci].icon || '') + ' ' + (ex.boons[ci].name || '')));
+        }
+        box.appendChild(chipRow);
+      }
+      var next = h('button', 'ci-pet-foe-btn is-abyss',
+        ex.depth === 0 ? '出发 · 第 1 层' : '继续下探 · 第 ' + (ex.depth + 1) + ' 层');
+      next.addEventListener('click', function() { playExpeditionFight(sec, next); });
+      box.appendChild(next);
+      // 重开一趟（放弃不单独结算保底分——重开即覆盖，下一趟结算按新深度算）
+      var re = h('button', 'ci-pet-exp-abandon', '重新出发（放弃这次进度）');
+      re.addEventListener('click', function() {
+        re.disabled = true;
+        api.post('/pet/expedition/start').then(function(res2) {
+          var dd = (res2.data && res2.data.data) || {};
+          if (dd.expedition && battle) battle.expedition = dd.expedition;
+          openSheet(sec, 'fight', 'exp');
+        }, function() { re.disabled = false; });
+      });
+      box.appendChild(re);
+      return box;
+    }
+
+    // 待出发
+    var go = h('button', 'ci-pet-foe-btn is-abyss', '出发');
+    go.addEventListener('click', function() {
+      go.disabled = true;
+      api.post('/pet/expedition/start').then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.expedition && battle) battle.expedition = d.expedition;
+        openSheet(sec, 'fight', 'exp');
+      }, function(err) {
+        go.disabled = false;
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '出发失败';
+        sysToast(msg, 'error');
+      });
+    });
+    box.appendChild(go);
+    if (ex.runsToday) {
+      box.appendChild(h('div', 'ci-pet-abyss-tip', '今天已出发 ' + ex.runsToday + ' 次'));
+    }
+    return box;
+  }
 
   // 塔的战斗回放：复用同一个播放器，只是结尾多一句「通关第 N 层」
   function playTowerFight(sec, d) {
@@ -5843,7 +6226,11 @@ function sceneHomeBody(container) {
       el: el,
       set: function(hp) {
         var v = Math.max(0, hp || 0);
-        fill.style.width = Math.round(v / max * 100) + '%';
+        var pct = v / max;
+        fill.style.width = Math.round(pct * 100) + '%';
+        // v0.30.0：血量分档换色——绿（健康）→ 琥珀（过半告警）→ 红（残血求救）
+        fill.classList.toggle('is-mid', pct < 0.62 && pct >= 0.3);
+        fill.classList.toggle('is-low', pct < 0.3);
         txt.textContent = v + ' / ' + max;
       }
     };
@@ -5866,6 +6253,8 @@ function sceneHomeBody(container) {
     scene.appendChild(h('div', 'ci-pet-scene-stars'));
     scene.appendChild(h('div', 'ci-pet-scene-hills'));
     scene.appendChild(h('div', 'ci-pet-scene-ground'));
+    // v0.30.0 舞台装修：天体/流云/萤火虫/旗杆/草丛小花石子（见 decorateStage）
+    decorateStage(scene);
 
     // 对手盘：塔战用塔像素图标，其余用对手的属性像素图标
     // （后端 foe.typeIcon 是 emoji 家族，这里统一走 PIX_ICONS 保持像素语言）
@@ -5927,6 +6316,8 @@ function sceneHomeBody(container) {
       manualSkills: d.manualSkills || [],
       busy: false
     };
+    // 默契牌种类（与服务端 COMMAND_IDS 对齐）——refreshCmd/fireCommand 靠它分流两种牌
+    var COMMAND_IDS = ['strike', 'guard', 'charge'];
     // 技能牌的冷却参数（与服务端 ACTIVE_SKILLS.cooldown 对齐）与战报 tag 映射。
     // 冷却靠扫 steps 推断：上次释放回合 + 冷却数 + 1 = 再次可用回合。
     var SKILL_CD = { blast: 2, smash: 3, heal: 4 };
@@ -5945,6 +6336,7 @@ function sceneHomeBody(container) {
     var cardEls = {};
     var countEl = null;
     var cmdRow = null;
+    var cardRowCache = { tac: null, sk: null };
     function usedKinds() {
       var m = {};
       for (var i = 0; i < live.cmds.length; i++) m[live.cmds[i].kind] = 1;
@@ -5964,7 +6356,9 @@ function sceneHomeBody(container) {
           // 默契牌：用过即灰
           cls += (used[k] ? ' is-used' : '') + (left <= 0 ? ' is-out' : '');
         } else {
-          // 技能牌：冷却中显示剩余回合
+          // 技能牌：is-skill 蓝牌底色必须保留（v0.28.3 修复：之前每 tick 重写
+          // className 把它洗掉，牌面退化成默认木色、冷却角标样式失效）
+          cls += ' is-skill';
           var cd = skillCdLeft(k);
           if (cd > 0) {
             cls += ' is-cd';
@@ -5975,10 +6369,13 @@ function sceneHomeBody(container) {
         }
         el.className = cls;
       }
-      cmdRow.className = 'ci-pet-cmdrow' + (live.slots <= 0 && !live.manualSkills.length ? ' is-hidden' : '');
+      if (cardRowCache.tac) cardRowCache.tac.className = 'ci-pet-cmdrow';
+      if (cardRowCache.sk) cardRowCache.sk.className = 'ci-pet-cmdrow is-skills';
     }
     if (live.fightId && live.commands.length) {
-      cmdRow = h('div', 'ci-pet-cmdrow');
+      // ---- 默契牌行 ----
+      var tacRow = h('div', 'ci-pet-cmdrow');
+      cmdRow = tacRow;
       var crowHead = h('div', 'ci-pet-cmdrow-head');
       crowHead.appendChild(h('span', 'ci-pet-cmdrow-label', '默契'));
       countEl = h('span', 'ci-pet-cmdrow-count', '×' + live.slots);
@@ -6001,8 +6398,38 @@ function sceneHomeBody(container) {
           crowCards.appendChild(card);
         })(live.commands[ci]);
       }
-      cmdRow.appendChild(crowCards);
-      arena.appendChild(cmdRow);
+      tacRow.appendChild(crowCards);
+      cardRowCache.tac = tacRow;
+      arena.appendChild(tacRow);
+
+      // ---- 技能牌行（v0.28.2）：装备的主动技由玩家出手，不再由 AI 代放 ----
+      if (live.manualSkills.length) {
+        var skRow = h('div', 'ci-pet-cmdrow is-skills');
+        var skHead = h('div', 'ci-pet-cmdrow-head');
+        skHead.appendChild(h('span', 'ci-pet-cmdrow-label', '技能'));
+        skHead.appendChild(h('span', 'ci-pet-cmdrow-hint', '由你出手 · 什么时候放大招你说了算'));
+        skRow.appendChild(skHead);
+        var skCards = h('div', 'ci-pet-cmdrow-cards');
+        for (var si = 0; si < live.manualSkills.length; si++) {
+          (function(sk) {
+            var card = h('button', 'ci-pet-cmd is-skill');
+            card.setAttribute('data-cmd', sk.id);
+            card.appendChild(h('span', 'ci-pet-cmd-icon', sk.icon));
+            var txt = h('span', 'ci-pet-cmd-txt');
+            txt.appendChild(h('span', 'ci-pet-cmd-name', sk.name));
+            txt.appendChild(h('span', 'ci-pet-cmd-desc', sk.desc));
+            card.appendChild(txt);
+            card.appendChild(h('span', 'ci-pet-cmd-cd', ''));
+            card.setAttribute('title', sk.desc + '（冷却 ' + sk.cooldown + ' 回合）');
+            card.addEventListener('click', function() { fireCommand(sk.id); });
+            cardEls[sk.id] = card;
+            skCards.appendChild(card);
+          })(live.manualSkills[si]);
+        }
+        skRow.appendChild(skCards);
+        cardRowCache.sk = skRow;
+        arena.appendChild(skRow);
+      }
     }
 
     var skip = h('button', 'ci-pet-arena-skip', '跳过动画');
@@ -6057,6 +6484,37 @@ function sceneHomeBody(container) {
             hurtSide.el.appendChild(healEl);
             setTimeout(function() { if (healEl.parentNode) healEl.parentNode.removeChild(healEl); }, 900);
           }
+        }
+        // ==================== v0.30.0 舞台演出 ====================
+        // 血牌抖动只动了「牌」，立绘本身像没事人一样 —— 现在把招式画在角色身上：
+        // 出手方扑击 + 血牌亮「正在行动」，承受方立绘闪白抖动 + 脚下扬尘，
+        // 暴击叠一颗爆星，回复变成绿色疗愈粒子往上升。
+        var actorBox = s.by === 0 ? meBox : foeBox;
+        var hitBox2 = onSelf ? actorBox : (s.by === 0 ? foeBox : meBox);
+        if (!s.heal && !s.skip && (s.dmg || 0) > 0) {
+          // 扑击（me 向右扑 / foe 向左扑，方向写在 CSS keyframes 里）
+          actorBox.classList.remove('is-act');
+          void actorBox.offsetWidth;
+          actorBox.classList.add('is-act');
+          setTimeout(function() { if (actorBox) actorBox.classList.remove('is-act'); }, 500);
+          // 出手方血牌短暂点亮（turn 灯）
+          var actSide = s.by === 0 ? meSide : foeSide;
+          if (actSide && actSide.el) {
+            actSide.el.classList.add('is-turn');
+            setTimeout(function() { if (actSide.el) actSide.el.classList.remove('is-turn'); }, 540);
+          }
+          // 承受方立绘受击
+          hitBox2.classList.remove('is-hurt');
+          void hitBox2.offsetWidth;
+          hitBox2.classList.add('is-hurt');
+          setTimeout(function() { if (hitBox2) hitBox2.classList.remove('is-hurt'); }, 520);
+          spawnStageFx(hitBox2, isCrit ? 'burst' : 'dust');
+        } else if (s.heal) {
+          hitBox2.classList.remove('is-glow');
+          void hitBox2.offsetWidth;
+          hitBox2.classList.add('is-glow');
+          setTimeout(function() { if (hitBox2) hitBox2.classList.remove('is-glow'); }, 700);
+          spawnStageFx(hitBox2, 'heal');
         }
       } catch (e) {}
       if (s.skip) {
@@ -6148,8 +6606,15 @@ function sceneHomeBody(container) {
     // 这是「录像 → 一局」的全部机制，代价只有一次请求和一次静默补血条。
     function fireCommand(kind) {
       if (!live.fightId || live.busy || finished) return;
-      if (live.slots - live.cmds.length <= 0) { sysToast('这一场的默契已经用完了', 'info'); return; }
-      if (usedKinds()[kind]) { sysToast('这一手已经打过了', 'info'); return; }
+      var isTac = COMMAND_IDS.indexOf(kind) >= 0;
+      if (isTac) {
+        if (live.slots - live.cmds.length <= 0) { sysToast('这一场的默契已经用完了', 'info'); return; }
+        if (usedKinds()[kind]) { sysToast('这一手已经打过了', 'info'); return; }
+      } else {
+        // 技能牌：冷却中给明确反馈（服务端引擎还会再查一遍，白按不亏）
+        var cd = skillCdLeft(kind);
+        if (cd > 0) { sysToast('还在冷却（还要 ' + cd + ' 回合）', 'info'); return; }
+      }
       var r = pickRound();
       var next = live.cmds.concat([{ r: r, kind: kind }]);
       var cmd = cmdOf(kind);
@@ -6190,7 +6655,8 @@ function sceneHomeBody(container) {
       if (finished) return;
       finished = true;
       skip.style.display = 'none';
-      if (cmdRow) cmdRow.className = 'ci-pet-cmdrow is-hidden';
+      if (cardRowCache.tac) cardRowCache.tac.className = 'ci-pet-cmdrow is-hidden';
+      if (cardRowCache.sk) cardRowCache.sk.className = 'ci-pet-cmdrow is-skills is-hidden';
       if (fightTimer) { clearTimeout(fightTimer); fightTimer = null; }
       // 有会话就一定要走一次 settle：战绩、掉落、成就全在那一步才落地。
       // 没有会话（老响应 / 探针桩）就按老样子直接画结果。
@@ -6214,7 +6680,33 @@ function sceneHomeBody(container) {
     function showResult(dd, unsaved) {
       var banner = h('div', 'ci-pet-arena-result' + (dd.win ? ' is-win' : ' is-lose'));
 
-      if (opts.tower) {
+      if (opts.expedition) {
+        // 远征结算（v0.29.0）：讲「这一趟走到了哪」，赢了未完待续（回去挑祝福）。
+        // 成就感三行：深度 / 保底与鱼干 / 完成大礼。
+        var expNo = dd.depth || opts.depth || 1;
+        if (dd.complete) {
+          banner.appendChild(h('div', 'ci-pet-result-title', '🏔 远征五层全通！'));
+          banner.appendChild(h('div', 'ci-pet-result-sub',
+            '积分 +' + (dd.gain || 0) + '（含通关大礼 50）· 现在 ' + (dd.towerPoints || 0) + ' 分' +
+            (dd.fishGain ? ' · 小鱼干 +' + dd.fishGain : '')));
+          banner.appendChild(h('div', 'ci-pet-result-gate',
+            '✦ 这一趟的祝福就到此为止——明天换一条新路线，再来'));
+        } else if (dd.ended) {
+          banner.appendChild(h('div', 'ci-pet-result-title', '💧 第 ' + expNo + ' 层没过去'));
+          banner.appendChild(h('div', 'ci-pet-result-sub',
+            '保底积分 +' + (dd.gain || 0) + ' · 这一趟走到第 ' + (expNo - 1) + ' 层' +
+            (dd.fishGain ? ' · 小鱼干 +' + dd.fishGain : '')));
+          banner.appendChild(h('div', 'ci-pet-result-quota',
+            '祝福已收好留作回忆——再出发就是全新的一趟'));
+        } else if (dd.win) {
+          banner.appendChild(h('div', 'ci-pet-result-title', '🎉 第 ' + expNo + ' 层通过！'));
+          banner.appendChild(h('div', 'ci-pet-result-sub',
+            '积分 +' + (dd.gain || 0) + ' · 回去挑一个祝福，继续往下走'));
+        } else {
+          banner.appendChild(h('div', 'ci-pet-result-title', '💧 没打过'));
+          banner.appendChild(h('div', 'ci-pet-result-quota', '稍息片刻，重新出发'));
+        }
+      } else if (opts.tower) {
         // 塔的结算完全不用「积分」这套说法：它讲的是层数，不是分数。
         // 深渊层（v0.28.0）另有一套话术：讲「下潜」不讲「爬」，讲深度不讲层号。
         var fNo = opts.floor;
@@ -6316,10 +6808,13 @@ function sceneHomeBody(container) {
           '这一场没能记账（页面放太久或断线），它不算进战绩，也不算输。'));
       }
       var back = h('button', 'ci-pet-foe-btn',
-        opts.wild ? '回到图鉴' : (opts.tower ? '回到塔' : '回到对手列表'));
+        opts.expedition ? '回到远征' :
+        (opts.wild ? '回到图鉴' : (opts.tower ? '回到塔' : '回到对手列表')));
       back.addEventListener('click', function() {
         // battle 在开打时已置 null（战绩/次数都变了），这里只负责重新取一次再渲染
-        if (opts.wild) {
+        if (opts.expedition) {
+          loadBattle(function() { openSheet(sec, 'fight', 'exp'); });
+        } else if (opts.wild) {
           reloadState(function() {
             loadBattle(function() { renderHome(); });
           });
@@ -6337,6 +6832,8 @@ function sceneHomeBody(container) {
       if (idx >= cur.steps.length) { finish(); return; }
       applyStep(cur.steps[idx]);
       idx++;
+      // 冷却随回合推进变化：每步刷一次技能牌状态（class 写入，代价可忽略）
+      refreshCmd();
       fightTimer = setTimeout(tick, 340);
     }
 

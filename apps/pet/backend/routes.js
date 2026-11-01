@@ -1388,9 +1388,31 @@ function buildOf(st) {
 //   kit    引擎内才生效的动态效果（武器、药水、闪避加成）
 // consume=true 时真的扣掉 1 个消耗品库存（只有真人上场才扣；影子是快照，白嫖不扣——
 // 影子本来就「不需要参与」，扣他的库存等于替他做了决定）。
+// 互斥解析（v0.28.3）：与 skillEffects 里 1642 行的规则表**严格同源**——
+//    千钧(heavy) 吞 爆发冲击(blast)、鲸吞(lifesteal) 吞 护盾(shield)、狂怒(berserk) 吞 壁垒(guard_stance)。
+//    之前只有引擎在结算时静默吞掉输家：Build 编辑器提示「先选的生效」（错误承诺），
+//    战斗牌面把输家也画成卡，按了落普攻零反馈——玩家以为装备好了，实战永远不触发。
+//    现在装备表先解析，牌面只画真正会生效的技能。
+//    ⚠️ 改互斥规则必须同步三处：skillEffects（引擎）、这里（牌面）、entry.js BUILD_HINTS（文案）。
+var SKILL_CONFLICTS = [
+  { winner: 'heavy',     loser: 'blast',        label: '爆发类互斥，千钧一击生效' },
+  { winner: 'lifesteal', loser: 'shield',       label: '续航类互斥，鲸吞生效' },
+  { winner: 'berserk',   loser: 'guard_stance', label: '增益类互斥，狂怒生效' }
+];
+function resolveSkillConflicts(ids) {
+  var out = (ids || []).slice();
+  for (var i = 0; i < SKILL_CONFLICTS.length; i++) {
+    var c = SKILL_CONFLICTS[i];
+    var w = out.indexOf(c.winner);
+    var l = out.indexOf(c.loser);
+    if (w >= 0 && l >= 0) out.splice(l, 1);
+  }
+  return out;
+}
+
 function battleKitOf(st, env, consume) {
   var build = buildOf(st);
-  var skillIds = equippedSkills(st);
+  var skillIds = resolveSkillConflicts(equippedSkills(st));
   var inv = inventoryOf(st);
   var eq = build.equipment || {};
   var kit = {
@@ -2343,6 +2365,8 @@ var ACHIEVEMENTS = [
   { id: 'abyss_3',    name: '渊行者',   icon: '🌑', desc: '抵达深渊第 3 层' },
   { id: 'abyss_7',    name: '破晓者',   icon: '🌗', desc: '抵达深渊第 7 层' },
   { id: 'abyss_12',   name: '渊之尽头', icon: '🕳️', desc: '抵达深渊第 12 层' },
+  { id: 'exp_3',      name: '远征老手', icon: '🏕️', desc: '单次远征到达第 3 层' },
+  { id: 'exp_5',      name: '远征征服者', icon: '🏔️', desc: '单次远征五层全通' },
   { id: 'dex_1',      name: '初次收服', icon: '🔴', desc: '收服第一只野生精灵' },
   { id: 'dex_5',      name: '图鉴入门', icon: '📖', desc: '图鉴收录 5 只野生精灵' },
   { id: 'dex_15',     name: '图鉴大师', icon: '🔮', desc: '收服全部 15 只野生精灵' }
@@ -3073,7 +3097,10 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
   var playerCtl = !!extra.playerCtl;
   for (var ci = 0; ci < cmds.length; ci++) {
     var cc = cmds[ci] || {};
-    if (cc.r >= 1 && COMMAND_IDS.indexOf(cc.kind) >= 0) cmdBy[cc.r] = cc.kind;
+    // 默契牌与技能牌都走「回合预置」通道；合法性已在 sanitize 层验证过
+    if (cc.r >= 1 && (COMMAND_IDS.indexOf(cc.kind) >= 0 || MANUAL_SKILL_KINDS.indexOf(cc.kind) >= 0)) {
+      cmdBy[cc.r] = cc.kind;
+    }
   }
 
   function mkSide(c, sk, kit) {
@@ -3196,6 +3223,12 @@ function simulateBattle(mine, foe, seed, mySkills, foeSkills, foeBuff, types, ex
     if (modsG.dmgMul && modsG.dmgMul !== 1) {
       dmg = Math.max(1, Math.round(dmg * modsG.dmgMul));
       tags.push('moddmg');
+    }
+    // 远征祝福「巨力」：只放大**我方**（who===0）的攻击。祝福是玩家的奖励，
+    // 不该同时喂给对手——与 dmgMul（对称变奏）严格区分两条通道。
+    if (who === 0 && modsG.myDmgMul && modsG.myDmgMul !== 1) {
+      dmg = Math.max(1, Math.round(dmg * modsG.myDmgMul));
+      tags.push('modmydmg');
     }
 
     // 主动技能倍率（爆发冲击/重锤砸击）
@@ -3640,6 +3673,7 @@ router.get('/battle/profile', requireAuth, function(req, res) {
     typeInfo: typeInfo(myType),
     dex: dexOf(uid, st),
     tower: towerOf(st),
+    expedition: expViewOf(st),
     titles: titlesOf(st),
     achievements: st.achievements || [],
     achievementList: ACHIEVEMENTS,
@@ -3819,8 +3853,10 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   if (req.body && req.body.skills && Object.prototype.toString.call(req.body.skills) === '[object Array]') {
     st.battle_skills = req.body.skills.slice(0, skillSlotsOf(st));
   }
-  var mySkillIds = equippedSkills(st);
-  st.battle_skills = mySkillIds;
+  // 存档归一化保留用户原始选择；mySkillIds 解析互斥——牌面/返回体只画真正会生效的技能
+  // （v0.28.3 修复：fight 端点之前直接用未解析表，互斥输家也会被画成牌、按了落普攻）
+  st.battle_skills = equippedSkills(st);
+  var mySkillIds = resolveSkillConflicts(equippedSkills(st));
 
   var weather = weatherOf(today);
   var env = envModsOf(currentEnvironment());
@@ -3831,7 +3867,6 @@ router.post('/battle/fight', requireAuth, function(req, res) {
   //    consume=false 时依然让消耗品生效（只看库存 > 0），所以战斗强度一点没变。
   var myKit = battleKitOf(st, env, false);
   var useCons = consumableInPlay(st);
-  st.battle_skills = myKit.skills;
   var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
   var foeType = normType(opp.type);
@@ -3888,7 +3923,7 @@ router.post('/battle/fight', requireAuth, function(req, res) {
           maxMe: ob.res.maxMe, maxFoe: ob.res.maxFoe, steps: [] };
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, foeSkillIds, 1, { me: myType, foe: foeType },
-      { env: env, myKit: myKit.kit, foeKit: foeKit, cmds: cmds, playerCtl: true });
+      { env: env, myKit: myKit.kit, foeKit: foeKit, cmds: cmds, playerCtl: mode === 'open' || mode === 'reroll' });
   }
 
   // 只演算、不落任何副作用：不扣药水、不记战绩、不涨次数、不发成就。
@@ -4063,7 +4098,6 @@ router.post('/tower/fight', requireAuth, function(req, res) {
   // consume=false：扣费挪到 settle，见 /battle/fight 的同名注释
   var myKit = battleKitOf(st, env, false);
   var useCons = consumableInPlay(st);
-  st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
   var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
@@ -4088,7 +4122,7 @@ router.post('/tower/fight', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills || [], foeBuff, { me: myType, foe: foeType2 },
-      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh, playerCtl: true });
+      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh, playerCtl: mode === 'open' || mode === 'reroll' });
   }
 
   // 只演算：不涨次数、不推进层数、不发成就
@@ -4291,7 +4325,6 @@ router.post('/wild/fight', requireAuth, function(req, res) {
   var env = envModsOf(currentEnvironment());
   var myKit = battleKitOf(st, env, false);
   var useCons = consumableInPlay(st);
-  st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
   var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
   mine.power = powerOf(mine);
@@ -4312,7 +4345,7 @@ router.post('/wild/fight', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, w.skills || [], 1, { me: myType, foe: w.type },
-      { env: env, myKit: myKit.kit, cmds: cmds, playerCtl: true });
+      { env: env, myKit: myKit.kit, cmds: cmds, playerCtl: mode === 'open' || mode === 'reroll' });
   }
 
   // 只演算：不抓、不掉、不涨次数、进不了图鉴
@@ -4691,7 +4724,6 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
 
   var myKit = battleKitOf(st, mods, false);
   var useCons = consumableInPlay(st);
-  st.battle_skills = myKit.skills;
   var myType = normType(st.battle_type);
   var weather = weatherOf(today);
   var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
@@ -4711,7 +4743,7 @@ router.post('/battle/environment/boss', requireAuth, function(req, res) {
     r = settledRes(ob);
   } else {
     r = simulateBattle(mine, foe, seed, myKit.skills, envDef.skills || [], 1,
-      { me: myType, foe: envDef.type }, { env: mods, myKit: myKit.kit, cmds: cmds, playerCtl: true });
+      { me: myType, foe: envDef.type }, { env: mods, myKit: myKit.kit, cmds: cmds, playerCtl: mode === 'open' || mode === 'reroll' });
   }
 
   // 只演算：不消耗今日次数、不发奖励、不写战绩
@@ -4873,6 +4905,294 @@ router.post('/shop/buy', requireAuth, function(req, res) {
     inventory: inventoryView(st),
     cmdSlots: cmdSlotsOf(st),
     bellToday: sku.kind === 'bell'
+  }});
+});
+
+// ==================== 远征（v0.29.0）—— 借鉴 Hades / 杀戮尖塔的 roguelite 跑趟 ====================
+// 「玩久了无聊」的解法不是再加一条成长线（bond/塔/深渊已经够了），是让**每一局的打法本身**
+// 不一样：出发时你不知道这趟会拿到什么祝福，五层打完祝福全部蒸发——
+// 局内 build 是一次性的实验，局外的 bond/图鉴/深渊进度分毫不动（roguelite 的核心切分：
+// 单局可丢弃，长线不归零）。每日路线全班相同（天气/今日规则同一先例）：
+// 同学间能聊「你今天第一趟拿到汲血了吗」「我 4 层就跪了」。
+//
+// 结构：一天不限趟数；每趟最多 5 层，每层一场战斗；赢了三选一拿祝福（本局生效，可叠加）；
+// 输了即刻结算（按到达深度给积分）。祝福全走现有引擎通道（kit/mods），引擎只加了
+// myDmgMul（我方专属伤害乘区）。
+var BOONS = {
+  regen:    { id: 'regen',    icon: '\🌿', name: '回春',     text: '每回合回复 2% 最大 HP',        once: false,
+              apply: function(c, kit, m) { kit.assistRegen = (kit.assistRegen || 0) + 0.02; } },
+  vamp:     { id: 'vamp',     icon: '\🩸', name: '汲血',     text: '攻击附带 8% 吸血',             once: false,
+              apply: function(c, kit, m) { m.vampire = (m.vampire || 0) + 0.08; } },
+  swift:    { id: 'swift',    icon: '\⚡',  name: '迅捷',     text: '速度 +15%',                    once: false,
+              apply: function(c, kit, m) { c.spd = Math.round(c.spd * 1.15); } },
+  blaze:    { id: 'blaze',    icon: '\🔥', name: '燃魂',     text: '攻击 +15%',                    once: false,
+              apply: function(c, kit, m) { c.atk = Math.round(c.atk * 1.15); } },
+  wall:     { id: 'wall',     icon: '\🛡', name: '铁壁',     text: '防御 +20%',                    once: false,
+              apply: function(c, kit, m) { c.def = Math.round(c.def * 1.20); } },
+  eagle:    { id: 'eagle',    icon: '\🎯', name: '鹰眼',     text: '暴击率 +8',                    once: false,
+              apply: function(c, kit, m) { c.crit = Math.min(90, c.crit + 8); } },
+  fury:     { id: 'fury',     icon: '\💢', name: '巨力',     text: '你的攻击伤害 +18%',            once: false,
+              apply: function(c, kit, m) { m.myDmgMul = (m.myDmgMul || 1) * 1.18; } },
+  shadow:   { id: 'shadow',   icon: '\🌑', name: '暗影步',   text: '闪避率 +8%',                   once: false,
+              apply: function(c, kit, m) { kit.evadeAdd = (kit.evadeAdd || 0) + 0.08; } },
+  ancestor: { id: 'ancestor', icon: '\💚', name: '先祖庇佑', text: '开局获得一层护盾',             once: true,
+              apply: function(c, kit, m) { kit.assistShield = true; } },
+  spark:    { id: 'spark',    icon: '\🌟', name: '星火',     text: '这一层首击伤害 ×2（一次性）',  once: true,
+              apply: function(c, kit, m) { kit.flame = true; } }
+};
+var EXP_MAX_DEPTH = 5;
+var EXP_UNLOCK_TOWER = 3;   // 塔通到第 3 层解锁——中期内容，但要早点被看见
+var EXP_BOON_IDS = ['regen', 'vamp', 'swift', 'blaze', 'wall', 'eagle', 'fury', 'shadow', 'ancestor', 'spark'];
+
+// 每层对手：属性按层轮换（逼你在层间换思路），名字池固定（同学间能聊）。
+function expFloorOf(depth, seed) {
+  var types = ['fire', 'water', 'grass', 'electric', 'earth'];
+  var type = types[(seed + depth) % 5];
+  var names = {
+    fire: ['炭火武士', '熔岩小鬼', '烬羽'],
+    water: ['深水影子', '潮汐卫兵', '泡影'],
+    grass: ['荆棘拳师', '藤蔓妖', '菇菇力士'],
+    electric: ['电光鼠', '雷鸣鸟', '伏特蛇'],
+    earth: ['岩壳兵', '山岭巨像', '沙暴蜥']
+  };
+  var pool = names[type] || ['迷影'];
+  var name = pool[(seed + depth * 3) % pool.length];
+  var final = depth >= EXP_MAX_DEPTH;
+  if (final) name = '守关者 · ' + name;
+  // 技能包随深度加厚（与塔同一套技能词汇表）
+  var skills = depth <= 1 ? [] : (depth === 2 ? ['combo'] : (depth === 3 ? ['combo', 'pierce'] : ['combo', 'pierce', 'heavy']));
+  return {
+    depth: depth, final: final, name: name, type: type,
+    typeName: ELEMENTS[type].name, typeIcon: ELEMENTS[type].icon,
+    bond: 140 + depth * 12,          // d1=152（≈塔顶）→ d5=200（毕业线）
+    buff: 1.55 + depth * 0.10,       // d1=1.65 → d5=2.05
+    skills: skills
+  };
+}
+
+// 三选一：seed 驱动（同一天同趟同深度，全班看到的三个选项一致）
+function expBoonChoices(seed, depth) {
+  var ids = EXP_BOON_IDS.slice();
+  // Fisher-Yates 用确定性随机流洗牌，取前三个
+  var rnd = rngFrom(fnv1a(['expboon', String(seed), String(depth)].join('|')));
+  for (var i = ids.length - 1; i > 0; i--) {
+    var j = Math.floor(rnd() * (i + 1));
+    var t = ids[i]; ids[i] = ids[j]; ids[j] = t;
+  }
+  return ids.slice(0, 3);
+}
+
+function expBoonView(ids) {
+  var out = [];
+  for (var i = 0; i < (ids || []).length; i++) {
+    var b = BOONS[ids[i]];
+    if (b) out.push({ id: b.id, icon: b.icon, name: b.name, text: b.text, once: !!b.once });
+  }
+  return out;
+}
+
+function expViewOf(st) {
+  var today = todayKey();
+  var e = st.expedition;
+  var active = !!(e && e.date === today && (e.depth || 0) < EXP_MAX_DEPTH && !e.ended);
+  var locked = (st.tower_floor || 0) < EXP_UNLOCK_TOWER;
+  return {
+    locked: locked,
+    unlockTower: EXP_UNLOCK_TOWER,
+    maxDepth: EXP_MAX_DEPTH,
+    active: active,
+    depth: active ? (e.depth || 0) : 0,
+    boons: active ? expBoonView(e.boons) : [],
+    pending: active && e.pending ? expBoonView(e.pending) : null,
+    best: st.exp_best || 0,
+    runsToday: st.exp_date === today ? (st.exp_runs_today || 0) : 0
+  };
+}
+
+// 祝福落进战斗参数：战斗属性进 combat，引擎通道进 kit/mods（全部是现有通道）
+function applyBoons(combat, kit, mods, boonIds) {
+  for (var i = 0; i < (boonIds || []).length; i++) {
+    var b = BOONS[boonIds[i]];
+    if (b && b.apply) b.apply(combat, kit, mods);
+  }
+}
+
+router.post('/expedition/start', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  if ((st.tower_floor || 0) < EXP_UNLOCK_TOWER) {
+    return res.status(403).json({ code: 403, message: '通过试炼塔第 ' + EXP_UNLOCK_TOWER + ' 层后解锁远征' });
+  }
+  var today = todayKey();
+  if (st.exp_date !== today) { st.exp_date = today; st.exp_runs_today = 0; }
+  st.exp_runs_today = (st.exp_runs_today || 0) + 1;
+  st.expedition = { date: today, run: st.exp_runs_today, depth: 0, boons: [], ended: false };
+  writePet(uid, st);
+  res.json({ code: 200, data: { expedition: expViewOf(st) } });
+});
+
+// 祝福三选一：只在层间（赢了上一层、还没打下一层）可点
+router.post('/expedition/boon', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var e = st.expedition;
+  if (!e || e.date !== todayKey() || e.ended || !e.pending) {
+    return res.status(409).json({ code: 409, message: '现在没有祝福可以挑' });
+  }
+  var id = String((req.body && req.body.id) || '');
+  if ((e.pending || []).indexOf(id) < 0) {
+    return res.status(400).json({ code: 400, message: '这三个祝福里没有它' });
+  }
+  e.boons = (e.boons || []).concat([id]);
+  e.pending = null;
+  writePet(uid, st);
+  res.json({ code: 200, data: { expedition: expViewOf(st) } });
+});
+
+router.post('/expedition/fight', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  if ((st.tower_floor || 0) < EXP_UNLOCK_TOWER) {
+    return res.status(403).json({ code: 403, message: '通过试炼塔第 ' + EXP_UNLOCK_TOWER + ' 层后解锁远征' });
+  }
+  var mode = parseFightMode(req);
+  var today = todayKey();
+  var e = st.expedition;
+  if (mode === 'open' || mode === 'reroll') {
+    if (!e || e.date !== today || e.ended || (e.depth || 0) >= EXP_MAX_DEPTH) {
+      return res.status(409).json({ code: 409, message: '先出发，才能开打' });
+    }
+    if (e.pending) return res.status(409).json({ code: 409, message: '先挑一个祝福再继续' });
+  }
+  var ob = null;
+  if (mode === 'reroll' || mode === 'settle') {
+    var lo = loadOpen(st, 'exp', req);
+    if (lo.err) {
+      delete st.battle_open;
+      writePet(uid, st);
+      return res.status(lo.err).json({ code: lo.err, message: '这一场已经结束了，重新出发吧' });
+    }
+    ob = lo.ob;
+  }
+  // settle 用会话里存的层号——层间玩家可能已挑了祝福，祝福要按「开打那一刻」的状态算
+  var depth = ob ? ob.ref.depth : (e ? (e.depth || 0) + 1 : 1);
+  var runSeed = ob ? ob.ref.seed : fnv1a(['exp', today, String((e && e.run) || 1)].join('|'));
+  var floorDef = expFloorOf(depth, runSeed);
+  var tacticId = (req.body && req.body.tactic) || st.battle_tactic || 'guard';
+  if (TACTIC_IDS.indexOf(tacticId) < 0) tacticId = 'guard';
+  if (mode === 'open' && req.body && req.body.tactic) st.battle_tactic = tacticId;
+  // 指令牌（默契牌 + 技能牌）清洗：与其他四个战斗端点同一套规则
+  var cmds = sanitizeCmds(req.body && req.body.cmds, cmdSlotsOf(st), BATTLE_MAX_ROUNDS, equippedSkills(st));
+
+  var weather = weatherOf(today);
+  var env = envModsOf(currentEnvironment());
+  var myKit = battleKitOf(st, env, false);
+  var useCons = consumableInPlay(st);
+  var myType = normType(st.battle_type);
+  var mine = applyMood(applyWeather(applyTactic(myKit.combat, tacticId), myType, weather), st);
+  var foe = applyWeather(combatOf({ bond: floorDef.bond }), floorDef.type, weather);
+  var dailyMods = dailyModsOf(today);
+  var modCh = applyDailyMods(mine, foe, dailyMods);
+  // 祝福（reroll/settle 用会话里存的那份——中途换祝福不能追溯生效）
+  var boons = ob ? (ob.ref.boons || []) : ((e && e.boons) || []);
+  applyBoons(mine, myKit.kit, modCh, boons);
+  mine.power = powerOf(mine);
+  foe.power = powerOf(foe);
+
+  var seed = ob ? ob.seed : fnv1a([uid, 'exp', today, String((e && e.run) || 1), String(depth)].join('|'));
+  var r;
+  if (mode === 'settle') {
+    r = settledRes(ob);
+  } else {
+    r = simulateBattle(mine, foe, seed, myKit.skills, floorDef.skills, floorDef.buff,
+      { me: myType, foe: floorDef.type },
+      { env: env, myKit: myKit.kit, cmds: cmds, mods: modCh, playerCtl: mode === 'open' || mode === 'reroll' });
+  }
+
+  if (mode === 'open' || mode === 'reroll') {
+    var sid = saveOpen(st, 'exp', seed, useCons, cmds, r,
+      { depth: depth, seed: runSeed, boons: boons });
+    writePet(uid, st);
+    return res.json({ code: 200, data: {
+      win: r.win, rounds: r.rounds, steps: r.steps, seed: seed, fightId: sid,
+      floor: depth, depth: depth, expedition: true,
+      me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
+      foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, atk: foe.atk, def: foe.def, spd: foe.spd, crit: foe.crit, skills: floorDef.skills, type: floorDef.type, typeName: floorDef.typeName, typeIcon: floorDef.typeIcon },
+      types: { me: myType, foe: floorDef.type, mulMe: typeMul(myType, floorDef.type), mulFoe: typeMul(floorDef.type, myType) },
+      skills: myKit.skills, foeSkills: floorDef.skills,
+      manualSkills: manualSkillView(myKit.skills),
+      cmdSlots: cmdSlotsOf(st), commands: COMMAND_IDS.map(function(id) { return COMMANDS[id]; }), cmds: cmds,
+      weather: weather
+    }});
+  }
+
+  // ---- settle：到这里才动存档 ----
+  spendConsumable(st, useCons);
+  var gain = 0;
+  var fresh = [];
+  var ended = false;
+  var complete = false;
+  var boonChoices = null;
+  var fishGain = 0;
+  var win = r.win;
+  var curDepth = (ob && ob.ref && ob.ref.depth) || 1;
+  var e2 = st.expedition;
+  if (win) {
+    gain = 20 * curDepth;
+    st.tower_points = (st.tower_points || 0) + gain;
+    e2.depth = curDepth;
+    if (curDepth >= EXP_MAX_DEPTH) {
+      // 五层全通：远征完成
+      gain += 50;
+      st.tower_points = (st.tower_points || 0) + 50;
+      complete = true; ended = true;
+    } else {
+      // 层间：发三选一（seed 驱动，全班一致）
+      boonChoices = expBoonChoices(ob.ref.seed, curDepth);
+      e2.pending = boonChoices;
+    }
+  } else {
+    ended = true;
+    gain = 5 * (curDepth - 1);   // 败了也有保底：走到第几层就按深度给
+    st.tower_points = (st.tower_points || 0) + gain;
+  }
+  if (ended) {
+    var reached = e2.depth || 0;
+    st.exp_best = Math.max(st.exp_best || 0, reached);
+    // 每日新深度奖：今天第一次到达的每一层 +6 鱼干（重复深度不重复发钱）
+    var prevToday = st.exp_best_today || 0;
+    if (reached > prevToday) {
+      fishGain = (reached - prevToday) * 6;
+      st.coins = (st.coins || 0) + fishGain;
+      st.exp_best_today = reached;
+    }
+    var expWins = [];
+    if (reached >= 3) expWins.push('exp_3');
+    if (reached >= EXP_MAX_DEPTH) expWins.push('exp_5');
+    fresh = unlock(st, expWins);
+    e2.ended = true;
+    delete st.battle_open;
+  }
+  if (win) diaryPush(st, today, { k: 'win', n: 1 });
+  writePet(uid, st);
+  shadowCache.at = 0;
+
+  res.json({ code: 200, data: {
+    win: win, rounds: r.rounds, seed: seed,
+    floor: curDepth, depth: curDepth, expedition: true,
+    ended: ended, complete: complete,
+    gain: gain, fishGain: fishGain, newBest: st.exp_best || 0,
+    boonChoices: boonChoices ? expBoonView(boonChoices) : null,
+    boons: expBoonView((e2 && e2.boons) || []),
+    towerPoints: st.tower_points || 0,
+    me: { name: st.name || '小家伙', power: mine.power, hp: r.maxMe, atk: mine.atk, def: mine.def, spd: mine.spd, crit: mine.crit, type: myType, typeName: ELEMENTS[myType].name, typeIcon: ELEMENTS[myType].icon, mood: mine.mood, assist: assistantView(st) || null },
+    foe: { name: floorDef.name, power: foe.power, hp: r.maxFoe, type: floorDef.type, typeName: floorDef.typeName, typeIcon: floorDef.typeIcon },
+    unlocked: fresh,
+    weather: weather,
+    quests: questsView(uid, st)
   }});
 });
 
