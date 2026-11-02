@@ -5396,10 +5396,15 @@ function sceneHomeBody(container) {
     shield: ['lifesteal'], lifesteal: ['shield'],
     guard_stance: ['berserk'], berserk: ['guard_stance']
   };
+  //
+  // ⚠️ 入口与重画必须分开（v0.31.1 修复「选技能/装备没反应」）：
+  //    以前点选回调直接调 renderBuildEditor()，而它在开头无条件把 buildEdit
+  //    重新赋成 battle.equipped / battle.build.equipment —— 玩家刚点上的东西
+  //    在重画的同一帧被抹回原样，表现就是「点了完全没反应」。
+  //    现在 render = 初始化一次，paint = 纯重画。
   function renderBuildEditor() {
     if (!battle) { renderHome(); return; }
     var bd = battle.build || {};
-    var inv = battle.inventory || { owned: [] };
     var eq0 = bd.equipment || {};
     buildEdit = {
       skills: (battle.equipped || []).slice(),
@@ -5410,6 +5415,15 @@ function sceneHomeBody(container) {
       },
       name: bd.strategy_name || ''
     };
+    paintBuildEditor();
+  }
+
+  function paintBuildEditor() {
+    if (!battle || !buildEdit) { renderHome(); return; }
+    var inv = battle.inventory || { owned: [] };
+    // 编辑器比一屏长（960×680 下约 1121px），装备区整个在折叠线以下。
+    // 不保留滚动位置的话，每点一次就跳回顶部，玩家同样读作「没反应」。
+    var keepTop = root ? root.scrollTop : 0;
     clearRoot();
     var box = h('div', 'ci-pet-beditor');
     var head = h('div', 'ci-pet-beditor-head');
@@ -5470,7 +5484,7 @@ function sceneHomeBody(container) {
             if (buildEdit.skills.length >= slots) buildEdit.skills.shift();
             buildEdit.skills.push(s.id);
           }
-          renderBuildEditor();
+          paintBuildEditor();
         });
         skillRow.appendChild(cell);
       })(catalog[i]);
@@ -5543,7 +5557,7 @@ function sceneHomeBody(container) {
     none.appendChild(h('span', 'ci-pet-beditor-equip-item', '不装'));
     none.addEventListener('click', function() {
       buildEdit.equipment[sd.key] = null;
-      renderBuildEditor();
+      paintBuildEditor();
     });
     grid.appendChild(none);
     for (var i = 0; i < inv.owned.length; i++) {
@@ -5567,7 +5581,7 @@ function sceneHomeBody(container) {
         } else {
           cell.addEventListener('click', function() {
             buildEdit.equipment[sd.key] = on ? null : item.id;
-            renderBuildEditor();
+            paintBuildEditor();
           });
         }
         grid.appendChild(cell);
