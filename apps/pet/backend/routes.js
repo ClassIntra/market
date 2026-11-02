@@ -549,22 +549,34 @@ router.get('/story', requireAuth, function(req, res) {
   var idx = storyChapterOf(st);
   var claimed = (st.story_claimed === undefined ? -1 : (st.story_claimed || 0));
   // 已领取到的最高章节
-  var claimedIdx = Math.min(claimed, STORY_CHAPTERS.length - 1);
+  // ⚠️ claimed 是「历史最高领奖章」，idx 是「当前可达章」。两者可能倒挂：
+  // 线上有玩家 claimed=5 却只到 ch3（图鉴曾经更多，后来掉了）。
+  // 倒挂时不修正就会显示「已领到第 6 章 / 当前第 4 章」这种自相矛盾的状态，
+  // 且 canClaim 恒为 false —— 玩家永远领不到奖也看不出原因。
+  var claimedIdx = (claimed < 0) ? -1 : Math.min(claimed, idx);
   var curChapter = STORY_CHAPTERS[idx];
   // 是否可领取奖励：当前章节 > 已领取章节
   var canClaim = idx > claimed;
+  var nextChapter = STORY_CHAPTERS[idx + 1] || null;
   res.json({ code: 200, data: {
-    chapters: STORY_CHAPTERS,
+    chapters: storyChapterView(st, idx, claimed),
     currentIdx: idx,
     claimedIdx: claimedIdx,
     canClaim: canClaim,
     current: curChapter,
+    // 当前章的门槛进度（第一章为空数组），以及「下一章还差什么」——
+    // 后者才是玩家真正需要的信息，原来只能靠一句容易写漏的 teaser。
+    reqs: storyReqs(curChapter, st),
+    next: nextChapter ? {
+      title: nextChapter.title, icon: nextChapter.icon,
+      reqs: storyReqs(nextChapter, st)
+    } : null,
     unlockedCount: idx + 1,
     totalCount: STORY_CHAPTERS.length,
     progress: {
       bond: st.bond || 0,
       wins: st.battle_wins || 0,
-      dex: st.dex_count || 0,
+      dex: dexCountOf(st),
       achievements: (st.achievements || []).length,
       achievementsTotal: ACHIEVEMENTS.length
     }
@@ -2315,29 +2327,109 @@ var STORY_CHAPTERS = [
   { id: 'ch5', title: '第五章 · 灵魂伙伴', icon: '✨', unlock: { bond: 200, wins: 10, dex: 10 }, reward: { coins: 30, bond: 12 },
     narrative: '它不再只是桌上的小宠物 —— 它是你每天打开电脑时第一个看到的伙伴。它会记得你所有的小习惯。',
     teaser: '解锁全部成就进入最终章。' },
-  { id: 'ch6', title: '第六章 · 永远', icon: '👑', unlock: { bond: 200, wins: 30, achievements: 'all' }, reward: { coins: 50, bond: 20 },
+  // ⚠️ 最终章不能用 achievements:'all'：成就列表是会增长的（当前 20 项，
+  // 曾经只有 18 项）。写 'all' 的话，每加一个成就就等于把已达成者的进度往回推一格，
+  // 实测 251800 集齐了当时的全部成就、领到第六章，成就扩到 20 后又被判成「未达成」，
+  // story_claimed 卡在 5 而 idx 退回 4，奖励再也领不了。改用固定个数。
+  { id: 'ch6', title: '第六章 · 永远', icon: '👑', unlock: { bond: 200, wins: 30, achievements: 18 }, reward: { coins: 50, bond: 20 },
     narrative: '你们的故事不会结束。明天、明年、很多年后，它都会在桌上等你，像第一次相遇那样。',
     teaser: '故事已到终点 —— 但冒险还没结束。' }
 ];
 
+// 解锁条件 -> 结构化清单（v0.32.0）。
+//
+// 为什么要有这一层：条件原先只以文案形式存在（每章的 teaser 是手写的），
+// 结果第三章写「打赢 3 场练习赛，羁绊 120 进入下一章」，漏掉了真正卡人的 dex 5。
+// 线上实证：58 个玩家没有一个走到第五章，251800 羁绊 330、胜场 185 却停在第三章
+// ——它早已越过文案说的所有门槛，卡在一项从没被告知的条件上。
+//
+// 现在判定与展示共用 storyReqs()，条件改了就同步变，文案不可能再漂。
+var STORY_REQ_META = {
+  bond:         { label: '羁绊', target: 'home' },
+  wins:         { label: '胜场', unit: '场', target: 'battle' },
+  dex:          { label: '图鉴', unit: '只', target: 'dex' },
+  achievements: { label: '成就', unit: '个', target: 'battle' }
+};
+
+// dex_count 是「捕捉成功时」顺手写的冗余缓存，早期版本的存档里根本没有这个字段。
+// 实测 58 个真实存档里有 47 个是 undefined —— 而图鉴页读的是 st.dex 数组
+// （251800 显示 15/15 全收服），剧情判定却读 dex_count（当成 0 只）：
+// 一个全图鉴的玩家被判成「图鉴 0」，永远卡在第三章。
+// 从现在起一律以数组为准，dex_count 只写不读（留给旧客户端/日志解析）。
+function dexCountOf(st) {
+  return ((st && st.dex) || []).length;
+}
+
+function storyHave(st) {
+  return {
+    bond: st.bond || 0,
+    wins: st.battle_wins || 0,
+    dex: dexCountOf(st),
+    achievements: (st.achievements || []).length
+  };
+}
+
+function storyNeed(c) {
+  var u = (c && c.unlock) || {};
+  return {
+    bond: u.bond || 0,
+    wins: u.wins || 0,
+    dex: u.dex || 0,
+    // 'all' 仍兼容（历史数据/未来复用），但新章节请写固定个数 —— 见 ch6 的注释。
+    achievements: (u.achievements === 'all' ? ACHIEVEMENTS.length : (u.achievements || 0))
+  };
+}
+
+// 只列这道门真正要求的东西（need > 0），全零的门（第一章）返回空数组。
+function storyReqs(c, st) {
+  var have = storyHave(st);
+  var need = storyNeed(c);
+  var order = ['bond', 'wins', 'dex', 'achievements'];
+  var out = [];
+  for (var i = 0; i < order.length; i++) {
+    var k = order[i];
+    if (!need[k]) continue;
+    var m = STORY_REQ_META[k];
+    out.push({
+      key: k, label: m.label, unit: m.unit || '',
+      have: have[k], need: need[k], ok: have[k] >= need[k],
+      short: Math.max(0, need[k] - have[k]),
+      target: m.target
+    });
+  }
+  return out;
+}
+
+// 章节列表视图：已解锁的才给叙述（未解锁的提前看会毁掉悬念），
+// 但条件全部透出 —— 玩家需要知道后面要什么才能规划，藏条件只会让人卡住。
+function storyChapterView(st, idx, claimed) {
+  var out = [];
+  for (var i = 0; i < STORY_CHAPTERS.length; i++) {
+    var c = STORY_CHAPTERS[i];
+    var unlocked = (i <= idx);
+    out.push({
+      id: c.id, title: c.title, icon: c.icon,
+      narrative: unlocked ? c.narrative : '',
+      reqs: storyReqs(c, st),
+      reward: c.reward,
+      unlocked: unlocked,
+      claimed: (i <= claimed),
+      isCurrent: (i === idx)
+    });
+  }
+  return out;
+}
+
 function storyChapterOf(st) {
   if (!st || !st.adopted) return 0;
-  var ach = st.achievements || [];
-  var achAll = (ach.length >= ACHIEVEMENTS.length);
-  var wins = (st.battle_wins || 0);
-  var dex = (st.dex_count || 0);
-  var bond = st.bond || 0;
   var idx = 0;
   for (var i = STORY_CHAPTERS.length - 1; i >= 0; i--) {
-    var c = STORY_CHAPTERS[i];
-    var u = c.unlock;
-    if (bond >= (u.bond || 0) &&
-        wins >= (u.wins || 0) &&
-        dex >= (u.dex || 0) &&
-        (u.achievements !== 'all' || achAll)) {
-      idx = i;
-      break;
+    var reqs = storyReqs(STORY_CHAPTERS[i], st);
+    var ok = true;
+    for (var j = 0; j < reqs.length; j++) {
+      if (!reqs[j].ok) { ok = false; break; }
     }
+    if (ok) { idx = i; break; }
   }
   return idx;
 }

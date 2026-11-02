@@ -104,6 +104,83 @@
     renderHome();
   }
 
+  // 条件行：把「还差什么」摆到明面上。
+  // 条件全部来自后端 /pet/story 的 reqs（与解锁判定同源），前端不再手写进度文案 ——
+  // 手写那版第三章漏了图鉴条件，线上有人羁绊 330、胜场 185 却卡在第三章。
+  function storyReqRow(r) {
+    var row = h('div', 'ci-pet-story-req' + (r.ok ? ' is-ok' : ' is-todo'));
+    row.appendChild(h('span', 'ci-pet-story-reqmark', r.ok ? '✓' : '·'));
+    row.appendChild(h('span', 'ci-pet-story-reqlabel', r.label));
+    row.appendChild(h('span', 'ci-pet-story-reqval',
+      r.have + ' / ' + r.need + (r.unit || '')));
+    if (!r.ok) {
+      row.appendChild(h('span', 'ci-pet-story-reqgo', '去补 →'));
+      // 点整行就跳去补：让「图鉴 0/5」不只是一句判词。
+      row.addEventListener('click', function() {
+        worldSheetClose(true);
+        switchTab(r.target || 'home');
+      });
+    }
+    return row;
+  }
+
+  // 章节回顾：已解锁的章节能翻回去读，未解锁的显示还差什么。
+  // 之前 6 章只渲染「当前这一章」，读过的话再想看就没入口了 ——
+  // 这也是「剧情像标签而不像故事」的直接原因。
+  function storyArchive(s) {
+    var chapters = s.chapters || [];
+    if (!chapters.length) return null;
+    var box = h('div', 'ci-pet-story-archive');
+    var open = false;
+    var list = h('div', 'ci-pet-story-arclist');
+    list.style.display = 'none';
+    var unlockedN = 0;
+    for (var i = 0; i < chapters.length; i++) if (chapters[i].unlocked) unlockedN++;
+    var btn = h('button', 'ci-pet-story-arcbtn',
+      '章节目录 · 已解锁 ' + unlockedN + ' / ' + chapters.length);
+    btn.addEventListener('click', function() {
+      open = !open;
+      list.style.display = open ? '' : 'none';
+      btn.textContent = (open ? '收起目录' : '章节目录') + ' · 已解锁 ' + unlockedN + ' / ' + chapters.length;
+    });
+    box.appendChild(btn);
+
+    for (var j = 0; j < chapters.length; j++) {
+      (function(c) {
+        var row = h('div', 'ci-pet-story-arcrow' +
+          (c.unlocked ? '' : ' is-lock') + (c.isCurrent ? ' is-current' : ''));
+        var line = h('div', 'ci-pet-story-arcline');
+        line.appendChild(h('span', 'ci-pet-story-arctitle', (c.icon || '📖') + ' ' + c.title));
+        if (c.unlocked) {
+          line.appendChild(h('span', 'ci-pet-story-arctag',
+            c.claimed ? '已领奖' : (c.isCurrent ? '当前' : '已读')));
+        } else {
+          // 未解锁不给叙述，只给「差多少」——既保悬念，也不让人干瞪眼
+          var lack = [];
+          for (var k = 0; k < (c.reqs || []).length; k++) {
+            var r = c.reqs[k];
+            if (!r.ok) lack.push(r.label + ' ' + r.short + (r.unit || ''));
+          }
+          line.appendChild(h('span', 'ci-pet-story-arctag is-need',
+            lack.length ? '还差 ' + lack.join(' · ') : '待解锁'));
+        }
+        row.appendChild(line);
+
+        if (c.unlocked && c.narrative) {
+          var narr = h('div', 'ci-pet-story-arcnarr', c.narrative);
+          narr.style.display = 'none';
+          row.appendChild(narr);
+          row.addEventListener('click', function() {
+            narr.style.display = (narr.style.display === 'none') ? '' : 'none';
+          });
+        }
+        list.appendChild(row);
+      })(chapters[j]);
+    }
+    box.appendChild(list);
+    return box;
+  }
+
   function storyCard() {
     // 数据从 /pet/story 拉取，这里用 storyInfo 缓存
     var s = storyInfo;
@@ -113,9 +190,17 @@
     head.appendChild(h('span', 'ci-pet-story-icon', (s.current && s.current.icon) || '📖'));
     var txt = h('div', 'ci-pet-story-text');
     txt.appendChild(h('div', 'ci-pet-story-title', (s.current && s.current.title) || '故事'));
-    txt.appendChild(h('div', 'ci-pet-story-sub',
-      '第 ' + (s.currentIdx + 1) + ' / ' + s.totalCount + ' 章 · ' +
-      (s.canClaim ? '新章节可领取' : '继续冒险解锁下一章')));
+    var subText = '第 ' + (s.currentIdx + 1) + ' / ' + s.totalCount + ' 章';
+    if (s.canClaim) {
+      subText += ' · 新章节可领取';
+    } else if (s.next) {
+      var lackN = 0;
+      for (var q = 0; q < (s.next.reqs || []).length; q++) if (!s.next.reqs[q].ok) lackN++;
+      subText += lackN ? (' · 下一章还差 ' + lackN + ' 项') : ' · 下一章可解锁';
+    } else {
+      subText += ' · 故事已到终点';
+    }
+    txt.appendChild(h('div', 'ci-pet-story-sub', subText));
     head.appendChild(txt);
     box.appendChild(head);
     if (s.current && s.current.narrative) {
@@ -140,8 +225,14 @@
         });
       });
       box.appendChild(btn);
-    } else if (s.current && s.current.teaser) {
-      box.appendChild(h('div', 'ci-pet-story-teaser', s.current.teaser));
+    }
+    // 下一章的门槛：这是玩家最需要的信息，比任何一句氛围文案都重要
+    if (s.next && s.next.reqs && s.next.reqs.length) {
+      var rq = h('div', 'ci-pet-story-reqs');
+      rq.appendChild(h('div', 'ci-pet-story-reqtitle',
+        (s.next.icon || '') + ' 通往「' + s.next.title + '」'));
+      for (var i = 0; i < s.next.reqs.length; i++) rq.appendChild(storyReqRow(s.next.reqs[i]));
+      box.appendChild(rq);
     }
     // 进度条
     var prog = h('div', 'ci-pet-story-prog');
@@ -150,6 +241,8 @@
     fill.style.width = pct + '%';
     prog.appendChild(fill);
     box.appendChild(prog);
+    var arc = storyArchive(s);
+    if (arc) box.appendChild(arc);
     return box;
   }
 
