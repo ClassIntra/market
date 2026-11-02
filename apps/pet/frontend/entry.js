@@ -1505,7 +1505,7 @@
     if (n === 0) return { emoji: '😢', text: '今天还没被摸过，有点想你' };
     if (fedCount() === 0) return { emoji: '🍚', text: '今天还没吃饭呢…' };
     if (!canFeed()) return { emoji: '😋', text: '今天吃饱啦，明天再来' };
-    if (feedCooldownMin() > 0) return { emoji: '😌', text: '刚吃过，' + feedCooldownMin() + ' 分钟后还能再喂' };
+    if (feedCooldownMin() > 0) return { emoji: '😌', text: '肚皮圆滚滚，歇 ' + feedCooldownMin() + ' 分钟～' };
     return { emoji: '😊', text: '乖乖待在桌面上等你' };
   }
 
@@ -1770,10 +1770,14 @@
 
   function pageHead(title, sub) {
     var box = h('div', 'ci-pet-pagehead');
-    // v0.25.0 版式：标题在左、回家在右，同一行。
-    // 原来回家在标题上方，两行挤在 40px 里，读起来像面包屑而不是页头。
+    // v0.33 版式：左边「标题 + 说明」竖排，回家按钮靠右。
+    // 旧版把按钮夹在标题和副标题之间，三行读起来像面包屑，
+    // 而且按钮的深色底会贴着标题下沿，截图里像是压住了字。
     var row = h('div', 'ci-pet-pagehead-row');
-    row.appendChild(h('div', 'ci-pet-pagehead-title', title));
+    var left = h('div', 'ci-pet-pagehead-left');
+    left.appendChild(h('div', 'ci-pet-pagehead-title', title));
+    if (sub) left.appendChild(h('div', 'ci-pet-pagehead-sub', sub));
+    row.appendChild(left);
     var home = h('button', 'ci-pet-pagehead-home');
     var hIco = pixIcon('home', 'ci-pet-pagehead-home-ico');
     if (hIco) home.appendChild(hIco);
@@ -1781,7 +1785,6 @@
     home.addEventListener('click', function() { switchTab('home'); });
     row.appendChild(home);
     box.appendChild(row);
-    if (sub) box.appendChild(h('div', 'ci-pet-pagehead-sub', sub));
     return box;
   }
   function renderBattleTab() {
@@ -3410,6 +3413,31 @@ function worldHop() {
   if (window.__ciWorldIdle) window.__ciWorldIdle.hop = (window.__ciWorldIdle.hop || 0) + 1;
 }
 
+// 摸头的心形反馈（v0.33）
+// 为什么不用现成的 flashGain：那是旧首页 hero 区的飘字，新场景里没有 .ci-pet-hero 节点，
+// 调了也是静默返回 —— 于是「摸头」在视觉上等于什么都没发生。
+// 这里把粒子挂在 .world-pet 内部，角色走动/翻转时心跟着一起走。
+function worldHearts(petBox, n) {
+  if (!petBox) return;
+  var layer = petBox.querySelector('.world-pet-fx');
+  if (!layer) { layer = h('span', 'world-pet-fx'); petBox.appendChild(layer); }
+  var count = n || 3;
+  for (var i = 0; i < count; i++) {
+    (function(i) {
+      setTimeout(function() {
+        if (!layer.parentNode) return;
+        // 中间那颗用实心，两侧空心：比三颗一模一样的更像随手画的
+        var heart = h('span', 'world-heart', i === 1 ? '\u2665' : '\u2661');
+        var dx = (i - 1) * 22 + (Math.random() * 10 - 5);
+        heart.style.left = 'calc(50% + ' + dx + 'px)';
+        heart.style.animationDelay = (i * 0.05) + 's';
+        layer.appendChild(heart);
+        setTimeout(function() { if (heart.parentNode) heart.parentNode.removeChild(heart); }, 1300);
+      }, i * 80);
+    })(i);
+  }
+}
+
 // ---------- 触屏交互层 ----------
 // ⚠️ 这个应用的主战场是校园平板，而**平板没有 hover**。原来所有交互提示
 //    （物件名、四角选中框、抬起 3px）都挂在 :hover 上 —— 后果有两个：
@@ -3850,6 +3878,7 @@ function sceneHomeBody(container) {
     petBox.classList.remove('is-hop');
     void petBox.offsetWidth;
     petBox.classList.add('is-hop');
+    worldHearts(petBox, 3);   // v0.33：跳还不够「被摸到」，加三颗心从头顶飘起来
     scenePoke();
   });
   worldPetEl = petBox;

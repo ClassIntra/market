@@ -8353,8 +8353,8 @@
   border-radius: 0 0 20px 20px;
   overflow: hidden;
   border: none;
-  border-bottom: 3px solid #5568e0;
-  background: #141234;
+  border-bottom: 3px solid #2c1f16;
+  background: #2c1f16;
 }
 .ci-pet-arena-scene {
   position: relative;
@@ -8368,10 +8368,10 @@
   z-index: 5;
   width: 200px;
   padding: 8px 12px 9px;
-  border-radius: 13px;
-  background: linear-gradient(180deg, #f6f8ff 0%, #d9e0f8 100%);
-  border: 3px solid #303a8f;
-  box-shadow: 0 4px 0 rgba(13, 16, 56, 0.55), inset 0 2px 0 rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbf4e3 0%, #f2e4c6 100%);
+  border: 3px solid #3a2a1c;
+  box-shadow: 0 4px 0 rgba(58, 42, 28, 0.55), inset 0 2px 0 rgba(255, 255, 255, 0.75);
 }
 .ci-pet-hpplate--foe { left: 14px; top: 12px; }
 .ci-pet-hpplate--me { right: 14px; bottom: 46px; }
@@ -8382,32 +8382,32 @@
 }
 .ci-pet-hpplate-name {
   font-size: 13px; font-weight: 900;
-  color: #1c2470;
+  color: #3a2a1c;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ci-pet-hpplate-lv {
   -webkit-flex: none; flex: none;
   margin-left: 6px;
   font-size: 10px; font-weight: 900;
-  color: #fff;
-  background: #f2a13a;
-  border-radius: 6px;
+  color: #fffdf4;
+  background: #c98a2e;
+  border-radius: 4px;
   padding: 1px 5px;
 }
 .ci-pet-hpplate-bar {
   margin-top: 5px;
   height: 9px;
-  border-radius: 5px;
-  background: #232a56;
+  border-radius: 2px;
+  background: #c9b08a;
   overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 1px 0 rgba(58, 42, 28, 0.35);
 }
 .ci-pet-hpplate-fill {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 5px;
-  background: linear-gradient(180deg, #7de87d 0%, #38c14b 60%, #2a9e3c 100%);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #9ccc6b 0%, #6f9b5c 60%, #567f48 100%);
 }
 .ci-pet-hpplate-bot {
   display: -webkit-flex; display: flex;
@@ -8417,11 +8417,11 @@
 }
 .ci-pet-hpplate-hptag {
   font-size: 9px; font-weight: 900; font-style: italic;
-  color: #ffd76e;
+  color: #c98a2e;
 }
 .ci-pet-hpplate-pow {
   font-size: 14px; font-weight: 900;
-  color: #1c2470;
+  color: #3a2a1c;
 }
 /* 属性小徽标挂在牌角 */
 .ci-pet-hpplate::after {
@@ -8495,14 +8495,14 @@
 .ci-pet-cmdbar {
   display: -webkit-flex; display: flex;
   padding: 12px 14px 16px;
-  background: linear-gradient(180deg, rgba(24, 27, 74, 0.6), rgba(14, 16, 50, 0.9));
-  border-top: 2px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(44, 31, 22, 0.92), rgba(28, 19, 13, 0.98));
+  border-top: 2px solid #1c130c;
 }
 .ci-pet-cmdbtn {
   -webkit-flex: 1; flex: 1;
   margin-right: 10px;
   padding: 10px 0 9px;
-  border-radius: 15px;
+  border-radius: 6px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   text-align: center;
@@ -8515,10 +8515,10 @@
   color: #fff;
   text-shadow: 0 2px 3px rgba(10, 10, 50, 0.55);
 }
-.ci-pet-cmdbtn.is-red    { background: linear-gradient(180deg, #ff7d95 0%, #f2506f 55%, #d63a5c 100%); border: 3px solid #b02a48; box-shadow: 0 5px 0 #7c1c34, inset 0 2px 0 rgba(255, 255, 255, 0.45); }
-.ci-pet-cmdbtn.is-teal   { background: linear-gradient(180deg, #4fd8c0 0%, #2ab5a0 55%, #1f9484 100%); border: 3px solid #1a8a7c; box-shadow: 0 5px 0 #11655c, inset 0 2px 0 rgba(255, 255, 255, 0.45); }
-.ci-pet-cmdbtn.is-purple { background: linear-gradient(180deg, #a86ef5 0%, #8a4ce0 55%, #7440c4 100%); border: 3px solid #6335ad; box-shadow: 0 5px 0 #4a2883, inset 0 2px 0 rgba(255, 255, 255, 0.45); }
-.ci-pet-cmdbtn.is-gold   { background: linear-gradient(180deg, #ffdf9e 0%, #f2b84b 55%, #d99a2b 100%); border: 3px solid #9a6410; box-shadow: 0 5px 0 #6b440d, inset 0 2px 0 rgba(255, 255, 255, 0.65); }
+.ci-pet-cmdbtn.is-red    { background: linear-gradient(180deg, #e08a68 0%, #d2653f 55%, #b04e2d 100%); border: 3px solid #8d3c22; box-shadow: 0 5px 0 #6b2c17, inset 0 2px 0 rgba(255, 236, 214, 0.45); }
+.ci-pet-cmdbtn.is-teal   { background: linear-gradient(180deg, #8fbb74 0%, #6f9b5c 55%, #567f48 100%); border: 3px solid #436338; box-shadow: 0 5px 0 #334d2a, inset 0 2px 0 rgba(236, 255, 224, 0.42); }
+.ci-pet-cmdbtn.is-purple { background: linear-gradient(180deg, #a87c96 0%, #8b5a78 55%, #6f4560 100%); border: 3px solid #57354a; box-shadow: 0 5px 0 #412736, inset 0 2px 0 rgba(255, 226, 242, 0.38); }
+.ci-pet-cmdbtn.is-gold   { background: linear-gradient(180deg, #ffdf9e 0%, #f0b44c 55%, #c98a2e 100%); border: 3px solid #9a6410; box-shadow: 0 5px 0 #6b440d, inset 0 2px 0 rgba(255, 249, 226, 0.65); }
 .ci-pet-cmdbtn:active {
   -webkit-transform: translateY(3px);
   transform: translateY(3px);
@@ -9664,6 +9664,16 @@
   transition: transform 0.14s ease;
 }
 .ci-pethome .world-obj--wall { z-index: 4; }
+/* v0.33：立在地上/桌上的物件补一道落地影。
+   原来全场只有角色和宠物台座有影子，家具全是「飘」的，
+   房间因此一直有种摆拍感 —— 影子是「这里有重力」的唯一证据。
+   墙上的挂件（--wall）不加：它们贴着墙，加影子反而像浮在墙外。 */
+.ci-pethome .world-obj:not(.world-obj--wall) .world-obj-art,
+.ci-pethome .world-obj:not(.world-obj--wall) img,
+.ci-pethome .world-obj:not(.world-obj--wall) canvas {
+  -webkit-filter: drop-shadow(0 4px 0 rgba(58, 42, 28, 0.24));
+  filter: drop-shadow(0 4px 0 rgba(58, 42, 28, 0.24));
+}
 .ci-pethome .world-obj-art {
   display: block;
   /* 像素物件不要「模糊阴影」，要「硬投影」：2px 纯色，像手画的 drop shadow。 */
@@ -10290,24 +10300,22 @@
   width: 300px;
   height: 74px;
   margin-left: -150px;
-  border-radius: 50%;
-  /* ⚠️ 原来是用高饱和粉红做的三层半透明环，在暖木地板上读成「紫色光晕」。
-     地毯是织物：用陶土色 + 三阶硬边环（像素地毯就是同心环），
-     最外圈透明收边，不出现生硬的椭圆边界。 */
-  /* 褪色玫瑰 + 米白滚边：地毯必须和地板「不同色相」，只压暗 = 地上一个洞。 */
+  /* v0.33：椭圆软渐变地毯 → 像素矩形编织毯。
+     原来那个 50% 圆角 + 同心环，是全场唯一一块「没有硬边」的地面物件，
+     在像素地板上一眼就能看出是另一套画法（截图里读成「地上洒了一滩」）。
+     像素地毯的形状语言很简单：直角 + 墨线 + 交叉编织纹。 */
+  border-radius: 3px;
   background:
-    /* 编织毯：同心环的明度差要小（深浅大 = 一块反光的塑料）。
-       原来外圈 #c08a6e 比内圈亮三档，读成「地上一个粉色水洼」。 */
-    radial-gradient(ellipse at 50% 48%,
-      #96604f 0 30%,
-      #a06a58 30% 44%,
-      #8f5a4a 44% 58%,
-      #a06a58 58% 72%,
-      #8a5044 72% 86%,
-      rgba(120, 68, 54, 0) 86%);
-  /* 毯面纵向纹路：让椭圆不是一块纯色 */
-  background-blend-mode: normal;
-  box-shadow: inset 0 0 0 3px rgba(214, 150, 116, 0.18);
+    repeating-linear-gradient(90deg,
+      rgba(58, 42, 28, 0.13) 0 5px,
+      rgba(58, 42, 28, 0) 5px 10px),
+    repeating-linear-gradient(0deg,
+      rgba(58, 42, 28, 0.09) 0 4px,
+      rgba(58, 42, 28, 0) 4px 9px),
+    linear-gradient(180deg, #b8765a 0 50%, #a96850 50% 100%);
+  box-shadow:
+    0 0 0 2px #5f3626,
+    inset 0 0 0 3px rgba(255, 226, 196, 0.22);
   z-index: 4;
 }
 
@@ -11787,31 +11795,57 @@
     drop-shadow(0 -2px 0 #1c1119);
 }
 /* 微尘：夜里的灯光尘 → 白天是阳光里飘的亮尘 */
+/* v0.33：白天浮尘原来用「奶白方块压在米黄墙上」—— 浅色叠浅色，等于隐身。
+   换成暖金、缩到 2px、给一圈很淡的光晕：它才像「阳光里的尘」而不是噪点。 */
 .ci-pethome.is-day .world-mote {
-  background: rgba(255, 250, 230, 0.75);
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 208, 120, 0.85);
+  box-shadow: 0 0 6px 1px rgba(255, 206, 120, 0.35);
 }
 
-/* ---------- 27.6 对战舞台：蓝天草地（压 §21.9） ---------- */
+/* ---------- 27.6 对战舞台：像素天空 + 阶梯山 + 草地 ---------- */
+/* v0.33 画风收口：这三条原本是「平滑渐变天空 + 圆形鼓包山 + 渐变草地」，
+   问题不是不好看，是它跟场景里那些像素道具（草叶/花/云/旗）不是一套语言 ——
+   远看像有人把马赛克贴到了油画上。改法是把「像素」这件事做到底：
+   天空用大色阶硬切（色差 ≥20，否则 5px 的距离肉眼就当渐变）、
+   太阳改成同心硬边环（像素光晕没有渐隐，只有断层）、
+   山脊改成台阶（斜线在像素世界里只有一种画法：阶梯）、
+   草地加竖向草叶纹理 + 顶部 3px 亮边。 */
 .ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-sky {
   background:
     radial-gradient(circle at 76% 17%,
-      #fff6cf 0 22px, #ffd76e 22px 26px,
-      rgba(255, 215, 110, 0.22) 26px 42px,
-      rgba(255, 215, 110, 0) 43px),
+      #fffbe8 0 19px,
+      #ffd76e 19px 24px,
+      #f2b84b 24px 28px,
+      rgba(242, 184, 75, 0.30) 28px 36px,
+      rgba(242, 184, 75, 0) 37px),
     linear-gradient(180deg,
-      #7db8e8 0%, #7db8e8 20%,
-      #93c8ee 20%, #93c8ee 44%,
-      #aad8f4 44%, #aad8f4 68%,
-      #c4e6fa 68%, #c4e6fa 100%) !important;
+      #7cafd4 0 15%,
+      #92c1df 15% 32%,
+      #abd2e6 32% 50%,
+      #c9e1e4 50% 66%,
+      #e7ebcf 66% 78%,
+      #f7edcb 78% 100%) !important;
 }
+/* 山脊阶梯：42px 一阶 / 7px 一级（对齐场景 5px 网格的整数倍）。
+   两座主峰，左低右高，避免对称呆板。 */
 .ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-hills {
-  background-image:
-    radial-gradient(circle at 24% 100%, #7aa85a 0 44px, rgba(122, 168, 90, 0) 45px),
-    radial-gradient(circle at 74% 100%, #5c8f44 0 54px, rgba(92, 143, 68, 0) 55px) !important;
+  background-image: none !important;
+  background-color: #5e8a48 !important;
+  -webkit-clip-path: polygon(0% 100%, 0% 78%, 5% 78%, 5% 66%, 10% 66%, 10% 50%, 15% 50%, 15% 34%, 20% 34%, 20% 20%, 25% 20%, 25% 10%, 30% 10%, 30% 20%, 35% 20%, 35% 36%, 40% 36%, 40% 50%, 45% 50%, 45% 66%, 50% 66%, 50% 78%, 55% 78%, 55% 68%, 60% 68%, 60% 54%, 65% 54%, 65% 36%, 70% 36%, 70% 22%, 75% 22%, 75% 12%, 80% 12%, 80% 24%, 85% 24%, 85% 42%, 90% 42%, 90% 60%, 95% 60%, 95% 76%, 100% 76%, 100% 100%);
+  clip-path: polygon(0% 100%, 0% 78%, 5% 78%, 5% 66%, 10% 66%, 10% 50%, 15% 50%, 15% 34%, 20% 34%, 20% 20%, 25% 20%, 25% 10%, 30% 10%, 30% 20%, 35% 20%, 35% 36%, 40% 36%, 40% 50%, 45% 50%, 45% 66%, 50% 66%, 50% 78%, 55% 78%, 55% 68%, 60% 68%, 60% 54%, 65% 54%, 65% 36%, 70% 36%, 70% 22%, 75% 22%, 75% 12%, 80% 12%, 80% 24%, 85% 24%, 85% 42%, 90% 42%, 90% 60%, 95% 60%, 95% 76%, 100% 76%, 100% 100%);
+  filter: drop-shadow(0 4px 0 rgba(34, 58, 26, 0.42));
 }
 .ci-pethome.is-day:not(.is-hometab) .ci-pet-scene-ground {
-  background: linear-gradient(180deg, #8fbf62 0%, #6f9e4a 100%) !important;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35) !important;
+  background:
+    radial-gradient(circle at 50% 80%, rgba(44, 72, 30, 0.22) 0 1.6px, rgba(44, 72, 30, 0) 2px) 0 0 / 14px 11px,
+    radial-gradient(circle at 50% 80%, rgba(44, 72, 30, 0.14) 0 1.4px, rgba(44, 72, 30, 0) 1.8px) 7px 5px / 14px 11px,
+    linear-gradient(180deg,
+      #9ccb6b 0 20%,
+      #8abd5c 20% 56%,
+      #77a84d 56% 100%) !important;
+  box-shadow: inset 0 3px 0 #b4dc8c !important;
 }
 .ci-pethome.is-day .ci-pet-bstage-vs {
   color: #6b4a2a !important;
@@ -12686,4 +12720,271 @@
   border: 2px solid #43290f !important;
   box-shadow: 0 3px 0 #2e1a0a, inset 0 1px 0 rgba(255, 220, 150, 0.35) !important;
   text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45) !important;
+}
+
+/* ============================================================
+   §33 画风收口（v0.33）—— 四套语言收敛成一套
+   ------------------------------------------------------------
+   这个文件里同时住着四种视觉语言：
+     ① 暖米黄像素手账（首页房间、家具、顶部 HUD）
+     ② 深蓝紫游戏 UI（战斗页原 #141234 / #303a8f / #5568e0）
+     ③ 冷蓝瓷卡（HP 牌原 #f6f8ff / #d9e0f8）
+     ④ 现代 Web 圆角卡（图鉴页 1px 灰边 + 直角 + 冷柔影）
+   再加 462 个色值、10 种圆角、10 档字号、6 种描边宽度。
+   逐条对比时看不出问题，放在一起就是「三个人各画了半间屋」。
+
+   这一层不是「再加一个补丁」，而是把 ②③④ 全部收进 ①：
+   唯一墨色、唯一纸色、2px 墨线、4px 硬影、8px 圆角。
+   放在末尾是有意的 —— 前面的历史规则原样保留（回滚成本低），
+   但语义上**这里是唯一真源**：新增控件直接复用下面的变量，
+   不要再写新的十六进制色值。
+   ============================================================ */
+
+/* ---------- 33.1 调色板：全站唯一色源 ---------- */
+:root {
+  /* 墨：所有描边、主文字。比纯黑暖，比 #4a3527 稳 */
+  --pp-ink:     #3a2a1c;
+  --pp-ink-2:   #6e5740;
+  --pp-ink-3:   #95795a;
+  /* 纸：卡面。两块纸色拉开一档，卡片才有「叠起来」的层次 */
+  --pp-paper:   #fbf4e3;
+  --pp-paper-2: #f2e4c6;
+  /* 木：控件、边框、家具 */
+  --pp-wood:    #6b4a2e;
+  --pp-wood-d:  #4a3020;
+  /* 强调四色：暖黄是主，番茄是副，苔绿表正，梅紫表稀有 */
+  --pp-honey:   #f0b44c;
+  --pp-honey-d: #c98a2e;
+  --pp-jam:     #d2653f;
+  --pp-leaf:    #6f9b5c;
+  --pp-leaf-d:  #4f7a42;
+  --pp-sky:     #5f89ae;
+  --pp-plum:    #8b5a78;
+  /* 阴影只有三档，全是「墨的影子」而不是「冷灰的影子」 */
+  --pp-sh1: 0 2px 0 rgba(58, 42, 28, 0.22);
+  --pp-sh2: 0 4px 0 rgba(58, 42, 28, 0.30);
+  --pp-sh3: 0 6px 0 rgba(58, 42, 28, 0.40);
+  /* 描边只有一种宽度。像素世界里没有 1.5px 这个概念 */
+  --pp-line: 2px solid var(--pp-ink);
+}
+
+/* ---------- 33.2 角色：让立绘住进像素房间 ----------
+   立绘是高清绘、房间是 5px 网格，这个差异不可能靠重画消除。
+   能做的是让它「属于这里」：降一点饱和 + 染一点暖（房间是暖光），
+   再给它一道和家具同色的墨边，免得像一张 PNG 贴纸浮在场景上。
+   只作用于角色本体，不碰界面 —— 界面上的像素图标不该被染色。 */
+.ci-pethome .world-pet-vid,
+.ci-pethome .world-pet-cv,
+.ci-pethome .ci-pet-hero-video,
+.ci-pethome .ci-pet-arena-video,
+.ci-pethome .ci-pet-arena-me canvas {
+  -webkit-filter: saturate(0.93) sepia(0.08) brightness(1.02) contrast(1.02);
+  filter: saturate(0.93) sepia(0.08) brightness(1.02) contrast(1.02);
+}
+
+/* ---------- 33.3 房间：把光真的打进去 ----------
+   原来的窗光是 rgba(255,240,196,.30) 的椭圆 —— 米黄墙纸上再叠米黄，
+   等于没打。改法不是加亮度，是**加色温**：光要比墙纸更橙、更亮，
+   并且在地板上也落一片（光穿过房间必须有个去处）。 */
+.ci-pethome .ci-pet-world::after {
+  background:
+    radial-gradient(ellipse 46% 40% at 50% 46%,
+      rgba(255, 226, 150, 0.55) 0%,
+      rgba(255, 220, 140, 0.26) 40%,
+      rgba(255, 216, 130, 0.10) 64%,
+      rgba(255, 216, 130, 0) 78%);
+  mix-blend-mode: normal;
+}
+/* ⚠️ 地板光斑不要另起一层：.world-floor::after 已经有一份两层椭圆光
+   （外圈散光 + 内圈日斑）。这里曾试图补一块 clip-path 梯形，正是
+   上面 27.x 注释里记过的坑（硬边读成一条线），已撤。要增强就调那份 alpha。 */
+
+/* ---------- 33.4 内容卡：2px 墨线 + 4px 硬影 + 8px 圆角 ----------
+   原来这些卡是「1px 13% 透明描边 + 冷灰柔影」，边界几乎看不见，
+   在一堆米黄背景里读起来像表格而不是卡片。
+   换成像素手账的做法：描边要能数得清像素，影子是个实心偏移，不是雾。 */
+.ci-pet-stats,
+.ci-pet-misc,
+.ci-pet-canvaswrap,
+.ci-pet-battle,
+.ci-pet-buddy,
+.ci-pet-dex-progress,
+.ci-pet-types,
+.ci-pet-evo,
+.ci-pet-tower,
+.ci-pet-wild,
+.ci-pet-tpl,
+.ci-pet-stylecard,
+.ci-pet-advlink {
+  background-color: var(--pp-paper);
+  background-image: linear-gradient(180deg, #fffcf4, #f6ecd6);
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px var(--pp-ink), var(--pp-sh2);
+}
+/* 卡里的小内胆：从冷灰换成暖木，跟纸卡同族 */
+.ci-pet-tactics {
+  background: rgba(200, 150, 88, 0.13);
+  border-color: rgba(58, 42, 28, 0.30);
+}
+.ci-pet-tower-card { background: rgba(255, 252, 244, 0.86); }
+.ci-pet-wild.is-owned {
+  background: linear-gradient(135deg, rgba(111, 155, 92, 0.16), rgba(255, 252, 244, 0.97));
+}
+
+/* ---------- 33.5 页头：标题副标题归队，回家靠右 ----------
+   原来 DOM 是 row(标题 + 回家) + 副标题，回家按钮被夹在标题和副标题中间，
+   三行挤成「标题 / 按钮 / 说明」，读起来像面包屑。
+   改成一个 flex 行：左边标题+说明竖排，右边按钮。 */
+.ci-pet-pagehead-row {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: flex-start;
+  align-items: flex-start;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+}
+.ci-pet-pagehead-left {
+  min-width: 0;
+  -webkit-flex: 1 1 auto;
+  flex: 1 1 auto;
+}
+.ci-pet-pagehead-left .ci-pet-pagehead-sub { margin-top: 2px; }
+.ci-pet-pagehead-home {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 12px;
+  margin-top: 2px;
+}
+
+/* ---------- 33.6 摸头的心形反馈（v0.33）----------
+   摸头原来只有「跳一下」——跳是轴，心是回应。
+   粒子层挂在 .world-pet 内部（高度 0 的锚点），心从头顶往上飘：
+   先快后慢、边飘边缩，最后 20% 才透明 —— 全程可见才有「被接住」的感觉。
+   平板没有 hover，所以这套反馈只由点击触发，不做 :hover 分支。 */
+.ci-pethome .world-pet-fx {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.ci-pethome .world-heart {
+  position: absolute;
+  /* 贴着精灵头顶：.world-pet 实测 340×205（不是 CSS 里写的 220×260，
+     被后面 §17.6 的比例修正覆盖了），视频顶边距容器顶 8px、发顶再低约 15px。
+     用 top 而不是 bottom，是因为容器高度会被多处改写，bottom 每改一次就漂一次。 */
+  top: 6px;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  /* 比 --pp-jam 更亮一档：番茄红压在暖木地板上会发闷，
+     心形是「情绪」不是「家具」，需要跳出来一点。 */
+  color: #e8836a;
+  text-shadow: 0 2px 0 rgba(58, 42, 28, 0.42), 0 0 10px rgba(255, 180, 140, 0.45);
+  -webkit-animation: worldHeartUp 1.15s cubic-bezier(0.2, 0.7, 0.4, 1) forwards;
+  animation: worldHeartUp 1.15s cubic-bezier(0.2, 0.7, 0.4, 1) forwards;
+  will-change: transform, opacity;
+}
+@keyframes worldHeartUp {
+  0%   { -webkit-transform: translateY(6px) scale(0.6);  transform: translateY(6px) scale(0.6);  opacity: 0; }
+  18%  { opacity: 1; }
+  60%  { -webkit-transform: translateY(-30px) scale(1.06); transform: translateY(-30px) scale(1.06); opacity: 1; }
+  100% { -webkit-transform: translateY(-62px) scale(0.92); transform: translateY(-62px) scale(0.92); opacity: 0; }
+}
+/* 减少动效模式下不要「直接隐藏」——那等于关掉了唯一的摸头反馈。
+   改成留在原地闪一下：不位移（避免前庭不适），但看得见被回应了。 */
+@keyframes worldHeartBlink {
+  0%   { opacity: 0; }
+  28%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .world-heart {
+    -webkit-animation: worldHeartBlink 0.9s ease-out forwards;
+    animation: worldHeartBlink 0.9s ease-out forwards;
+  }
+}
+
+/* ---------- 33.7 首次提示条：描边从紫黑改回墨色 ---------- */
+/* 原来是 0 0 0 3px #241a2e —— 深紫黑，是战斗页旧配色的残留。
+   在一屋子暖棕里，它是唯一一条紫边。 */
+.ci-pethome .world-tip {
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 3px #3a2a1c,
+    inset 0 0 0 2px #fffdf4,
+    inset 0 -3px 0 #e6d7b4,
+    4px 4px 0 rgba(58, 42, 28, 0.38);
+}
+
+/* ---------- 33.8 窗光会动 ----------
+   静止的光斑读起来像「墙纸印歪了」，只有会动的光才是「外面有太阳」。
+   12 秒一个来回、位移 14px，慢到不会分散注意力，但余光能感觉到。
+   只动 transform/opacity，不触发重排，平板也扛得住。 */
+@keyframes worldSunDrift {
+  0%, 100% { -webkit-transform: translateX(0) scale(1);    transform: translateX(0) scale(1);    opacity: 1; }
+  50%      { -webkit-transform: translateX(14px) scale(1.03); transform: translateX(14px) scale(1.03); opacity: 0.88; }
+}
+.ci-pethome.is-day .ci-pet-world::after {
+  -webkit-animation: worldSunDrift 12s ease-in-out infinite;
+  animation: worldSunDrift 12s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* ---------- 33.9 家具的「按下去」反馈 ----------
+   ⚠️ 主战场是校园平板，而平板没有 hover ——
+   原来家具的唯一反馈是 :hover 抬起，等于在真机上完全不存在。
+   补一个 :active 的下沉：手指按住的那一刻，东西要「有重量」。 */
+.ci-pethome .world-obj:active {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+}
+.ci-pethome .world-obj:active .world-obj-art {
+  -webkit-filter: brightness(1.08) drop-shadow(0 2px 0 rgba(58, 42, 28, 0.24));
+  filter: brightness(1.08) drop-shadow(0 2px 0 rgba(58, 42, 28, 0.24));
+}
+
+/* ---------- 33.10 清掉根元素的两团冷光 ----------
+   ::before 是 iOS 时代的苹果蓝柔光圆（rgba(10,132,255,.13)，左上 260px），
+   V14 的 ::after 是「深色舞台时代」的场景余晖（rgba(26,38,74,.55) 往下渗 520px，
+   注释自己都写着『糊了一层黑雾』）。世界换成暖米黄纸之后，
+   这两团冷光在每个内页上就是一块块灰蓝水印 —— 直接摘掉，
+   让纸的底色自己说话。首页房间的光是 .ci-pet-world::after（33.3），不受影响。 */
+.ci-pethome::before,
+.ci-pethome::after {
+  display: none !important;
+}
+
+/* ---------- 33.11 VS 牌：补上白天版的墨线 ----------
+   21.x 白天版只改了底色和字色（#fff6e2 / 棕字），box-shadow 还挂着
+   夜版的「0 0 0 3px #1c1119」深紫黑；而 7.x 的初版粉边
+   border:1px solid rgba(255,120,160,.4) 更是从头到尾没人覆盖 ——
+   白底 + 粉边 + 紫黑影，三种时代叠在一枚小牌上。
+   统一成墨线 + 硬影；夜版（is-stage 棕木底）用同一条墨线也协调。 */
+.ci-pethome .ci-pet-bstage-vs {
+  border: 2px solid #3a2a1c !important;
+  box-shadow: 0 0 0 2px #3a2a1c, 3px 3px 0 rgba(58, 42, 28, 0.35) !important;
+}
+
+/* ---------- 33.12 图鉴野生卡：白天版稀有度边 ----------
+   夜版用 rgba(58,134,201,.65) 蓝 inset 标稀有、#1c1119 紫黑做外框；
+   白天版只覆盖了背景，边框照挂 —— 于是米黄卡上浮着一圈蓝紫。
+   白天统一：墨线外框 + 硬影；稀有/传说只用暖系两色点 inset，
+   （稀有 = 暖灰蓝 --pp-sky，传说 = 蜜糖 --pp-honey-d），与属性徽章同源。 */
+.ci-pethome.is-day .ci-pet-wild {
+  box-shadow: 0 0 0 2px #3a2a1c, 4px 4px 0 rgba(58, 42, 28, 0.26) !important;
+}
+.ci-pethome.is-day .ci-pet-wild.ci-pet-rar--rare {
+  box-shadow:
+    inset 0 0 0 2px rgba(95, 137, 174, 0.5),
+    0 0 0 2px #3a2a1c,
+    4px 4px 0 rgba(58, 42, 28, 0.26) !important;
+}
+.ci-pethome.is-day .ci-pet-wild.ci-pet-rar--legend {
+  box-shadow:
+    inset 0 0 0 2px rgba(201, 138, 46, 0.55),
+    0 0 0 2px #3a2a1c,
+    4px 4px 0 rgba(58, 42, 28, 0.26) !important;
 }
