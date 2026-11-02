@@ -76,33 +76,6 @@
     }, 15000);
   }
 
-  function fulfillWish(btn) {
-    if (!petWish) return;
-    if (btn) { btn.disabled = true; btn.textContent = '去做…'; }
-    try { if (window.__ciPetSfx && petWish.sfx) window.__ciPetSfx.play(petWish.sfx); } catch (e) {}
-    try { window.dispatchEvent(new CustomEvent('ci-pet-wish')); } catch (e) {}
-    sysToast('心愿满足！羁绊 +' + petWish.rewardBond + ' · 小鱼干 +' + petWish.rewardCoin, 'success');
-    // 直接派发互动事件，让桌宠那边也能反应
-    if (petWish.action === 'poke') {
-      try { window.dispatchEvent(new CustomEvent('ci-pet-poke')); } catch (e) {}
-    } else if (petWish.action === 'feed') {
-      try { window.dispatchEvent(new CustomEvent('ci-pet-feed')); } catch (e) {}
-    } else if (petWish.action === 'call') {
-      try { window.dispatchEvent(new CustomEvent('ci-pet-call')); } catch (e) {}
-    } else if (petWish.action === 'focus') {
-      focus.picking = true;
-      petWish = null;
-      renderHome();
-      return;
-    } else if (petWish.action === 'battle') {
-      petWish = null;
-      uiTab = 'battle';
-      renderHome();
-      return;
-    }
-    petWish = null;
-    renderHome();
-  }
 
   // 条件行：把「还差什么」摆到明面上。
   // 条件全部来自后端 /pet/story 的 reqs（与解锁判定同源），前端不再手写进度文案 ——
@@ -255,25 +228,6 @@
     }, function() { if (cb) cb(); });
   }
 
-  function wishCard() {
-    var w = petWish;
-    if (!w) return null;
-    if (Date.now() > w.expiresAt) return null;
-    var box = h('div', 'ci-pet-wish');
-    var row = h('div', 'ci-pet-wish-row');
-    var left = h('div', 'ci-pet-wish-left');
-    left.appendChild(h('span', 'ci-pet-wish-icon', w.icon));
-    var t = h('span', 'ci-pet-wish-text');
-    t.appendChild(h('span', 'ci-pet-wish-title', '心愿 · ' + w.title));
-    t.appendChild(h('span', 'ci-pet-wish-sub', w.desc + ' · +' + w.rewardBond + ' 羁绊 +' + w.rewardCoin + ' 鱼干'));
-    left.appendChild(t);
-    row.appendChild(left);
-    var btn = h('button', 'ci-pet-wish-btn', '去满足');
-    btn.addEventListener('click', function() { fulfillWish(btn); });
-    row.appendChild(btn);
-    box.appendChild(row);
-    return box;
-  }     // 今日任务（v0.10.0，uid + 日期确定性抽 3 个）
   var personalityInfo = null; // 性格（v0.15.0，领养时定下，恒久影响收益与台词）
   var moodInfo = null;        // 心情（v0.15.0，按时段/饱食/互动现算）
 
@@ -859,12 +813,6 @@
     return el;
   }
   // 本地算属性倍率（不依赖服务端返回，勋章/难度标签都能立刻跟着换）
-  function localTypeMul(a, b) {
-    var ea = elementOf(a), eb = elementOf(b);
-    if (ea.beats === eb.id) return 1.18;
-    if (eb.beats === ea.id) return 0.86;
-    return 1;
-  }
   // /pet/state 下发的附属数据统一收口：属性表、图鉴总量、随行、进化。
   // 写成一个函数是因为以后加字段只改这里，不用在 mount 里一行行补。
   function applyStateMeta(d) {
@@ -1521,12 +1469,6 @@
     }, 500);
   }
 
-  function focusBtnSub() {
-    if (focus.active) return '点一下提前收工';
-    var m = focusTodayMin();
-    if (m > 0) return '今日已专注 ' + m + ' 分钟';
-    return '安静陪你 15-45 分钟';
-  }
 
   function fedCount() { return (state && state.fed_today) || 0; }
   function canFeed() { return fedCount() < FEED_DAILY_CAP; }
@@ -1535,9 +1477,6 @@
   // ⚠️ 2026-10-27 修：原实现算的是「剩余可喂份数」，于是喂一次 100%→67%、喂满 0%，
   //    越吃越"饿"，与用户直觉完全相反（用户实报"饱食度越喂越少"）。
   //    饱食度必须随进食单调递增；"还能吃几顿"是另一件事，放在脚注里说（见 fedNote）。
-  function fedPct() {
-    return Math.round(Math.min(fedCount(), FEED_DAILY_CAP) / FEED_DAILY_CAP * 100);
-  }
 
   // 冷却剩余分钟数（用于按钮副标题的真实原因提示）
   function feedCooldownMin() {
@@ -1549,11 +1488,6 @@
   function todayInteracts() {
     return state ? (state.poked_today || 0) + (state.fed_today || 0) : 0;
   }
-  function daysTogether() {
-    if (!state || !state.adopted_at) return 1;
-    var n = Math.floor((Date.now() - new Date(state.adopted_at).getTime()) / 86400000) + 1;
-    return Math.max(1, n);
-  }
   // 喂食按钮副标题：把「为什么点不动」写在按钮上，而不是等用户点了才发现
   function feedBtnSub() {
     if (canFeed()) {
@@ -1563,10 +1497,6 @@
     return '今天吃饱啦';
   }
   // 摸摸按钮副标题：把「今日已摸 n/10」写在按钮上，撞上限之前就看得到
-  function pokeBtnSub() {
-    if (!canPoke()) return '今天摸够啦';
-    return '+1 羁绊 · 今日 ' + pokedCount() + '/' + POKE_DAILY_CAP;
-  }
 
   function petMood() {
     if (!state) return { emoji: '🐚', text: '…' };
@@ -1582,42 +1512,12 @@
   // 它此刻的台词。优先级：心情（现在） > 性格（一直） > 旧版兜底。
   // 两者都要有，因为「心情」回答的是「它现在怎么样」，
   // 「性格」回答的是「它是个什么样的家伙」—— 只给一个，宠物就是一张贴纸。
-  function thoughtLines() {
-    var out = [];
-    if (moodInfo && moodInfo.text) out.push((moodInfo.icon || '') + ' ' + moodInfo.text);
-    if (personalityInfo && personalityInfo.lines) {
-      for (var i = 0; i < personalityInfo.lines.length; i++) {
-        out.push((personalityInfo.icon || '') + ' ' + personalityInfo.lines[i]);
-      }
-    }
-    if (!out.length) {
-      var m = petMood();
-      out.push(m.emoji + ' ' + m.text);
-    }
-    return out;
-  }
 
   // 气泡轮播：每 9 秒换一句。这是「页面上有个活物」最便宜的实现 ——
   // 比多画几帧动画便宜得多，但玩家的感受是一样的：它会自己动心思。
   var bubbleTimer = null;
   function stopBubble() {
     if (bubbleTimer) { clearInterval(bubbleTimer); bubbleTimer = null; }
-  }
-  function startBubble() {
-    stopBubble();
-    var lines = thoughtLines();
-    if (lines.length < 2) return;
-    var idx = 0;
-    bubbleTimer = setInterval(function() {
-      var el = root && root.querySelector('.ci-pet-hero-mood');
-      if (!el) { stopBubble(); return; }
-      idx = (idx + 1) % lines.length;
-      el.textContent = lines[idx];
-      // 重播一次「浮上来」动画，硬切会像故障
-      el.classList.remove('is-swap');
-      void el.offsetWidth;
-      el.classList.add('is-swap');
-    }, 9000);
   }
 
   // 互动收益的飘字。它必须挂在 .ci-pet-hero 上（hero 是唯一的 position:relative），
@@ -1657,47 +1557,11 @@
   //    用户把「还差 38」当成了羁绊值，摸一次（羁绊 +1）脚注 38 → 37，观感就是
   //    「摸一下羁绊掉了 1」（实报 38 摸到 37）。现在羁绊条右侧直接显示绝对值，
   //    进度百分比只负责条的宽度，脚注改成 "82 / 120" 这种只增不减的写法。
-  function statRow(label, pct, color, note, valueText) {
-    var row = h('div', 'ci-pet-statrow');
-    var head = h('div', 'ci-pet-stathead');
-    head.appendChild(h('span', 'ci-pet-statlabel', label));
-    // 文本用真实值；只有条的宽度给 4% 下限，避免 0% 时整条消失看不出形状
-    var real = Math.min(100, Math.round(pct));
-    var shown = (valueText === undefined || valueText === null) ? (real + '%') : String(valueText);
-    head.appendChild(h('span', 'ci-pet-statvalue', shown));
-    row.appendChild(head);
-    var bar = h('div', 'ci-pet-statbar');
-    var fill = document.createElement('span');
-    fill.style.setProperty('--ci-pet-fill', color);
-    // 延迟一帧再设宽度：从 0 长出来，进去第一眼就能看出"它在涨"
-    fill.style.width = '0%';
-    setTimeout(function() { fill.style.width = Math.max(4, real) + '%'; }, 60);
-    bar.appendChild(fill);
-    row.appendChild(bar);
-    if (note) row.appendChild(h('div', 'ci-pet-statfoot', note));
-    return row;
-  }
   // variant: 'primary' = 当日主行动（喂食），视觉上给出明确的主次差异
   // ⚠️ v0.14.0：图标从 emoji 换成内联 SVG。
   //    emoji 在深色底上等于「每台设备一套配色」——🍎 是红的、📣 是黄的、⏳ 是褐的，
   //    四个按钮四种色，整排看过去是杂色。线性图标用 currentColor 描边，
   //    颜色由 CSS 决定，才可能做到「一套语言」。
-  function iconSvg(name, cls) {
-    var span = h('span', cls || 'ci-pet-bigbtn-emoji');
-    span.innerHTML =
-      '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"' +
-      ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      (ICONS[name] || '') + '</svg>';
-    return span;
-  }
-  function bigBtn(iconName, label, sub, fn, variant) {
-    var b = h('button', 'ci-pet-bigbtn' + (variant ? ' ci-pet-bigbtn--' + variant : ''));
-    b.appendChild(iconSvg(iconName));
-    b.appendChild(h('span', 'ci-pet-bigbtn-label', label));
-    b.appendChild(h('span', 'ci-pet-bigbtn-sub', sub));
-    b.addEventListener('click', fn);
-    return b;
-  }
   function sectionTitle(text) {
     return h('div', 'ci-pet-section', text);
   }
@@ -1738,176 +1602,14 @@
   // 现在改成一条「今日轨道」：横向滚动的关卡卡，每张卡是一个可点的事件。
   // 横向是刻意的 —— 一屏能同时看到三件事，而不是只能一屏一件。
   // 没有内容的卡不画（跟旧版一样：拿不到就整块不出现）。
-  function todayRail() {
-    var items = [];
-    var w = weatherInfo || (battle && battle.weather);
-    if (w && w.id) {
-      items.push({
-        key: 'weather', icon: w.icon || '☀️', kind: 'weather',
-        title: '今日' + (w.name || '天气'),
-        tag: w.bonusText || '',
-        desc: w.desc || '',
-        fit: w.type === ((battle && battle.battleType) || 'grass')
-      });
-    }
-    if (dailyBonusInfo) {
-      var b = dailyBonusInfo;
-      // ⚠️ 签到是服务端在 /state 里直接发放的（granted=true 时鱼干已到账），
-      //    不是前端点一下才发。所以这里不能画「领取」按钮 ——
-      //    画了会让人以为还没领，再点一次就是重复领取。
-      items.push({
-        key: 'daily', icon: '🎁', kind: 'daily',
-        title: b.granted ? '今日签到 · 连续 ' + (b.streak || 1) + ' 天' : '已签到 · 连续 ' + (b.streak || 1) + ' 天',
-        tag: b.granted ? ('+' + (b.coins || 0) + '🐟 +' + (b.bond || 0) + '❤') : '明天再来',
-        desc: b.granted ? (b.msg || '') : '',
-        done: !b.granted
-      });
-    }
-    if (wonderInfo && wonderInfo.wonder) {
-      var wo = wonderInfo.wonder;
-      items.push({
-        key: 'wonder', icon: wo.icon || '✨', kind: 'wonder',
-        title: '今日奇遇 · ' + (wo.title || ''),
-        tag: wo.rewardText || '',
-        desc: wo.text || '',
-        actionable: !wonderInfo.claimed && !!wonderInfo.reward,
-        done: !!wonderInfo.claimed
-      });
-    }
-    if (offlineRecapInfo && offlineRecapInfo.events && offlineRecapInfo.events.length) {
-      var r = offlineRecapInfo;
-      items.push({
-        key: 'offline', icon: '🌙', kind: 'offline',
-        title: '你不在的 ' + (r.gapMin || 0) + ' 分钟',
-        tag: ((r.coinGain > 0 ? '+' + r.coinGain + '🐟 ' : '') + (r.bondGain > 0 ? '+' + r.bondGain + '❤' : '')).trim(),
-        desc: r.msg || '它自己待了一会儿。'
-      });
-    }
-    // 心愿：petWish 是前端自己的定时抽取物（rollWish），不是服务端下发。
-    if (petWish && Date.now() <= petWish.expiresAt) {
-      items.push({
-        key: 'wish', icon: petWish.icon || '🌠', kind: 'wish',
-        title: '心愿 · ' + (petWish.title || ''),
-        tag: '+' + (petWish.rewardBond || 0) + '❤',
-        desc: petWish.desc || '',
-        actionable: true
-      });
-    }
-    if (!items.length) return null;
-
-    var rail = h('div', 'ci-pet-todayrail');
-    var head = h('div', 'ci-pet-todayrail-head');
-    head.appendChild(h('span', 'ci-pet-todayrail-title', '今天'));
-    head.appendChild(h('span', 'ci-pet-todayrail-sub', items.length + ' 件事'));
-    rail.appendChild(head);
-
-    var track = h('div', 'ci-pet-todayrail-track');
-    for (var i = 0; i < items.length; i++) {
-      (function(it) {
-        var card = h('div', 'ci-pet-tcard ci-pet-tcard--' + it.key + (it.done ? ' is-done' : ''));
-        card.setAttribute('data-tcard', it.key);
-        var top = h('div', 'ci-pet-tcard-top');
-        top.appendChild(h('span', 'ci-pet-tcard-icon', it.icon));
-        if (it.tag) top.appendChild(h('span', 'ci-pet-tcard-tag', it.tag));
-        card.appendChild(top);
-        card.appendChild(h('div', 'ci-pet-tcard-title', it.title));
-        if (it.desc) card.appendChild(h('div', 'ci-pet-tcard-desc', it.desc));
-        if (it.actionable) {
-          var go = h('button', 'ci-pet-tcard-go', '领取');
-          go.setAttribute('data-tcard-go', it.key);
-          go.addEventListener('click', function(e) {
-            e.stopPropagation();
-            claimToday(it.key);
-          });
-          card.appendChild(go);
-        } else if (it.fit) {
-          card.appendChild(h('span', 'ci-pet-tcard-fit', '本命契合'));
-        }
-        track.appendChild(card);
-      })(items[i]);
-    }
-    rail.appendChild(track);
-    return rail;
-  }
 
   // 今日卡片的「领取」动作：签到走 daily，奇遇走 wonder。
   // 两者都是服务端裁决（今天没领过才给），前端只负责把结果画回去。
-  function claimToday(key) {
-    if (!api) return;
-    if (key === 'wish') {
-      // 心愿走前端自己的 fulfillWish（它要派发对应的互动事件给悬浮桌宠）
-      if (!petWish) return;
-      fulfillWish(null);
-      return;
-    }
-    if (key === 'daily') {
-      // 签到奖励在 /state 时就发过了，这里只播一次提示音 + 动效，不重复发请求。
-      if (!dailyBonusInfo || !dailyBonusInfo.granted) return;
-      if (window.__ciPetSfx) window.__ciPetSfx.play('daily');
-      sysToast(dailyBonusInfo.msg || '签到成功', 'success');
-      return;
-    }
-    if (key === 'wonder') {
-      if (!wonderInfo || wonderInfo.claimed) return;
-      api.post('/pet/wonder/claim').then(function(res) {
-        var d = (res.data && res.data.data) || {};
-        if (d.state) state = d.state;
-        if (d.wonder) wonderInfo = d.wonder;
-        sysToast(d.msg || '奇遇奖励已到账', 'success');
-        renderHome();
-      }, function(err) {
-        sysToast((err && err.response && err.response.data && err.response.data.message) || '领取失败', 'error');
-      });
-    }
-  }
 
   // ================= 冒险关卡卡（v0.19.0）====================
   // 旧版是三行「图标 + 文字 + ›」的列表 —— 那也是报表语法。
   // 现在改成三张并列的关卡卡：每张有自己的图标底、进度、以及一个「进入」动作。
   // 竖排长龙 → 横向关卡，是这次重做最能一眼看出「这是游戏」的一步。
-  function adventureStage() {
-    var box = h('div', 'ci-pet-advstage');
-    var cards = [
-      {
-        // 对战卡副标题带塔/深渊进度（v0.28.0）：深渊的存在必须从首页就能被看见——
-        // 「通关十层解锁深渊」是长期目标，目标不可见就等于不存在。
-        id: 'battle', icon: 'battle', name: '对战',
-        sub: battle
-          ? ((battle.tower && battle.tower.abyss)
-              ? ('深渊 ' + battle.tower.abyss.depth + ' 层')
-              : ('塔 ' + ((battle.tower && battle.tower.cleared) || 0) + '/' + ((battle.tower && battle.tower.total) || 10)))
-          : '练习赛',
-        stat: battle ? ('今日 ' + (battle.today || 0) + ' 场 · 第 ' + (battle.myRank || '-') + ' 名') : '',
-        badge: battle ? tabBadgeCount('battle') : 0
-      },
-      {
-        id: 'dex', icon: 'dex', name: '图鉴', sub: battle && battle.dex ? ('已收服 ' + battle.dex.ownedCount + '/' + battle.dex.total) : '收服野生精灵',
-        stat: battle && battle.dex ? (Math.round(battle.dex.ownedCount / Math.max(1, battle.dex.total) * 100) + '%') : '',
-        badge: battle ? tabBadgeCount('dex') : 0
-      },
-      {
-        id: 'rank', icon: 'rank', name: '排行', sub: battle ? ('全班第 ' + (battle.myRank || '-') + ' 名') : '积分榜',
-        stat: battle ? ((battle.record && battle.record.points || 0) + ' 分') : '',
-        badge: 0
-      }
-    ];
-    for (var i = 0; i < cards.length; i++) {
-      (function(c) {
-        var card = h('button', 'ci-pet-advcard');
-        card.setAttribute('data-adv', c.id);
-        var art = h('div', 'ci-pet-advcard-art');
-        art.appendChild(iconSvg(c.icon, 'ci-pet-advcard-icon'));
-        if (c.badge > 0) art.appendChild(h('span', 'ci-pet-advcard-badge', c.badge > 9 ? '9+' : String(c.badge)));
-        card.appendChild(art);
-        card.appendChild(h('div', 'ci-pet-advcard-name', c.name));
-        card.appendChild(h('div', 'ci-pet-advcard-sub', c.sub));
-        if (c.stat) card.appendChild(h('div', 'ci-pet-advcard-stat', c.stat));
-        card.addEventListener('click', function() { switchTab(c.id); });
-        box.appendChild(card);
-      })(cards[i]);
-    }
-    return box;
-  }
 
   // ================= 我的宠物 =================
   function buildDiag() {
@@ -1954,23 +1656,6 @@
   // ---- 舞台右上角 HUD（v0.14.0）----
   // 游戏主界面从不让玩家点进二级页面才知道自己有多少资源。
   // 战力 / 属性 / 小鱼干三样常驻在场景右上角，一眼可见。
-  function stageHud() {
-    var box = h('div', 'ci-pet-stagehud');
-    // v0.25.0：三枚 pill 全走 12×12 像素图标。⚔️/🌿 首帧会被 fillHud 重写，
-    // 这里也直接用 setIconText 铺骨架，避免「先闪一帧 emoji 再变图标」。
-    var pow = h('span', 'ci-pet-sh-pill');
-    pow.setAttribute('data-hud', 'power');
-    setIconText(pow, 'sword', '—');
-    box.appendChild(pow);
-    var ty = h('span', 'ci-pet-sh-pill ci-pet-sh-type ci-pet-el--grass');
-    ty.setAttribute('data-hud', 'type');
-    setIconText(ty, 'grass', '草');
-    box.appendChild(ty);
-    var coin = h('span', 'ci-pet-sh-pill ci-pet-sh-coin');
-    setIconText(coin, 'fish', String(coinCount()));
-    box.appendChild(coin);
-    return box;
-  }
 
   // ---- 顶部 HUD（v0.9.0 游戏化）----
   // 像游戏状态栏一样常驻：头像（进化形态）+ 名字 + 等级 / 羁绊，右侧战力与属性。
@@ -2046,33 +1731,6 @@
   // 之前「对战」被埋在宠物屋最底部：想打一场要先滚过形象、设置，
   // 而「图鉴/排行」根本没有位置。分区之后每个页只回答一个问题：
   //   小家 = 它今天怎么样；对战 = 今天打谁；图鉴 = 我收集了什么；排行 = 我在班里第几。
-  function tabBar() {
-    var tabs = [
-      { id: 'home',   icon: 'home', name: '小家' },
-      { id: 'battle', icon: 'battle', name: '对战' },
-      { id: 'dex',    icon: 'dex', name: '图鉴' },
-      { id: 'rank',   icon: 'rank', name: '排行' }
-    ];
-    var bar = h('div', 'ci-pet-tabs');
-    // 链路验证标记（临时）：dock 右下角的版本号。
-    // 用户环境看不到它 = 没拿到这份文件，CSS 怎么改都无意义。
-    bar.appendChild(h('span', 'ci-pet-vermark', 'UI v6'));
-    
-    for (var i = 0; i < tabs.length; i++) {
-      (function(t) {
-        var on = uiTab === t.id;
-        var b = h('button', 'ci-pet-tab' + (on ? ' is-on' : ''));
-        b.setAttribute('data-tab', t.id);
-        b.appendChild(iconSvg(t.icon, 'ci-pet-tab-icon'));
-        b.appendChild(h('span', 'ci-pet-tab-name', t.name));
-        var badge = tabBadgeCount(t.id);
-        if (badge > 0) b.appendChild(h('span', 'ci-pet-tab-badge', badge > 9 ? '9+' : String(badge)));
-        b.addEventListener('click', function() { switchTab(t.id); });
-        bar.appendChild(b);
-      })(tabs[i]);
-    }
-    return bar;
-  }
   function tabBadgeCount(id) {
     if (!battle) return 0;
     if (id === 'battle') return (battle.inbox || []).length;
@@ -2203,32 +1861,6 @@
 
   // 首页的「冒险入口」：把对战/图鉴/排行从长页面里提出来，各给一张可点的卡。
   // 用户原话是「把对战和其他页面区分开」，所以首页只留入口，不再塞完整对战。
-  function adventureLinks() {
-    var row = h('div', 'ci-pet-advlinks');
-    var items = [
-      { id: 'battle', icon: 'battle', name: '对战', sub: battle ? ('今日 ' + (battle.today || 0) + ' 场 · 全班第 ' + (battle.myRank || '-') + ' 名') : '练习赛 / 同学 / 试炼塔' },
-      { id: 'dex', icon: 'dex', name: '图鉴', sub: battle && battle.dex ? ('已收服 ' + battle.dex.ownedCount + ' / ' + battle.dex.total + ' 只') : '收服野生精灵' },
-      { id: 'rank', icon: 'rank', name: '排行', sub: '积分榜与成就' }
-    ];
-    for (var i = 0; i < items.length; i++) {
-      (function(it) {
-        var card = h('button', 'ci-pet-advlink');
-        card.setAttribute('data-link', it.id);
-        // ⚠️ v0.15.0：这里原来是 emoji。改成 iconSvg 之后，it.icon 必须是
-        //    ICONS 里的键（battle/dex/rank），不能再写 emoji 字面量 ——
-        //    写错的直接后果是入口前面显示成「battle」这五个字母。
-        card.appendChild(iconSvg(it.icon, 'ci-pet-advlink-icon'));
-        var txt = h('span', 'ci-pet-advlink-text');
-        txt.appendChild(h('span', 'ci-pet-advlink-name', it.name));
-        txt.appendChild(h('span', 'ci-pet-advlink-sub', it.sub));
-        card.appendChild(txt);
-        card.appendChild(h('span', 'ci-pet-advlink-arrow', '›'));
-        card.addEventListener('click', function() { switchTab(it.id); });
-        row.appendChild(card);
-      })(items[i]);
-    }
-    return row;
-  }
 
   // 档案是异步来的：首页入口的副标题要在数据回来后原地补一次，
   // 不能整页重渲染（会把正在播的宠物视频重新起一遍）。
@@ -2492,112 +2124,13 @@
   // 每日登录奖励（v0.15.0）：服务端按 last_login_date 判定是否「今天第一次来」，
   // streak 连续天数，发小鱼干 + 羁绊。前端只负责把「今天有礼」画在天气条旁边，
   // 点一下展开说明 —— 这是唯一一个「不花钱就能涨」的东西，值得给一点存在感。
-  function dailyBonusCard() {
-    var b = dailyBonusInfo;
-    if (!b) return null;
-    var box = h('div', 'ci-pet-daily');
-    var row = h('div', 'ci-pet-daily-row');
-    var left = h('div', 'ci-pet-daily-left');
-    left.appendChild(h('span', 'ci-pet-daily-icon', '🎁'));
-    var t = h('span', 'ci-pet-daily-text');
-    if (b.granted) {
-      t.appendChild(h('span', 'ci-pet-daily-title', '每日签到 · 连续 ' + (b.streak || 1) + ' 天'));
-      t.appendChild(h('span', 'ci-pet-daily-sub', '+' + (b.coins || 0) + ' 小鱼干 · +' + (b.bond || 0) + ' 羁绊'));
-    } else {
-      t.appendChild(h('span', 'ci-pet-daily-title', '签到已领取 · 连续 ' + (b.streak || 1) + ' 天'));
-      t.appendChild(h('span', 'ci-pet-daily-sub', '明天再来领新奖励'));
-    }
-    left.appendChild(t);
-    row.appendChild(left);
-    var pill = h('span', 'ci-pet-daily-pill');
-    pill.textContent = b.granted ? '领取' : '✓';
-    row.appendChild(pill);
-    box.appendChild(row);
-    if (b.granted && b.msg) {
-      var note = h('div', 'ci-pet-daily-note', b.msg);
-      box.appendChild(note);
-    }
-    if (b.granted) {
-      box.addEventListener('click', function() {
-        box.classList.add('claiming');
-        if (window.__ciPetSfx) window.__ciPetSfx.play('daily');
-        sysToast(b.msg || ('签到成功 +' + (b.coins||0) + ' 鱼干 +' + (b.bond||0) + ' 羁绊'), 'success');
-        setTimeout(function() {
-          box.classList.remove('claiming');
-          box.classList.add('is-claimed');
-          pill.textContent = '✓';
-          var sub = box.querySelector('.ci-pet-daily-sub');
-          if (sub) sub.textContent = '明天再来领新奖励';
-        }, 520);
-      });
-    }
-    return box;
-  }
 
   // 每日奇遇（v0.16.0）：今天发生的「好事」，和签到/心愿/故事是三条不同的线。
   // 数据来自 /state 下发的 wonder（按日期 + uid 定种子，同一天永远是同一件事）。
-  function wonderCard() {
-    var w = wonderInfo;
-    if (!w || !w.wonder) return null;
-    var box = h('div', 'ci-pet-wonder');
-    var row = h('div', 'ci-pet-wonder-row');
-    var left = h('div', 'ci-pet-wonder-left');
-    left.appendChild(h('span', 'ci-pet-wonder-icon', w.wonder.icon));
-    var t = h('span', 'ci-pet-wonder-text');
-    t.appendChild(h('span', 'ci-pet-wonder-title', '今日奇遇 · ' + w.wonder.title));
-    t.appendChild(h('span', 'ci-pet-wonder-sub', w.wonder.text));
-    left.appendChild(t);
-    row.appendChild(left);
-    if (w.claimed) {
-      row.appendChild(h('span', 'ci-pet-wonder-pill ci-pet-wonder-pill--done', '✓ 已领'));
-    } else if (w.reward) {
-      var pill = h('button', 'ci-pet-wonder-pill', '领取');
-      pill.addEventListener('click', function() {
-        pill.disabled = true; pill.textContent = '发现中…';
-        api.post('/pet/wonder/claim', {}).then(function(res) {
-          var d = (res.data && res.data.data) || {};
-          if (d.state) state = d.state;
-          if (d.wonder) wonderInfo = d.wonder;
-          absorbProgress(d);
-          if (window.__ciPetSfx) window.__ciPetSfx.play('coin');
-          sysToast(w.wonder.title + '：+' + (d.addedCoins || 0) + ' 鱼干 +' + (d.addedBond || 0) + ' 羁绊', 'success');
-          renderHome();
-        }, function(err) {
-          var m = (err && err.response && err.response.data && err.response.data.message) || '领取失败';
-          sysToast(m, 'error');
-          pill.disabled = false; pill.textContent = '领取';
-        });
-      });
-      row.appendChild(pill);
-    }
-    box.appendChild(row);
-    return box;
-  }
 
   // 离线时光 recap（v0.16.0）：你不在的时候它也在生活。
   // 数据来自 /state 下发的 offlineRecap（服务端按 last_active_at 现算）。
   // ⚠️ 只在「真的离线过」时显示 —— 同一次打开页面 gapMin=0 就不该弹。
-  function offlineRecapCard() {
-    var r = offlineRecapInfo;
-    if (!r || !r.events || !r.events.length) return null;
-    var box = h('div', 'ci-pet-offline');
-    var row = h('div', 'ci-pet-offline-row');
-    var left = h('div', 'ci-pet-offline-left');
-    left.appendChild(h('span', 'ci-pet-offline-icon', '🌙'));
-    var t = h('span', 'ci-pet-offline-text');
-    t.appendChild(h('span', 'ci-pet-offline-title',
-      '你不在的 ' + r.gapMin + ' 分钟'));
-    t.appendChild(h('span', 'ci-pet-offline-sub', r.msg));
-    left.appendChild(t);
-    row.appendChild(left);
-    if (r.coinGain > 0 || r.bondGain > 0) {
-      var pill = h('span', 'ci-pet-offline-pill',
-        (r.coinGain > 0 ? '+' + r.coinGain + ' 鱼干 ' : '') + (r.bondGain > 0 ? '+' + r.bondGain + ' 羁绊' : ''));
-      row.appendChild(pill);
-    }
-    box.appendChild(row);
-    return box;
-  }
 
   // 自主行为卡（v0.17.0）：宠物在你不在的时候也在动。
   function autonomyCard() {
@@ -3349,7 +2882,6 @@ var SCENE_OBJECTS = [
   { id: 'frame',    name: null, act: null,      x: 79, hang: true, topY: 16, deco: true },
   { id: 'lamp',     name: null, act: null,      x: 6,  hang: true, topY: 22, deco: true }
 ];
-
 
 
 // ---------- 场景弹层 ----------
@@ -4400,319 +3932,6 @@ function sceneHomeBody(container) {
   }
 }
 
-    function renderHomeBody() {
-    var isVideoPet = state.design && state.design.type === 'video';
-    var bond = state.bond || 0;
-    var tier = tierOf(bond);
-    var next = tier + 1 < TIER.length ? TIER[tier + 1] : null;
-    var mood = petMood();
-
-    // ---- hero：整屏舞台（v0.14.0）----
-    // 上一版 hero 只是一条 200px 高的横幅，下面接着一列信息 —— 那是「带插图的网页」。
-    // 游戏主界面反过来：场景占满首屏，信息以 HUD 的形式浮在场景上，
-    // 底部留一条 dock。判断标准很简单 —— 一眼看过去先看到「它」，而不是先看到一排标题。
-    var hero = h('div', 'ci-pet-hero');
-    var stage = h('div', 'ci-pet-hero-stage');
-    // 场景分四层：天光 → 星点 → 远山 → 地面。层数越多越深，但每层都必须是
-    // 纯装饰节点（pointer-events:none 由 CSS 兜），不能影响宠物所在的命中区。
-    stage.appendChild(h('div', 'ci-pet-scene-sky'));
-    stage.appendChild(h('div', 'ci-pet-scene-stars'));
-    stage.appendChild(h('div', 'ci-pet-scene-hills'));
-    stage.appendChild(h('div', 'ci-pet-scene-ground'));
-    stage.appendChild(h('span', 'ci-pet-scene-shadow'));
-    if (isVideoPet) {
-      var v = document.createElement('video');
-      v.className = 'ci-pet-hero-video';
-      v.muted = true;
-      v.loop = true;
-      v.autoplay = true;
-      v.setAttribute('playsinline', 'playsinline');
-      v.setAttribute('webkit-playsinline', 'webkit-playsinline');
-      v.src = poolUrl(heroIdleName());
-      loadHeroPool();
-      stage.appendChild(v);
-    } else {
-      var pv = document.createElement('canvas');
-      // v0.13.0：舞台通栏满幅、画布再放大一档（16 格 × 11px = 176px）。
-      // 放大后仍靠 dpr 真实像素绘制，比 CSS 拉伸锐利。
-      paint(pv, state.design, 11);
-      stage.appendChild(pv);
-    }
-    hero.appendChild(stage);
-
-    // 头顶气泡：它此刻的想法。桌宠「活着」的最短路径不是动画，是它对自己的处境有话说。
-    // 位置贴着宠物右上（CSS 绝对定位），所以 DOM 上紧跟在 stage 之后、HUD 之前。
-    var bubble = h('div', 'ci-pet-thought');
-    var bubbleTxt = h('span', 'ci-pet-hero-mood', thoughtLines()[0]);
-    bubble.appendChild(bubbleTxt);
-    hero.appendChild(bubble);
-    // 轮播交给定时器：气泡里只有一句会显得「写完就不动了」。
-    startBubble();
-    hero.appendChild(stageHud());
-
-    // 底部 HUD：名牌 + 两根条 + 操作。全部浮在场景上，不再各占一张卡。
-    var heroInfo = h('div', 'ci-pet-hero-info');
-    var nameCol = h('div', 'ci-pet-namecol');
-    nameCol.appendChild(h('div', 'ci-pet-name', state.name || '小家伙'));
-    var badges = h('div', 'ci-pet-badges');
-    // 性格排在第一位：它比「熟悉/幼生体」更回答「这是一只什么样的宠物」。
-    if (personalityInfo) {
-      badges.appendChild(h('span', 'ci-pet-badge ci-pet-badge--persona',
-        (personalityInfo.icon || '') + ' ' + personalityInfo.name));
-    }
-    badges.appendChild(h('span', 'ci-pet-badge', TIER_NAMES[tier]));
-    if (evolutionInfo) {
-      badges.appendChild(h('span', 'ci-pet-badge ci-pet-badge--evo',
-        (evolutionInfo.icon || '') + ' ' + evolutionInfo.name));
-    }
-    var lvBadge = h('span', 'ci-pet-badge ci-pet-badge--lv', 'Lv ·');
-    badges.appendChild(lvBadge);
-    if (interactCombo >= 2) {
-      badges.appendChild(h('span', 'ci-pet-badge ci-pet-badge--combo', '连击 x' + interactCombo));
-    }
-    nameCol.appendChild(badges);
-    heroInfo.appendChild(nameCol);
-    hero.appendChild(heroInfo);
-
-    // 等级由 bindLevel 统一取一次（HUD 上还有一块，共用同一个值）
-    bindLevel(lvBadge);
-
-    // ---- 状态条 ----
-    var stats = h('div', 'ci-pet-stats');
-    // 饱食条文案与后端判定对齐：说"还能喂"时就真的能喂（旧版时间衰减与次数上限脱节）
-    var left = Math.max(0, FEED_DAILY_CAP - fedCount());
-    // 这里内联算冷却，不再调用 feedCooldownMin()：饱食条是全页唯一必过路径，
-    // 一旦它抛异常整个 home 就渲染不出来（曾因此把整个页面搞空白）。
-    var _cd = 0;
-    if (state && state.last_fed_at) {
-      var _cdLeft = 20 * 60 * 1000 - (Date.now() - new Date(state.last_fed_at).getTime());
-      _cd = _cdLeft > 0 ? Math.ceil(_cdLeft / 60000) : 0;
-    }
-    var fedNote = left > 0 ? ('还能吃 ' + left + ' 顿') : (_cd > 0 ? '刚吃过，等一会儿' : '今天吃饱啦');
-    stats.appendChild(statRow('饱食', fedPct(), '#FF9500', fedNote));
-    var tierPct = next ? Math.round((bond - TIER[tier]) / (next - TIER[tier]) * 100) : 100;
-    // 脚注只写「单调递增」的量：当前值 / 下一档阈值，再点明每档还差多少。
-    // 别再只写「还差 N」—— 那个数字会随羁绊上升而变小，最容易被读成掉分。
-    var bondNote = next
-      ? (TIER_NAMES[tier] + ' · ' + bond + ' / ' + next + '，再 +' + (next - bond) + ' 升「' + TIER_NAMES[tier + 1] + '」')
-      : ('灵魂伙伴 · ' + bond + '（已满级）');
-    stats.appendChild(statRow('羁绊', tierPct, '#FF6482', bondNote, bond));
-    heroInfo.appendChild(stats);
-    root.appendChild(hero);
-
-    // ---- 右栏（v0.19.0 横屏分栏）----
-    // 设备是 960x680 的横向屏（用户指正：之前一直按竖屏单列做，横向全浪费）。
-    // 横屏游戏的标准范式：左栏 = 角色与它的直接操作（恒定在视野，永不滚动），
-    // 右栏 = 世界的入口（今日 / 任务 / 商店 / 冒险），自己滚。
-    // 这样角色永远在眼前 —— 这是横屏设备最大的优势，竖屏长滚动把它丢掉了。
-    // 竖屏（窄视口）下这个容器不生效：CSS 里 side 只是普通透明容器，照旧纵排。
-    var side = h('div', 'ci-pet-side');
-
-    // ---- 今日轨道（v0.19.0）----
-    // 天气 / 签到 / 奇遇 / 离线 / 心愿 五件事合成一条横向轨道，
-    // 不再各占一张卡片从���到下堆五屏。
-    var trail = todayRail();
-    if (trail) side.appendChild(trail);
-
-    // ---- 每日任务 ----
-    // 任务是一天一次的清单，留在纵向流里是对的（它是列表不是事件）。
-    var qcard = questCard();
-    // v0.13.0：外面那层「每日任务」分区标题已去掉 —— questCard 自己的 head
-    // 就写着「今日任务 0 / 3」，两个标题上下贴着，读起来像重复了一遍。
-    if (qcard) side.appendChild(qcard);
-
-    // ---- 互动（摸摸/呼唤直接驱动桌面上的那只）----
-    // v0.14.0 起这四个按钮是舞台底部的「技能栏」，不再是页面中间的一排方块。
-    // 也因此不需要「互动」这个分区标题 —— 圆形按钮自带「可以点」的暗示。
-    // ⚠️ 喂食只派发事件，不在这里自己 post —— 由悬浮层的 feed() 统一发请求，
-    //    并派发 'ci-pet-fed' 回报结果，本页收到后刷新 UI。
-    //    v0.11.0 起把这段收进 doFeed()，因为豪华大餐要走完全相同的路径。
-    var acts = h('div', 'ci-pet-actions');
-    var feedBtn = bigBtn('feed', '喂食', feedBtnSub(), function() {
-      bumpInteractCombo();
-      doFeed('normal', feedBtn);
-    }, 'primary');
-    acts.appendChild(feedBtn);
-    // 摸摸：同样可能「桌宠没挂载」，所以和喂食一样带 500ms 无回报兜底。
-    // 副标题直接把「今日还能摸几次」写在按钮上，撞上限前就能看出来。
-    var pokeBtn = bigBtn('poke', '摸摸', pokeBtnSub(), function() {
-      bumpInteractCombo();
-      if (!canPoke()) {
-        sysToast(capMessage('poke'), 'info');
-        return;
-      }
-      pokeBtn.disabled = true;
-      pendingReply.poke = false;
-      try { window.dispatchEvent(new CustomEvent('ci-pet-poke')); } catch (e) {}
-      setTimeout(function() {
-        if (pendingReply.poke) return;
-        api.post('/pet/interact', { type: 'poke' }).then(function(res) {
-          var d = (res.data && res.data.data) || {};
-          state = d.state || state;
-          if (d.mood) moodInfo = d.mood;
-          if (d.personality) personalityInfo = d.personality;
-          absorbProgress(d);
-          if (d.capped) sysToast(capMessage('poke'), 'info');
-          renderHome();
-          if (!d.capped && d.gained > 0) flashGain(d.gained, d.crit);
-        }, function(err) {
-          var msg = (err && err.response && err.response.data && err.response.data.message) || '摸摸失败';
-          sysToast(msg, 'error');
-        }).then(function() { pokeBtn.disabled = false; });
-      }, 500);
-    });
-    acts.appendChild(pokeBtn);
-    acts.appendChild(bigBtn('call', '呼唤', '让它应你一声', function() {
-      bumpInteractCombo();
-      try { window.dispatchEvent(new CustomEvent('ci-pet-call')); } catch (e) {}
-    }));
-    // 专注：第 4 个互动格。它和另外三个不是一类事（前三个是「逗它」，这个是「它陪你」），
-    // 所以文案从「逗」改成「陪」，副标题也换成今日累计分钟而不是收益数字。
-    var focusBtn = bigBtn('focus',
-      focus.active ? ('专注中 ' + fmtMmSs(focusLeftSec())) : '陪它专注',
-      focusBtnSub(),
-      function() {
-        if (focus.active) { finishFocus(false); return; }   // 提前收工：按已投入时长结算
-        focus.picking = !focus.picking;
-        renderHome();
-      });
-    focusBtn.className += ' ci-pet-focusbtn' + (focus.active ? ' is-running' : '');
-    acts.appendChild(focusBtn);
-    heroInfo.appendChild(acts);
-    // 脚注压到舞台最底：相伴天数这类「长期事实」不该占主视线，
-    // 但它必须一直在 —— 那是玩家唯一的「我养了多久」凭证。
-    // ⚠️ 不写「/25」这种上限比：v0.15.0 起有暴击，bond_today 会合法地超过日上限，
-    //    写成「+28/25」会被读成溢出 bug。
-    heroInfo.appendChild(h('div', 'ci-pet-hint',
-      '相伴 ' + daysTogether() + ' 天 · 今日互动 ' + todayInteracts() + ' 次 · 今日羁绊 +' +
-      (state.bond_today || 0)));
-
-    if (focus.picking && !focus.active) side.appendChild(focusPicker());
-
-    // 小卖部紧贴互动区：'专注赚币 → 换饭 → 喂它' 是一条动作链，
-    // 中间隔一个分区标题，视觉上就断了。
-    side.appendChild(shoppeBar());
-
-    // ---- 冒险关卡卡（v0.19.0）----
-    // 旧版是三行「图标 + 文字 + ›」的列表行，读起来像设置菜单；
-    // 现在是三张并列关卡卡，一眼能看到「今天有几场、图鉴收了几只、我排第几」。
-    side.appendChild(sectionTitle('冒险'));
-    side.appendChild(adventureStage());
-    side.appendChild(buddyHomeCard());
-
-    // ---- 更多：形象 / 故事 / 日记 / 设置 收进抽屉（v0.19.0）----
-    // 这四块是低频功能。摊在首页上会让首屏之后变成一列设置项，
-    // 整页读起来就是「配置面板」。收进一个可展开的抽屉，主视线只剩三样：
-    // 它是谁（舞台）、今天做什么（今日轨道）、去哪里玩（关卡卡）。
-    var more = h('details', 'ci-pet-more');
-    var moreSum = h('summary', 'ci-pet-more-sum');
-    moreSum.appendChild(h('span', 'ci-pet-more-title', '更多'));
-    moreSum.appendChild(h('span', 'ci-pet-more-sub', '形象 · 故事 · 日记 · 设置'));
-    more.appendChild(moreSum);
-    var moreBody = h('div', 'ci-pet-more-body');
-
-    // ---- 形象（双向卡片式切换）----
-    moreBody.appendChild(sectionTitle('形象'));
-    var styles = h('div', 'ci-pet-styles');
-    var cWhale = h('div', 'ci-pet-stylecard' + (isVideoPet ? ' is-active' : ''));
-    cWhale.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🐳'));
-    cWhale.appendChild(h('div', 'ci-pet-stylecard-name', '大肥鱼'));
-    cWhale.appendChild(h('div', 'ci-pet-stylecard-desc', '100+ 个动作，会跳舞'));
-    if (isVideoPet) {
-      cWhale.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
-    } else {
-      var useWhale = h('button', 'ci-pet-stylecard-btn', '使用');
-      useWhale.addEventListener('click', function() {
-        savePixelDraft();
-        switchDesign({ type: 'video', character: 'dsh-whale' }, useWhale, '使用');
-      });
-      cWhale.appendChild(useWhale);
-    }
-    styles.appendChild(cWhale);
-
-    var cPixel = h('div', 'ci-pet-stylecard' + (!isVideoPet ? ' is-active' : ''));
-    var pixelShown = !isVideoPet && state.design ? state.design : null;
-    if (!pixelShown) {
-      var savedDraft = null;
-      try { savedDraft = storage && storage.get('lastPixel', null); } catch (e) {}
-      if (savedDraft && savedDraft.data) pixelShown = savedDraft;
-    }
-    if (pixelShown && pixelShown.data) {
-      var pv2 = document.createElement('canvas');
-      paint(pv2, pixelShown, 5);
-      cPixel.appendChild(pv2);
-    } else {
-      cPixel.appendChild(h('div', 'ci-pet-stylecard-art ci-pet-tpl-emoji', '🎨'));
-    }
-    cPixel.appendChild(h('div', 'ci-pet-stylecard-name', '手作拼豆'));
-    cPixel.appendChild(h('div', 'ci-pet-stylecard-desc', '自己画的小家伙'));
-    if (!isVideoPet) {
-      cPixel.appendChild(h('span', 'ci-pet-stylecard-tag', '使用中'));
-      var reBtn = h('button', 'ci-pet-stylecard-btn', '再改改');
-      reBtn.addEventListener('click', function() { startEditor(state.design && state.design.data); });
-      cPixel.appendChild(reBtn);
-    } else {
-      var usePixel = h('button', 'ci-pet-stylecard-btn', pixelShown && pixelShown.data ? '换回来' : '去画一只');
-      usePixel.addEventListener('click', function() {
-        var sv = null;
-        try { sv = storage && storage.get('lastPixel', null); } catch (e) {}
-        startEditor(sv && sv.data ? sv.data : '');
-      });
-      cPixel.appendChild(usePixel);
-    }
-    styles.appendChild(cPixel);
-    moreBody.appendChild(styles);
-
-    // ---- 故事 ----
-    var scard = storyCard();
-    if (scard) moreBody.appendChild(scard);
-
-    // ---- 它的小日记 ----
-    moreBody.appendChild(diaryCard());
-
-    // ---- 设置：显示开关 + 改名字 ----
-    moreBody.appendChild(sectionTitle('设置'));
-    var misc = h('div', 'ci-pet-misc');
-    var toggleRow = h('div', 'ci-pet-toggle-row');
-    toggleRow.appendChild(h('span', null, '在桌面显示'));
-    var sw = h('button', 'ci-pet-switch' + (state.enabled !== false ? ' ci-pet-switch--on' : ''));
-    sw.addEventListener('click', function() {
-      var nx = state.enabled === false;
-      sw.classList.toggle('ci-pet-switch--on', nx);
-      api.put('/pet/state', { enabled: nx }).then(function(res) {
-        state = (res.data && res.data.data && res.data.data.state) || state;
-        notifyChanged();
-        renderHome();
-      });
-    });
-    toggleRow.appendChild(sw);
-    misc.appendChild(toggleRow);
-    var renameRow = h('div', 'ci-pet-btnrow');
-    var rename = h('button', 'ci-pet-btn ci-pet-btn--ghost', '✏️ 改名字');
-    rename.addEventListener('click', function() {
-      // 保留当前形态（pixel 时把现稿塞进 edit，避免 preview 空白/串稿）
-      if (!isVideoPet && state.design) {
-        edit = { data: state.design.data, color: 2, tool: 'pen', mirror: false };
-      }
-      renderNaming(isVideoPet ? 'video' : 'pixel');
-    });
-    renameRow.appendChild(rename);
-    misc.appendChild(renameRow);
-    moreBody.appendChild(misc);
-
-    // ---- 诊断折叠到底部（平时不占版面）----
-    var adv = h('details', 'ci-pet-adv');
-    adv.appendChild(h('summary', null, '桌宠没出现？点开诊断'));
-    var diagOut = h('pre', 'ci-pet-adv-out');
-    adv.appendChild(diagOut);
-    adv.addEventListener('toggle', function() {
-      if (adv.open) diagOut.textContent = buildDiag();
-    });
-    moreBody.appendChild(adv);
-    more.appendChild(moreBody);
-    side.appendChild(more);
-    root.appendChild(side);
-  }
 
   // ================= 图鉴 / 进化 / 随行（v0.8.0）====================
   // 图鉴页把「养」和「收集」放在一起：进化决定能装几个技能，
@@ -4865,21 +4084,6 @@ function sceneHomeBody(container) {
   }
 
   // 首页的随行卡：只报「谁在跟着你、加了什么」，切换入口在图鉴页。
-  function buddyHomeCard() {
-    var b = currentBuddy();
-    var box = h('div', 'ci-pet-buddy ci-pet-buddy--home');
-    var headRow = h('div', 'ci-pet-buddy-head');
-    headRow.appendChild(h('span', 'ci-pet-buddy-title', '随行伙伴'));
-    box.appendChild(headRow);
-    if (!b) {
-      var empty = h('button', 'ci-pet-buddy-empty', '还没有随行伙伴 · 去图鉴收服第一只');
-      empty.addEventListener('click', function() { switchTab('dex'); });
-      box.appendChild(empty);
-      return box;
-    }
-    box.appendChild(buddyLine(b, false));
-    return box;
-  }
 
   function spotlightCard(dex) {
     var s = dex.spotlight;
@@ -5502,165 +4706,7 @@ function sceneHomeBody(container) {
   // ==================== 备战面板（v2.0）====================
   // 一个面板说完「上场带什么」：装备三槽 → 技能库 → 战力与入口。
   // 之前技能栏和 Build 卡是两张卡，玩家要在两张卡之间来回看——它们本来就是一件事。
-  function buildPanel(sec) {
-    var bd = battle.build || {};
-    var inv = battle.inventory || { owned: [] };
-    var equipped = battle.equipped || [];
-    var slots = battle.skillSlots || 2;
-    var catalog = battle.skills || [];
-    var box = h('div', 'ci-pet-build');
-    var head = h('div', 'ci-pet-build-head');
-    head.appendChild(h('span', 'ci-pet-build-title',
-      bd.strategy_name ? bd.strategy_name : '我的 Build'));
-    var fit = bd.fitness || {};
-    var stars = fit.stars || 1;
-    head.appendChild(h('span', 'ci-pet-build-fit',
-      '环境适应 ' + '★'.repeat(stars) + '☆'.repeat(Math.max(0, 5 - stars))));
-    box.appendChild(head);
 
-    var eq = bd.equipment || {};
-    var slotDefs = [
-      { key: 'weapon', name: '武器' },
-      { key: 'accessory', name: '饰品' },
-      { key: 'consumable', name: '消耗品' }
-    ];
-    var slotsRow = h('div', 'ci-pet-build-slots');
-    for (var i = 0; i < slotDefs.length; i++) {
-      (function(sd) {
-        var item = null;
-        for (var j = 0; j < inv.owned.length; j++) {
-          if (inv.owned[j].id === eq[sd.key]) { item = inv.owned[j]; break; }
-        }
-        var cell = h('div', 'ci-pet-build-slot' +
-          (item ? ' is-filled' : '') + (item && item.rarity ? ' is-r-' + item.rarity : ''));
-        cell.appendChild(h('span', 'ci-pet-build-slot-icon', item ? (item.icon || '') : '+'));
-        cell.appendChild(h('span', 'ci-pet-build-slot-item', item ? item.name : sd.name));
-        if (item && item.type === 'consumable') {
-          cell.appendChild(h('span', 'ci-pet-build-slot-charges', '×' + (item.charges || 0)));
-        }
-        cell.setAttribute('title', item ? (item.effect || '') : (sd.name + '槽还没装'));
-        slotsRow.appendChild(cell);
-      })(slotDefs[i]);
-    }
-    box.appendChild(slotsRow);
-
-    // 技能库：卡格式（大图标 + 名字 + 类型角标），选中发亮，品质决定边框色
-    var skHead = h('div', 'ci-pet-build-skhead');
-    skHead.appendChild(h('span', 'ci-pet-build-sktitle', '技能库 ' + equipped.length + ' / ' + slots));
-    skHead.appendChild(h('span', 'ci-pet-build-skhint', '点装备 · 满了顶掉最早的'));
-    box.appendChild(skHead);
-    var grid = h('div', 'ci-pet-skillgrid');
-    for (var g = 0; g < catalog.length; g++) {
-      (function(s) {
-        var on = equipped.indexOf(s.id) >= 0;
-        var cell = h('button', 'ci-pet-skillcell' + (on ? ' is-on' : '') +
-          (s.rarity ? ' is-r-' + s.rarity : ''));
-        cell.setAttribute('data-skill', s.id);
-        cell.appendChild(h('span', 'ci-pet-skillcell-icon', s.icon || ''));
-        var txt = h('span', 'ci-pet-skillcell-txt');
-        txt.appendChild(h('span', 'ci-pet-skillcell-name', s.name));
-        txt.appendChild(h('span', 'ci-pet-skillcell-type', skillTypeLabel(s)));
-        cell.appendChild(txt);
-        cell.setAttribute('title', s.desc || '');
-        cell.addEventListener('click', function() {
-          var next = (battle.equipped || []).slice();
-          var idx = next.indexOf(s.id);
-          if (idx >= 0) {
-            next.splice(idx, 1);
-          } else {
-            if (next.length >= slots) next.shift();   // 满了就顶掉最早那个
-            next.push(s.id);
-          }
-          // 先本地生效再发请求：点一下就要有反馈，等网络回来才变色会显得卡
-          battle.equipped = next;
-          if (api) {
-            api.post('/pet/battle/skills', { skills: next }).then(function(res) {
-              var d = (res.data && res.data.data) || {};
-              if (d.equipped) battle.equipped = d.equipped;
-              if (d.skills) battle.skills = d.skills;
-              redrawSkills();
-            }, function() {
-              redrawSkills();   // 失败就按原来的重画（服务端没改）
-            });
-          } else {
-            redrawSkills();
-          }
-        });
-        grid.appendChild(cell);
-      })(catalog[g]);
-    }
-    box.appendChild(grid);
-
-    var foot = h('div', 'ci-pet-build-foot');
-    var left = h('div', 'ci-pet-build-powerbox');
-    left.appendChild(h('span', 'ci-pet-build-power', String(bd.power_score || 0)));
-    left.appendChild(h('span', 'ci-pet-build-power-label', 'Build 战力'));
-    foot.appendChild(left);
-    var actions = h('div', 'ci-pet-build-actions');
-    var editBtn = h('button', 'ci-pet-build-btn', '配 装');
-    editBtn.addEventListener('click', function() { renderBuildEditor(); });
-    actions.appendChild(editBtn);
-    var shareBtn = h('button', 'ci-pet-build-btn is-ghost', '分享');
-    shareBtn.addEventListener('click', function() { doShareBuild(); });
-    actions.appendChild(shareBtn);
-    var importBtn = h('button', 'ci-pet-build-btn is-ghost', '导入');
-    importBtn.addEventListener('click', function() { doImportBuild(); });
-    actions.appendChild(importBtn);
-    foot.appendChild(actions);
-    box.appendChild(foot);
-    return box;
-
-    function redrawSkills() {
-      var cells = grid.childNodes;
-      for (var m = 0; m < cells.length; m++) {
-        var c2 = cells[m];
-        if (!c2.className || c2.className.indexOf('ci-pet-skillcell') !== 0) continue;
-        var id = c2.getAttribute('data-skill');
-        if (!id) continue;
-        var isOn = (battle.equipped || []).indexOf(id) >= 0;
-        c2.className = ('ci-pet-skillcell' + (isOn ? ' is-on' : '')).trim();
-        // 品质 class 要从技能表里带回来
-        for (var n = 0; n < (battle.skills || []).length; n++) {
-          if (battle.skills[n].id === id && battle.skills[n].rarity) {
-            c2.className += ' is-r-' + battle.skills[n].rarity;
-          }
-        }
-      }
-      var t = box.querySelector('.ci-pet-build-sktitle');
-      if (t) t.textContent = '技能库 ' + (battle.equipped || []).length + ' / ' + slots;
-    }
-  }
-
-  function doShareBuild() {
-    if (!api) return;
-    api.post('/pet/battle/build/share', {}).then(function(res) {
-      var d = (res.data && res.data.data) || {};
-      var code = d.share_code || '';
-      sysToast('分享码 ' + code + '（已尝试复制）', 'success');
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code);
-      } catch (e) {}
-    }, function() { sysToast('分享码生成失败', 'error'); });
-  }
-
-  function doImportBuild() {
-    var code = window.prompt('输入同学的分享码（如 a1b2cde-f）：');
-    if (!code) return;
-    if (!api) return;
-    api.post('/pet/battle/build/import', { share_code: String(code).trim() }).then(function(res) {
-      var d = (res.data && res.data.data) || {};
-      var miss = d.missing || {};
-      var msg = '导入成功！';
-      if (miss.skills && miss.skills.length) msg += '（' + miss.skills.length + ' 个技能还没解锁）';
-      if (miss.equipment && miss.equipment.length) msg += '（' + miss.equipment.length + ' 件装备还没拿到）';
-      sysToast(msg, 'success');
-      battle = null;
-      renderHome();
-    }, function(err) {
-      var msg = (err && err.response && err.response.data && err.response.data.message) || '导入失败';
-      sysToast(msg, 'error');
-    });
-  }
 
   // ==================== Build 编辑器（v2.0）====================
   // 整页视图（和拼豆工作台同款模式）：clearRoot 起一页，保存/返回回 renderHome。
@@ -6198,7 +5244,6 @@ function sceneHomeBody(container) {
     return box;
   }
 
-  function subTitle(t) { return h('div', 'ci-pet-battle-sub', t); }
 
   // 操作行（无框）：天气徽章 + 属性盘 + 出战风格。
   // 三个「小设置」原本各占一张卡——报表感的主要来源。这里全部去框，
