@@ -9622,6 +9622,21 @@
   /* 走动：left 过渡 0.5s —— 与 worldWalkTo 的 520ms 对齐 */
   -webkit-transition: left 0.5s ease, -webkit-transform 0.14s ease;
   transition: left 0.5s ease, transform 0.14s ease;
+  /* v0.31.0：命中区收进身体框（见下面的 ::after）。
+     原来整块 340×205 的 canvas 矩形都算「摸到了它」，连周围透明的空气也算 ——
+     它往地板家具前一站，家具就整片点不到。毛线球只有 60×60，
+     实测被盖掉七成时间（探针连点 12 次才命中一次）。 */
+  pointer-events: none;
+}
+.ci-pethome .world-pet::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  width: 140px;
+  height: 172px;
+  margin-left: -70px;
+  pointer-events: auto;
 }
 .ci-pethome .world-pet.is-flip .world-pet-vid,
 .ci-pethome .world-pet.is-flip .world-pet-cv {
@@ -9899,6 +9914,191 @@
   text-align: center;
   font-size: 12px;
   color: rgba(198, 210, 240, 0.6);
+}
+
+/* 毛线球本体只有 40×30（yarn 8×6 像素 × 5），平板上比 44px 的最小点击目标还小。
+   用透明伪元素把命中区撑到 56×50 —— 视觉不变，手指好点得中。 */
+.ci-pethome .world-obj[data-obj="ball"]::after {
+  content: '';
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: -10px;
+  bottom: -10px;
+}
+
+/* ---------- 逗它玩 · 抓光虫（v0.31.0）---------- */
+/* Chrome 80 基线：不用 gap / inset，间距一律走 margin，边框一律四边写。 */
+.ci-pethome .petplay {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+}
+.ci-pethome .petplay-hud {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: baseline;
+  align-items: baseline;
+  padding: 0 2px;
+}
+.ci-pethome .petplay-k {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: rgba(198, 210, 240, 0.65);
+  margin-right: 8px;
+}
+.ci-pethome .petplay-score {
+  display: inline-block;
+  min-width: 46px;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  color: #ffd76e;
+  text-shadow: 2px 2px 0 #000;
+}
+.ci-pethome .petplay-combo {
+  margin-left: 12px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #ff9ebb;
+  opacity: 0;
+  -webkit-transition: opacity 0.12s;
+  transition: opacity 0.12s;
+}
+.ci-pethome .petplay-combo.is-on { opacity: 1; }
+.ci-pethome .petplay-clock {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 900;
+  color: #8ed7ff;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.ci-pethome .petplay-bar {
+  height: 8px;
+  margin: 8px 0 10px;
+  background: #120c1a;
+  box-shadow: inset 0 0 0 2px #3b2c4d;
+  overflow: hidden;
+}
+.ci-pethome .petplay-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #8ed7ff;
+  -webkit-transition: width 0.1s linear;
+  transition: width 0.1s linear;
+}
+
+/* 场地：深底 + 两团极淡的环境光，让光点跳出来 */
+.ci-pethome .petplay-stage {
+  position: relative;
+  height: 280px;
+  background: #171024;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(142, 215, 255, 0.08) 0, rgba(142, 215, 255, 0) 40%),
+    radial-gradient(circle at 78% 68%, rgba(255, 157, 187, 0.08) 0, rgba(255, 157, 187, 0) 42%);
+  box-shadow: inset 0 0 0 3px #2b1f3a;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pethome .petplay-stage.is-done { background: #120c1a; }
+
+.ci-pethome .petplay-bug {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-transition: left 0.16s ease-out, top 0.16s ease-out;
+  transition: left 0.16s ease-out, top 0.16s ease-out;
+  -webkit-animation: petplayBugPulse 0.9s ease-in-out infinite;
+  animation: petplayBugPulse 0.9s ease-in-out infinite;
+}
+/* 光点 = 硬边方芯 + 三圈硬描边。像素世界里不要柔光球 */
+.ci-pethome .petplay-bug::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  background: #fff7c2;
+  box-shadow: 0 0 0 3px #ffd76e, 0 0 0 6px rgba(255, 215, 110, 0.28), 2px 2px 0 rgba(0, 0, 0, 0.5);
+}
+@keyframes petplayBugPulse {
+  0%   { -webkit-transform: scale(1);    transform: scale(1); }
+  50%  { -webkit-transform: scale(1.14); transform: scale(1.14); }
+  100% { -webkit-transform: scale(1);    transform: scale(1); }
+}
+.ci-pethome .petplay-bug:active::before {
+  background: #ffffff;
+  box-shadow: 0 0 0 3px #ffffff, 0 0 0 9px rgba(255, 255, 255, 0.35);
+}
+
+.ci-pethome .petplay-tip {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(198, 210, 240, 0.55);
+}
+
+.ci-pethome .petplay-result {
+  display: none;
+  margin-top: 10px;
+  padding: 12px;
+  background: #120c1a;
+  box-shadow: inset 0 0 0 2px #3b2c4d;
+  text-align: center;
+}
+.ci-pethome .petplay-result.is-on { display: block; }
+.ci-pethome .petplay-rtitle {
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffd76e;
+  text-shadow: 1px 1px 0 #000;
+}
+.ci-pethome .petplay-rsub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(198, 210, 240, 0.8);
+}
+.ci-pethome .petplay-rgain {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(198, 210, 240, 0.8);
+}
+.ci-pethome .petplay-rgain.is-good { color: #8fe6a6; }
+.ci-pethome .petplay-rgain.is-full { color: #c6a2ff; }
+.ci-pethome .petplay-rgain.is-bad  { color: #ff8fa3; }
+.ci-pethome .petplay-again {
+  margin-top: 10px;
+  padding: 8px 18px;
+  border: none;
+  background: #d9506b;
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5);
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pethome .petplay-again:active {
+  -webkit-transform: translate(3px, 3px);
+  transform: translate(3px, 3px);
+  box-shadow: none;
 }
 
 /* ---------- dock 像素化 + 版本标记 ---------- */

@@ -3185,13 +3185,22 @@ var SCENE_ART = {
     'aabbbba',
     '.aaaaa.'
   ] },
-  yarn: { w: 8, h: 6, pal: { a: '#ff8fa3', b: '#d9506b' }, rows: [
-    '..aaaa..',
-    '.abaaba.',
-    'aabaabaa',
-    'aaabaaba',
-    '.abbaab.',
-    '..aaaa..'
+  // v0.31.0：毛线球。原来 8×6（40×30px）在 1043 宽的房间里小得像粒豆子，
+  // 而且角色（z=6）走上去就把家具（z=5）整个盖住 —— 40×30 被盖时几乎看不见。
+  // 放大到 12×12（60×60），右侧留一截拖出去的线头，远看也知道是团线。
+  yarn: { w: 12, h: 12, pal: { a: '#7a2f47', b: '#d9506b', c: '#ff9ebb', d: '#ffe3ea' }, rows: [
+    '............',
+    '....aaaa....',
+    '..aabbbbaa..',
+    '.aabbbbbbaa.',
+    '.abbcbbbbba.',
+    'abbbcbbbbbba',
+    'abbbbbccbbba',
+    'abbbbbbbbbba',
+    '.abbbbbbbba.',
+    '..aabbbbaa..',
+    '....aaaa....',
+    '.........ac.'
   ] },
 };
 
@@ -3220,6 +3229,11 @@ var SCENE_OBJECTS = [
   { id: 'bed',     name: '小窝', act: 'bed',    x: 16.7, row: 'back',  walkX: 23 },
   { id: 'bowl',    name: '喂食', act: 'feed',   x: 9.9,  row: 'front', walkX: 16 },
   { id: 'gift',    name: '惊喜', act: 'gift',   x: 22.4, row: 'front', walkX: 28 },
+  // v0.31.0「逗它玩」：放在门的左侧、房间最右边。
+  // 为什么不是在左簇（挨着礼物盒）：宠物闲逛的 x 范围是 15%~78%，身体框半宽 6.7%，
+  // 只要球落在 8.3%~84.7% 之间，它一站过来就把球连同点击一起盖住
+  // （实测连点 12 次才命中一次）。90% 在闲逛范围外，站着也压不到。
+  { id: 'ball',    name: '逗它玩', act: 'play',   x: 90,   row: 'front', walkX: 88, art: 'yarn' },
 
   // ---- 中簇：陪读（书桌正对窗，光的落点就是工作区）----
   { id: 'desk',    name: null,   act: null,     x: 46.0, row: 'mid', deco: true },
@@ -3467,6 +3481,180 @@ function giftSheetBody(body) {
   if (!pushed) body.appendChild(h('div', 'world-gift-empty', '今天暂时没有惊喜，明天再来。'));
 }
 
+// ==================== 逗它玩（v0.31.0）====================
+// 后端 POST /pet/play 从 v0.7 就存在（score → 羁绊，每日封顶 6 点），美术里也早就
+// 画好了毛线球 `yarn`，但两边从来没接上 —— 小屋里找不到任何「玩」的地方，
+// 这个玩法等于不存在。现在补成 12 秒抓光虫：点中得分，连击加成，分数换算羁绊。
+//
+// ⚠️ 定时器必须自己管：worldSheetClose 只移除 DOM，不会通知内容层。
+//    每个 tick 用 isConnected 自检，节点没了就收摊 —— 否则关掉弹层后
+//    游戏还在后台跑计时器，下一次打开会叠两套。
+var PLAY_GAME = {
+  dur: 12000,     // 一局 12 秒
+  life: 1250,     // 每只光虫停留多久，超时自己飞走（连击清零）
+  hitBase: 12,    // 每只基础分
+  hitCombo: 3     // 连击加成：第 n 连额外 (n-1)×3 分
+};
+
+function playGameBody(body) {
+  var g = PLAY_GAME;
+  var score = 0, hits = 0, combo = 0, maxCombo = 0;
+  var startedAt = 0, over = false, tickTimer = 0, bugTimer = 0;
+
+  var box = h('div', 'petplay');
+  var hud = h('div', 'petplay-hud');
+  hud.appendChild(h('span', 'petplay-k', '得分'));
+  var scoreEl = h('b', 'petplay-score', '0');
+  hud.appendChild(scoreEl);
+  var comboEl = h('span', 'petplay-combo', '');
+  hud.appendChild(comboEl);
+  var clockEl = h('span', 'petplay-clock', Math.round(g.dur / 1000) + 's');
+  hud.appendChild(clockEl);
+  box.appendChild(hud);
+
+  var bar = h('div', 'petplay-bar');
+  var fill = h('i', 'petplay-fill');
+  bar.appendChild(fill);
+  box.appendChild(bar);
+
+  var stage = h('div', 'petplay-stage');
+  var bug = h('button', 'petplay-bug');
+  bug.setAttribute('type', 'button');
+  bug.setAttribute('aria-label', '光虫');
+  stage.appendChild(bug);
+  box.appendChild(stage);
+
+  box.appendChild(h('div', 'petplay-tip', '点中光虫得分 · 连击越高单只越值钱'));
+  var result = h('div', 'petplay-result');
+  box.appendChild(result);
+  body.appendChild(box);
+
+  function renderCombo() {
+    if (combo >= 2) {
+      comboEl.textContent = '连击 ×' + combo;
+      comboEl.className = 'petplay-combo is-on';
+    } else {
+      comboEl.textContent = '';
+      comboEl.className = 'petplay-combo';
+    }
+  }
+
+  function placeBug() {
+    if (over || !bug.isConnected) return;
+    // 6%~90% / 10%~82%：留边，避免光点一半身子被 stage 的 overflow:hidden 裁掉
+    bug.style.left = (6 + Math.random() * 84) + '%';
+    bug.style.top = (10 + Math.random() * 72) + '%';
+    if (bugTimer) clearTimeout(bugTimer);
+    bugTimer = setTimeout(function() {
+      bugTimer = 0;
+      if (over) return;
+      combo = 0;            // 追丢了就断连击，但不扣已经拿到的分
+      renderCombo();
+      placeBug();
+    }, g.life);
+  }
+
+  function onHit(ev) {
+    if (ev) {
+      if (ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
+    }
+    if (over) return;
+    combo += 1;
+    if (combo > maxCombo) maxCombo = combo;
+    hits += 1;
+    score += g.hitBase + (combo - 1) * g.hitCombo;
+    scoreEl.textContent = String(score);
+    renderCombo();
+    if (bugTimer) { clearTimeout(bugTimer); bugTimer = 0; }
+    placeBug();
+  }
+
+  function stopTimers() {
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = 0; }
+    if (bugTimer) { clearTimeout(bugTimer); bugTimer = 0; }
+  }
+
+  function tick() {
+    if (over) return;
+    if (!stage.isConnected) { over = true; stopTimers(); return; }
+    var left = g.dur - (Date.now() - startedAt);
+    if (left <= 0) { finish(); return; }
+    clockEl.textContent = Math.ceil(left / 1000) + 's';
+    fill.style.width = (left / g.dur * 100).toFixed(1) + '%';
+  }
+
+  function finish() {
+    if (over) return;
+    over = true;
+    stopTimers();
+    fill.style.width = '0%';
+    clockEl.textContent = '0s';
+    bug.style.display = 'none';
+    comboEl.textContent = '';
+    comboEl.className = 'petplay-combo';
+    stage.className = 'petplay-stage is-done';
+
+    result.className = 'petplay-result is-on';
+    result.appendChild(h('div', 'petplay-rtitle', hits ? ('抓到 ' + hits + ' 只光虫') : '一只都没抓到'));
+    result.appendChild(h('div', 'petplay-rsub',
+      '得分 ' + score + (maxCombo >= 2 ? (' · 最高 ' + maxCombo + ' 连击') : '')));
+    var gain = h('div', 'petplay-rgain', api ? '结算中…' : '暂时连不上服务器');
+    result.appendChild(gain);
+    var again = h('button', 'petplay-again', '再来一局');
+    again.addEventListener('click', function() {
+      clearEl(body);
+      playGameBody(body);
+    });
+    result.appendChild(again);
+
+    if (!api) return;
+    api.post('/pet/play', { score: score }).then(function(res) {
+      var d = (res.data && res.data.data) || {};
+      if (d.state) state = d.state;
+      absorbProgress(d);
+      var added = d.added || 0;
+      var total = d.total || 0;
+      var cap = d.cap || 0;
+      if (added > 0) {
+        gain.textContent = '羁绊 +' + added + '（今天 ' + total + ' / ' + cap + '）';
+        gain.className = 'petplay-rgain is-good';
+        try { if (window.__ciPetSfx) window.__ciPetSfx.play('coin'); } catch (e) {}
+        sysToast('玩得开心！羁绊 +' + added, 'success');
+      } else {
+        gain.textContent = '今天的玩耍羁绊已经拿满了（' + total + ' / ' + cap + '），明天再来';
+        gain.className = 'petplay-rgain is-full';
+      }
+      notifyChanged();
+      // 关掉弹层后让小屋重画一次，HUD 上的羁绊/鱼干才跟着变。
+      // 不能立刻 renderHome —— 那会把正在看的结算面板连同弹层一起抹掉。
+      pendingHomeRender = true;
+    }, function(err) {
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '结算失败，稍后再试';
+      gain.textContent = msg;
+      gain.className = 'petplay-rgain is-bad';
+    });
+  }
+
+  function start() {
+    startedAt = Date.now();
+    score = 0; hits = 0; combo = 0; maxCombo = 0;
+    scoreEl.textContent = '0';
+    renderCombo();
+    fill.style.width = '100%';
+    clockEl.textContent = Math.round(g.dur / 1000) + 's';
+    tickTimer = setInterval(tick, 90);
+    placeBug();
+  }
+
+  if (window.PointerEvent) bug.addEventListener('pointerdown', onHit);
+  else {
+    bug.addEventListener('touchstart', onHit);
+    bug.addEventListener('mousedown', onHit);
+  }
+  start();
+}
+
 // 角色走动：RPG 的灵魂交互 —— 点家具，它先走过去，再打开对应的玩法。
 // walkX 记录在 SCENE_OBJECTS；scaleX 让它面向目标。走完回调里再弹对话框。
 var worldPetEl = null;
@@ -3707,6 +3895,7 @@ function sceneAction(act, walkX) {
     }
     if (act === 'easel') { worldSheet('画板 · 形象', easelSheetBody); return; }
     if (act === 'gift') { worldSheet('今日惊喜', giftSheetBody); return; }
+    if (act === 'play') { worldSheet('逗它玩', playGameBody); return; }
   };
   // 喂食不用走过去（食盆就在脚边），但它也不只是「喂」：
   // v0.24 起首页是像素小家，v0.19 的侧栏货架成了死代码，鱼干从此没有花处。
