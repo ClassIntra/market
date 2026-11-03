@@ -207,8 +207,14 @@ function placeOrder(userId, params) {
 
     // ---- 卖出 ----
     var pos = store.getPosition(userId, code);
-    var sellable = pos ? pos.available_qty - frozenSellQty(userId, code) : 0;
-    if (!pos || sellable <= 0) throw TradeError('没有可卖持仓（可卖数量 = 持仓 − 已挂卖单）');
+    var frozen = frozenSellQty(userId, code);
+    var sellable = pos ? pos.available_qty - frozen : 0;
+    if (!pos || pos.qty <= 0) throw TradeError('没有可卖持仓');
+    if (sellable <= 0) {
+      // 分开说清楚：全被挂单占用 vs 数据未解锁 —— 学生看到的提示要能自己解决
+      if (frozen > 0) throw TradeError('可卖 0 股：持仓 ' + pos.qty + ' 股里有 ' + frozen + ' 股已被卖单占用，先撤单再卖');
+      throw TradeError('可卖 0 股：持仓 ' + pos.qty + ' 股尚未解锁，下拉刷新一下持仓页即可');
+    }
     if (qty > sellable) throw TradeError('可卖数量不足（当前可卖 ' + sellable + ' 股）');
     if (qty < market.LOT_SIZE && qty !== sellable) {
       throw TradeError('零股（不足 100 股）必须一次性全部卖出');

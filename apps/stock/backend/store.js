@@ -191,17 +191,24 @@ function ensureAccount(userId) {
   return d.prepare('SELECT * FROM stock_account WHERE user_id = ?').get(userId);
 }
 
-// 每个交易日第一次访问时，把昨日持仓解禁为可卖
+// T+0 兜底：把「未解锁」的持仓补齐为可卖。
+// ⚠️ 这里**不能**再按日期短路（原来 `if (acc.last_settle_date === todayKey) return acc`）。
+// 2026-11-03 实踩：当天上午还在旧 T+1 版本里买过股票的学生，last_settle_date 已经是今天，
+// 切到 T+0 后 settleT1 直接 return —— 于是那 20 笔持仓永远 available_qty=0，一整天卖不出去。
+// 现在改成「无论日期，只要 available_qty < qty 就补齐」，日期只用于记账。
 function settleT1(userId, todayKey) {
   var d = db();
   var acc = ensureAccount(userId);
-  if (acc.last_settle_date === todayKey) return acc;
 
   var tx = d.transaction(function () {
-    d.prepare('UPDATE stock_positions SET available_qty = qty, updated_at = ? WHERE user_id = ?')
-      .run(Date.now(), userId);
-    d.prepare('UPDATE stock_account SET last_settle_date = ? WHERE user_id = ?')
-      .run(todayKey, userId);
+    d.prepare([
+      'UPDATE stock_positions SET available_qty = qty, updated_at = ?',
+      'WHERE user_id = ? AND available_qty < qty'
+    ].join('\n')).run(Date.now(), userId);
+    if (acc.last_settle_date !== todayKey) {
+      d.prepare('UPDATE stock_account SET last_settle_date = ? WHERE user_id = ?')
+        .run(todayKey, userId);
+    }
   });
   tx();
   return d.prepare('SELECT * FROM stock_account WHERE user_id = ?').get(userId);

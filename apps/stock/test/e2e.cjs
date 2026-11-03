@@ -293,6 +293,24 @@ async function main() {
     ok('流水含卖出到账', lrows.some(function (x) { return x.delta > 0 && /卖出/.test(x.memo || ''); }),
       lrows.slice(0, 3).map(function (x) { return x.memo; }));
     ok('流水带余额快照（可逐笔对账）', typeof lrows[0].balance_after === 'number', lrows[0].balance_after);
+
+    // 回归：旧 T+1 版本当天买入的仓位（available_qty=0 且 last_settle_date 已是今天），
+    // 切到 T+0 后必须能自动解锁 —— 否则学生会「一整天卖不出去」（2026-11-03 生产实踩）
+    console.log('\n=== 旧版本锁仓自动解锁（T+0 兜底） ===');
+    try {
+      var Database = require(path.join(SERVER, 'node_modules/better-sqlite3'));
+      var pdb = new Database(DB);
+      var settleRow = pdb.prepare('SELECT last_settle_date FROM stock_account WHERE user_id = ?').get('251801');
+      pdb.prepare('UPDATE stock_positions SET available_qty = 0 WHERE user_id = ?').run('251801');
+      pdb.close();
+      var healed = await api('GET', '/api/stock/positions', { token: T1 });
+      var hp = (healed.body.data.positions || []).filter(function (x) { return x.code === cheap.code; })[0];
+      ok('旧版本当天锁仓在 T+0 下自动解锁',
+        hp && hp.available_qty === hp.qty && settleRow && settleRow.last_settle_date,
+        hp && { qty: hp.qty, avail: hp.available_qty, settle: settleRow && settleRow.last_settle_date });
+    } catch (e) {
+      ok('旧版本锁仓自动解锁（DB 直连失败：' + e.message + '）', false);
+    }
   } else {
     ok('非交易时段下单进入排队（不报错）', buyData.order.status === 'pending', buyData.order.status);
   }
