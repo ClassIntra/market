@@ -56,6 +56,7 @@
     error: {},
     watch: {},
     sheet: null,        // { code, side, type, price, qty }
+    tour: null,         // 新手引导当前步（null = 未在引导中）
     toastTimer: null,
     refreshTimer: null,
     lastRefresh: 0
@@ -241,6 +242,7 @@
     { key: 'positions', label: '持仓', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/>' },
     { key: 'orders', label: '委托', icon: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/>' },
     { key: 'rank', label: '排行', icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
+    { key: 'guide', label: '指南', icon: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5V5.5z"/><path d="M8 7h8M8 11h6"/>' },
     { key: 'rules', label: '规则', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>' }
   ];
 
@@ -284,6 +286,8 @@
       main.appendChild(viewOrders());
     } else if (S.tab === 'rank') {
       main.appendChild(viewRank());
+    } else if (S.tab === 'guide') {
+      main.appendChild(viewGuide());
     } else {
       main.appendChild(viewRules());
     }
@@ -1489,6 +1493,294 @@
     return side;
   }
 
+  // ================= 新手教程 / 指南 =================
+  // 两层设计：
+  //   · 首次进入 → 分步引导（TOUR_STEPS，遮罩高亮真实界面，5 步）；
+  //   · 随时查阅 → 「指南」页（11 节：上手流程 / 读盘 / 下单 / 费用算例 / 术语表…）。
+  // 完成或跳过一次后写 localStorage；「指南」页可随时重看。
+  var GUIDE_KEY = 'ci-stock-guide-v1';
+
+  function guideDone() {
+    try { return localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) { return true; }
+  }
+  function markGuideDone() {
+    try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {}
+  }
+
+  var TOUR_STEPS = [
+    {
+      target: '.hero',
+      title: '这是你的账户',
+      body: '开户送 <b>1000 学元</b>，首次进入本应用再发 <b>9000 投资练习金</b>。这里所有盈亏都只是学元：不能充值、不能提现，也不会变成真钱。'
+    },
+    {
+      target: '.sector-chips',
+      title: '先挑板块，再挑股票',
+      body: '17 个板块横着滑，点「人工智能」就只看 AI 链。右边搜索框支持代码、名称、板块（试试输入「平安」或「600519」）。'
+    },
+    {
+      target: '.market-list .qrow',
+      title: '红涨绿跌，点开看详情',
+      body: '<b>红 = 涨，绿 = 跌</b>（A 股习惯，和欧美相反）。右边星标加入自选；点一行进入详情，看分时、日 K 和成交量。'
+    },
+    {
+      target: '.nav',
+      title: '六个功能页',
+      body: '持仓看成本与可卖数量，委托看挂单和撤单，排行看班级名次与跨班对决，指南随时查教程，规则是交易规则原文。'
+    },
+    {
+      target: null,
+      title: '三条最重要的规则',
+      body: '<b>T+1</b>：今天买的明天才能卖。<br><b>手续费</b>：一买一卖至少 10 学元起，交易越勤亏得越快。<br><b>涨跌停</b>：涨停买不到、跌停卖不掉 —— 挂上了不等于会成交。'
+    }
+  ];
+
+  function startTour() {
+    if (!root) return;
+    S.tour = 0;
+    renderTourStep();
+  }
+
+  function endTour() {
+    S.tour = null;
+    var layer = root && root.querySelector('.tour-layer');
+    if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+  }
+
+  function renderTourStep() {
+    if (S.tour === null || !root) return;
+    var step = TOUR_STEPS[S.tour];
+    var layer = root.querySelector('.tour-layer');
+    if (!layer) {
+      layer = h('div', 'tour-layer ci-stock-tour');
+      root.appendChild(layer);
+    }
+    clear(layer);
+    // 遮罩层阻断底层点击：引导期间只认教程按钮，避免误触导航/下单
+    layer.appendChild(h('div', 'tour-block'));
+
+    var rootRect = root.getBoundingClientRect();
+    var rect = null;
+    var target = step.target ? root.querySelector(step.target) : null;
+    if (target) {
+      try { target.scrollIntoView({ block: 'center' }); } catch (e) {}
+      var r = target.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        rect = r;
+        var hole = h('div', 'tour-hole');
+        hole.style.left = (r.left - rootRect.left - 5) + 'px';
+        hole.style.top = (r.top - rootRect.top - 5) + 'px';
+        hole.style.width = (r.width + 10) + 'px';
+        hole.style.height = (r.height + 10) + 'px';
+        layer.appendChild(hole);
+      }
+    }
+
+    var tip = h('div', 'tour-tip ci-stock-tour-tip');
+    var head = h('div', 'tour-head');
+    head.appendChild(h('div', 'tour-step', '第 ' + (S.tour + 1) + ' / ' + TOUR_STEPS.length + ' 步'));
+    var skip = h('div', 'tour-skip', '跳过');
+    skip.onclick = function () {
+      markGuideDone();
+      endTour();
+      toast('可以随时在「指南」页重看新手引导');
+    };
+    head.appendChild(skip);
+    tip.appendChild(head);
+
+    tip.appendChild(h('div', 'tour-title', step.title));
+    var bodyEl = h('div', 'tour-body');
+    bodyEl.innerHTML = step.body;
+    tip.appendChild(bodyEl);
+
+    var acts = h('div', 'tour-actions');
+    if (S.tour > 0) {
+      var prev = h('button', 'tour-prev', '上一步');
+      prev.onclick = function () { S.tour--; renderTourStep(); };
+      acts.appendChild(prev);
+    }
+    if (S.tour < TOUR_STEPS.length - 1) {
+      var next = h('button', 'tour-next', '下一步');
+      next.onclick = function () { S.tour++; renderTourStep(); };
+      acts.appendChild(next);
+    } else {
+      var toGuide = h('button', 'tour-to-guide', '看完整指南');
+      toGuide.onclick = function () {
+        markGuideDone();
+        endTour();
+        S.tab = 'guide';
+        S.detailCode = '';
+        renderNav();
+        renderMain();
+        loadTab('guide');
+      };
+      acts.appendChild(toGuide);
+      var done = h('button', 'tour-done', '开始交易');
+      done.onclick = function () { markGuideDone(); endTour(); };
+      acts.appendChild(done);
+    }
+    tip.appendChild(acts);
+
+    tip.style.visibility = 'hidden';
+    layer.appendChild(tip);
+
+    // 定位：优先贴着高亮框下方，其次上方；都放不下就居中（窄屏/竖屏兜底）
+    var tipW = tip.offsetWidth || 330;
+    var tipH = tip.offsetHeight || 180;
+    var W = rootRect.width;
+    var H = rootRect.height;
+    var x;
+    var y;
+    if (!rect) {
+      x = (W - tipW) / 2;
+      y = (H - tipH) / 2;
+    } else {
+      var hx = rect.left - rootRect.left;
+      var hy = rect.top - rootRect.top;
+      var hw = rect.width;
+      var hh = rect.height;
+      if (hy + hh + 14 + tipH < H - 12) {
+        x = hx + hw / 2 - tipW / 2;
+        y = hy + hh + 14;
+      } else if (hy - tipH - 14 > 12) {
+        x = hx + hw / 2 - tipW / 2;
+        y = hy - tipH - 14;
+      } else if (hx + hw + 14 + tipW < W - 12) {
+        x = hx + hw + 14;
+        y = hy + hh / 2 - tipH / 2;
+      } else {
+        x = (W - tipW) / 2;
+        y = (H - tipH) / 2;
+      }
+      x = Math.max(12, Math.min(x, W - tipW - 12));
+      y = Math.max(12, Math.min(y, H - tipH - 12));
+    }
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+    tip.style.visibility = 'visible';
+  }
+
+  // ---- 指南内容 ----
+  // 费率/涨跌停幅度与后端 market.js 一致；能从 /rules 拿的就不写死（S.rules 兜底）
+  var GUIDE_SECTIONS = [
+    {
+      icon: '🧭', title: '三分钟上手',
+      html: '<ol class="gi-steps">' +
+        '<li><b>开户有本金</b>：学元账户送 1000，首次进入本应用再发 9000 投资练习金 —— 这不是真钱，也不能充值。</li>' +
+        '<li><b>找一只股票</b>：行情页按板块分组，也可以用板块胶囊或搜索框（代码、名称都行）。点一行打开详情，先看分时和日 K。</li>' +
+        '<li><b>下单</b>：详情页点「买入」，选限价或市价，数量按「手」算（1 手 = 100 股）。确认前先看预估金额和手续费。</li>' +
+        '<li><b>等成交</b>：开市时市价单立即成交；限价单价格合适才成交。可以在「委托 → 当前委托」随时撤单。</li>' +
+        '<li><b>看结果</b>：「持仓」看每只的成本与盈亏，「排行」看班级名次，每周五还有跨班对决。</li>' +
+        '</ol>'
+    },
+    {
+      icon: '📈', title: '看懂行情',
+      html: '<ul class="gi-list">' +
+        '<li><b>红涨绿跌</b>：红色 = 上涨，绿色 = 下跌（A 股习惯，与欧美市场相反）。</li>' +
+        '<li><b>涨跌幅</b>：相对「昨收」的百分比。价格碰到当日上限会显示「涨停」，下限显示「跌停」。</li>' +
+        '<li><b>盘前</b>：开盘前显示的是昨收价、涨跌 0.00%，9:25 集合竞价后才出现今天的开盘价。</li>' +
+        '<li><b>点开一只股票</b>：分时看当天走势（黄线是均价），日 K 看历史；下面的量柱是成交量 —— 放量上涨和缩量上涨是两回事。</li>' +
+        '</ul>'
+    },
+    {
+      icon: '🎯', title: '限价还是市价',
+      html: '<p><b>限价委托</b>：你指定一个价格上限（买）或下限（卖）。价格没到就挂着，<b>长期有效</b>；晚上、周末都能下，开盘自动撮合。适合「我就想在这个价位买」。</p>' +
+        '<p><b>市价委托</b>：不指定价格，按当时最新价成交。开市时立即成交；休市时排队，开盘按开盘价成交。<b>涨停时买不到、跌停时卖不掉</b>，两种委托都一样。</p>'
+    },
+    {
+      icon: '🧮', title: '一手、可用与预扣',
+      html: '<p>买入必须是 <b>100 股（1 手）的整数倍</b>；卖出可以是零股，但零股要一次性卖完。</p>' +
+        '<p>下单时系统按「委托价 × 数量 + 预估手续费」冻结学元，成交后按实际价格多退少补；撤单或委托失效会立刻解冻。</p>' +
+        '<p><b>买不起怎么办</b>：看交易面板的「最多可买」。茅台一手要十几万学元 —— 这也是真实市场的一部分，高价股本来就不是给小额资金玩的。</p>'
+    },
+    {
+      icon: '💸', title: '手续费怎么算（以 1 万学元为例）',
+      html: '<p>买入 10,000 元：佣金 <b>5 元</b>（万 2.5 算出来 2.5 元，但单笔最低 5 元）+ 过户费 0.1 元（不足 1 分不计）≈ <b>5 元</b>。</p>' +
+        '<p>卖出 10,000 元：佣金 5 元 + 印花税 5 元（0.05%，只有卖出收）+ 过户费 ≈ <b>10 元</b>。</p>' +
+        '<p>一买一卖 ≈ <b>15 元</b>，相当于 0.15%。每周买卖 5 次，一个月光手续费就吃掉 3% —— 这就是「频繁交易」为什么不划算。</p>'
+    },
+    {
+      icon: '⏳', title: 'T+1：今天买，明天才能卖',
+      html: '<p>当日买入的股票，下一个交易日才可卖出。持仓页里带「锁」标记的就是今天买的、暂时不能卖的部分。</p>' +
+        '<p>卖出得到的学元当天就能用（可以继续买别的），但同一只股票不能当天买回来再卖。</p>'
+    },
+    {
+      icon: '🚧', title: '涨跌停',
+      html: '<p>主板 ±10%，创业板 / 科创板 ±20%，ST 股 ±5%。这是交易所的规则，不是应用随便定的。</p>' +
+        '<p><b>涨停买不到、跌停卖不掉</b>：价格封在板上时，你的委托会一直排队。别把「挂上了」当成「会成交」—— 这是新手最容易误解的一点。</p>'
+    },
+    {
+      icon: '📋', title: '委托状态说明',
+      html: '<p><b>提交</b>：已挂单，等待成交（可撤单）。<b>成交</b>：已按某个价格完成。<b>撤销</b>：你撤的单。<b>失效</b>：委托价超出当天涨跌停范围（比如隔夜大跌），系统自动作废并解冻。</p>' +
+        '<p>「委托 → 全部委托」能看到所有历史；「成交记录」里有每笔的价格、数量和费用明细。</p>'
+    },
+    {
+      icon: '⚠️', title: '新手最容易犯的五个错',
+      html: '<ul class="gi-list">' +
+        '<li><b>追涨</b>：看到涨停才想买 —— 买不到；真买到了也常常是高点。</li>' +
+        '<li><b>满仓一只</b>：分散不是买十只，而是让不同板块的涨跌互相缓冲。</li>' +
+        '<li><b>频繁交易</b>：每次进出至少 10 元手续费，交易越勤亏得越快。</li>' +
+        '<li><b>把浮盈当盈利</b>：没卖出之前，账户里的数字随时会变。</li>' +
+        '<li><b>不看成交量</b>：只看价格不看量，等于只看了一半的盘口。</li>' +
+        '</ul>'
+    },
+    {
+      icon: '📖', title: '术语表',
+      html: '<div class="gi-terms">' +
+        '<div><b>昨收</b><span>上一个交易日的收盘价，涨跌幅的基准。</span></div>' +
+        '<div><b>今开</b><span>今天第一笔成交价（9:25 集合竞价产生）。</span></div>' +
+        '<div><b>成交额</b><span>今天已成交的金额，衡量活跃度。</span></div>' +
+        '<div><b>换手率</b><span>成交量占流通股本的比例，越高说明筹码交换越充分。</span></div>' +
+        '<div><b>市盈率 PE</b><span>股价 ÷ 每股收益。高不一定贵，可能是市场预期它增长快。</span></div>' +
+        '<div><b>持仓成本</b><span>买入金额 + 手续费；卖出时按比例冲减。</span></div>' +
+        '<div><b>浮动盈亏</b><span>持仓市值 − 持仓成本，还没卖出，随价格变化。</span></div>' +
+        '<div><b>已实现盈亏</b><span>卖出后真正落袋的盈亏（已扣手续费）。</span></div>' +
+        '<div><b>集合竞价</b><span>9:15–9:25 汇总委托，9:25 统一按一个价格成交。</span></div>' +
+        '<div><b>收盘报告</b><span>每天 15:00 后生成的当日市场摘要，在行情页顶部。</span></div>' +
+        '</div>'
+    },
+    {
+      icon: '🏆', title: '班级排行与跨班对决',
+      html: '<p>排行按<b>总资产</b>排序（可用学元 + 冻结学元 + 持仓市值）；收益率 = 累计盈亏 ÷ 净投入（按成交流水反推，含手续费）。</p>' +
+        '<p>每周五收盘后与隔壁班比<b>人均收益率</b>，胜方全班活跃学生每人 100 学元。成就墙的奖励也是学元，靠真实交易里程碑解锁。</p>'
+    }
+  ];
+
+  function guideCard(sec, no) {
+    var card = h('div', 'card guide-card');
+    var head = h('div', 'guide-head');
+    head.appendChild(h('span', 'guide-no', no));
+    head.appendChild(h('span', 'guide-ico', sec.icon));
+    head.appendChild(h('span', 'guide-title', sec.title));
+    card.appendChild(head);
+    var body = h('div', 'guide-body');
+    body.innerHTML = sec.html;
+    card.appendChild(body);
+    return card;
+  }
+
+  function viewGuide() {
+    var wrap = h('div', 'view-guide');
+
+    var top = h('div', 'guide-top');
+    var tl = h('div', 'guide-top-l');
+    tl.appendChild(h('div', 'card-title', '新手教程'));
+    tl.appendChild(h('div', 'hero-label', '5 步上手，下面是随时可查的完整指南'));
+    top.appendChild(tl);
+    var btn = h('button', 'guide-tour-btn', '重看新手引导');
+    btn.onclick = function () { startTour(); };
+    top.appendChild(btn);
+    wrap.appendChild(top);
+
+    for (var i = 0; i < GUIDE_SECTIONS.length; i++) {
+      wrap.appendChild(guideCard(GUIDE_SECTIONS[i], i + 1));
+    }
+
+    var note = h('div', 'submit-warn', '本应用仅用于学习与练习，不构成任何投资建议。真实市场有风险，模拟盘的盈亏不代表真实收益。');
+    wrap.appendChild(note);
+    return wrap;
+  }
+
   // ================= 规则 =================
   function viewRules() {
     var wrap = h('div', 'view-rules');
@@ -2039,6 +2331,7 @@
     else if (tab === 'positions') { loadOverview(); loadAchievements(); }
     else if (tab === 'orders') { loadOrders(); }
     else if (tab === 'rank') { loadRank(); }
+    else if (tab === 'guide') { if (!S.rules) loadRules(); }
     else if (tab === 'rules' && !S.rules) { loadRules(); }
   }
 
@@ -2105,6 +2398,13 @@
     }).then(function () {
       renderTop();
       if (S.tab === 'market') renderMain();
+      // 首次进入：等界面稳定后弹新手引导。localStorage 记住 —— 跳过也算看过，
+      // 想重看可以随时去「指南」页（不打扰老用户是底线）。
+      if (!guideDone()) {
+        setTimeout(function () {
+          if (S.tour === null && S.sheet === null && S.tab === 'market' && !S.detailCode) startTour();
+        }, 700);
+      }
     }).catch(function () {
       renderMain();
     });
@@ -2126,6 +2426,8 @@
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () {
       if (S.detailCode) drawChart();
+      // 引导的气泡是按像素定位的，横竖屏切换后必须重算，否则会飘到屏幕外
+      if (S.tour !== null) renderTourStep();
     }, 180);
   }
 
@@ -2135,6 +2437,7 @@
 
   function unmount() {
     stopRefresh();
+    endTour();
     window.removeEventListener('resize', onResize);
     document.removeEventListener('visibilitychange', onVisibility);
     if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }

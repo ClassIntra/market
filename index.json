@@ -1,6 +1,6 @@
 {
-  "version": 25,
-  "updated_at": "2026-11-03T00:59:06.910Z",
+  "version": 26,
+  "updated_at": "2026-11-03T01:05:52.544Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.2.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能等 17 个板块；AI 链从算力、光模块、服务器到终端应用一条龙，创业板/科创板 ±20% 与主板 ±10% 正好对照。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。它和 Cluss 的积分互不相通，也不是游戏币：在这里正经学会看盘、算成本、控制仓位，每周五还有跨班班级对决。",
+      "version": "1.3.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能等 17 个板块；AI 链从算力、光模块、服务器到终端应用一条龙，创业板/科创板 ±20% 与主板 ±10% 正好对照。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 11 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -466,6 +466,7 @@
         "apps/stock/screenshots/01-overview.png",
         "apps/stock/screenshots/02-detail.png",
         "apps/stock/screenshots/03-rank.png",
+        "apps/stock/screenshots/04-guide.png",
         "apps/stock/test/e2e.cjs",
         "apps/stock/test/ui-probe.mjs"
       ],
@@ -479,24 +480,30 @@
         "backend/routes.js": "5a1408ee0f358c0faf13d1d4ef90e6eaeeea1b1939173a23a04126720a3b65e5",
         "backend/store.js": "ec8df011518f080bf673adb026e6fe62f2d56ee3055c28324c38a67bcba2161a",
         "backend/trading.js": "d1e3c5c5aa4c4133aa3e163f53d4fe44954f8d45360af9e72d674024436f7443",
-        "frontend/entry.js": "55d8674f3a0ad94e452ec85963c7ab761d83f8581aa48d2df8f68cfda4e10f24",
-        "frontend/style.css": "c948a550386d0bc0f7b3b9d58c39da514ebef61254b8b207e4a79cc7da6b2e95",
+        "frontend/entry.js": "f0595378da2b6aa395d5333d7ecd89756303779b20b57e7479dddbac793b9c02",
+        "frontend/style.css": "7be3baebb9fb5bdc0f627d849c9b3ec1f06d051554d0ce51bf7e8dd0958404cb",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "a69cbc75d6c8fae56422200d7ffb5fddcb23a049a4e2af6cdc36e9ff45470e0b",
-        "screenshots/01-overview.png": "94d490e9739e1d84043f6c5a84e91a88b994f6e23129579f5296386fd7bdf436",
-        "screenshots/02-detail.png": "8c7105fc9bb6cabed225040aa31c1ff469cfc0cfc1ff0dd0bbef12cae8fc374a",
-        "screenshots/03-rank.png": "de77e94f7cadb8790c883ebe4d063d90da1c6bca8e1f4d412084a9bc1f6c754b",
+        "manifest.json": "6c1fdda5776898dcfa2f06f804d1b587429c0b0b44222bbfba2991a13edf225e",
+        "screenshots/01-overview.png": "960e3e2c2c9f0677b37b9da88455e144139ad9d43228d3256b9b60b2b8335e91",
+        "screenshots/02-detail.png": "3163d9e98134c6448dd73f51625bdeaee46c1fd84f1aaf793a79753b57ffc0b4",
+        "screenshots/03-rank.png": "5433ba769ce1df047703a88dd7c65ca77e32a94cb26a8382c920a2862ea2ba60",
+        "screenshots/04-guide.png": "e1c4b88c06978fecd5ace498508594d3996e672e61b1e85500f5ffda78896281",
         "test/e2e.cjs": "c2347928444aa638cd087c31dd79acb2f4f50514a300c5cd0b070e8c8117b1e8",
-        "test/ui-probe.mjs": "377859927fe3c0fe429327e201f31a9f22b265fd0334848cc5aaa7489385cf0a"
+        "test/ui-probe.mjs": "4df3c202b87c903ee05b210e92c17989a623b6231eefdf27e741b8f2e71e34f5"
       },
       "group": "study",
       "color": "#E5484D",
       "screenshots": [
         "apps/stock/screenshots/01-overview.png",
         "apps/stock/screenshots/02-detail.png",
-        "apps/stock/screenshots/03-rank.png"
+        "apps/stock/screenshots/03-rank.png",
+        "apps/stock/screenshots/04-guide.png"
       ],
       "changelog": [
+        {
+          "version": "1.3.0",
+          "notes": "新增新手教程与指南：首次进入自动弹 5 步聚光灯引导（高亮资产卡/板块筛选/行情行/导航），跳过或完成都记在本地、可在指南页随时重看；指南页 11 节（三分钟上手、看懂行情、限价与市价、一手与预扣、1 万学元手续费算例、T+1、涨跌停、委托状态、新手五大错、术语表、班级对决）。导航新增「指南」页。"
+        },
         {
           "version": "1.2.0",
           "notes": "新增人工智能板块（10 只：算力/光模块/服务器/终端应用，创业板科创板 ±20% 与主板 ±10% 对照）+ 板块快捷筛选 + 日K成交量副图。修复：开盘前行情整表为空（东财 f2 现价返回 \"-\" 时被整只丢弃，早读时段必现）、排行「我」标签不显示（me 缺 user_id）；盘前详情把今开/最高/最低显示为「—」并提示休市，不再拿昨收冒充今开。"

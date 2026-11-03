@@ -118,6 +118,37 @@ if (!ready) {
   chrome.kill(); process.exit(1);
 }
 await sleep(1500); // 等公告浮窗/懒加载结算
+
+console.log('\n=== 新手引导（首访自动弹出） ===');
+let tourShown = false;
+for (let i = 0; i < 8; i++) {
+  tourShown = await evalJS(`!!document.querySelector('.ci-stock .tour-layer .tour-tip')`);
+  if (tourShown) break;
+  await sleep(400);
+}
+ok('首次进入自动弹出新手引导', tourShown);
+if (tourShown) {
+  const step1 = await evalJS(`(document.querySelector('.ci-stock .tour-title') || {}).textContent`);
+  ok('第一步讲的是账户与本金', /账户/.test(step1 || ''), step1);
+  const hole = await evalJS(`!!document.querySelector('.ci-stock .tour-hole')`);
+  ok('第一步高亮了资产卡（spotlight 洞）', hole);
+  let clicked = 0;
+  for (let i = 0; i < 4; i++) {
+    const hasNext = await evalJS(`!!document.querySelector('.ci-stock .tour-next')`);
+    if (!hasNext) break;
+    await evalJS(`document.querySelector('.ci-stock .tour-next').click()`);
+    await sleep(340);
+    clicked++;
+  }
+  ok('引导可逐页推进（5 步 = 4 次下一步）', clicked === 4, clicked);
+  const finalStep = await evalJS(`({ done: !!document.querySelector('.ci-stock .tour-done'), guide: !!document.querySelector('.ci-stock .tour-to-guide') })`);
+  ok('最后一步有「开始交易」与「看完整指南」', finalStep.done && finalStep.guide, JSON.stringify(finalStep));
+  await shot('01a-tour-final');
+  await evalJS(`document.querySelector('.ci-stock .tour-done').click()`);
+  await sleep(500);
+  ok('完成后引导关闭', !(await evalJS(`!!document.querySelector('.ci-stock .tour-layer')`)));
+  ok('完成状态已记住（localStorage）', await evalJS(`localStorage.getItem('ci-stock-guide-v1') === '1'`));
+}
 await shot('01-market');
 
 console.log('\n=== 行情页 ===');
@@ -411,6 +442,28 @@ await sleep(1200);
 const rules = await evalJS(`document.querySelectorAll('.ci-stock .rule').length`);
 ok('规则页 7 条以上', rules >= 7, rules);
 await shot('10-rules');
+
+console.log('\n=== 指南页 ===');
+await clickNav('指南');
+await sleep(1200);
+const guide = await evalJS(`(function(){
+  return {
+    cards: document.querySelectorAll('.ci-stock .guide-card').length,
+    tourBtn: !!document.querySelector('.ci-stock .guide-tour-btn'),
+    terms: document.querySelectorAll('.ci-stock .gi-terms > div').length,
+    active: (document.querySelector('.ci-stock .nav-item.active') || {}).textContent || ''
+  };
+})()`);
+ok('指南页 ≥10 节教程', guide.cards >= 10, guide.cards + ' 节');
+ok('指南页导航高亮正确', /指南/.test(guide.active), guide.active);
+ok('术语表条目 ≥8', guide.terms >= 8, guide.terms);
+await shot('11b-guide');
+await evalJS(`document.querySelector('.ci-stock .guide-tour-btn').click()`);
+await sleep(600);
+ok('可从指南页重看新手引导', await evalJS(`!!document.querySelector('.ci-stock .tour-layer')`));
+await evalJS(`document.querySelector('.ci-stock .tour-skip').click()`);
+await sleep(400);
+ok('跳过引导可关闭', !(await evalJS(`!!document.querySelector('.ci-stock .tour-layer')`)));
 
 console.log('\n=== 竖屏自适应 ===');
 await send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 2, mobile: true });
