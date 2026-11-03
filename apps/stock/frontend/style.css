@@ -1,0 +1,1385 @@
+/* 学元证券 · 视觉系统
+   ============================================================
+   设计基调：券商终端（信息密度高、数字等宽、红涨绿跌）+ 校园平板的触控尺寸。
+   隔离：所有选择器都在 .ci-stock 之下，避免污染宿主样式。
+   兼容：Chrome 80 基线 —— 不用 flex gap、不用 aspect-ratio、不用 inset。 */
+
+.ci-stock {
+  --bg: #0B0E13;
+  --panel: #141922;
+  --panel-2: #1A2130;
+  --panel-3: #212A3B;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --text: #E8ECF3;
+  --muted: #8B95A7;
+  --dim: #5C6678;
+  --up: #F5535A;
+  --up-soft: rgba(245, 83, 90, 0.14);
+  --down: #22B573;
+  --down-soft: rgba(34, 181, 115, 0.14);
+  --gold: #E8C36A;
+  --gold-soft: rgba(232, 195, 106, 0.12);
+  --accent: #E5484D;
+
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.ci-stock * { box-sizing: border-box; }
+.ci-stock ::-webkit-scrollbar { width: 6px; height: 6px; }
+.ci-stock ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
+.ci-stock ::-webkit-scrollbar-track { background: transparent; }
+
+/* 数字统一等宽，价格跳动时不抖 */
+.ci-stock .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.2px;
+}
+
+.ci-stock .up { color: var(--up); }
+.ci-stock .down { color: var(--down); }
+.ci-stock .flat { color: var(--muted); }
+.ci-stock .gold { color: var(--gold); }
+
+/* ================= 顶栏 ================= */
+.ci-stock .top {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  height: 58px;
+  background: linear-gradient(180deg, #131a25 0%, #10151d 100%);
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  z-index: 5;
+}
+
+.ci-stock .brand {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-right: 18px;
+}
+.ci-stock .brand-logo {
+  width: 28px; height: 28px;
+  margin-right: 9px;
+  flex: 0 0 auto;
+}
+.ci-stock .brand-name {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.ci-stock .brand-sub {
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: 7px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  letter-spacing: .5px;
+}
+
+/* 交易时段状态 */
+.ci-stock .market-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 11px;
+  margin-right: 14px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.ci-stock .ms-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  margin-right: 7px;
+}
+.ci-stock .market-status.live {
+  background: rgba(34,181,115,.1);
+  border-color: rgba(34,181,115,.24);
+}
+.ci-stock .market-status.live .ms-dot {
+  background: var(--down);
+  box-shadow: 0 0 0 3px rgba(34,181,115,.16);
+  animation: ci-stock-blink 2s ease-in-out infinite;
+}
+.ci-stock .market-status.live .ms-text { color: #6FE0AC; }
+.ci-stock .ms-text { font-size: 12px; color: var(--muted); }
+@keyframes ci-stock-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+.ci-stock .index-strip {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  min-width: 0;
+  margin-right: 12px;
+}
+.ci-stock .index-strip::-webkit-scrollbar { display: none; }
+
+.ci-stock .index-pill {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  padding: 5px 11px;
+  margin-right: 8px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.035);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.ci-stock .index-pill .nm { font-size: 11px; color: var(--muted); margin-right: 6px; }
+.ci-stock .index-pill .vl { font-size: 12px; font-weight: 600; }
+.ci-stock .index-pill .pc { font-size: 11px; margin-left: 5px; }
+
+.ci-stock .wallet {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 9px;
+  background: var(--gold-soft);
+  border: 1px solid rgba(232,195,106,.24);
+}
+.ci-stock .wallet .lbl { font-size: 10px; color: var(--gold); opacity: .8; margin-right: 7px; }
+.ci-stock .wallet .amt { font-size: 15px; font-weight: 700; color: var(--gold); }
+
+/* 行情延迟提示 */
+.ci-stock .stale-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 16px;
+  background: rgba(232, 195, 106, 0.1);
+  border-bottom: 1px solid rgba(232,195,106,.18);
+  font-size: 12px;
+  color: var(--gold);
+}
+.ci-stock .stale-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--gold);
+  margin-right: 8px;
+  animation: ci-stock-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ci-stock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+
+/* ================= 主体布局 ================= */
+.ci-stock .body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+/* 左侧导航（横屏） */
+.ci-stock .nav {
+  flex: 0 0 82px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 6px;
+  background: #0D1118;
+  border-right: 1px solid var(--line);
+  z-index: 4;
+}
+
+.ci-stock .nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 58px;
+  margin-bottom: 2px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  position: relative;
+}
+.ci-stock .nav-item svg { width: 21px; height: 21px; margin-bottom: 3px; display: block; }
+.ci-stock .nav-item:active { background: rgba(255,255,255,.06); }
+.ci-stock .nav-item.active {
+  color: var(--text);
+  background: rgba(229, 72, 77, 0.13);
+}
+.ci-stock .nav-item.active svg { color: var(--accent); }
+.ci-stock .nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 16px; bottom: 16px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+.ci-stock .nav-spacer { flex: 1 1 auto; }
+
+/* 主内容 */
+.ci-stock .main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 18px 24px;
+}
+
+/* ================= 通用卡片 ================= */
+.ci-stock .card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  overflow: hidden;
+}
+.ci-stock .card + .card { margin-top: 12px; }
+
+.ci-stock .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 15px 10px;
+}
+.ci-stock .card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: .2px;
+}
+.ci-stock .card-more {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+}
+
+/* ================= 资产总览 ================= */
+.ci-stock .hero {
+  display: flex;
+  align-items: stretch;
+  padding: 18px 20px;
+  background:
+    radial-gradient(120% 180% at 0% 0%, rgba(229,72,77,.13) 0%, rgba(229,72,77,0) 55%),
+    linear-gradient(135deg, #171F2B 0%, #12171F 100%);
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  margin-bottom: 14px;
+}
+.ci-stock .hero-left { flex: 1 1 auto; min-width: 0; }
+.ci-stock .hero-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: .8px;
+  margin-bottom: 5px;
+}
+.ci-stock .hero-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+.ci-stock .hero-value .unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 5px;
+  letter-spacing: 0;
+}
+.ci-stock .hero-sub {
+  display: flex;
+  align-items: center;
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ci-stock .hero-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-right: 10px;
+}
+.ci-stock .hero-chip.up { background: var(--up-soft); color: var(--up); }
+.ci-stock .hero-chip.down { background: var(--down-soft); color: var(--down); }
+.ci-stock .hero-chip.flat { background: rgba(255,255,255,.05); color: var(--muted); }
+
+.ci-stock .hero-right {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-left: 18px;
+  margin-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.ci-stock .hero-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  min-width: 148px;
+}
+.ci-stock .hero-kv:last-child { margin-bottom: 0; }
+.ci-stock .hero-kv .k { font-size: 11px; color: var(--muted); }
+.ci-stock .hero-kv .v { font-size: 13px; font-weight: 600; }
+
+/* ================= 分段控件 ================= */
+.ci-stock .seg {
+  display: inline-flex;
+  padding: 3px;
+  background: rgba(255,255,255,.045);
+  border-radius: 9px;
+}
+.ci-stock .seg-item {
+  padding: 6px 13px;
+  font-size: 12px;
+  color: var(--muted);
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.ci-stock .seg-item.active {
+  background: var(--panel-3);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ================= 行情列表 ================= */
+.ci-stock .sector {
+  margin-top: 16px;
+}
+.ci-stock .sector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 8px;
+}
+.ci-stock .sector-name {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: .5px;
+}
+
+.ci-stock .qrow {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background .12s;
+}
+.ci-stock .qrow:last-child { border-bottom: none; }
+.ci-stock .qrow:active { background: var(--panel-2); }
+
+.ci-stock .qrow-id { flex: 1 1 auto; min-width: 0; }
+.ci-stock .qrow-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-stock .qrow-code {
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 1px;
+  letter-spacing: .3px;
+}
+.ci-stock .qrow-price {
+  flex: 0 0 92px;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ci-stock .qrow-pct {
+  flex: 0 0 78px;
+  text-align: right;
+}
+.ci-stock .pct-badge {
+  display: inline-block;
+  min-width: 66px;
+  padding: 4px 0;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.ci-stock .pct-badge.up { background: var(--up-soft); color: var(--up); }
+.ci-stock .pct-badge.down { background: var(--down-soft); color: var(--down); }
+.ci-stock .pct-badge.flat { background: rgba(255,255,255,.05); color: var(--muted); }
+
+.ci-stock .qrow-star {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 17px;
+}
+.ci-stock .qrow-star.on { color: var(--gold); }
+
+/* ================= 详情页 ================= */
+.ci-stock .back-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 8px 12px 8px 6px;
+  margin-right: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.ci-stock .back-btn:active {
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+}
+
+.ci-stock .detail-top {
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 2px 14px;
+}
+.ci-stock .detail-id { flex: 1 1 auto; min-width: 0; }
+.ci-stock .detail-name {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+.ci-stock .detail-code {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 2px;
+  letter-spacing: .5px;
+}
+.ci-stock .detail-price {
+  flex: 0 0 auto;
+  text-align: right;
+}
+.ci-stock .detail-px {
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.ci-stock .detail-chg {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.ci-stock .chart-wrap {
+  position: relative;
+  height: 208px;
+  margin: 4px 0 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.014) 0%, rgba(255,255,255,0) 100%);
+  border-radius: 11px;
+  overflow: hidden;
+}
+.ci-stock .chart-wrap canvas { display: block; width: 100%; height: 100%; }
+
+.ci-stock .chart-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 2px 6px;
+}
+
+.ci-stock .detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-top: 12px;
+}
+.ci-stock .dg-item { padding: 3px 0; }
+.ci-stock .dg-k { font-size: 10px; color: var(--dim); letter-spacing: .3px; }
+.ci-stock .dg-v { font-size: 13px; font-weight: 600; margin-top: 2px; }
+
+/* ================= 交易面板 ================= */
+.ci-stock .mask {
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(4, 6, 10, .62);
+  z-index: 30;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.ci-stock .mask.show { opacity: 1; }
+
+.ci-stock .sheet {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 100%;
+  max-width: 560px;
+  margin-left: -280px;
+  max-height: 92%;
+  display: flex;
+  flex-direction: column;
+  background: #151B25;
+  border-radius: 18px 18px 0 0;
+  border: 1px solid var(--line-strong);
+  border-bottom: none;
+  z-index: 31;
+  transform: translateY(102%);
+  transition: transform .26s cubic-bezier(.22,.8,.28,1);
+  box-shadow: 0 -18px 48px rgba(0,0,0,.55);
+}
+.ci-stock .sheet.show { transform: translateY(0); }
+
+.ci-stock .sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  flex: 0 0 auto;
+}
+.ci-stock .sheet-title { font-size: 15px; font-weight: 600; }
+.ci-stock .sheet-close {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted);
+  background: rgba(255,255,255,.05);
+  cursor: pointer;
+  font-size: 15px;
+}
+.ci-stock .sheet-close:active { background: rgba(255,255,255,.1); }
+
+.ci-stock .sheet-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 18px 8px;
+}
+
+/* 买 / 卖 切换 */
+.ci-stock .side-switch {
+  display: flex;
+  padding: 4px;
+  background: rgba(255,255,255,.05);
+  border-radius: 11px;
+  margin-bottom: 16px;
+}
+.ci-stock .side-btn {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.ci-stock .side-btn.active.buy { background: var(--up); color: #fff; }
+.ci-stock .side-btn.active.sell { background: var(--down); color: #fff; }
+
+.ci-stock .field { margin-bottom: 15px; }
+.ci-stock .field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+.ci-stock .field-hint { font-size: 11px; color: var(--dim); }
+
+.ci-stock .stepper {
+  display: flex;
+  align-items: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  height: 50px;
+  overflow: hidden;
+}
+.ci-stock .stepper-btn {
+  flex: 0 0 50px;
+  height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  color: var(--muted);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+}
+.ci-stock .stepper-btn:active { background: rgba(255,255,255,.07); color: var(--text); }
+.ci-stock .stepper-input {
+  flex: 1 1 auto;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: center;
+  font-size: 19px;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+.ci-stock .stepper-unit {
+  flex: 0 0 auto;
+  padding-right: 14px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.ci-stock .quick-row {
+  display: flex;
+  margin-top: 8px;
+}
+.ci-stock .quick {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 7px 0;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255,255,255,.04);
+  border-radius: 7px;
+  margin-right: 7px;
+  cursor: pointer;
+}
+.ci-stock .quick:last-child { margin-right: 0; }
+.ci-stock .quick:active { background: rgba(255,255,255,.09); color: var(--text); }
+
+/* 预估区 */
+.ci-stock .estimate {
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.ci-stock .est-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+.ci-stock .est-row .v { color: var(--text); font-weight: 600; }
+.ci-stock .est-row.total {
+  padding-top: 9px;
+  margin-top: 6px;
+  border-top: 1px dashed var(--line-strong);
+  font-size: 13px;
+}
+.ci-stock .est-row.total .v { font-size: 16px; }
+
+.ci-stock .sheet-foot {
+  flex: 0 0 auto;
+  padding: 12px 18px 18px;
+}
+.ci-stock .submit {
+  width: 100%;
+  height: 50px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: .5px;
+  transition: transform .1s, opacity .15s;
+}
+.ci-stock .submit:active { transform: scale(.985); }
+.ci-stock .submit.buy { background: linear-gradient(180deg, #F5535A 0%, #D93C43 100%); }
+.ci-stock .submit.sell { background: linear-gradient(180deg, #22B573 0%, #189A60 100%); }
+.ci-stock .submit:disabled { opacity: .42; }
+.ci-stock .submit-warn {
+  text-align: center;
+  font-size: 11px;
+  color: var(--dim);
+  margin-top: 9px;
+  line-height: 1.5;
+}
+
+/* ================= 持仓 ================= */
+.ci-stock .pos-card {
+  padding: 14px 15px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.ci-stock .pos-card:last-child { border-bottom: none; }
+.ci-stock .pos-card:active { background: var(--panel-2); }
+
+.ci-stock .pos-line1 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ci-stock .pos-name { font-size: 15px; font-weight: 600; }
+.ci-stock .pos-pnl { font-size: 16px; font-weight: 700; }
+
+.ci-stock .pos-line2 {
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
+}
+.ci-stock .pos-cell { flex: 1 1 0; }
+.ci-stock .pos-cell:last-child { text-align: right; }
+.ci-stock .pos-k { font-size: 10px; color: var(--dim); }
+.ci-stock .pos-v { font-size: 12px; margin-top: 1px; }
+.ci-stock .pos-tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(232,195,106,.14);
+  color: var(--gold);
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* ================= 表格型列表（委托/成交）================= */
+.ci-stock .tbl-head {
+  display: flex;
+  padding: 9px 14px;
+  font-size: 11px;
+  color: var(--dim);
+  background: rgba(255,255,255,.02);
+  border-bottom: 1px solid var(--line);
+}
+.ci-stock .trow {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.ci-stock .trow:last-child { border-bottom: none; }
+.ci-stock .tc-1 { flex: 1.5 1 0; min-width: 0; }
+.ci-stock .tc-2 { flex: 1 1 0; text-align: right; }
+.ci-stock .tc-3 { flex: 1 1 0; text-align: right; }
+.ci-stock .tc-4 { flex: 1.1 1 0; text-align: right; }
+
+.ci-stock .side-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 7px;
+}
+.ci-stock .side-tag.buy { background: var(--up-soft); color: var(--up); }
+.ci-stock .side-tag.sell { background: var(--down-soft); color: var(--down); }
+
+.ci-stock .status-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.06);
+  color: var(--muted);
+}
+.ci-stock .status-tag.pending { background: rgba(232,195,106,.14); color: var(--gold); }
+.ci-stock .status-tag.filled { background: var(--up-soft); color: var(--up); }
+
+.ci-stock .cancel-btn {
+  padding: 5px 11px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ci-stock .cancel-btn:active { background: rgba(255,255,255,.07); color: var(--text); }
+
+/* ================= 排行 ================= */
+.ci-stock .rank-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.ci-stock .rank-row:last-child { border-bottom: none; }
+.ci-stock .rank-no {
+  flex: 0 0 30px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.ci-stock .rank-row.top1 .rank-no { color: #F0C05A; }
+.ci-stock .rank-row.top2 .rank-no { color: #C9D2E0; }
+.ci-stock .rank-row.top3 .rank-no { color: #C58A5B; }
+.ci-stock .rank-name { flex: 1 1 auto; font-size: 14px; }
+.ci-stock .rank-me {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(229,72,77,.15);
+  color: var(--up);
+  margin-left: 7px;
+}
+.ci-stock .rank-val { flex: 0 0 auto; text-align: right; }
+.ci-stock .rank-asset { font-size: 14px; font-weight: 600; }
+.ci-stock .rank-pct { font-size: 11px; margin-top: 1px; }
+
+.ci-stock .rank-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, rgba(229,72,77,.14), rgba(229,72,77,.03));
+  border: 1px solid rgba(229,72,77,.2);
+  border-radius: 12px;
+}
+
+/* ================= 规则 ================= */
+.ci-stock .rule {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.ci-stock .rule:last-child { border-bottom: none; }
+.ci-stock .rule-t {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+}
+.ci-stock .rule-t .bullet {
+  width: 3px; height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+  margin-right: 8px;
+}
+.ci-stock .rule-d {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  padding-left: 11px;
+}
+.ci-stock .rule-d b { color: var(--text); font-weight: 600; }
+
+/* ================= 空态 / 加载 ================= */
+.ci-stock .empty {
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 13px;
+}
+.ci-stock .empty-icon {
+  font-size: 30px;
+  opacity: .35;
+  margin-bottom: 10px;
+}
+.ci-stock .empty-hint { font-size: 12px; margin-top: 6px; color: #4A5364; }
+
+.ci-stock .loading {
+  padding: 50px 0;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+}
+.ci-stock .spin {
+  width: 22px; height: 22px;
+  margin: 0 auto 12px;
+  border: 2px solid rgba(255,255,255,.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ci-stock-spin .8s linear infinite;
+}
+@keyframes ci-stock-spin { to { transform: rotate(360deg); } }
+
+/* ================= Toast ================= */
+.ci-stock .toast {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%) translateY(12px);
+  max-width: 78%;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: rgba(28, 36, 49, .96);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-size: 13px;
+  z-index: 60;
+  opacity: 0;
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  text-align: center;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5);
+}
+.ci-stock .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.ci-stock .toast.error { border-color: rgba(245,83,90,.4); }
+.ci-stock .toast.success { border-color: rgba(34,181,115,.4); }
+
+/* ================= 收盘报告 ================= */
+.ci-stock .report-card {
+  margin-top: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  overflow: hidden;
+}
+.ci-stock .report-head {
+  display: flex;
+  align-items: center;
+  padding: 11px 14px;
+  cursor: pointer;
+}
+.ci-stock .report-head:active { background: var(--panel-2); }
+.ci-stock .report-tag {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--gold);
+  background: var(--gold-soft);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-right: 9px;
+  letter-spacing: .5px;
+}
+.ci-stock .report-title {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-stock .report-arrow {
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-size: 11px;
+  margin-left: 8px;
+  transition: transform .2s;
+}
+.ci-stock .report-arrow.open { transform: rotate(180deg); }
+.ci-stock .report-body {
+  padding: 2px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.ci-stock .report-comment {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.7;
+  padding: 10px 0 8px;
+  margin: 0;
+}
+.ci-stock .report-idx {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.ci-stock .report-idx span {
+  font-size: 11px;
+  margin-right: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,.04);
+}
+.ci-stock .report-cols {
+  display: flex;
+  margin-bottom: 10px;
+}
+.ci-stock .report-col { flex: 1 1 0; min-width: 0; }
+.ci-stock .report-col-h {
+  font-size: 10px;
+  color: var(--dim);
+  margin-bottom: 5px;
+  letter-spacing: .5px;
+}
+.ci-stock .report-col-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.ci-stock .report-col-row .n {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 6px;
+}
+.ci-stock .report-tip {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+  padding: 9px 11px;
+  background: rgba(232,195,106,.07);
+  border-radius: 8px;
+  border: 1px dashed rgba(232,195,106,.22);
+}
+.ci-stock .report-class {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* ================= 跨班对决 ================= */
+.ci-stock .vs-card {
+  background:
+    radial-gradient(130% 200% at 100% 0%, rgba(232,195,106,.12) 0%, rgba(232,195,106,0) 55%),
+    linear-gradient(135deg, #1B2231 0%, #12171F 100%);
+  border: 1px solid rgba(232,195,106,.18);
+  border-radius: 15px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.ci-stock .vs-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.ci-stock .vs-title .t { font-size: 13px; font-weight: 700; letter-spacing: .5px; }
+.ci-stock .vs-title .s { font-size: 11px; color: var(--muted); }
+.ci-stock .vs-main {
+  display: flex;
+  align-items: stretch;
+}
+.ci-stock .vs-side {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+}
+.ci-stock .vs-side .cn {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-stock .vs-side .av {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.ci-stock .vs-side .ppl {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.ci-stock .vs-side.winner .cn::after {
+  content: '🏆';
+  font-size: 12px;
+  margin-left: 4px;
+}
+.ci-stock .vs-mid {
+  flex: 0 0 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ci-stock .vs-badge {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  letter-spacing: .5px;
+}
+.ci-stock .vs-note {
+  margin-top: 13px;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.6;
+}
+.ci-stock .vs-empty {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 0 2px;
+  line-height: 1.7;
+}
+
+.ci-stock .vs-merged-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 8px;
+}
+.ci-stock .vs-merged {
+  margin-top: 4px;
+}
+.ci-stock .mrow {
+  display: flex;
+  align-items: center;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.ci-stock .mrow:last-child { border-bottom: none; }
+.ci-stock .m-no {
+  flex: 0 0 28px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.ci-stock .m-name {
+  flex: 1 1 auto;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-stock .m-cls {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 9px;
+}
+.ci-stock .m-cls.mine { background: rgba(229,72,77,.15); color: var(--up); }
+.ci-stock .m-cls.peer { background: rgba(34,181,115,.14); color: var(--down); }
+.ci-stock .m-val { flex: 0 0 auto; text-align: right; }
+.ci-stock .m-pct { font-size: 14px; font-weight: 600; }
+
+/* ================= 成就 ================= */
+.ci-stock .ach-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 15px 11px;
+}
+.ci-stock .ach-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 2px 12px 14px;
+}
+.ci-stock .ach-item {
+  width: 33.33%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 11px 4px;
+  cursor: pointer;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+.ci-stock .ach-item:active { background: rgba(255,255,255,.04); }
+.ci-stock .ach-ico {
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 6px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid var(--line);
+  filter: grayscale(1);
+  opacity: .38;
+}
+.ci-stock .ach-item.unlocked .ach-ico {
+  filter: none;
+  opacity: 1;
+  background: var(--gold-soft);
+  border-color: rgba(232,195,106,.3);
+}
+.ci-stock .ach-nm {
+  font-size: 11px;
+  color: var(--dim);
+  text-align: center;
+}
+.ci-stock .ach-item.unlocked .ach-nm { color: var(--text); }
+.ci-stock .ach-rw {
+  font-size: 10px;
+  color: var(--gold);
+  margin-top: 2px;
+}
+
+/* ================= 行情搜索 ================= */
+.ci-stock .market-search {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  margin-left: 12px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.ci-stock .market-search:focus-within { border-color: var(--line-strong); }
+.ci-stock .market-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.ci-stock .market-search-input::placeholder { color: var(--dim); }
+.ci-stock .market-search-clear {
+  flex: 0 0 22px;
+  height: 22px;
+  margin-left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+/* 触板徽标（涨停/跌停） */
+.ci-stock .pct-badge.limit { letter-spacing: 1px; }
+.ci-stock .pct-badge.limit.up { box-shadow: inset 0 0 0 1px rgba(245,83,90,.45); }
+.ci-stock .pct-badge.limit.down { box-shadow: inset 0 0 0 1px rgba(34,181,115,.45); }
+
+/* ================= 详情自选星标 ================= */
+.ci-stock .detail-star {
+  flex: 0 0 44px;
+  height: 44px;
+  margin-left: 8px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--dim);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.ci-stock .detail-star:active { background: rgba(255,255,255,.06); }
+.ci-stock .detail-star.on { color: var(--gold); }
+
+/* ================= 错误态（拉不到 ≠ 没有） ================= */
+.ci-stock .error-box {
+  padding: 34px 20px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid rgba(245,83,90,.28);
+  border-radius: 13px;
+  margin-top: 12px;
+}
+.ci-stock .error-icon { font-size: 26px; opacity: .5; margin-bottom: 8px; }
+.ci-stock .error-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.ci-stock .error-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+.ci-stock .error-retry {
+  margin-top: 14px;
+  padding: 9px 34px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--panel-3);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ci-stock .error-retry:active { background: rgba(255,255,255,.12); }
+.ci-stock .error-retry:disabled { opacity: .5; }
+
+/* ================= 竖屏 / 窄屏 ================= */
+@media (max-width: 860px) {
+  .ci-stock .nav {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    top: auto;
+    flex-direction: row;
+    flex-basis: auto;
+    height: 62px;
+    padding: 0 6px;
+    border-right: none;
+    border-top: 1px solid var(--line);
+    background: rgba(11,14,19,.96);
+    z-index: 6;
+  }
+  .ci-stock .nav-item {
+    flex: 1 1 0;
+    height: 100%;
+    margin-bottom: 0;
+    font-size: 10px;
+  }
+  .ci-stock .nav-item svg { width: 19px; height: 19px; }
+  .ci-stock .nav-item.active::before {
+    left: 30%;
+    right: 30%;
+    top: 0;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+  }
+  .ci-stock .nav-spacer { display: none; }
+  .ci-stock .main { padding: 12px 12px 76px; }
+  .ci-stock .hero { flex-direction: column; padding: 15px 16px; }
+  .ci-stock .hero-right {
+    padding-left: 0;
+    margin-left: 0;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .ci-stock .hero-kv { min-width: 46%; flex: 1 1 46%; }
+  .ci-stock .hero-value { font-size: 27px; }
+  .ci-stock .detail-px { font-size: 30px; }
+  .ci-stock .detail-grid { grid-template-columns: repeat(3, 1fr); }
+  .ci-stock .qrow-price { flex-basis: 76px; }
+  .ci-stock .qrow-pct { flex-basis: 68px; }
+  .ci-stock .sheet { margin-left: 0; left: 0; width: 100%; max-width: none; }
+  .ci-stock .brand-sub { display: none; }
+}
+
+/* 窄屏时顶栏压缩 */
+@media (max-width: 620px) {
+  .ci-stock .top { padding: 0 12px; height: 54px; }
+  .ci-stock .brand-name { font-size: 14px; }
+  .ci-stock .wallet { padding: 5px 9px; }
+  .ci-stock .wallet .amt { font-size: 13px; }
+  .ci-stock .detail-grid { grid-template-columns: repeat(2, 1fr); }
+}

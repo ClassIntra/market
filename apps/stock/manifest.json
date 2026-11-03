@@ -1,0 +1,37 @@
+{
+  "name": "stock",
+  "type": "app",
+  "version": "1.1.0",
+  "label": "学元证券",
+  "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。它和 Cluss 的积分互不相通，也不是游戏币：在这里正经学会看盘、算成本、控制仓位，每周五还有跨班班级对决。",
+  "author": "ClassIntra",
+  "icon": "./icon.svg",
+  "color": "#E5484D",
+  "category": "desktop",
+  "order": 21,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "frontend": {
+    "route": "/stock",
+    "entry": "./frontend/entry.js",
+    "style": "./frontend/style.css"
+  },
+  "backend": {
+    "mountPath": "/api/stock",
+    "entry": "./backend/routes.js",
+    "rateLimit": {
+      "max": 300,
+      "windowMs": 60000
+    }
+  },
+  "layout": {
+    "mode": "fullscreen"
+  },
+  "sdk": "1",
+  "capabilities": [
+    "data.storage",
+    "data.http",
+    "economy.wallet",
+    "ui.toast"
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "version": 23,
-  "updated_at": "2026-10-30T13:32:06.684Z",
+  "version": 24,
+  "updated_at": "2026-11-03T00:01:11.213Z",
   "apps": [
     {
       "name": "chess",
@@ -245,11 +245,21 @@
         "apps/pet/assets/webm/鲸鱼吐泡泡特效.webm",
         "apps/pet/backend/cleanup.js",
         "apps/pet/backend/routes.js",
+        "apps/pet/docs/battle-build-system.md",
+        "apps/pet/docs/ui-design-spec-v2.md",
+        "apps/pet/frontend/assets/fonts/unifont-ex-16px-square.woff2",
         "apps/pet/frontend/entry.js",
         "apps/pet/frontend/overlay.js",
         "apps/pet/frontend/style.css",
         "apps/pet/icon.svg",
         "apps/pet/manifest.json",
+        "apps/pet/preview-final.html",
+        "apps/pet/preview-game-ui.html",
+        "apps/pet/preview-house-v2.html",
+        "apps/pet/preview-house.html",
+        "apps/pet/preview-layout-v2.html",
+        "apps/pet/preview-pixel-style.html",
+        "apps/pet/preview-scene-layout.html",
         "apps/pet/screenshots/01-overview.png",
         "apps/pet/screenshots/02-light.png"
       ],
@@ -391,12 +401,22 @@
         "assets/webm/骑木马.webm": "5f54a98ccac97eac000d799043411f4fc0732096dc51a2ad766552737578f313",
         "assets/webm/鲸鱼吐泡泡特效.webm": "d64d02059dc1602f7de5aa3135d381351363f021b2bceed47655db322cc71db3",
         "backend/cleanup.js": "00d23a8fe99161c37d5a2256674e4c3030242ba0077f549c0b19176d276f76b3",
-        "backend/routes.js": "842fd71e7ad920e2111562d957b97e397b649025ff3f5d889f7cda38867599a6",
-        "frontend/entry.js": "4e45e12b39124dfb69ef578461699741b53991d04c65a2765f362db45a8a9694",
-        "frontend/overlay.js": "f6e0181fcf7e3070a97279a5c01c3fe02e8a2287712b6841946cf4b1233ce0ab",
-        "frontend/style.css": "70494a7b690fdd50f93a8a3c7b996d71c66b4906004f37dacab952119f82f333",
-        "icon.svg": "428a12ac4ec6f6dee430811187ec9015eeb52beaa36d5c93ea5c34a33fa8bcf5",
-        "manifest.json": "7b2f7d322db0ef55b52f61afcb2146d6c8549947de8b72b8190326d2d56f97af",
+        "backend/routes.js": "79736c32b9b829946ca6cc163e010f0f5a42d62c33c66be83e5224b8dccdc635",
+        "docs/battle-build-system.md": "e5b53e61cfc28f4f69448b512251d23dcb488dc3f616b5b1bd9acc40c5d1cf68",
+        "docs/ui-design-spec-v2.md": "ad8d5912c082ee54fcf8327792e33c1776c7f1484d7591bdab9d9f7665d66fab",
+        "frontend/assets/fonts/unifont-ex-16px-square.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
+        "frontend/entry.js": "1db4d51a5db197f36a539fdfb061180d574a7f6f9025556aa66ffd20ddaedc5f",
+        "frontend/overlay.js": "06b4cc2a71596701a79fe327a64c63edc0440eb7a1f1c382cf106fe97d632102",
+        "frontend/style.css": "4da7278fe3dd333882997bc271dd0e3b70e46a5f40cc39fe0aa114613380c851",
+        "icon.svg": "054ba96fe173ca4473abd3ffca833a358d7d16cdbdb43ee971e7be52b597ee2c",
+        "manifest.json": "7080ba3a9474fa1428b6fec4f9c8b39cae6b01e88b539cb636171ee0bed8750b",
+        "preview-final.html": "c4c8d786462ac2069bdd91e5c98fa65992e02dfd7e6cdc023c592da077b3f98a",
+        "preview-game-ui.html": "ba7da3f2e0474009d503e0cc0ef93de202af835922db0b9f6a4af19c0c6bf2be",
+        "preview-house-v2.html": "c77ce94bba908d3f9fec9524ee3bcaeaea4626758fb8ee60c5bc58381a06a1ef",
+        "preview-house.html": "f59273ed6ffbc572afb4d267ee690abd9758bfa851646f37f14d052f5096dfc9",
+        "preview-layout-v2.html": "4769c18701bfc2a8f5cb09bc0993dc435ab86e6c3170a8cee839f58669bd6b10",
+        "preview-pixel-style.html": "cbd24a18f4006ee7b01d59adc4143d24d2fea22bd8795ad03a58e47ca851a034",
+        "preview-scene-layout.html": "5890d01d581729a68a7ca0063a23f68ca741ada489001f6e5a351e5e64ef89b4",
         "screenshots/01-overview.png": "503472673bc1deb97e1857315ecf7be5a0d5e800758fa2a9b8a868c7aedad133",
         "screenshots/02-light.png": "e72d8019a6b56185e8afd2bd655a13d8e1122f8b55b87901a42fd5b6937942a9"
       },
@@ -413,6 +433,73 @@
         {
           "version": "0.17.0",
           "notes": "领养与装扮、五种性格、五属性相生相克、桌面悬浮层；离线时光与每日奇遇。"
+        }
+      ]
+    },
+    {
+      "name": "stock",
+      "label": "学元证券",
+      "version": "1.1.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。它和 Cluss 的积分互不相通，也不是游戏币：在这里正经学会看盘、算成本、控制仓位，每周五还有跨班班级对决。",
+      "author": "ClassIntra",
+      "icon": "apps/stock/icon.svg",
+      "capabilities": [
+        "data.storage",
+        "data.http",
+        "economy.wallet",
+        "ui.toast"
+      ],
+      "files": [
+        "apps/stock/backend/achievements.js",
+        "apps/stock/backend/market.js",
+        "apps/stock/backend/matcher.js",
+        "apps/stock/backend/peer.js",
+        "apps/stock/backend/quotes.js",
+        "apps/stock/backend/report.js",
+        "apps/stock/backend/routes.js",
+        "apps/stock/backend/store.js",
+        "apps/stock/backend/trading.js",
+        "apps/stock/frontend/entry.js",
+        "apps/stock/frontend/style.css",
+        "apps/stock/icon.svg",
+        "apps/stock/manifest.json",
+        "apps/stock/screenshots/01-overview.png",
+        "apps/stock/screenshots/02-detail.png",
+        "apps/stock/screenshots/03-rank.png",
+        "apps/stock/test/e2e.cjs",
+        "apps/stock/test/ui-probe.mjs"
+      ],
+      "hashes": {
+        "backend/achievements.js": "5c30611cf0f428c9db350c4933ec7c18cb380a7bc45dbd362c58340f29dc8648",
+        "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
+        "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
+        "backend/peer.js": "f9679ad5482f519a5f297107dee5d2f5c965b7979cc2c819b95834f0e11f71b1",
+        "backend/quotes.js": "d446c16c4153e8eee30f8f9949292fc048dc71d9c27b56758748d486ce23389b",
+        "backend/report.js": "42d3b189e4d06c05224d7508587f548ac711bb4093f6b945f52b46406b55af46",
+        "backend/routes.js": "713bc10edbde66f17b9bb5df238aee9af56e86e981d23e31666f22e6376b4d21",
+        "backend/store.js": "ec8df011518f080bf673adb026e6fe62f2d56ee3055c28324c38a67bcba2161a",
+        "backend/trading.js": "e6f4cedfc2ec859eccf1d84021baf8d4e0d4ede673ca120dba66978ae9231579",
+        "frontend/entry.js": "db9e89e3c5e094652359bc765072aae773efc5b12ee225d4a51f5decc61dfc2b",
+        "frontend/style.css": "03500b16b0fe06ccd53e4eca5860f6b558f37fb854a294d7b988b7692065eb52",
+        "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
+        "manifest.json": "ed8d55bb240e7091361ac31032328201625ae50477f9b5f60d5d2fbea886aaf3",
+        "screenshots/01-overview.png": "3151ad5fe1743932cba82667dead52628edbee82952495dc5ccdd77fa7d61856",
+        "screenshots/02-detail.png": "c0847b17af04ebd34ffb7655c63b247a962d50b75c9b210e261dd113bf13e6d3",
+        "screenshots/03-rank.png": "aafffab41f5fb950ef6a78a84a53ed342abe6aa777dacada37ff7a1d0664bfda",
+        "test/e2e.cjs": "ed11333b4d21edc14e505a18a0ee1f11b5ce5f4c4d8f67cd3e41a9a2f4d72039",
+        "test/ui-probe.mjs": "7eed905363aae4a57b0103c79738d98f3c874e28f740f810735890613852a129"
+      },
+      "group": "study",
+      "color": "#E5484D",
+      "screenshots": [
+        "apps/stock/screenshots/01-overview.png",
+        "apps/stock/screenshots/02-detail.png",
+        "apps/stock/screenshots/03-rank.png"
+      ],
+      "changelog": [
+        {
+          "version": "1.1.0",
+          "notes": "改名「学元证券」。修复：成就系统从未解锁（建表缺失 + db 误当函数调用）、排行榜收到对端战报后白屏（vsSide 从未实现）、班级对决永远 peer-empty（payload 未解析）、收盘报告工作日上午必 500（同步返回非 Promise）；排行榜/对决收益率不再把现金余额重复计入盈亏，与资产页同口径。新增：行情搜索、详情页自选星标、委托自动刷新、涨停/跌停徽标、行情错误态与重试、限价快捷档。委托彻底放开时间限制（含市价单），休市挂单开盘自动撮合。"
         }
       ]
     }
