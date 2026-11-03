@@ -147,15 +147,16 @@ if (tourShown) {
   ok('第一步讲的是账户与本金', /账户/.test(step1 || ''), step1);
   const hole = await evalJS(`!!document.querySelector('.ci-stock .tour-hole')`);
   ok('第一步高亮了资产卡（spotlight 洞）', hole);
+  // 引导步数可能随功能增加（现在 6 步），别写死次数 —— 一路点到出现「开始交易」为止
   let clicked = 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 10; i++) {
     const hasNext = await evalJS(`!!document.querySelector('.ci-stock .tour-next')`);
     if (!hasNext) break;
     await evalJS(`document.querySelector('.ci-stock .tour-next').click()`);
     await sleep(340);
     clicked++;
   }
-  ok('引导可逐页推进（5 步 = 4 次下一步）', clicked === 4, clicked);
+  ok('引导可逐页推进', clicked >= 4, clicked + ' 次下一步');
   const finalStep = await evalJS(`({ done: !!document.querySelector('.ci-stock .tour-done'), guide: !!document.querySelector('.ci-stock .tour-to-guide') })`);
   ok('最后一步有「开始交易」与「看完整指南」', finalStep.done && finalStep.guide, JSON.stringify(finalStep));
   await shot('01a-tour-final');
@@ -662,16 +663,24 @@ console.log('\n=== 指南页 ===');
 await clickNav('指南');
 await sleep(1200);
 const guide = await evalJS(`(function(){
+  var titles = [];
+  var els = document.querySelectorAll('.ci-stock .guide-title');
+  for (var i = 0; i < els.length; i++) titles.push(els[i].textContent);
   return {
     cards: document.querySelectorAll('.ci-stock .guide-card').length,
     tourBtn: !!document.querySelector('.ci-stock .guide-tour-btn'),
     terms: document.querySelectorAll('.ci-stock .gi-terms > div').length,
-    active: (document.querySelector('.ci-stock .nav-item.active') || {}).textContent || ''
+    active: (document.querySelector('.ci-stock .nav-item.active') || {}).textContent || '',
+    titles: titles
   };
 })()`);
-ok('指南页 ≥10 节教程', guide.cards >= 10, guide.cards + ' 节');
+ok('指南页 ≥15 节教程', guide.cards >= 15, guide.cards + ' 节');
+ok('新功能都有教程（提醒 / 资金流水章节）',
+  guide.titles.some(function (t) { return /提醒/.test(t); }) &&
+  guide.titles.some(function (t) { return /资金流水/.test(t); }),
+  guide.titles.join('|'));
 ok('指南页导航高亮正确', /指南/.test(guide.active), guide.active);
-ok('术语表条目 ≥8', guide.terms >= 8, guide.terms);
+ok('术语表条目 ≥10', guide.terms >= 10, guide.terms);
 await shot('11b-guide');
 await evalJS(`document.querySelector('.ci-stock .guide-tour-btn').click()`);
 await sleep(600);
