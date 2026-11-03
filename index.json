@@ -1,6 +1,6 @@
 {
-  "version": 24,
-  "updated_at": "2026-11-03T00:01:11.213Z",
+  "version": 25,
+  "updated_at": "2026-11-03T00:59:06.910Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.1.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。它和 Cluss 的积分互不相通，也不是游戏币：在这里正经学会看盘、算成本、控制仓位，每周五还有跨班班级对决。",
+      "version": "1.2.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能等 17 个板块；AI 链从算力、光模块、服务器到终端应用一条龙，创业板/科创板 ±20% 与主板 ±10% 正好对照。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。它和 Cluss 的积分互不相通，也不是游戏币：在这里正经学会看盘、算成本、控制仓位，每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -474,20 +474,20 @@
         "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
         "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
         "backend/peer.js": "f9679ad5482f519a5f297107dee5d2f5c965b7979cc2c819b95834f0e11f71b1",
-        "backend/quotes.js": "d446c16c4153e8eee30f8f9949292fc048dc71d9c27b56758748d486ce23389b",
+        "backend/quotes.js": "e0005af2cec30917c031fc5386907536fb27df56380715d1b087f444e4f6bb8d",
         "backend/report.js": "42d3b189e4d06c05224d7508587f548ac711bb4093f6b945f52b46406b55af46",
-        "backend/routes.js": "713bc10edbde66f17b9bb5df238aee9af56e86e981d23e31666f22e6376b4d21",
+        "backend/routes.js": "5a1408ee0f358c0faf13d1d4ef90e6eaeeea1b1939173a23a04126720a3b65e5",
         "backend/store.js": "ec8df011518f080bf673adb026e6fe62f2d56ee3055c28324c38a67bcba2161a",
-        "backend/trading.js": "e6f4cedfc2ec859eccf1d84021baf8d4e0d4ede673ca120dba66978ae9231579",
-        "frontend/entry.js": "db9e89e3c5e094652359bc765072aae773efc5b12ee225d4a51f5decc61dfc2b",
-        "frontend/style.css": "03500b16b0fe06ccd53e4eca5860f6b558f37fb854a294d7b988b7692065eb52",
+        "backend/trading.js": "d1e3c5c5aa4c4133aa3e163f53d4fe44954f8d45360af9e72d674024436f7443",
+        "frontend/entry.js": "55d8674f3a0ad94e452ec85963c7ab761d83f8581aa48d2df8f68cfda4e10f24",
+        "frontend/style.css": "c948a550386d0bc0f7b3b9d58c39da514ebef61254b8b207e4a79cc7da6b2e95",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "ed8d55bb240e7091361ac31032328201625ae50477f9b5f60d5d2fbea886aaf3",
-        "screenshots/01-overview.png": "3151ad5fe1743932cba82667dead52628edbee82952495dc5ccdd77fa7d61856",
-        "screenshots/02-detail.png": "c0847b17af04ebd34ffb7655c63b247a962d50b75c9b210e261dd113bf13e6d3",
-        "screenshots/03-rank.png": "aafffab41f5fb950ef6a78a84a53ed342abe6aa777dacada37ff7a1d0664bfda",
-        "test/e2e.cjs": "ed11333b4d21edc14e505a18a0ee1f11b5ce5f4c4d8f67cd3e41a9a2f4d72039",
-        "test/ui-probe.mjs": "7eed905363aae4a57b0103c79738d98f3c874e28f740f810735890613852a129"
+        "manifest.json": "a69cbc75d6c8fae56422200d7ffb5fddcb23a049a4e2af6cdc36e9ff45470e0b",
+        "screenshots/01-overview.png": "94d490e9739e1d84043f6c5a84e91a88b994f6e23129579f5296386fd7bdf436",
+        "screenshots/02-detail.png": "8c7105fc9bb6cabed225040aa31c1ff469cfc0cfc1ff0dd0bbef12cae8fc374a",
+        "screenshots/03-rank.png": "de77e94f7cadb8790c883ebe4d063d90da1c6bca8e1f4d412084a9bc1f6c754b",
+        "test/e2e.cjs": "c2347928444aa638cd087c31dd79acb2f4f50514a300c5cd0b070e8c8117b1e8",
+        "test/ui-probe.mjs": "377859927fe3c0fe429327e201f31a9f22b265fd0334848cc5aaa7489385cf0a"
       },
       "group": "study",
       "color": "#E5484D",
@@ -497,6 +497,10 @@
         "apps/stock/screenshots/03-rank.png"
       ],
       "changelog": [
+        {
+          "version": "1.2.0",
+          "notes": "新增人工智能板块（10 只：算力/光模块/服务器/终端应用，创业板科创板 ±20% 与主板 ±10% 对照）+ 板块快捷筛选 + 日K成交量副图。修复：开盘前行情整表为空（东财 f2 现价返回 \"-\" 时被整只丢弃，早读时段必现）、排行「我」标签不显示（me 缺 user_id）；盘前详情把今开/最高/最低显示为「—」并提示休市，不再拿昨收冒充今开。"
+        },
         {
           "version": "1.1.0",
           "notes": "改名「学元证券」。修复：成就系统从未解锁（建表缺失 + db 误当函数调用）、排行榜收到对端战报后白屏（vsSide 从未实现）、班级对决永远 peer-empty（payload 未解析）、收盘报告工作日上午必 500（同步返回非 Promise）；排行榜/对决收益率不再把现金余额重复计入盈亏，与资产页同口径。新增：行情搜索、详情页自选星标、委托自动刷新、涨停/跌停徽标、行情错误态与重试、限价快捷档。委托彻底放开时间限制（含市价单），休市挂单开盘自动撮合。"

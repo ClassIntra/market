@@ -177,6 +177,20 @@ async function main() {
   ok('行情含价格与昨收', sample && sample.price > 0 && sample.prev_close > 0, sample && { code: sample.code, price: sample.price });
   ok('行情含涨跌停', sample && sample.limit_up > sample.price * 0.9 && sample.limit_down < sample.price, sample && { up: sample.limit_up, down: sample.limit_down });
 
+  // 人工智能板块（2026-11-03 新增）：整条产业链 + 两种涨跌停幅度
+  var aiList = list.filter(function (q) { return q.sector === '人工智能'; });
+  ok('人工智能板块已上架（≥8 只）', aiList.length >= 8, aiList.length);
+  var aiGrowth = null;
+  var aiMain = null;
+  for (var ai = 0; ai < aiList.length; ai++) {
+    if (/^(300|688)/.test(aiList[ai].code) && !aiGrowth) aiGrowth = aiList[ai];
+    if (/^(000|002|600|601|603)/.test(aiList[ai].code) && !aiMain) aiMain = aiList[ai];
+  }
+  ok('AI 板块含 ±20% 品种（创业板/科创板）', !!aiGrowth && aiGrowth.limit_ratio === 0.2,
+    aiGrowth && { code: aiGrowth.code, ratio: aiGrowth.limit_ratio });
+  ok('AI 板块含 ±10% 品种（主板）', !!aiMain && aiMain.limit_ratio === 0.1,
+    aiMain && { code: aiMain.code, ratio: aiMain.limit_ratio });
+
   var idx = mkt.body.data.session;
   console.log('    交易时段：' + idx.label + '（可撮合=' + idx.settles + '）');
 
@@ -457,6 +471,7 @@ async function main() {
   var rank = await api('GET', '/api/stock/rank', { token: T1 });
   eq('炒股排行 200', rank.status, 200);
   ok('排行含自己', !!rank.body.data.me, rank.body.data.me);
+  eq('排行「我」带 user_id（前端「我」标签依赖）', rank.body.data.me.user_id, '251801');
   // 口径守卫：pnl = 总资产 − 净投入，与资产页 total_pnl 严格相等。
   // 旧算法把现金余额整个算进盈亏（≈ +6800），这两条守卫就是它的回归探针。
   var posRes2 = await api('GET', '/api/stock/positions', { token: T1 });

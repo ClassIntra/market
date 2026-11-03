@@ -39,7 +39,7 @@ var UNIVERSE = [
   { code: '688981', sector: '科技' },   // 中芯国际
   { code: '603501', sector: '科技' },   // 韦尔股份
   { code: '002415', sector: '科技' },   // 海康威视
-  { code: '002230', sector: '科技' },   // 科大讯飞
+  { code: '002230', sector: '人工智能' }, // 科大讯飞（AI 语音，2026-11-03 从科技移入 AI 板块）
   { code: '000063', sector: '科技' },   // 中兴通讯
   { code: '002475', sector: '科技' },   // 立讯精密
   { code: '688111', sector: '科技' },   // 金山办公
@@ -58,7 +58,21 @@ var UNIVERSE = [
   { code: '601668', sector: '基建' },   // 中国建筑
   { code: '600104', sector: '汽车' },   // 上汽集团
   { code: '002352', sector: '物流' },   // 顺丰控股
-  { code: '002714', sector: '农业' }    // 牧原股份
+  { code: '002714', sector: '农业' },   // 牧原股份
+
+  // ---- 人工智能（2026-11-03 新增板块）----
+  // 刻意覆盖「算力 → 光模块 → 服务器 → 终端应用」一条产业链：
+  // 同一个消息（比如某大模型发布）在这条链上的涨跌先后不同，正是讲
+  // 「产业链传导」的好素材。688/300 开头是 ±20% 涨跌停，与主板对照。
+  { code: '688256', sector: '人工智能' }, // 寒武纪（AI 芯片）
+  { code: '688041', sector: '人工智能' }, // 海光信息（国产 CPU/DCU）
+  { code: '300308', sector: '人工智能' }, // 中际旭创（光模块）
+  { code: '300502', sector: '人工智能' }, // 新易盛（光模块）
+  { code: '000977', sector: '人工智能' }, // 浪潮信息（AI 服务器）
+  { code: '603019', sector: '人工智能' }, // 中科曙光（算力）
+  { code: '300496', sector: '人工智能' }, // 中科创达（端侧 AI）
+  { code: '002236', sector: '人工智能' }, // 大华股份（AI 视觉）
+  { code: '601138', sector: '人工智能' }  // 工业富联（AI 服务器）
 ];
 
 var INDEXES = [
@@ -123,7 +137,12 @@ function buildQuote(f) {
   var code = String(f.f12 || '');
   var price = num(f.f2);
   var prevClose = num(f.f18);
-  if (!code || price === null || prevClose === null) return null;
+  // 只有代码和昨收是硬要求：**开盘前（约 08:50–09:15）东财的 f2 现价返回 "-"**，
+  // 之前这里直接 return null 把全池丢掉，整张行情表变空 —— 恰好是学生
+  // 早读开平板的时段（2026-11-03 实踩）。盘前用昨收价顶上，涨跌记 0。
+  if (!code || prevClose === null) return null;
+  var preOpen = price === null;
+  if (preOpen) price = prevClose;
 
   var limits = market.limitPrices(code, prevClose);
   return {
@@ -131,11 +150,11 @@ function buildQuote(f) {
     name: String(f.f14 || ''),
     price: price,
     prev_close: prevClose,
-    open: num(f.f17, prevClose),
-    high: num(f.f15, price),
-    low: num(f.f16, price),
-    change: num(f.f4, price - prevClose),
-    change_pct: num(f.f3, prevClose ? (price - prevClose) / prevClose * 100 : 0),
+    open: preOpen ? prevClose : num(f.f17, prevClose),
+    high: preOpen ? prevClose : num(f.f15, price),
+    low: preOpen ? prevClose : num(f.f16, price),
+    change: preOpen ? 0 : num(f.f4, price - prevClose),
+    change_pct: preOpen ? 0 : num(f.f3, prevClose ? (price - prevClose) / prevClose * 100 : 0),
     volume: num(f.f5, 0),            // 手
     amount: num(f.f6, 0),            // 元
     turnover: num(f.f8, 0),          // 换手率 %
@@ -150,6 +169,7 @@ function buildQuote(f) {
     sector: (UNIVERSE_MAP[code] && UNIVERSE_MAP[code].sector) || '',
     tradable: !!UNIVERSE_MAP[code],
     stale: false,
+    pre_open: preOpen,
     quoted_at: Date.now()
   };
 }

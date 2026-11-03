@@ -465,6 +465,9 @@ router.get('/rank', wrap(function (req, res) {
     for (var m = 0; m < list.length; m++) {
       if (list[m].user_id === uid(req)) {
         me = {
+          // user_id 必须下发：前端排名行靠 it.user_id === me.user_id 打「我」标签，
+          // 缺了它这个标签永远不会出现（2026-11-03 修）
+          user_id: list[m].user_id,
           rank: m + 1, total_asset: list[m].total_asset, pnl: list[m].pnl,
           return_pct: list[m].return_pct, total: list.length
         };

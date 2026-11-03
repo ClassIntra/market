@@ -1266,6 +1266,40 @@
   cursor: pointer;
 }
 
+/* 板块快捷筛选 */
+.ci-stock .sector-chips {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 0 10px;
+  scrollbar-width: none;
+}
+.ci-stock .sector-chips::-webkit-scrollbar { display: none; }
+.ci-stock .chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 14px;
+  margin-right: 8px;
+  border-radius: 17px;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ci-stock .chip:active { background: rgba(255,255,255,.09); }
+.ci-stock .chip.active {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(229,72,77,.16);
+  border-color: rgba(229,72,77,.45);
+}
+
 /* 触板徽标（涨停/跌停） */
 .ci-stock .pct-badge.limit { letter-spacing: 1px; }
 .ci-stock .pct-badge.limit.up { box-shadow: inset 0 0 0 1px rgba(245,83,90,.45); }

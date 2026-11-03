@@ -496,6 +496,10 @@ function matchOnce(snapshot) {
       continue;
     }
 
+    // 盘前数据还没有真实开盘价（f2/open 均为 "-"）时不要撮合：
+    // 拿昨收价成交等于凭空造了一个开盘价（quotes.buildQuote 会标 pre_open）。
+    if (useOpen && q.pre_open) continue;
+
     var quote = useOpen
       ? Object.assign({}, q, { price_cent: Math.round((q.open || q.price) * 100) })
       : q;

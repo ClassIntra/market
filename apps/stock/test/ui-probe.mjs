@@ -168,6 +168,33 @@ await sleep(400);
 const restored = await evalJS(`document.querySelectorAll('.ci-stock .market-list .qrow').length`);
 ok('清空搜索恢复全列表', restored >= 30, restored + ' 行');
 
+console.log('\n=== 板块筛选 ===');
+const chipCount = await evalJS(`document.querySelectorAll('.ci-stock .sector-chips .chip').length`);
+ok('板块筛选条已渲染（含全部板块 ≥10 个）', chipCount >= 10, chipCount + ' 个');
+const aiClicked = await evalJS(`(function(){
+  var chips = document.querySelectorAll('.ci-stock .sector-chips .chip');
+  for (var i = 0; i < chips.length; i++) { if (chips[i].textContent === '人工智能') { chips[i].click(); return true; } }
+  return false;
+})()`);
+ok('存在「人工智能」板块入口', aiClicked);
+await sleep(500);
+const aiRows = await evalJS(`(function(){
+  var rows = document.querySelectorAll('.ci-stock .market-list .qrow');
+  var names = [];
+  for (var i = 0; i < rows.length && i < 3; i++) { var n = rows[i].querySelector('.qrow-name'); names.push(n ? n.textContent : ''); }
+  return { count: rows.length, names: names };
+})()`);
+ok('筛选后只剩 AI 板块（8~15 只）', aiRows.count >= 8 && aiRows.count <= 15, aiRows.count + ' 只：' + aiRows.names.join('/'));
+await shot('01c-ai-sector');
+await evalJS(`(function(){
+  var chips = document.querySelectorAll('.ci-stock .sector-chips .chip');
+  if (chips[0]) chips[0].click();
+  return true;
+})()`);
+await sleep(400);
+const backRows = await evalJS(`document.querySelectorAll('.ci-stock .market-list .qrow').length`);
+ok('切回「全部板块」恢复全列表', backRows >= 30, backRows + ' 行');
+
 console.log('\n=== 详情页 ===');
 // 选一只「买得起一手」的股票：茅台一手 14 万，点它只会弹「资金不足」，
 // 验不到交易面板。用价格 < 50 元的第一只。

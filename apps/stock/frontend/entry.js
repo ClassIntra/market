@@ -37,6 +37,7 @@
     market: null,
     marketError: '',   // 行情拉取失败的原因（拉不到 ≠ 没有，必须显示错误态）
     marketTab: 'all',
+    sectorFilter: '',  // 板块快捷筛选（空 = 全部板块）
     q: '',             // 行情搜索关键字（代码/名称/板块）
     detail: null,
     detailCode: '',
@@ -392,6 +393,30 @@
     bar.appendChild(search);
     wrap.appendChild(bar);
 
+    // 板块快捷筛选（17 个板块时，横滑一排比在长列表里找快得多）
+    if (S.market) {
+      var chips = h('div', 'sector-chips');
+      var all = h('div', 'chip' + (!S.sectorFilter ? ' active' : ''), '全部板块');
+      all.onclick = function () { S.sectorFilter = ''; renderMain(); };
+      chips.appendChild(all);
+      var seenSector = {};
+      var sectorNames = [];
+      var listAll = S.market.list || [];
+      for (var si = 0; si < listAll.length; si++) {
+        var sn = listAll[si].sector || '其他';
+        if (!seenSector[sn]) { seenSector[sn] = true; sectorNames.push(sn); }
+      }
+      sectorNames.forEach(function (name) {
+        var chip = h('div', 'chip' + (S.sectorFilter === name ? ' active' : ''), name);
+        chip.onclick = function () {
+          S.sectorFilter = S.sectorFilter === name ? '' : name;
+          renderMain();
+        };
+        chips.appendChild(chip);
+      });
+      wrap.appendChild(chips);
+    }
+
     var listZone = h('div', 'market-list');
     wrap.appendChild(listZone);
 
@@ -408,6 +433,9 @@
 
   function marketFiltered() {
     var list = (S.market && S.market.list) || [];
+    if (S.sectorFilter) {
+      list = list.filter(function (x) { return (x.sector || '其他') === S.sectorFilter; });
+    }
     var q = String(S.q || '').trim().toLowerCase();
     if (q) {
       return list.filter(function (x) {
@@ -758,10 +786,13 @@
     // 关键指标
     if (q) {
       var grid = h('div', 'detail-grid');
+      // 盘前（约 08:50–09:15）没有真实成交，开盘/最高/最低一律显示 —，
+      // 别把「昨收」伪装成「今开」——学生会以为开盘价就是昨天的收盘价
+      var noTrade = !!q.pre_open;
       var cells = [
-        ['今开', fmt(q.open, 2), trendClass(q.open - q.prev_close)],
-        ['最高', fmt(q.high, 2), trendClass(q.high - q.prev_close)],
-        ['最低', fmt(q.low, 2), trendClass(q.low - q.prev_close)],
+        ['今开', noTrade ? '—' : fmt(q.open, 2), noTrade ? '' : trendClass(q.open - q.prev_close)],
+        ['最高', noTrade ? '—' : fmt(q.high, 2), noTrade ? '' : trendClass(q.high - q.prev_close)],
+        ['最低', noTrade ? '—' : fmt(q.low, 2), noTrade ? '' : trendClass(q.low - q.prev_close)],
         ['涨停', fmt(q.limit_up, 2), 'up'],
         ['跌停', fmt(q.limit_down, 2), 'down'],
         ['成交额', money(q.amount / 100000000, 2) + ' 亿', ''],
@@ -832,10 +863,12 @@
     var pts = (data.points || []).filter(function (p) { return p.price > 0; });
     var prev = Number(data.prev_close) || 0;
     if (!pts.length || !prev) {
+      var sess = S.overview && S.overview.session;
       ctx.fillStyle = 'rgba(255,255,255,.28)';
       ctx.font = '12px -apple-system, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('暂无分时数据', w / 2, hgt / 2);
+      // 盘前/午休/收盘后本来就没有当日分时，别让学生以为是应用坏了
+      ctx.fillText(sess && !sess.settles ? '休市中 · 开盘后自动显示当日分时' : '暂无分时数据', w / 2, hgt / 2);
       return;
     }
 
@@ -943,6 +976,12 @@
     var plotW = w - padRight;
     var plotH = hgt - padTop - padBottom;
 
+    // 成交量副图占下方 26%，与蜡烛共用 x 轴 ——「量价配合」是看盘第一课，
+    // 只有价格没有量，学生看不出「放量上涨」和「缩量上涨」的区别。
+    var volH = Math.round(plotH * 0.26);
+    var priceH = plotH - volH - 8;
+    var volTop = padTop + priceH + 8;
+
     var hi = -Infinity, lo = Infinity;
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].high > hi) hi = rows[i].high;
@@ -952,12 +991,18 @@
     var pad = (hi - lo) * 0.06;
     hi += pad; lo -= pad;
 
+    var maxVol = 0;
+    for (var vi = 0; vi < rows.length; vi++) {
+      if (rows[vi].volume > maxVol) maxVol = rows[vi].volume;
+    }
+    if (!maxVol) maxVol = 1;
+
     var step = plotW / rows.length;
     var bodyW = Math.max(1.5, Math.min(step * 0.62, 7));
 
-    function yOf(v) { return padTop + (hi - v) / (hi - lo) * plotH; }
+    function yOf(v) { return padTop + (hi - v) / (hi - lo) * priceH; }
 
-    gridLines(ctx, plotW, plotH + padTop, 4);
+    gridLines(ctx, plotW, priceH + padTop, 4);
 
     for (var j = 0; j < rows.length; j++) {
       var r = rows[j];
@@ -979,7 +1024,24 @@
       var bh = Math.max(1, y2 - y1);
       ctx.fillStyle = color;
       ctx.fillRect(x - bodyW / 2, y1, bodyW, bh);
+
+      // 成交量柱（与蜡烛同色、半透明，避免抢视线）
+      var vh = Math.max(1, (r.volume / maxVol) * volH);
+      ctx.fillStyle = isUp ? 'rgba(245,83,90,.5)' : 'rgba(34,181,115,.5)';
+      ctx.fillRect(x - bodyW / 2, volTop + volH - vh, bodyW, vh);
     }
+
+    // 量能区隔线与标注
+    ctx.strokeStyle = 'rgba(255,255,255,.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, volTop - 2.5);
+    ctx.lineTo(plotW, volTop - 2.5);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.24)';
+    ctx.font = '9px ui-monospace, Consolas, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('成交量', 2, volTop + 9);
 
     // 均线 MA20
     if (rows.length >= 20) {
@@ -1003,8 +1065,8 @@
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(255,255,255,.34)';
     ctx.fillText(fmt(hi, 2), plotW + 6, padTop + 4);
-    ctx.fillText(fmt((hi + lo) / 2, 2), plotW + 6, padTop + plotH / 2 + 3.5);
-    ctx.fillText(fmt(lo, 2), plotW + 6, padTop + plotH);
+    ctx.fillText(fmt((hi + lo) / 2, 2), plotW + 6, padTop + priceH / 2 + 3.5);
+    ctx.fillText(fmt(lo, 2), plotW + 6, padTop + priceH);
 
     // 日期
     ctx.textAlign = 'left';
