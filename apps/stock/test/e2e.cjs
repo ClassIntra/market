@@ -627,6 +627,12 @@ async function main() {
   var nt3 = await api('GET', '/api/stock/notify?limit=5', { token: T1 });
   eq('再查未读数仍为 0', nt3.body.data.unread, 0);
 
+  // overview 必须暴露 trade_count —— 前端「新手默认市价」靠它判断（成交<3 次默认市价）
+  var ovFin = await api('GET', '/api/stock/overview', { token: T1 });
+  ok('summary.stats.trade_count（新手默认市价依据）',
+    typeof ((ovFin.body.data.summary || {}).stats || {}).trade_count === 'number',
+    (ovFin.body.data.summary.stats || {}).trade_count);
+
   // 给 UI 探针留一条未读：探针要验顶栏红点的渲染与「打开即清零」。
   // 只种数据、不改接口行为，避免探针依赖真实成交时机。
   try {

@@ -1721,6 +1721,41 @@
 .ci-stock .nt-body { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
 .ci-stock .nt-time { font-size: 10px; color: var(--dim); margin-top: 4px; }
 
+/* ================= 术语点译 ================= */
+.ci-stock .term-hit { cursor: pointer; }
+.ci-stock .dg-k.term-hit {
+  display: inline-flex;
+  align-items: center;
+}
+.ci-stock .dg-k.term-hit::after {
+  content: '?';
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  margin-left: 4px;
+  border-radius: 50%;
+  border: 1px solid rgba(232,195,106,.45);
+  color: var(--gold);
+  font-size: 8px;
+  line-height: 10px;
+  text-align: center;
+}
+.ci-stock .term-q {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0 5px;
+  border-radius: 50%;
+  border: 1px solid rgba(232,195,106,.45);
+  color: var(--gold);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  cursor: pointer;
+}
+.ci-stock .term-q:active { background: rgba(232,195,106,.15); }
+.ci-stock .estimate .term-hit:active { opacity: .7; }
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

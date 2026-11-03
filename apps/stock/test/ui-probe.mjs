@@ -355,6 +355,18 @@ ok('分时图画布存在', detail.hasChart);
 ok('分时图已绘制（非空白）', detail.painted);
 ok('关键指标 8 项', detail.cells === 8, detail.cells);
 
+// 零基础：指标名带 ? 角标，点一下出术语解释
+const termTest = await evalJS(`(function(){
+  var k = document.querySelector('.ci-stock .dg-k.term-hit');
+  if (!k) return { ok: false, title: '' };
+  k.click();
+  var t = (document.querySelector('.ci-stock .news-article-title') || {}).textContent || '';
+  var c = document.querySelector('.ci-stock .news-close');
+  if (c) c.click();
+  return { ok: !!t, title: t };
+})()`);
+ok('详情页指标点一下出术语解释', termTest.ok && /开|高|低|涨停|跌停|成交额|换手|市盈/.test(termTest.title || ''), termTest.title);
+
 // 相关资讯（按名称搜，等返回）
 let detailNews = 0;
 for (let i = 0; i < 12; i++) {
@@ -495,6 +507,24 @@ ok('交易面板已弹出', sheet.open);
 ok('标题含股票名与买入', /买入/.test(sheet.title || ''), sheet.title);
 ok('预估金额已显示', sheet.estimate.length >= 3, JSON.stringify(sheet.estimate));
 ok('数量默认 1 手', sheet.qty === '100', sheet.qty);
+
+// 零基础：老手（成交≥3 次）默认限价委托；「?」点开术语解释
+const segActive = await evalJS(`(function(){
+  var segs = document.querySelectorAll('.ci-stock-sheet .seg-item');
+  for (var i = 0; i < segs.length; i++) { if (segs[i].className.indexOf('active') > -1 && /委托/.test(segs[i].textContent)) return segs[i].textContent; }
+  return '';
+})()`);
+ok('老手默认限价委托（成交满 3 次后）', /限价/.test(segActive || ''), segActive);
+const sheetTerm = await evalJS(`(function(){
+  var q = document.querySelector('.ci-stock-sheet .term-q');
+  if (!q) return { ok: false, title: '' };
+  q.click();
+  var t = (document.querySelector('.ci-stock .news-article-title') || {}).textContent || '';
+  var c = document.querySelector('.ci-stock .news-close');
+  if (c) c.click();
+  return { ok: !!t, title: t };
+})()`);
+ok('交易面板「?」出术语解释', sheetTerm.ok && /委托/.test(sheetTerm.title || ''), sheetTerm.title);
 await shot('04-trade');
 
 // 改数量 → 预估应变化

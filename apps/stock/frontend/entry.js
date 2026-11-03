@@ -933,7 +933,10 @@
       ];
       for (var i = 0; i < cells.length; i++) {
         var it = h('div', 'dg-item');
-        it.appendChild(h('div', 'dg-k', cells[i][0]));
+        // 指标名可点 → 术语解释（零基础：不知道「换手」是什么，点一下就懂）
+        var kEl = h('div', 'dg-k', cells[i][0]);
+        termHit(kEl, cells[i][0]);
+        it.appendChild(kEl);
         it.appendChild(h('div', 'dg-v num ' + cells[i][2], cells[i][1]));
         grid.appendChild(it);
       }
@@ -1804,6 +1807,68 @@
     return side;
   }
 
+  // ================= 术语 =================
+  // 单一数据源：指南页的「术语表」和各页面的「点词解释」都从这里出。
+  // 加新功能碰到新词，往这张表里加一行即可。
+  var TERMS = {
+    '昨收': '上一个交易日的收盘价，涨跌幅的基准。',
+    '今开': '今天第一笔成交价（9:25 集合竞价产生）。',
+    '最高': '今天到过的最高成交价。',
+    '最低': '今天到过的最低成交价。',
+    '涨停': '涨到当日上限就封住了（主板 ±10%、创业板/科创板 ±20%、北交所 ±30%、ST ±5%）—— 买不进，但手里的可以卖。',
+    '跌停': '跌到当日下限就封住了 —— 卖不出，别慌，等打开跌停再说。',
+    '成交额': '今天已成交的总金额，衡量这只股票有多活跃。',
+    '换手率': '成交量占流通股本的比例，越高说明筹码交换越充分。',
+    '市盈率 PE': '股价 ÷ 每股收益。高不一定贵，可能是市场预期它增长快。',
+    '持仓成本': '买入金额 + 手续费；卖出时按比例冲减。',
+    '浮动盈亏': '持仓市值 − 持仓成本，还没卖出，随价格变化。',
+    '已实现盈亏': '卖出后真正落袋的盈亏（已扣手续费）。',
+    '集合竞价': '9:15–9:25 汇总委托，9:25 统一按一个价格成交。',
+    '冻结学元': '下限价买单时预扣的钱；成交按实际价多退少补，撤单/失效立刻解冻。',
+    '可卖数量': '持仓 − 已挂的卖单。本盘 T+0，当天买的当天就能卖。',
+    '限价委托': '你指定一个价格：买不高于它、卖不低于它。价格没到就挂着，长期有效，可随时撤单。适合「我就想在这个价位买」。',
+    '市价委托': '不指定价格，按当前最新价成交。开市时立即成交，休市时排队等开盘。新手第一单推荐它 —— 不会挂半天不成交。',
+    '手续费': '佣金万 2.5（单笔最低 5 元）+ 印花税卖出 0.05% + 过户费。一买一卖至少约 15 学元 —— 频繁交易最伤本金。',
+    '预估金额': '按委托价 × 数量 + 预估手续费算出的「大概要花多少」。市价单以实际成交价为准，多退少补。',
+    '手': '100 股 = 1 手；买入必须是整手，卖出可以零股但要一次卖完。',
+    '收盘报告': '每天 15:00 后生成的当日市场摘要，在行情页顶部。'
+  };
+  var TERM_ALIAS = { '换手': '换手率', '市盈': '市盈率 PE' };
+  var TERM_ORDER = ['昨收', '今开', '最高', '最低', '涨停', '跌停', '成交额', '换手率', '市盈率 PE',
+    '持仓成本', '浮动盈亏', '已实现盈亏', '集合竞价', '冻结学元', '可卖数量', '限价委托', '市价委托',
+    '手续费', '预估金额', '收盘报告'];
+
+  function openTerm(word) {
+    var w = TERM_ALIAS[word] || word;
+    var text = TERMS[w];
+    if (!text) return;
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', '术语解释'));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    body.appendChild(h('div', 'news-article-title', w));
+    body.appendChild(h('div', 'news-article-body', text));
+    body.appendChild(h('div', 'submit-warn', '更多术语在「指南」页的术语表里。'));
+    panel.appendChild(body);
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+  }
+
+  // 给一个标签挂上「点我解释」：加 ? 角标 + 点击弹层
+  function termHit(el, word) {
+    el.classList.add('term-hit');
+    el.onclick = function () { openTerm(word); };
+    return el;
+  }
+
   // ================= 新手教程 / 指南 =================
   // 两层设计：
   //   · 首次进入 → 分步引导（TOUR_STEPS，遮罩高亮真实界面，5 步）；
@@ -2074,20 +2139,15 @@
     },
     {
       icon: '📖', title: '术语表',
-      html: '<div class="gi-terms">' +
-        '<div><b>昨收</b><span>上一个交易日的收盘价，涨跌幅的基准。</span></div>' +
-        '<div><b>今开</b><span>今天第一笔成交价（9:25 集合竞价产生）。</span></div>' +
-        '<div><b>成交额</b><span>今天已成交的金额，衡量活跃度。</span></div>' +
-        '<div><b>换手率</b><span>成交量占流通股本的比例，越高说明筹码交换越充分。</span></div>' +
-        '<div><b>市盈率 PE</b><span>股价 ÷ 每股收益。高不一定贵，可能是市场预期它增长快。</span></div>' +
-        '<div><b>持仓成本</b><span>买入金额 + 手续费；卖出时按比例冲减。</span></div>' +
-        '<div><b>浮动盈亏</b><span>持仓市值 − 持仓成本，还没卖出，随价格变化。</span></div>' +
-        '<div><b>已实现盈亏</b><span>卖出后真正落袋的盈亏（已扣手续费）。</span></div>' +
-        '<div><b>集合竞价</b><span>9:15–9:25 汇总委托，9:25 统一按一个价格成交。</span></div>' +
-        '<div><b>冻结学元</b><span>下限价买单时预扣的钱；成交按实际价多退少补，撤单/失效立刻解冻。</span></div>' +
-        '<div><b>可卖数量</b><span>持仓 − 已挂的卖单。本盘 T+0，当天买的当天就能卖。</span></div>' +
-        '<div><b>收盘报告</b><span>每天 15:00 后生成的当日市场摘要，在行情页顶部。</span></div>' +
-        '</div>'
+      // 与各页面「点词解释」共用 TERMS 数据源（改这里 = 改到处）
+      html: (function () {
+        var rows = '';
+        for (var i = 0; i < TERM_ORDER.length; i++) {
+          var w = TERM_ORDER[i];
+          rows += '<div><b>' + w + '</b><span>' + TERMS[w] + '</span></div>';
+        }
+        return '<div class="gi-terms">' + rows + '</div>';
+      })()
     },
     {
       icon: '🏆', title: '班级排行与跨班对决',
@@ -2426,16 +2486,22 @@
       }
     }
 
+    // 新手默认市价：第一单最容易卡在「限价挂高了，永远等不到成交」。
+    // 成交满 3 次视为已上手，恢复限价默认（限价才是日常主力）。
+    var tradeCount = (S.overview && S.overview.summary && S.overview.summary.stats &&
+      S.overview.summary.stats.trade_count) || 0;
+
     S.sheet = {
       code: code,
       name: q.name,
       side: side,
-      type: 'limit',
+      type: tradeCount < 3 ? 'market' : 'limit',
       price: q.price,
       qty: side === 'sell' ? maxQty : Math.min(LOT, maxQty),
       maxQty: maxQty,
       quote: q,
-      cash: cash
+      cash: cash,
+      newbie: tradeCount < 3
     };
     renderSheet();
   }
@@ -2513,6 +2579,9 @@
     var typeField = h('div', 'field');
     var tl = h('div', 'field-label');
     tl.appendChild(h('span', null, '委托方式'));
+    var tq = h('span', 'term-q', '?');
+    tq.onclick = function () { openTerm(st.type === 'market' ? '市价委托' : '限价委托'); };
+    tl.appendChild(tq);
     tl.appendChild(h('span', 'field-hint', st.type === 'market' ? '按最新价立即成交' : '价格合适才成交'));
     typeField.appendChild(tl);
     var tseg = h('div', 'seg');
@@ -2530,6 +2599,12 @@
     });
     typeField.appendChild(tseg);
     body.appendChild(typeField);
+
+    // 新手第一单提示：默认就是市价，把「为什么这样选」讲清楚
+    if (st.newbie && st.type === 'market') {
+      body.appendChild(h('div', 'submit-warn',
+        '前几次下单建议用市价：按当前价立即成交，不会挂半天不成交。想指定价格再切回限价。'));
+    }
 
     // 价格
     var priceField = h('div', 'field');
@@ -2592,6 +2667,9 @@
     var qtyField = h('div', 'field');
     var ql = h('div', 'field-label');
     ql.appendChild(h('span', null, '委托数量'));
+    var qtyQ = h('span', 'term-q', '?');
+    qtyQ.onclick = function () { openTerm('手'); };
+    ql.appendChild(qtyQ);
     ql.appendChild(h('span', 'field-hint', '1 手 = 100 股 · 最多 ' + st.maxQty + ' 股'));
     qtyField.appendChild(ql);
 
@@ -2641,14 +2719,22 @@
     var amount = st.price * st.qty;
     var fee = calcFee(st.side, amount);
     var est = h('div', 'estimate');
-    est.appendChild(estRow('成交金额', money(amount) + ' 学元'));
-    est.appendChild(estRow('预估费用', fmt(fee, 2) + ' 学元'));
+    var amtRow = estRow('成交金额', money(amount) + ' 学元');
+    termHit(amtRow, '预估金额');
+    est.appendChild(amtRow);
+    var feeRow = estRow('预估费用', fmt(fee, 2) + ' 学元');
+    termHit(feeRow, '手续费');
+    est.appendChild(feeRow);
     if (st.side === 'buy') {
       est.appendChild(estRow('需要学元', money(amount + fee) + ' 学元', true));
-      est.appendChild(estRow('可用学元', money(st.cash.available) + ' 学元'));
+      var availRow = estRow('可用学元', money(st.cash.available) + ' 学元');
+      termHit(availRow, '冻结学元');
+      est.appendChild(availRow);
     } else {
       est.appendChild(estRow('预计到账', money(amount - fee) + ' 学元', true));
-      est.appendChild(estRow('可卖数量', st.maxQty + ' 股'));
+      var sellableRow = estRow('可卖数量', st.maxQty + ' 股');
+      termHit(sellableRow, '可卖数量');
+      est.appendChild(sellableRow);
     }
     body.appendChild(est);
 
