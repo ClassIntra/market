@@ -456,7 +456,8 @@ function cancelOrder(userId, orderId) {
 
 function statusText(s) {
   var map = {
-    pending: '提交', filled: '成交', cancelled: '撤销', expired: '过期', rejected: '拒绝'
+    // pending 对学生的语义是「已挂单等成交」，不是「提交中」—— 文案直接影响对状态的理解
+    pending: '待成交', filled: '成交', cancelled: '撤销', expired: '过期', rejected: '拒绝'
   };
   return map[s] || s;
 }

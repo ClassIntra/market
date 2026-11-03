@@ -176,6 +176,8 @@ ok('涨跌幅徽章已渲染', market.badges >= 30, market.badges);
 ok('资产总额已显示', /[\d,]+\.\d{2}/.test(market.hero), market.hero);
 ok('指数条已渲染', market.indexes >= 3, market.indexes);
 ok('按板块分组', market.sectors >= 5, market.sectors);
+const metaLine = await evalJS(`(function(){ var m = document.querySelector('.ci-stock .market-meta'); return m ? m.textContent : ''; })()`);
+ok('市场概况（涨跌家数 + 更新时间）', /涨/.test(metaLine || '') && /跌/.test(metaLine || '') && /更新/.test(metaLine || ''), metaLine);
 
 console.log('\n=== 搜索 ===');
 const searched = await evalJS(`(function(){
@@ -351,6 +353,34 @@ const klinePainted = await evalJS(`(function(){
 })()`);
 ok('日 K 图已绘制', klinePainted);
 await shot('03-kline');
+
+// 周期档位：分时 / 日 / 周 / 月
+const chartTabs = await evalJS(`document.querySelectorAll('.ci-stock .chart-tabs .seg-item').length`);
+ok('图表周期 4 档（分时/日/周/月）', chartTabs >= 4, chartTabs);
+await evalJS(`(function(){
+  var items = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
+  for (var i = 0; i < items.length; i++) { if (items[i].textContent.indexOf('月K') >= 0) { items[i].click(); return true; } }
+  return false;
+})()`);
+await sleep(1800);
+const monthPainted = await evalJS(`(function(){
+  var c = document.querySelector('.ci-stock canvas[data-chart]');
+  if (!c) return false;
+  try {
+    var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    var n = 0;
+    for (var i = 3; i < d.length; i += 40) { if (d[i] > 0) n++; }
+    return n > 30;
+  } catch (e) { return false; }
+})()`);
+ok('月 K 图已绘制', monthPainted);
+// 回日K，后面的交易面板测试保持在有数据的周期上
+await evalJS(`(function(){
+  var items = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
+  for (var i = 0; i < items.length; i++) { if (items[i].textContent.indexOf('日K') >= 0) { items[i].click(); return true; } }
+  return false;
+})()`);
+await sleep(800);
 
 console.log('\n=== 交易面板 ===');
 await evalJS(`(function(){

@@ -205,6 +205,9 @@ router.get('/quote/:code', wrap(function (req, res) {
       fee_preview: market.calcFees('buy', q.price_cent * market.LOT_SIZE),
       max_buy: market.maxBuyQty(cash.available_cent, q.price)
     });
+  }).catch(function (err) {
+    // 停牌 / 池外 / 暂时无行情：404 比 500 更准确，前端也能直接提示
+    res.status(404).json({ code: 404, message: err.message || '暂无该股票的行情' });
   });
 }));
 
@@ -399,9 +402,13 @@ router.get('/report', wrap(function (req, res) {
 // ---- 班级排行 ----
 router.get('/rank', wrap(function (req, res) {
   return quotes.getSnapshot().then(function (snap) {
+    // 只统计「进过本应用」的人：stock_account 在首次打开 overview 时创建。
+    // 只开了学元账户、从没进过炒股的同学不该占着排行榜名额（口径 2026-11-03 修）。
     var accounts = db.prepare([
       'SELECT a.user_id, a.balance, u.net_name, u.real_name',
-      'FROM xy_account a LEFT JOIN users u ON u.user_id = a.user_id',
+      'FROM xy_account a',
+      'JOIN stock_account s ON s.user_id = a.user_id',
+      'LEFT JOIN users u ON u.user_id = a.user_id',
       "WHERE a.user_id NOT LIKE '@%'"
     ].join('\n')).all();
 

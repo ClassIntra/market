@@ -215,6 +215,11 @@ async function main() {
   var quote = await api('GET', '/api/stock/quote/' + cheap.code, { token: T1 });
   eq('个股详情 200', quote.status, 200);
   ok('返回最大可买手数', quote.body.data.max_buy >= 100, quote.body.data.max_buy);
+  var badQuote = await api('GET', '/api/stock/quote/000000', { token: T1 });
+  eq('池外个股详情返回 404（不是 500）', badQuote.status, 404);
+  var mk = await api('GET', '/api/stock/kline/' + cheap.code + '?klt=103&limit=30', { token: T1 });
+  eq('月K接口 200', mk.status, 200);
+  ok('月K有数据', (mk.body.data.klines || []).length > 0, mk.body.data && mk.body.data.klines && mk.body.data.klines.length);
 
   console.log('\n=== 买入 ===');
   var cashBeforeBuy = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account.balance;
@@ -278,6 +283,7 @@ async function main() {
   eq('跌停价挂单成功', pend.status, 200);
   var pOrder = pend.body.data && pend.body.data.order;
   ok('挂单处于待成交', pOrder && pOrder.status === 'pending', pOrder && pOrder.status);
+  eq('挂单状态文案为「待成交」', pOrder.status_label, '待成交');
 
   var afterHold = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account;
   ok('可用学元被冻结', afterHold.available < before, { before: before, after: afterHold.available });
@@ -490,6 +496,10 @@ async function main() {
   ok('排行盈亏未被现金余额污染（|pnl| < 2000）', Math.abs(rank.body.data.me.pnl) < 2000, rank.body.data.me);
   ok('排行收益率合理（|ret| < 50%）', Math.abs(rank.body.data.me.return_pct) < 50, rank.body.data.me.return_pct);
   near('排行盈亏与资产页口径一致', rank.body.data.me.pnl, totalPnl, 0.05);
+  // 只开了学元账户、从没进过炒股应用的同学不该出现在排行榜
+  var rankIds = rank.body.data.list.map(function (x) { return x.user_id; });
+  ok('未进过炒股应用的同学不在排行里', rankIds.indexOf('251803') === -1, rankIds);
+  ok('进过应用的同学在排行里', rankIds.indexOf('251801') !== -1, rankIds);
 
   console.log('\n=== 账本对账 ===');
   var ov = await api('GET', '/api/xueyuan/admin/overview', { token: T1 });

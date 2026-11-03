@@ -43,6 +43,11 @@
     detailCode: '',
     detailQuote: null,
     chartTab: 'trend',
+    // 图表缓存：详情页每 5 秒刷新一次行情，若每次重拉分时/K线，
+    // 一个人就是 12 次/分钟的整段请求，而且 canvas 每 5 秒重绘会闪。
+    // key = code:tab，trend 缓存 30s、K线 5 分钟（2026-11-03）。
+    chartCache: {},
+    detailJustOpened: false,
     orders: null,
     trades: null,
     rank: null,
@@ -421,6 +426,22 @@
       wrap.appendChild(chips);
     }
 
+    // 市场概况：涨跌家数 + 更新时间（行情延迟时也在这里说清楚）
+    if (S.market) {
+      var upN = 0;
+      var downN = 0;
+      var listMeta = S.market.list || [];
+      for (var mi = 0; mi < listMeta.length; mi++) {
+        if (listMeta[mi].change_pct > 0) upN++;
+        else if (listMeta[mi].change_pct < 0) downN++;
+      }
+      var meta = h('div', 'market-meta');
+      meta.appendChild(h('span', null, '股票池 ' + upN + ' 涨 · ' + downN + ' 跌'));
+      meta.appendChild(h('span', 'num', (S.market.stale ? '行情延迟 · ' : '') +
+        todayLabel(S.market.quoted_at) + ' 更新'));
+      wrap.appendChild(meta);
+    }
+
     var listZone = h('div', 'market-list');
     wrap.appendChild(listZone);
 
@@ -717,7 +738,9 @@
   function openDetail(code) {
     S.detailCode = code;
     S.detail = null;
+    S.detailQuote = null;
     S.chartTab = 'trend';
+    S.detailJustOpened = true;   // 刚打开时强制拉一次图表，不吃缓存
     S.tab = 'market';
     renderMain();
     loadDetail(code);
@@ -764,7 +787,7 @@
     var chartCard = h('div', 'card');
     var tabs = h('div', 'chart-tabs');
     var seg = h('div', 'seg');
-    [['trend', '分时'], ['day', '日K'], ['week', '周K']].forEach(function (item) {
+    [['trend', '分时'], ['day', '日K'], ['week', '周K'], ['month', '月K']].forEach(function (item) {
       var b = h('div', 'seg-item' + (S.chartTab === item[0] ? ' active' : ''), item[1]);
       b.onclick = function () {
         if (S.chartTab === item[0]) return;
@@ -1286,7 +1309,17 @@
     c1.appendChild(sub);
     row.appendChild(c1);
 
-    row.appendChild(h('div', 'tc-2 num', o.type === 'market' ? '市价' : fmt(o.price, 2)));
+    var priceCell = h('div', 'tc-2 num');
+    priceCell.appendChild(h('div', null, o.type === 'market' ? '市价' : fmt(o.price, 2)));
+    // 未成交的买单要显示冻结了多少学元 —— 学生对账时最常问的就是「我的钱去哪了」
+    if (o.status === 'pending' && o.side === 'buy' && o.hold > 0) {
+      var holdLine = h('div', 'flat');
+      holdLine.style.fontSize = '10px';
+      holdLine.style.marginTop = '2px';
+      holdLine.textContent = '冻结 ' + money(o.hold);
+      priceCell.appendChild(holdLine);
+    }
+    row.appendChild(priceCell);
     row.appendChild(h('div', 'tc-3 num', o.qty));
 
     var c4 = h('div', 'tc-4');
@@ -1299,6 +1332,20 @@
       c4.appendChild(btn);
     } else {
       c4.appendChild(h('span', 'status-tag ' + o.status, o.status_label));
+      // 成交价 / 失效原因：撤单、拒绝之后学生最想知道「为什么」
+      var sub2 = null;
+      if (o.status === 'filled' && o.avg_fill > 0) {
+        sub2 = h('div', 'flat', '成交价 ' + fmt(o.avg_fill, 2));
+      } else if (o.reason) {
+        sub2 = h('div', 'flat', o.reason);
+      }
+      if (sub2) {
+        sub2.style.fontSize = '10px';
+        sub2.style.marginTop = '2px';
+        sub2.style.whiteSpace = 'normal';
+        sub2.style.lineHeight = '1.4';
+        c4.appendChild(sub2);
+      }
     }
     row.appendChild(c4);
     return row;
@@ -2238,7 +2285,8 @@
           renderMain();
         }
       }
-      loadChart();
+      loadChart(S.detailJustOpened);
+      S.detailJustOpened = false;
       return d;
     }).catch(function (e) {
       if (S.detailCode === code) {
@@ -2256,19 +2304,32 @@
     });
   }
 
-  function loadChart() {
+  function loadChart(force) {
     var code = S.detailCode;
     if (!code) return;
     var tab = S.chartTab;
+    var key = code + ':' + tab;
+    var now = Date.now();
+    var cached = S.chartCache[key];
+    var ttl = tab === 'trend' ? 30000 : 300000;
+    if (!force && cached && now - cached.at < ttl) {
+      S.detail = cached.data;
+      drawChart();
+      return;
+    }
     var p;
     if (tab === 'trend') {
       p = get('/trends/' + code);
     } else {
-      p = get('/kline/' + code, { klt: tab === 'week' ? 102 : 101, limit: 90 });
+      var klt = tab === 'month' ? 103 : (tab === 'week' ? 102 : 101);
+      p = get('/kline/' + code, { klt: klt, limit: 90 });
     }
     p.then(function (d) {
       if (S.detailCode !== code || S.chartTab !== tab) return;
       S.detail = d;
+      // 缓存上限 24 条（≈ 6 只股票 × 4 个周期），超了整表清掉，避免长会话堆积
+      if (Object.keys(S.chartCache).length > 24) S.chartCache = {};
+      S.chartCache[key] = { at: Date.now(), data: d };
       drawChart();
     }).catch(function () {
       if (S.detailCode !== code) return;
@@ -2295,6 +2356,7 @@
     loadPeer();
     return get('/rank').then(function (d) {
       S.rank = d;
+      S.lastRankAt = Date.now();   // 防止进页面 5 秒内被刷新计时器再打一次
       if (S.tab === 'rank') renderMain();
     }).catch(function (e) {
       if (!S.rank) { S.rank = { list: [], me: null, total: 0 }; renderMain(); }

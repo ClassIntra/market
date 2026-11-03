@@ -1,6 +1,6 @@
 {
-  "version": 27,
-  "updated_at": "2026-11-03T01:50:35.815Z",
+  "version": 28,
+  "updated_at": "2026-11-03T02:11:08.081Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.4.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
+      "version": "1.5.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -474,22 +474,22 @@
         "backend/achievements.js": "5c30611cf0f428c9db350c4933ec7c18cb380a7bc45dbd362c58340f29dc8648",
         "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
         "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
-        "backend/peer.js": "f9679ad5482f519a5f297107dee5d2f5c965b7979cc2c819b95834f0e11f71b1",
+        "backend/peer.js": "1f3683beb40e6cd9b50f097518e8b22c9abc9374c94acfac734c4aa203474822",
         "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "42d3b189e4d06c05224d7508587f548ac711bb4093f6b945f52b46406b55af46",
-        "backend/routes.js": "5a1408ee0f358c0faf13d1d4ef90e6eaeeea1b1939173a23a04126720a3b65e5",
+        "backend/routes.js": "b467edb4a92e4a7eb31f089185d8d3835cc5bfd67ec4a72ced4eec57f37729b3",
         "backend/store.js": "ec8df011518f080bf673adb026e6fe62f2d56ee3055c28324c38a67bcba2161a",
-        "backend/trading.js": "d1e3c5c5aa4c4133aa3e163f53d4fe44954f8d45360af9e72d674024436f7443",
-        "frontend/entry.js": "8fdfa39b854e59dc590997db683a2f84d0e7af899efe54289652c06db28b4077",
-        "frontend/style.css": "7be3baebb9fb5bdc0f627d849c9b3ec1f06d051554d0ce51bf7e8dd0958404cb",
+        "backend/trading.js": "3cd23bd1e2d492d29b1eaecedae886bae560e562846929bd75f6974623c15c5d",
+        "frontend/entry.js": "297d985aa361d7043bd85baa4065be66fa19c69510564048c3f36e303a63f583",
+        "frontend/style.css": "99a1f6faf8e0b9244d59382560e661414c17f5d262c5bd027e6b7c586d5f372f",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "810a61f744adeafd29005291c41bac8207b177a73e1a0edb3faad1650ba07a61",
-        "screenshots/01-overview.png": "f2baf63c0c927ffc50d5c542031a236fcc2dd3a9dbd39896bb2b5f78177f8833",
-        "screenshots/02-detail.png": "e0fbb71907cdb6b2c12315df0b46ed84c8b293fb9a40b7586e8804e4bf9efe65",
-        "screenshots/03-rank.png": "7d32eb3b830c233e66943418e3b5d8c0a825dc10fd7e40599f0c32cf32c7c8c3",
-        "screenshots/04-guide.png": "0e2ab5c5762ac9f7ed4c26301ee94a271930317ebb46dd8e0149c62094441291",
-        "test/e2e.cjs": "6917cf62ab11f37b4b22e12b563d6b5a02a9704b8f722d7d24697a92c64212df",
-        "test/ui-probe.mjs": "112f85f354a28f2b82e2b733b8c8e64cd45e804533546e533b1771e37b64a27b"
+        "manifest.json": "7cf1f962f43bb2b3de3f974ea8c1821d4b00026154d35b96991515212fc070d5",
+        "screenshots/01-overview.png": "e6489aad08323f38d1fee37b66a8b45891ae0402b5fbb84543237cef7ab993c9",
+        "screenshots/02-detail.png": "cfac9c75a17138df4a976e9ff888c1341c99b68b46f5a0ae047ce2a0daf07630",
+        "screenshots/03-rank.png": "b8e8978b0d7a567d42c3ee0df8b7e98c19a2f4d5c4d14b672bf44f1429dd7bfa",
+        "screenshots/04-guide.png": "977246aa973d7674f614faf839dc513a2a8951c30a85b5ce1460dd98276b572e",
+        "test/e2e.cjs": "278d4f17049bce851e5bc651850c2321c3d20138936e39ab8a6570dd5f2e81b4",
+        "test/ui-probe.mjs": "a2d1cf8d0a7cb68ad1b72260086f9a7b11ff27366355dfd22cd8189b2b297dd1"
       },
       "group": "study",
       "color": "#E5484D",
@@ -500,6 +500,10 @@
         "apps/stock/screenshots/04-guide.png"
       ],
       "changelog": [
+        {
+          "version": "1.5.0",
+          "notes": "功能与修复：① 详情页图表缓存（分时 30 秒 / K 线 5 分钟）—— 之前每 5 秒重拉整段分时并重绘，一人 12 次/分钟还闪屏；② 新增月 K（分时/日/周/月四档）；③ 行情页新增市场概况（股票池涨跌家数 + 更新时间）；④ 委托行显示「冻结 xx 学元」，成交显示成交价，失效显示原因；⑤ 待成交状态文案从「提交」改为「待成交」；⑥ 排行榜/跨班对决只统计真正进过应用的同学（只开学元账户的账号不再占榜），对决人均收益率只算有持仓或成交的活跃者；⑦ 池外/停牌个股详情改为 404（原来 500）。"
+        },
         {
           "version": "1.4.0",
           "notes": "新增两个板块：AI 大模型（10 只）—— DeepSeek 概念股（每日互动/青云科技/优刻得/首都在线/拓维信息）与已上市大模型厂商（三六零/昆仑万维/云从/拓尔思/万兴）；小米产业链（8 只）—— 小米集团在港股买不到，这里放 A 股供应商（光弘科技/精研科技/领益智造/蓝思科技/银轮股份/拓普集团/三花智控/无锡振华）。指南新增一节「DeepSeek、华为、小米：为什么买不到」，讲清未上市/港股/美股三类边界与「概念股 ≠ 那家公司」。股票池 49 → 67 只、18 → 20 个板块（含全部板块胶囊）。"

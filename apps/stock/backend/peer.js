@@ -50,9 +50,16 @@ function className(cc) {
 // 同步版本：由调用方把 snapshot 传进来（quotes.getSnapshot() 的结果）
 function buildLocalPayload(snapshot) {
   var byCode = (snapshot && snapshot.byCode) || {};
+  // 只统计进过本应用的人（stock_account 首开 overview 时创建），并带上
+  // 「有没有真的在玩」的标记：对决的人均收益率只算有持仓或有过成交的活跃者，
+  // 否则一屋子刚开户还没动手的账号会把均值稀释成 0（2026-11-03 修）。
   var accounts = db.prepare([
-    'SELECT a.user_id, a.balance, u.net_name',
-    'FROM xy_account a LEFT JOIN users u ON u.user_id = a.user_id',
+    'SELECT a.user_id, a.balance, u.net_name,',
+    '  COALESCE(s.trade_count, 0) AS trade_count,',
+    '  (SELECT COUNT(*) FROM stock_positions p WHERE p.user_id = a.user_id AND p.qty > 0) AS pos_count',
+    'FROM xy_account a',
+    'JOIN stock_account s ON s.user_id = a.user_id',
+    'LEFT JOIN users u ON u.user_id = a.user_id',
     "WHERE a.user_id NOT LIKE '@%' AND length(a.user_id) = 6"
   ].join('\n')).all();
 
@@ -92,18 +99,28 @@ function buildLocalPayload(snapshot) {
       net_name: a.net_name || '同学',
       total_asset: Math.round(total) / 100,
       pnl: Math.round(pnl) / 100,
-      return_pct: invested > 0 ? Math.round(pnl / invested * 10000) / 100 : 0
+      return_pct: invested > 0 ? Math.round(pnl / invested * 10000) / 100 : 0,
+      active: (a.trade_count > 0) || (a.pos_count > 0)
     });
   }
-  list.sort(function (x, y) { return y.total_asset - x.total_asset; });
 
-  // 人均收益率只算「有持仓或有过交易」的活跃者，否则 40 个空账户拉低均值
-  var active = list.filter(function (x) { return x.total_asset > 0; });
+  // 活跃 = 有过成交或当前有持仓；人均与 top 榜都只算这批人
+  var active = list.filter(function (x) { return x.active; });
+  active.sort(function (x, y) { return y.total_asset - x.total_asset; });
   var avg = 0;
   if (active.length) {
     var sum = 0;
     for (var m = 0; m < active.length; m++) sum += active[m].return_pct;
     avg = Math.round(sum / active.length * 100) / 100;
+  }
+  var top = [];
+  for (var t = 0; t < active.length && top.length < 10; t++) {
+    top.push({
+      net_name: active[t].net_name,
+      total_asset: active[t].total_asset,
+      pnl: active[t].pnl,
+      return_pct: active[t].return_pct
+    });
   }
 
   return {
@@ -111,7 +128,7 @@ function buildLocalPayload(snapshot) {
     generated_at: Date.now(),
     participants: active.length,
     avg_return: avg,
-    top: list.slice(0, 10)
+    top: top
   };
 }
 
