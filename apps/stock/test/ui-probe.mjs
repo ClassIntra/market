@@ -217,6 +217,40 @@ const aiRows = await evalJS(`(function(){
 })()`);
 ok('筛选后只剩 AI 板块（8~15 只）', aiRows.count >= 8 && aiRows.count <= 15, aiRows.count + ' 只：' + aiRows.names.join('/'));
 await shot('01c-ai-sector');
+
+// AI 大模型（DeepSeek 概念股与已上市大模型厂商）
+const llmClicked = await evalJS(`(function(){
+  var chips = document.querySelectorAll('.ci-stock .sector-chips .chip');
+  for (var i = 0; i < chips.length; i++) { if (chips[i].textContent === 'AI 大模型') { chips[i].click(); return true; } }
+  return false;
+})()`);
+ok('存在「AI 大模型」板块入口', llmClicked);
+await sleep(500);
+const llmRows = await evalJS(`(function(){
+  var rows = document.querySelectorAll('.ci-stock .market-list .qrow');
+  var names = [];
+  for (var i = 0; i < rows.length && i < 3; i++) { var n = rows[i].querySelector('.qrow-name'); names.push(n ? n.textContent : ''); }
+  return { count: rows.length, names: names };
+})()`);
+ok('AI 大模型筛选 8~15 只', llmRows.count >= 8 && llmRows.count <= 15, llmRows.count + ' 只：' + llmRows.names.join('/'));
+await shot('01d-llm-sector');
+
+// 小米产业链（小米集团在港股，A 股只能买供应商）
+const miClicked = await evalJS(`(function(){
+  var chips = document.querySelectorAll('.ci-stock .sector-chips .chip');
+  for (var i = 0; i < chips.length; i++) { if (chips[i].textContent === '小米产业链') { chips[i].click(); return true; } }
+  return false;
+})()`);
+ok('存在「小米产业链」板块入口', miClicked);
+await sleep(500);
+const miRows = await evalJS(`(function(){
+  var rows = document.querySelectorAll('.ci-stock .market-list .qrow');
+  var names = [];
+  for (var i = 0; i < rows.length && i < 3; i++) { var n = rows[i].querySelector('.qrow-name'); names.push(n ? n.textContent : ''); }
+  return { count: rows.length, names: names };
+})()`);
+ok('小米产业链筛选 6~12 只', miRows.count >= 6 && miRows.count <= 12, miRows.count + ' 只：' + miRows.names.join('/'));
+
 await evalJS(`(function(){
   var chips = document.querySelectorAll('.ci-stock .sector-chips .chip');
   if (chips[0]) chips[0].click();

@@ -1,6 +1,6 @@
 {
-  "version": 26,
-  "updated_at": "2026-11-03T01:05:52.544Z",
+  "version": 27,
+  "updated_at": "2026-11-03T01:50:35.815Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.3.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能等 17 个板块；AI 链从算力、光模块、服务器到终端应用一条龙，创业板/科创板 ±20% 与主板 ±10% 正好对照。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 11 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
+      "version": "1.4.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— T+1、涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -475,21 +475,21 @@
         "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
         "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
         "backend/peer.js": "f9679ad5482f519a5f297107dee5d2f5c965b7979cc2c819b95834f0e11f71b1",
-        "backend/quotes.js": "e0005af2cec30917c031fc5386907536fb27df56380715d1b087f444e4f6bb8d",
+        "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "42d3b189e4d06c05224d7508587f548ac711bb4093f6b945f52b46406b55af46",
         "backend/routes.js": "5a1408ee0f358c0faf13d1d4ef90e6eaeeea1b1939173a23a04126720a3b65e5",
         "backend/store.js": "ec8df011518f080bf673adb026e6fe62f2d56ee3055c28324c38a67bcba2161a",
         "backend/trading.js": "d1e3c5c5aa4c4133aa3e163f53d4fe44954f8d45360af9e72d674024436f7443",
-        "frontend/entry.js": "f0595378da2b6aa395d5333d7ecd89756303779b20b57e7479dddbac793b9c02",
+        "frontend/entry.js": "8fdfa39b854e59dc590997db683a2f84d0e7af899efe54289652c06db28b4077",
         "frontend/style.css": "7be3baebb9fb5bdc0f627d849c9b3ec1f06d051554d0ce51bf7e8dd0958404cb",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "6c1fdda5776898dcfa2f06f804d1b587429c0b0b44222bbfba2991a13edf225e",
-        "screenshots/01-overview.png": "960e3e2c2c9f0677b37b9da88455e144139ad9d43228d3256b9b60b2b8335e91",
-        "screenshots/02-detail.png": "3163d9e98134c6448dd73f51625bdeaee46c1fd84f1aaf793a79753b57ffc0b4",
-        "screenshots/03-rank.png": "5433ba769ce1df047703a88dd7c65ca77e32a94cb26a8382c920a2862ea2ba60",
-        "screenshots/04-guide.png": "e1c4b88c06978fecd5ace498508594d3996e672e61b1e85500f5ffda78896281",
-        "test/e2e.cjs": "c2347928444aa638cd087c31dd79acb2f4f50514a300c5cd0b070e8c8117b1e8",
-        "test/ui-probe.mjs": "4df3c202b87c903ee05b210e92c17989a623b6231eefdf27e741b8f2e71e34f5"
+        "manifest.json": "810a61f744adeafd29005291c41bac8207b177a73e1a0edb3faad1650ba07a61",
+        "screenshots/01-overview.png": "f2baf63c0c927ffc50d5c542031a236fcc2dd3a9dbd39896bb2b5f78177f8833",
+        "screenshots/02-detail.png": "e0fbb71907cdb6b2c12315df0b46ed84c8b293fb9a40b7586e8804e4bf9efe65",
+        "screenshots/03-rank.png": "7d32eb3b830c233e66943418e3b5d8c0a825dc10fd7e40599f0c32cf32c7c8c3",
+        "screenshots/04-guide.png": "0e2ab5c5762ac9f7ed4c26301ee94a271930317ebb46dd8e0149c62094441291",
+        "test/e2e.cjs": "6917cf62ab11f37b4b22e12b563d6b5a02a9704b8f722d7d24697a92c64212df",
+        "test/ui-probe.mjs": "112f85f354a28f2b82e2b733b8c8e64cd45e804533546e533b1771e37b64a27b"
       },
       "group": "study",
       "color": "#E5484D",
@@ -500,6 +500,10 @@
         "apps/stock/screenshots/04-guide.png"
       ],
       "changelog": [
+        {
+          "version": "1.4.0",
+          "notes": "新增两个板块：AI 大模型（10 只）—— DeepSeek 概念股（每日互动/青云科技/优刻得/首都在线/拓维信息）与已上市大模型厂商（三六零/昆仑万维/云从/拓尔思/万兴）；小米产业链（8 只）—— 小米集团在港股买不到，这里放 A 股供应商（光弘科技/精研科技/领益智造/蓝思科技/银轮股份/拓普集团/三花智控/无锡振华）。指南新增一节「DeepSeek、华为、小米：为什么买不到」，讲清未上市/港股/美股三类边界与「概念股 ≠ 那家公司」。股票池 49 → 67 只、18 → 20 个板块（含全部板块胶囊）。"
+        },
         {
           "version": "1.3.0",
           "notes": "新增新手教程与指南：首次进入自动弹 5 步聚光灯引导（高亮资产卡/板块筛选/行情行/导航），跳过或完成都记在本地、可在指南页随时重看；指南页 11 节（三分钟上手、看懂行情、限价与市价、一手与预扣、1 万学元手续费算例、T+1、涨跌停、委托状态、新手五大错、术语表、班级对决）。导航新增「指南」页。"

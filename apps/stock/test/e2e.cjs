@@ -191,6 +191,17 @@ async function main() {
   ok('AI 板块含 ±10% 品种（主板）', !!aiMain && aiMain.limit_ratio === 0.1,
     aiMain && { code: aiMain.code, ratio: aiMain.limit_ratio });
 
+  // AI 大模型板块：DeepSeek 本身未上市，这里只有「概念股 + 已上市大模型厂商」
+  var llmList = list.filter(function (q) { return q.sector === 'AI 大模型'; });
+  ok('AI 大模型板块已上架（≥8 只）', llmList.length >= 8, llmList.length);
+  ok('含 DeepSeek 概念股（每日互动 300766）', llmList.some(function (q) { return q.code === '300766'; }));
+  ok('含已上市大模型厂商（昆仑万维 300418）', llmList.some(function (q) { return q.code === '300418'; }));
+
+  // 小米集团是港股（1810.HK），A 股只能买它的产业链供应商
+  var miList = list.filter(function (q) { return q.sector === '小米产业链'; });
+  ok('小米产业链板块已上架（≥6 只）', miList.length >= 6, miList.length);
+  ok('含小米手机代工（光弘科技 300735）', miList.some(function (q) { return q.code === '300735'; }));
+
   var idx = mkt.body.data.session;
   console.log('    交易时段：' + idx.label + '（可撮合=' + idx.settles + '）');
 
