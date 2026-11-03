@@ -3971,7 +3971,7 @@ function sceneHomeBody(container) {
     box.appendChild(evoCard());
     box.appendChild(typePicker(null));
     box.appendChild(buddyCard());
-    if (dex.spotlight) box.appendChild(spotlightCard(dex));
+    if (dex.spotlight) box.appendChild(spotlightCard(dex, box));
     box.appendChild(dexProgress(dex));
     box.appendChild(wildGroups(dex, box));
     return box;
@@ -4114,7 +4114,7 @@ function sceneHomeBody(container) {
 
   // 首页的随行卡：只报「谁在跟着你、加了什么」，切换入口在图鉴页。
 
-  function spotlightCard(dex) {
+  function spotlightCard(dex, dexBox) {
     var s = dex.spotlight;
     var box = h('div', 'ci-pet-wild-spot');
     box.appendChild(h('span', 'ci-pet-wild-spot-tag', '今日焦点'));
@@ -4123,6 +4123,30 @@ function sceneHomeBody(container) {
     box.appendChild(elementChip(s.type));
     box.appendChild(h('span', 'ci-pet-wild-spot-bonus',
       '收服率 +' + Math.round((dex.spotlightBonus || 0.1) * 100) + '%'));
+
+    // v0.34.0 焦点卡从「海报」升级成「入口」：44 人图鉴为 0 的根因是
+    // 挑战按钮藏在页面最底部的精灵卡上，而焦点卡——全页第一个出现、
+    // 自带加成理由的位置——原来点了没反应。现在未收服时直接挂挑战按钮，
+    // 战报照旧播在图鉴容器顶部，体验与精灵卡上的挑战完全一致。
+    var w = null;
+    for (var i = 0; i < (dex.list || []).length; i++) {
+      if (dex.list[i] && dex.list[i].spotlight) { w = dex.list[i]; break; }
+    }
+    if (w && !w.owned) {
+      box.classList.add('is-actable');
+      var fight = h('button', 'ci-pet-wild-spot-fight');
+      fight.appendChild(pixIcon('sword', 'ci-pet-wild-spot-fight-ico'));
+      fight.appendChild(h('span', null, '挑战 ' + (s.name || '')));
+      if (w.capture) {
+        fight.appendChild(h('span', 'ci-pet-wild-spot-chance',
+          Math.round(w.capture * 100) + '%'));
+      }
+      fight.addEventListener('click', function() { doWildFight(w.id, fight, dexBox); });
+      box.appendChild(fight);
+    } else if (w && w.owned) {
+      box.classList.add('is-owned');
+      box.appendChild(h('span', 'ci-pet-wild-spot-done', '✓ 已收服'));
+    }
     return box;
   }
 
@@ -6322,7 +6346,7 @@ function sceneHomeBody(container) {
     }).catch(function() {
       clearRoot();
       root.appendChild(h('h2', null, '桌宠'));
-      root.appendChild(h('p', 'ci-pethome-sub', '加载失败，请下拉重试。'));
+      root.appendChild(h('p', 'ci-pethome-sub', '它好像在打瞌睡没应答，稍等一下再戳它～'));
     });
   }
   function unmount(container) {

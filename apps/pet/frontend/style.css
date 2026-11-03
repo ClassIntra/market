@@ -12988,3 +12988,100 @@
     0 0 0 2px #3a2a1c,
     4px 4px 0 rgba(58, 42, 28, 0.26) !important;
 }
+
+/* ---------- 33.13 本命属性格子：白天版字色回到属性色 ----------
+   14.5 把格子的 color 统一写成了 rgba(214,226,250,.70)——那是按暗底
+   调的淡蓝白。白天米黄底上这五个字几乎隐形（探针实测对比度不足），
+   连带 is-on 的 border-color:currentColor 也失去了属性色的含义。
+   白天恢复 ci-pet-el--* 的深属性色；夜版（无 is-day）保持原样。 */
+.ci-pethome.is-day .ci-pet-type { background: rgba(128, 128, 128, 0.06); }
+.ci-pethome.is-day .ci-pet-type.ci-pet-el--fire     { color: #C03A1E; }
+.ci-pethome.is-day .ci-pet-type.ci-pet-el--grass    { color: #1E7A38; }
+.ci-pethome.is-day .ci-pet-type.ci-pet-el--earth    { color: #7A5228; }
+.ci-pethome.is-day .ci-pet-type.ci-pet-el--electric { color: #8A6400; }
+.ci-pethome.is-day .ci-pet-type.ci-pet-el--water    { color: #0A5FBF; }
+.ci-pethome.is-day .ci-pet-type.is-on {
+  background: #fffdf4;
+  box-shadow: inset 0 0 0 2px currentColor;
+}
+
+/* ---------- 33.14 三条蓝紫渐变的「旧主色」残留 ----------
+   苹果蓝 #0A84FF / iOS 紫 #BF5AF2 是 v0.x 现代风时代的主色，
+   变量收口后大部分引用已经跟着 --ci-color-primary 变暖，
+   剩下这四处是写死的渐变，散落在： */
+/* ① 模板 emoji 容器底（72px 大块，图鉴/换装页可见） */
+.ci-pethome .ci-pet-tpl-emoji {
+  background: linear-gradient(160deg, rgba(240, 180, 76, 0.16), rgba(210, 101, 63, 0.14));
+}
+/* ② 全站 section 标题前的小竖条——出现频率最高的装饰元素 */
+.ci-pethome .ci-pet-section::before {
+  background: var(--pp-honey);
+}
+/* ③ 进化进度条（注释自称「从紫到蓝以示区分」——区分出的却是第三种冷色） */
+.ci-pethome .ci-pet-evo-fill {
+  background: linear-gradient(90deg, #e8836a 0%, #f0b44c 100%);
+}
+/* ④ 剧情弹层按钮与进度条：深底上金色比蓝紫更「宝箱感」 */
+.ci-pethome .ci-pet-story-btn {
+  background: linear-gradient(180deg, #f0b44c 0%, #c98a2e 100%);
+}
+.ci-pethome .ci-pet-story-progfill {
+  background: linear-gradient(90deg, #e8836a 0%, #f0b44c 100%);
+}
+
+/* ---------- 33.18 今日焦点卡：从海报变成入口（v0.34）----------
+   焦点卡是全图鉴第一个出现、自带「收服率 +10%」理由的位置，
+   但它原来是纯展示——真正的挑战按钮藏在页面最底部的精灵卡上，
+   44 人图鉴为 0 就是这么来的（没人滚到底）。
+   现在未收服时卡内直接挂「挑战」大按钮，战报播在图鉴顶部。 */
+.ci-pethome .ci-pet-wild-spot {
+  box-shadow: inset 0 0 0 1px rgba(190, 126, 10, 0.34), 3px 4px 0 rgba(58, 42, 28, 0.22);
+}
+.ci-pethome .ci-pet-wild-spot-fight {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-left: auto;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #f0b44c 0%, #c98a2e 100%);
+  box-shadow: 0 0 0 2px #3a2a1c, 3px 3px 0 rgba(58, 42, 28, 0.42);
+  color: #fffdf4;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pethome .ci-pet-wild-spot-fight:active {
+  -webkit-transform: translate(2px, 2px);
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 2px #3a2a1c, 1px 1px 0 rgba(58, 42, 28, 0.42);
+}
+.ci-pethome .ci-pet-wild-spot-fight[disabled] {
+  opacity: 0.7;
+  cursor: default;
+}
+.ci-pethome .ci-pet-wild-spot-fight-ico {
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
+}
+.ci-pethome .ci-pet-wild-spot-chance {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(58, 42, 28, 0.28);
+  font-size: 10px;
+  font-weight: 700;
+}
+.ci-pethome .ci-pet-wild-spot.is-owned {
+  -webkit-filter: saturate(0.55);
+  filter: saturate(0.55);
+}
+.ci-pethome .ci-pet-wild-spot-done {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 900;
+  color: #4f7a42;
+}
