@@ -1577,6 +1577,88 @@
   pointer-events: none;
 }
 
+/* ================= 资讯 ================= */
+.ci-stock .news-row {
+  padding: 9px 4px;
+  border-bottom: 1px dashed rgba(255,255,255,.05);
+  cursor: pointer;
+}
+.ci-stock .news-row:last-child { border-bottom: none; }
+.ci-stock .news-row:active { background: rgba(255,255,255,.04); }
+.ci-stock .news-title {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ci-stock .news-meta {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ci-stock .news-strip { margin-bottom: 2px; }
+
+.ci-stock .news-modal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 75;
+  background: rgba(4,6,10,.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.ci-stock .news-panel {
+  width: 100%;
+  max-height: 78%;
+  background: #141A24;
+  border-top: 1px solid var(--line-strong);
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 40px rgba(0,0,0,.5);
+}
+.ci-stock .news-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px 9px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.ci-stock .news-panel-title { font-size: 14px; font-weight: 600; }
+.ci-stock .news-close {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ci-stock .news-close:active { color: var(--text); }
+.ci-stock .news-panel-body {
+  padding: 4px 16px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ci-stock .news-article-title { font-size: 15px; font-weight: 600; line-height: 1.5; margin: 10px 0 6px; }
+.ci-stock .news-article-body {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.85;
+  margin: 12px 0;
+  white-space: pre-wrap;
+}
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

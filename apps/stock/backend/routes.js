@@ -22,6 +22,7 @@ var xueyuan = require(nodePath.resolve(process.cwd(), 'src/services/xueyuan'));
 var market = require('./market');
 var quotes = require('./quotes');
 var store = require('./store');
+var news = require('./news');
 var trading = require('./trading');
 var matcher = require('./matcher');
 var peer = require('./peer');
@@ -276,6 +277,25 @@ router.get('/positions', wrap(function (req, res) {
   return quotes.getSnapshot().then(function (snap) {
     var s = trading.accountSummary(uid(req), snap);
     ok(res, { positions: s.positions, totals: s.totals, cash: s.cash, stale: s.stale });
+  });
+}));
+
+// ---- 资讯（增强功能：上游失败返回空列表，绝不把主流程带崩）----
+router.get('/news', wrap(function (req, res) {
+  return news.fastNews(req.query.limit).then(function (list) {
+    ok(res, { list: list, source: '东方财富' });
+  }).catch(function () {
+    ok(res, { list: [], source: '东方财富' });
+  });
+}));
+
+router.get('/news/:code', wrap(function (req, res) {
+  var code = String(req.params.code || '').replace(/\D/g, '');
+  if (code.length !== 6) return ok(res, { list: [] });
+  return news.stockNews(code, req.query.name, req.query.limit).then(function (list) {
+    ok(res, { list: list, code: code });
+  }).catch(function () {
+    ok(res, { list: [], code: code });
   });
 }));
 

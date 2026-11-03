@@ -177,6 +177,17 @@ async function main() {
   ok('行情含价格与昨收', sample && sample.price > 0 && sample.prev_close > 0, sample && { code: sample.code, price: sample.price });
   ok('行情含涨跌停', sample && sample.limit_up > sample.price * 0.9 && sample.limit_down < sample.price, sample && { up: sample.limit_up, down: sample.limit_down });
 
+  // 资讯（东财公开接口；上游挂了也必须 200 + 空列表，不能影响行情）
+  console.log('\n=== 资讯 ===');
+  var fastNews = await api('GET', '/api/stock/news?limit=5', { token: T1 });
+  eq('市场快讯 200', fastNews.status, 200);
+  var fList = (fastNews.body.data && fastNews.body.data.list) || [];
+  ok('快讯结构合法（空列表也允许）', fList.length === 0 || (!!fList[0].title && !!fList[0].time), fList.length + ' 条');
+  var stockNews = await api('GET', '/api/stock/news/600519?name=' + encodeURIComponent('贵州茅台'), { token: T1 });
+  eq('个股资讯 200', stockNews.status, 200);
+  var sList = (stockNews.body.data && stockNews.body.data.list) || [];
+  ok('个股资讯结构合法（空列表也允许）', sList.length === 0 || (!!sList[0].title), sList.length + ' 条');
+
   // 人工智能板块（2026-11-03 新增）：整条产业链 + 两种涨跌停幅度
   var aiList = list.filter(function (q) { return q.sector === '人工智能'; });
   ok('人工智能板块已上架（≥8 只）', aiList.length >= 8, aiList.length);

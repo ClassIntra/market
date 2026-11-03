@@ -179,6 +179,27 @@ ok('按板块分组', market.sectors >= 5, market.sectors);
 const metaLine = await evalJS(`(function(){ var m = document.querySelector('.ci-stock .market-meta'); return m ? m.textContent : ''; })()`);
 ok('市场概况（涨跌家数 + 更新时间）', /涨/.test(metaLine || '') && /跌/.test(metaLine || '') && /更新/.test(metaLine || ''), metaLine);
 
+// 市场快讯（东财 7×24；等接口返回，最多 6 秒）
+let newsRows = 0;
+for (let i = 0; i < 12; i++) {
+  newsRows = await evalJS(`document.querySelectorAll('.ci-stock .news-strip .news-row').length`);
+  if (newsRows > 0) break;
+  await sleep(500);
+}
+ok('行情页有市场快讯', newsRows >= 1, newsRows + ' 条');
+const newsModal = await evalJS(`(function(){
+  var row = document.querySelector('.ci-stock .news-strip .news-row');
+  if (!row) return { ok: false };
+  row.click();
+  var m = document.querySelector('.ci-stock .news-modal');
+  var title = (document.querySelector('.ci-stock .news-article-title') || {}).textContent || '';
+  var close = document.querySelector('.ci-stock .news-close');
+  if (close) close.click();
+  return { ok: !!m, title: title, closed: !document.querySelector('.ci-stock .news-modal') };
+})()`);
+ok('点快讯可看全文（弹层打开并关闭）', newsModal && newsModal.ok && newsModal.closed && (newsModal.title || '').length > 4, newsModal);
+await shot('01b-news');
+
 console.log('\n=== 搜索 ===');
 const searched = await evalJS(`(function(){
   var i = document.querySelector('.ci-stock .market-search-input');
@@ -279,36 +300,51 @@ const picked = await evalJS(`(function(){
   return null;
 })()`);
 ok('选中可交易的股票', !!picked, picked ? picked.code + ' ' + picked.name + ' @' + picked.price : 'none');
-await sleep(2200);
-const detail = await evalJS(`(function(){
-  var name = document.querySelector('.ci-stock .detail-name');
-  var px = document.querySelector('.ci-stock [data-field="dprice"]');
-  var c = document.querySelector('.ci-stock canvas[data-chart]');
-  var grid = document.querySelectorAll('.ci-stock .detail-grid .dg-item');
-  var tabs = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
-  var painted = false;
-  if (c && c.getContext) {
-    try {
-      var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
-      var n = 0;
-      for (var i = 3; i < d.length; i += 40) { if (d[i] > 0) n++; }
-      painted = n > 30;
-    } catch (e) {}
-  }
-  return {
-    name: name ? name.textContent : '',
-    price: px ? px.textContent : '',
-    hasChart: !!c,
-    painted: painted,
-    cells: grid.length,
-    tabs: tabs.length
-  };
-})()`);
+// 详情页是异步加载：行情/分时要走外网（实测最慢 3.4s），所以轮询到真正画出来再断言，
+// 不要用固定 sleep —— 那样一遇到上游抖动就假失败（2026-11-03 踩过）
+let detail = null;
+for (let i = 0; i < 18; i++) {
+  detail = await evalJS(`(function(){
+    var name = document.querySelector('.ci-stock .detail-name');
+    var px = document.querySelector('.ci-stock [data-field="dprice"]');
+    var c = document.querySelector('.ci-stock canvas[data-chart]');
+    var grid = document.querySelectorAll('.ci-stock .detail-grid .dg-item');
+    var tabs = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
+    var painted = false;
+    if (c && c.getContext) {
+      try {
+        var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        var n = 0;
+        for (var i = 3; i < d.length; i += 40) { if (d[i] > 0) n++; }
+        painted = n > 30;
+      } catch (e) {}
+    }
+    return {
+      name: name ? name.textContent : '',
+      price: px ? px.textContent : '',
+      hasChart: !!c,
+      painted: painted,
+      cells: grid.length,
+      tabs: tabs.length
+    };
+  })()`);
+  if (detail.painted && detail.cells === 8) break;
+  await sleep(500);
+}
 ok('详情页显示股票名', !!detail.name, detail.name);
 ok('详情页价格', /^\d+\.\d{2}$/.test(detail.price), detail.price);
 ok('分时图画布存在', detail.hasChart);
 ok('分时图已绘制（非空白）', detail.painted);
 ok('关键指标 8 项', detail.cells === 8, detail.cells);
+
+// 相关资讯（按名称搜，等返回）
+let detailNews = 0;
+for (let i = 0; i < 12; i++) {
+  detailNews = await evalJS(`document.querySelectorAll('.ci-stock .news-card .news-row').length`);
+  if (detailNews > 0) break;
+  await sleep(500);
+}
+ok('详情页有相关资讯', detailNews >= 1, detailNews + ' 条');
 
 // 自选星标：点一次加入，再点一次移出（两次都要验证状态翻转）
 const star1 = await evalJS(`(function(){
@@ -376,21 +412,30 @@ const monthPainted = await evalJS(`(function(){
 ok('月 K 图已绘制', monthPainted);
 
 // 长按/拖动十字线：竖线 + 数值气泡（平板没有 hover，只能按压）
-const hover = await evalJS(`(function(){
-  var c = document.querySelector('.ci-stock canvas[data-chart]');
-  if (!c) return { err: 'no-canvas' };
-  var r = c.getBoundingClientRect();
-  function ev(type) { return new PointerEvent(type, { clientX: r.left + r.width * 0.5, clientY: r.top + r.height * 0.5, bubbles: true }); }
-  c.dispatchEvent(ev('pointerdown'));
-  var t = document.querySelector('.ci-stock .chart-tip');
-  var shown = !!(t && t.style.display !== 'none');
-  var txt = t ? t.textContent : '';
-  c.dispatchEvent(ev('pointerup'));
-  var t2 = document.querySelector('.ci-stock .chart-tip');
-  return { shown: shown, txt: txt, hiddenAfter: !t2 || t2.style.display === 'none' };
-})()`);
-ok('长按图表显示十字线数值（日期/开高低收）', hover && hover.shown && /开/.test(hover.txt || ''), hover);
-ok('松手后数值气泡自动隐藏', hover && hover.hiddenAfter, hover);
+// 图表可能因为「资讯到达后重渲染」被重建，按压前给一点稳定时间，并允许重试一次
+await sleep(400);
+async function tryHover() {
+  return evalJS(`(function(){
+    var c = document.querySelector('.ci-stock canvas[data-chart]');
+    if (!c) return { err: 'no-canvas' };
+    var r = c.getBoundingClientRect();
+    function ev(type) { return new PointerEvent(type, { clientX: r.left + r.width * 0.5, clientY: r.top + r.height * 0.5, bubbles: true }); }
+    c.dispatchEvent(ev('pointerdown'));
+    var t = document.querySelector('.ci-stock .chart-tip');
+    var shown = !!(t && t.style.display !== 'none');
+    var txt = t ? t.textContent : '';
+    c.dispatchEvent(ev('pointerup'));
+    var t2 = document.querySelector('.ci-stock .chart-tip');
+    return {
+      shown: shown, txt: txt, hiddenAfter: !t2 || t2.style.display === 'none',
+      w: Math.round(r.width), h: Math.round(r.height)
+    };
+  })()`);
+}
+let hover = await tryHover();
+if (!hover.shown) { await sleep(1200); hover = await tryHover(); }
+ok('长按图表显示十字线数值（日期/开高低收）', hover && hover.shown && /开/.test(hover.txt || ''), JSON.stringify(hover));
+ok('松手后数值气泡自动隐藏', hover && hover.hiddenAfter, JSON.stringify(hover));
 // 回日K，后面的交易面板测试保持在有数据的周期上
 await evalJS(`(function(){
   var items = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
@@ -549,13 +594,18 @@ ok('成交行可看费用明细（佣金/印花税/过户费）',
 await shot('08-trades');
 
 await clickNav('排行');
-await sleep(1600);
-const rank = await evalJS(`(function(){
-  return {
-    rows: document.querySelectorAll('.ci-stock .rank-row').length,
-    me: !!document.querySelector('.ci-stock .rank-bar')
-  };
-})()`);
+// 排行要先拉快照再算，慢的时候 2~3 秒，轮询等待
+let rank = null;
+for (let i = 0; i < 14; i++) {
+  rank = await evalJS(`(function(){
+    return {
+      rows: document.querySelectorAll('.ci-stock .rank-row').length,
+      me: !!document.querySelector('.ci-stock .rank-bar')
+    };
+  })()`);
+  if (rank.rows >= 1 && rank.me) break;
+  await sleep(500);
+}
 ok('排行页渲染', rank.rows >= 1, rank.rows + ' 人');
 ok('显示我的排名', rank.me);
 await shot('09-rank');

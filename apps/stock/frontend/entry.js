@@ -58,6 +58,9 @@
     hoverIdx: null,     // 图表长按/拖动的十字线位置（null = 未激活）
     subview: '',        // 持仓页内的子视图：'' | 'ledger'
     ledger: null,       // 学元流水（{ list, next_before_id }）
+    fastNews: null,     // 市场快讯
+    fastNewsAt: 0,
+    stockNews: {},      // code -> { list, at }
     orders: null,
     trades: null,
     rank: null,
@@ -374,6 +377,9 @@
 
     // 收盘报告（昨日/最近一个交易日的真实行情摘要）
     wrap.appendChild(reportCard());
+
+    // 市场快讯（7×24，点开看摘要）
+    wrap.appendChild(newsStrip());
 
     // 分段：自选 / 全部 + 搜索框
     var bar = h('div', 'chart-tabs');
@@ -923,6 +929,9 @@
       }
       wrap.appendChild(grid);
     }
+
+    // 相关资讯（点了在应用内看摘要，不跳外链）
+    wrap.appendChild(stockNewsCard(S.detailCode));
 
     // 操作按钮
     var act = h('div', 'sheet-foot');
@@ -2079,6 +2088,149 @@
     return wrap;
   }
 
+  // ================= 资讯 =================
+  // 数据来自东财公开接口（后端 /news 与 /news/:code，带缓存）。
+  // 校园平板不方便跳外链，所以点标题直接在应用内看摘要弹层。
+  function newsTimeLabel(t) {
+    var m = String(t || '').match(/(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + ' ' + m[3] + ':' + m[4];
+    return String(t || '').slice(5, 16);
+  }
+
+  function newsRow(item) {
+    var row = h('div', 'news-row');
+    var main = h('div', 'news-main');
+    main.appendChild(h('div', 'news-title', item.title));
+    var meta = h('div', 'news-meta');
+    meta.appendChild(h('span', null, item.source || ''));
+    meta.appendChild(h('span', 'num', newsTimeLabel(item.time)));
+    main.appendChild(meta);
+    row.appendChild(main);
+    row.onclick = function () { openNewsArticle(item); };
+    return row;
+  }
+
+  function newsStrip() {
+    var box = h('div', 'news-strip');
+    var head = h('div', 'chart-tabs');
+    head.appendChild(h('div', 'card-title', '市场快讯'));
+    if (S.fastNews && S.fastNews.length) {
+      var more = h('div', 'card-more', '更多 ›');
+      more.onclick = function () { openNewsList('市场快讯', S.fastNews); };
+      head.appendChild(more);
+    }
+    box.appendChild(head);
+
+    var card = h('div', 'card');
+    if (!S.fastNews) {
+      card.appendChild(h('div', 'loading', '加载快讯…'));
+    } else if (!S.fastNews.length) {
+      card.appendChild(h('div', 'empty-mini', '暂时没有快讯（资讯源连不上时不影响行情）'));
+    } else {
+      var list = S.fastNews.slice(0, 3);
+      for (var i = 0; i < list.length; i++) card.appendChild(newsRow(list[i]));
+    }
+    box.appendChild(card);
+    return box;
+  }
+
+  function stockNewsCard(code) {
+    var entry = S.stockNews[code];
+    var box = h('div', 'news-card');
+    var head = h('div', 'chart-tabs');
+    head.appendChild(h('div', 'card-title', '相关资讯'));
+    if (entry && entry.list && entry.list.length) {
+      var more = h('div', 'card-more', '更多 ›');
+      more.onclick = function () { openNewsList('相关资讯', entry.list); };
+      head.appendChild(more);
+    }
+    box.appendChild(head);
+
+    var card = h('div', 'card');
+    if (!entry) card.appendChild(h('div', 'loading', '加载资讯…'));
+    else if (!entry.list.length) card.appendChild(h('div', 'empty-mini', '暂时没有这只股票的资讯'));
+    else {
+      var n = Math.min(entry.list.length, 3);
+      for (var i = 0; i < n; i++) card.appendChild(newsRow(entry.list[i]));
+    }
+    box.appendChild(card);
+    return box;
+  }
+
+  function closeNewsModal() {
+    var m = root && root.querySelector('.news-modal');
+    if (m && m.parentNode) m.parentNode.removeChild(m);
+  }
+
+  function openNewsList(title, list) {
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', title));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    if (!list || !list.length) body.appendChild(h('div', 'empty-mini', '暂时没有资讯'));
+    else for (var i = 0; i < list.length; i++) body.appendChild(newsRow(list[i]));
+    panel.appendChild(body);
+
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+  }
+
+  function openNewsArticle(item) {
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', '资讯'));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    body.appendChild(h('div', 'news-article-title', item.title));
+    body.appendChild(h('div', 'news-meta', (item.source || '东方财富') + ' · ' + newsTimeLabel(item.time)));
+    body.appendChild(h('div', 'news-article-body',
+      item.summary || '（该资讯没有摘要，可在东方财富查看原文）'));
+    body.appendChild(h('div', 'submit-warn', '资讯来源：东方财富公开接口，仅供学习参考，不构成投资建议。'));
+    panel.appendChild(body);
+
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+  }
+
+  function loadFastNews() {
+    if (S.fastNews && Date.now() - S.fastNewsAt < 120000) return Promise.resolve();
+    return get('/news', { limit: 8 }).then(function (d) {
+      S.fastNews = (d && d.list) || [];
+      S.fastNewsAt = Date.now();
+      if (S.tab === 'market' && !S.detailCode) renderMain();
+    }).catch(function () {
+      if (!S.fastNews) S.fastNews = [];
+      if (S.tab === 'market' && !S.detailCode) renderMain();
+    });
+  }
+
+  function loadStockNews(code, name) {
+    var hit = S.stockNews[code];
+    if (hit && Date.now() - hit.at < 300000) return;
+    get('/news/' + code, { name: name || '' }).then(function (d) {
+      S.stockNews[code] = { list: (d && d.list) || [], at: Date.now() };
+      if (S.detailCode === code) renderMain();
+    }).catch(function () {
+      S.stockNews[code] = { list: [], at: Date.now() };
+      if (S.detailCode === code) renderMain();
+    });
+  }
+
   // ================= 规则 =================
   function viewRules() {
     var wrap = h('div', 'view-rules');
@@ -2516,6 +2668,8 @@
     return get('/quote/' + code).then(function (d) {
       S.detailQuote = d.quote;
       S.detailSession = d.session;
+      // 拿到名称后再查个股资讯（按名称搜命中率更高）
+      if (S.detailCode === code && d.quote) loadStockNews(code, d.quote.name);
       if (S.detailCode === code) {
         // 首次拿到行情时，详情页的「关键指标」格子还没渲染（打开时 quote 为空），
         // 必须整页重建一次；之后只改价格文本，避免闪烁。
@@ -2654,7 +2808,7 @@
   }
 
   function loadTab(tab) {
-    if (tab === 'market') { loadMarket(); loadOverview(); loadReport(); }
+    if (tab === 'market') { loadMarket(); loadOverview(); loadReport(); loadFastNews(); }
     else if (tab === 'positions') { loadOverview(); loadAchievements(); loadLedger(true); }
     else if (tab === 'orders') { loadOrders(); }
     else if (tab === 'rank') { loadRank(); }
@@ -2721,7 +2875,7 @@
     // 首次加载：先拿资产（顺带发放练习金），再拿行情/规则/报告
     loadOverview().then(function () {
       renderMain();
-      return Promise.all([loadMarket(), loadRules(), loadReport()]);
+      return Promise.all([loadMarket(), loadRules(), loadReport(), loadFastNews()]);
     }).then(function () {
       renderTop();
       if (S.tab === 'market') renderMain();

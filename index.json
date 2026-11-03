@@ -1,6 +1,6 @@
 {
-  "version": 31,
-  "updated_at": "2026-11-03T03:46:27.565Z",
+  "version": 32,
+  "updated_at": "2026-11-03T05:59:20.807Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.7.1",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
+      "version": "1.8.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。还有资讯：行情页 7×24 市场快讯、详情页个股相关资讯，点开在应用内看摘要。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -453,6 +453,7 @@
         "apps/stock/backend/achievements.js",
         "apps/stock/backend/market.js",
         "apps/stock/backend/matcher.js",
+        "apps/stock/backend/news.js",
         "apps/stock/backend/peer.js",
         "apps/stock/backend/quotes.js",
         "apps/stock/backend/report.js",
@@ -468,6 +469,7 @@
         "apps/stock/screenshots/03-rank.png",
         "apps/stock/screenshots/04-guide.png",
         "apps/stock/screenshots/05-ledger.png",
+        "apps/stock/screenshots/06-news.png",
         "apps/stock/test/e2e.cjs",
         "apps/stock/test/ui-probe.mjs"
       ],
@@ -475,23 +477,25 @@
         "backend/achievements.js": "5c30611cf0f428c9db350c4933ec7c18cb380a7bc45dbd362c58340f29dc8648",
         "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
         "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
+        "backend/news.js": "33c16008a577fe6789ae6b54fa9d75291289426860bda9084e0b6f3d46b2d274",
         "backend/peer.js": "1f3683beb40e6cd9b50f097518e8b22c9abc9374c94acfac734c4aa203474822",
         "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "6772862ee99a263bd262a875a9957fb5a6f171f6ab403193dde5e27f40a6ba13",
-        "backend/routes.js": "9c9e52d7d0d297d15823d9e929c9c1c234f7082c93611b7e1f50cab9ee731a07",
+        "backend/routes.js": "294e2f01dffc59b418a4a56f6e557bdac199f3aab611f988e5104ab8660cd896",
         "backend/store.js": "e7985d8d4bd1c248f3e3010dfc8ccf797f63a97546e0c0307efab0398aa8a580",
         "backend/trading.js": "fc1a858c1f63689a0b57051551d3a97ec792da1bca94d4a76b0dc1321718194e",
-        "frontend/entry.js": "8c0c629c907ad4ae9cbd6901b286594d99c8302749c218355851bce18942bfa4",
-        "frontend/style.css": "e7da3fae9d3470ac8f89bb5ceec6fbe8c92969dc305cfe319e45d444ff0a5e6a",
+        "frontend/entry.js": "56e3ab47507f583d4c7901c5ca0ca23f138f191ab9e4666cd5ee717f54a12381",
+        "frontend/style.css": "c0542e6f5e68953a2f9cf1b6e57899f09df6976b74c8a6b724e81f8d52050070",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "589b39aee54582511cd9e7f89df1983b1302e4f943fb453b20eed894df204d66",
-        "screenshots/01-overview.png": "7ad0ebe49d0197b1f927bce638a3aec0aba4d46023337d2e1a080b94a141c684",
-        "screenshots/02-detail.png": "58a1d5d958374578413ce19943df5be5d1df4e49d314c38682597f043e7de4ab",
-        "screenshots/03-rank.png": "866c1007b98711add457c8c60c501ea5104e7c839745e8559c86ef9bff9f982a",
-        "screenshots/04-guide.png": "7681f6304095514c43cf122e20cea5b62130ad2393fc1fd32a867ecc2d889190",
-        "screenshots/05-ledger.png": "f7b7464a0f42ed46e7dccfd4bb0f89ccaa504626034522f1949bd332e6f4c9cb",
-        "test/e2e.cjs": "a67ec322100fbafa25a76c182b9c2d7f6f7be00aa7a57bdafc42f78ba80f021e",
-        "test/ui-probe.mjs": "90794818df4f27256c3e8b09e5df3defac8993d0bdc77c8c356d5e865f0f1357"
+        "manifest.json": "4b14041b785d01f4124191efc44d16affdfef59ea86244c9215749acf91c323a",
+        "screenshots/01-overview.png": "59cc08ba5694ebefe74d2c7b44f5a6d756d39581437cf12d996f3e61105e858d",
+        "screenshots/02-detail.png": "50f5cc752224faa9919797d5aaa9695ce06ef2249467c9aa2109bc9b624f0b2a",
+        "screenshots/03-rank.png": "a3c30b334d7c372d54e9b646799d94a1a7f7eb7487ce910a3c1638abd2da1b86",
+        "screenshots/04-guide.png": "d08edf570ebf4e1af1dc3304ba59ebe51e166c1d2dca680ecba64a555ceb67eb",
+        "screenshots/05-ledger.png": "cdb9ef64622265abe99fac30afb0ae4746246655bdf3ad5ea540518b86423cca",
+        "screenshots/06-news.png": "bb442ddcde50038e1b87cc51aa7d62665234d331b194ec21c4b1f334b2b2f2de",
+        "test/e2e.cjs": "d11e40c79d3ecf00fc8fd2fa4f237aaac2c89013116335279cab17bf78ccd312",
+        "test/ui-probe.mjs": "fbb035589901a006a51d3800dda9388a759691b76006301a2f2471737973a005"
       },
       "group": "study",
       "color": "#E5484D",
@@ -500,9 +504,14 @@
         "apps/stock/screenshots/02-detail.png",
         "apps/stock/screenshots/03-rank.png",
         "apps/stock/screenshots/04-guide.png",
-        "apps/stock/screenshots/05-ledger.png"
+        "apps/stock/screenshots/05-ledger.png",
+        "apps/stock/screenshots/06-news.png"
       ],
       "changelog": [
+        {
+          "version": "1.8.0",
+          "notes": "新增资讯：行情页「市场快讯」7×24 三条（点击在应用内看摘要，不跳外链），详情页「相关资讯」按股票名检索三条；后端新增 /api/stock/news 与 /news/:code，走东财公开接口并做 2/5 分钟缓存，上游失败返回空列表、不影响行情。另：探针把固定等待改成轮询（分时接口实测最慢 3.4 秒），避免外网抖动造成假失败。e2e 135/135、ui-probe 70/70。"
+        },
         {
           "version": "1.7.1",
           "notes": "修复「当天买的股票一整天卖不出去」：旧 T+1 版本下当天买入的仓位 available_qty=0 且 last_settle_date 已是当天，切到 T+0 后 settleT1 因「今日已结算」直接返回，永远补不上可用数量（生产实测 20 笔受影响）。现在 settleT1 不再按日期短路，只要 available_qty < qty 就补齐；卖不出时的提示也分开说明「被挂单占用」与「未解锁」。e2e 增加锁仓自动解锁回归，131/131。"
