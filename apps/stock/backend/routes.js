@@ -23,6 +23,7 @@ var market = require('./market');
 var quotes = require('./quotes');
 var store = require('./store');
 var news = require('./news');
+var notify = require('./notify');
 var trading = require('./trading');
 var matcher = require('./matcher');
 var peer = require('./peer');
@@ -151,6 +152,10 @@ router.get('/overview', wrap(function (req, res) {
 
   return quotes.getSnapshot().then(function (snap) {
     var summary = trading.accountSummary(userId, snap);
+    // 波动提醒：打开应用时扫一遍持仓（内部 60s 节流 + 事件幂等，不会刷屏）
+    try { notify.scanPositions(userId, store.listPositions(userId), snap.byCode); } catch (e) {
+      console.error('[stock] 波动扫描失败:', e.message);
+    }
     var watch = store.listWatch(userId);
     var watchList = [];
     for (var i = 0; i < watch.length; i++) {
@@ -278,6 +283,16 @@ router.get('/positions', wrap(function (req, res) {
     var s = trading.accountSummary(uid(req), snap);
     ok(res, { positions: s.positions, totals: s.totals, cash: s.cash, stale: s.stale });
   });
+}));
+
+// ---- 站内通知（持仓波动 / 成交 / 委托失效）----
+router.get('/notify', wrap(function (req, res) {
+  ok(res, notify.list(uid(req), { limit: req.query.limit }));
+}));
+
+router.post('/notify/read', wrap(function (req, res) {
+  var n = notify.readAll(uid(req));
+  ok(res, { marked: n, unread: 0 });
 }));
 
 // ---- 资讯（增强功能：上游失败返回空列表，绝不把主流程带崩）----

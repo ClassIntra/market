@@ -1659,6 +1659,68 @@
   white-space: pre-wrap;
 }
 
+/* ================= 通知 ================= */
+.ci-stock .notify-bell {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  border-radius: 9px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.ci-stock .notify-bell:active { background: rgba(255,255,255,.08); }
+.ci-stock .nb-ico { font-size: 13px; line-height: 1; filter: grayscale(.35) brightness(1.15); }
+.ci-stock .nb-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--up);
+  color: #fff;
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #0F141B;
+}
+.ci-stock .notify-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 10px 4px;
+  border-bottom: 1px dashed rgba(255,255,255,.05);
+  cursor: pointer;
+}
+.ci-stock .notify-item:last-child { border-bottom: none; }
+.ci-stock .notify-item.read { opacity: .62; }
+.ci-stock .nt-ico {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-right: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 11px;
+  background: rgba(255,255,255,.05);
+  color: var(--dim);
+}
+.ci-stock .nt-ico.up { color: var(--up); background: rgba(245,83,90,.12); }
+.ci-stock .nt-ico.down { color: var(--down); background: rgba(34,181,115,.12); }
+.ci-stock .nt-ico.gold { color: var(--gold); background: rgba(232,195,106,.12); }
+.ci-stock .nt-main { flex: 1 1 auto; min-width: 0; }
+.ci-stock .nt-title { font-size: 12.5px; color: var(--text); line-height: 1.45; }
+.ci-stock .nt-body { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+.ci-stock .nt-time { font-size: 10px; color: var(--dim); margin-top: 4px; }
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

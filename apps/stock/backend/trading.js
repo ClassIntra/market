@@ -23,6 +23,7 @@ var nodePath = require('path');
 var market = require('./market');
 var quotes = require('./quotes');
 var store = require('./store');
+var notify = require('./notify');
 var xueyuan = require(nodePath.resolve(process.cwd(), 'src/services/xueyuan'));
 
 // ---- 统一错误 ----
@@ -397,6 +398,11 @@ function fillBuy(order, fillCent, amount, fees, now, today) {
       'UPDATE stock_account SET trade_count = trade_count + 1,',
       '  fee_total_cent = fee_total_cent + ? WHERE user_id = ?'
     ].join('\n')).run(fees.total_cent, order.user_id);
+
+    // 4) 站内通知（失败不影响成交）
+    try { notify.notifyFill(order, fillCent, order.qty, 0, fees.total_cent); } catch (e) {
+      console.error('[stock] 成交通知写入失败 order=' + order.id + ':', e.message);
+    }
   })();
 }
 
@@ -443,6 +449,11 @@ function fillSell(order, fillCent, amount, fees, now, today) {
       '  fee_total_cent = fee_total_cent + ?, realized_cent = realized_cent + ?',
       'WHERE user_id = ?'
     ].join('\n')).run(fees.total_cent, realized, order.user_id);
+
+    // 4) 站内通知（失败不影响成交：钱已经动了，通知只是提醒）
+    try { notify.notifyFill(order, fillCent, order.qty, realized, fees.total_cent); } catch (e) {
+      console.error('[stock] 成交通知写入失败 order=' + order.id + ':', e.message);
+    }
   })();
 }
 
@@ -541,6 +552,9 @@ function invalidate(order, reason, now) {
     try { xueyuan.release(order.user_id, order.hold_cent); } catch (e) {
       console.error('[stock] 死单解冻失败 order=' + order.id + ':', e.message);
     }
+  }
+  try { notify.notifyExpired(order, reason); } catch (e) {
+    console.error('[stock] 失效通知写入失败 order=' + order.id + ':', e.message);
   }
   return true;
 }

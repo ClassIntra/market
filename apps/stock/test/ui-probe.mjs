@@ -35,6 +35,21 @@ const token = jwt.sign(
   'e2e-secret', { expiresIn: '2h' }
 );
 
+// 夹具：顶栏红点要验「有未读时显示、打开后清零」，所以每次跑之前重置为恰好 1 条未读。
+// （直接操作 e2e 库；探针只验渲染，不承担通知生成逻辑的验证 —— 那在 e2e 里）
+try {
+  const Database = require('../../../server/node_modules/better-sqlite3');
+  const ndb = new Database('D:/NetWork/Integration/ClassIntra/.workbuddy/tmp/stock-e2e/e2e.db');
+  ndb.prepare('UPDATE stock_notify SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(Date.now(), USER_ID);
+  ndb.prepare([
+    'INSERT OR IGNORE INTO stock_notify (user_id, kind, code, name, title, body, ref, created_at, read_at)',
+    "VALUES (?, 'up', '600887', '伊利股份', '伊利股份 上涨 5.20%', '现价 31.02，成本 30.90', ?, ?, NULL)"
+  ].join('\n')).run(USER_ID, 'probe:' + Date.now(), Date.now());
+  ndb.close();
+} catch (e) {
+  console.log('  · 通知夹具写入失败（红点断言可能失败）：' + e.message);
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let pass = 0, fail = 0;
 function ok(name, cond, detail) {
@@ -291,7 +306,9 @@ const picked = await evalJS(`(function(){
   for (var i = 0; i < rows.length; i++) {
     var el = rows[i].querySelector('[data-field="price"]');
     var p = parseFloat(el ? el.textContent : '0');
-    if (p > 0 && p < 50) {
+    // 选一只「便宜到能买多手」的：余额约 3000 时，30 元的股票刚好只够 1 手，
+    // 「全仓」按钮点了数量不变，会假失败（2026-11-03 踩过）
+    if (p > 0 && p <= 15) {
       var name = (rows[i].querySelector('.qrow-name') || {}).textContent || '';
       rows[i].click();
       return { code: rows[i].getAttribute('data-code'), name: name, price: p };
@@ -592,6 +609,31 @@ const feeToast = await evalJS(`(function(){ var t = document.querySelector('.ci-
 ok('成交行可看费用明细（佣金/印花税/过户费）',
   /佣金/.test(feeToast || '') && /过户费/.test(feeToast || ''), feeToast);
 await shot('08-trades');
+
+// 提醒铃铛：未读红点 → 面板 → 打开即已读
+const bell = await evalJS(`(function(){
+  var b = document.querySelector('.ci-stock .notify-bell');
+  var badge = b ? b.querySelector('.nb-badge') : null;
+  return { has: !!b, badge: badge ? badge.textContent : '' };
+})()`);
+ok('顶栏有提醒铃铛', bell.has, bell.has);
+ok('未读红点显示条数', !!bell.badge, bell.badge);
+
+await evalJS(`(function(){ var b = document.querySelector('.ci-stock .notify-bell'); if (b) b.click(); return true; })()`);
+await sleep(900);
+const ntPanel = await evalJS(`(function(){
+  return {
+    open: !!document.querySelector('.ci-stock .news-modal'),
+    rows: document.querySelectorAll('.ci-stock .notify-item').length,
+    title: (document.querySelector('.ci-stock .news-panel-title') || {}).textContent || ''
+  };
+})()`);
+ok('提醒面板可打开且有记录', ntPanel.open && ntPanel.rows >= 1 && /提醒/.test(ntPanel.title), JSON.stringify(ntPanel));
+await shot('09b-notify');
+await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
+await sleep(700);
+const badgeGone = await evalJS(`!document.querySelector('.ci-stock .nb-badge')`);
+ok('打开后未读清零', badgeGone, badgeGone);
 
 await clickNav('排行');
 // 排行要先拉快照再算，慢的时候 2~3 秒，轮询等待

@@ -97,7 +97,9 @@ async function main() {
       // 测试通道：周末/夜间跑 e2e 时把撮合时钟强制成交易时段，
       // 保证「即时成交→T+1→成就」这条链路在任何时间都可验证。
       // 价格仍是真实行情（休市时为最近收盘价），只是时段被拨正。
-      STOCK_FORCE_TRADABLE: '1'
+      STOCK_FORCE_TRADABLE: '1',
+      // 通知的波动扫描默认 60s 节流；测试里关掉，才能在毫秒级验证「注入浮亏 → 有提醒」
+      STOCK_NOTIFY_SCAN_GAP: '0'
     })
   });
 
@@ -576,6 +578,66 @@ async function main() {
   var orders = db2.prepare('SELECT COUNT(*) c FROM stock_orders').get().c;
   ok('委托已落库（' + orders + ' 笔）', orders >= 2, orders);
   db2.close();
+
+  console.log('\n=== 站内通知 ===');
+  var nt = await api('GET', '/api/stock/notify?limit=20', { token: T1 });
+  eq('通知列表 200', nt.status, 200);
+  var ntList = (nt.body.data && nt.body.data.list) || [];
+  ok('成交后有成交通知', ntList.some(function (x) { return x.kind === 'fill'; }), ntList.length + ' 条');
+  ok('有未读数', (nt.body.data.unread || 0) >= 1, nt.body.data.unread);
+
+  // 注入浮亏（成本抬到现价 1.6 倍）→ 打开 overview 触发波动扫描 → 应产生 loss 提醒
+  var restoreCost = null;
+  try {
+    var qNow = (await api('GET', '/api/stock/quote/' + cheap.code, { token: T1 })).body.data.quote;
+    var Database2 = require(path.join(SERVER, 'node_modules/better-sqlite3'));
+    var ndb = new Database2(DB);
+    var prow = ndb.prepare('SELECT * FROM stock_positions WHERE user_id = ? AND code = ?').get('251801', cheap.code);
+    if (prow) {
+      restoreCost = prow.cost_cent;
+      ndb.prepare('UPDATE stock_positions SET cost_cent = ? WHERE user_id = ? AND code = ?')
+        .run(Math.round(qNow.price_cent * prow.qty * 1.6), '251801', cheap.code);
+    }
+    ndb.close();
+    await api('GET', '/api/stock/overview', { token: T1 });
+    var nt2 = await api('GET', '/api/stock/notify?limit=20', { token: T1 });
+    var nt2List = (nt2.body.data && nt2.body.data.list) || [];
+    ok('浮亏触发波动提醒', nt2List.some(function (x) { return x.kind === 'loss'; }),
+      nt2List.map(function (x) { return x.kind; }).join(','));
+    ok('同一事件不重复（loss 只有一条）',
+      nt2List.filter(function (x) { return x.kind === 'loss'; }).length === 1,
+      nt2List.filter(function (x) { return x.kind === 'loss'; }).length);
+  } catch (e) {
+    ok('浮亏提醒（DB 直连失败：' + e.message + '）', false);
+  }
+
+  // 还原成本：注入只是测试手段，别把「浮亏 37%」留在库里污染后续截图/探针
+  if (restoreCost != null) {
+    try {
+      var Database2b = require(path.join(SERVER, 'node_modules/better-sqlite3'));
+      var rdb = new Database2b(DB);
+      rdb.prepare('UPDATE stock_positions SET cost_cent = ? WHERE user_id = ? AND code = ?')
+        .run(restoreCost, '251801', cheap.code);
+      rdb.close();
+    } catch (e) { console.log('  · 成本还原失败：' + e.message); }
+  }
+
+  var readAll = await api('POST', '/api/stock/notify/read', { token: T1 });
+  eq('全部已读后未读为 0', readAll.body.data.unread, 0);
+  var nt3 = await api('GET', '/api/stock/notify?limit=5', { token: T1 });
+  eq('再查未读数仍为 0', nt3.body.data.unread, 0);
+
+  // 给 UI 探针留一条未读：探针要验顶栏红点的渲染与「打开即清零」。
+  // 只种数据、不改接口行为，避免探针依赖真实成交时机。
+  try {
+    var Database3 = require(path.join(SERVER, 'node_modules/better-sqlite3'));
+    var sdb = new Database3(DB);
+    sdb.prepare([
+      'INSERT OR IGNORE INTO stock_notify (user_id, kind, code, name, title, body, ref, created_at, read_at)',
+      "VALUES ('251801', 'up', '600887', '伊利股份', '伊利股份 上涨 5.20%', '现价 31.02，成本 30.90', 'probe:seed', ?, NULL)"
+    ].join('\n')).run(Date.now());
+    sdb.close();
+  } catch (e) { console.log('  · 探针种子写入失败：' + e.message); }
 
   console.log('\n=== 结果 ===');
   console.log('通过 ' + pass + ' / 失败 ' + fail);

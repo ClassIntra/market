@@ -61,6 +61,7 @@
     fastNews: null,     // 市场快讯
     fastNewsAt: 0,
     stockNews: {},      // code -> { list, at }
+    notify: { list: [], unread: 0, at: 0 },
     orders: null,
     trades: null,
     rank: null,
@@ -231,6 +232,15 @@
     }
     if (!idx.length) strip.appendChild(h('div', 'index-pill', '指数加载中'));
     top.appendChild(strip);
+
+    // 通知铃铛（未读红点）
+    var bell = h('div', 'notify-bell');
+    bell.appendChild(h('span', 'nb-ico', '🔔'));
+    if (S.notify.unread > 0) {
+      bell.appendChild(h('span', 'nb-badge', S.notify.unread > 99 ? '99+' : String(S.notify.unread)));
+    }
+    bell.onclick = openNotify;
+    top.appendChild(bell);
 
     // 钱包
     var wallet = h('div', 'wallet');
@@ -1610,6 +1620,7 @@
       loadOrders();
       loadOverview();
       loadLedger(true);   // 撤单解冻会写一笔流水，必须刷新，否则学生看到的余额对不上
+      loadNotify(true);
     }).catch(function (e) {
       toast(errMsg(e), 'error');
     });
@@ -2086,6 +2097,88 @@
     var note = h('div', 'submit-warn', '本应用仅用于学习与练习，不构成任何投资建议。真实市场有风险，模拟盘的盈亏不代表真实收益。');
     wrap.appendChild(note);
     return wrap;
+  }
+
+  // ================= 站内通知 =================
+  var NOTIFY_META = {
+    up: { icon: '↑', cls: 'up' },
+    down: { icon: '↓', cls: 'down' },
+    limit_up: { icon: '↑', cls: 'up' },
+    limit_down: { icon: '↓', cls: 'down' },
+    gain: { icon: '↑', cls: 'up' },
+    loss: { icon: '↓', cls: 'down' },
+    fill: { icon: '✓', cls: 'gold' },
+    expired: { icon: '!', cls: 'dim' }
+  };
+
+  function loadNotify(force) {
+    if (!force && S.notify.at && Date.now() - S.notify.at < 10000) return Promise.resolve();
+    return get('/notify', { limit: 20 }).then(function (d) {
+      var prev = S.notify.unread;
+      var first = !S.notify.at;
+      S.notify = { list: (d && d.list) || [], unread: (d && d.unread) || 0, at: Date.now() };
+      renderTop();
+      // 新提醒到达时弹一条（首次进入不弹，避免一开应用就被刷）
+      if (!first && S.notify.unread > prev) {
+        var latest = S.notify.list[0];
+        if (latest) toast(latest.title, 'success');
+      }
+      return d;
+    }).catch(function () {});
+  }
+
+  function openNotify() {
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', '提醒' + (S.notify.unread ? '（' + S.notify.unread + ' 条未读）' : '')));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    if (!S.notify.list.length) {
+      body.appendChild(h('div', 'empty-mini', '还没有提醒。持仓有波动、委托成交时会在这里通知你'));
+    } else {
+      for (var i = 0; i < S.notify.list.length; i++) {
+        body.appendChild(notifyRow(S.notify.list[i]));
+      }
+    }
+    panel.appendChild(body);
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+
+    // 打开即已读
+    if (S.notify.unread > 0) {
+      post('/notify/read').then(function () {
+        S.notify.unread = 0;
+        for (var j = 0; j < S.notify.list.length; j++) {
+          if (!S.notify.list[j].read_at) S.notify.list[j].read_at = Date.now();
+        }
+        renderTop();
+      }).catch(function () {});
+    }
+  }
+
+  function notifyRow(item) {
+    var meta = NOTIFY_META[item.kind] || { icon: '·', cls: '' };
+    var row = h('div', 'notify-item' + (item.read_at ? ' read' : ''));
+    row.appendChild(h('span', 'nt-ico ' + meta.cls, meta.icon));
+    var main = h('div', 'nt-main');
+    main.appendChild(h('div', 'nt-title', item.title));
+    if (item.body) main.appendChild(h('div', 'nt-body', item.body));
+    main.appendChild(h('div', 'nt-time num', fmtDateTime(item.created_at)));
+    row.appendChild(main);
+    if (item.code) {
+      row.onclick = function () {
+        closeNewsModal();
+        openDetail(item.code);
+      };
+    }
+    return row;
   }
 
   // ================= 资讯 =================
@@ -2618,6 +2711,7 @@
       if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
       loadOverview();
       loadLedger(true);
+      loadNotify(true);
       if (S.detailCode) loadDetail(S.detailCode);
       if (S.tab === 'orders') loadOrders();
     }).catch(function (e) {
@@ -2634,6 +2728,7 @@
       S.watch = {};
       (d.watchlist || []).forEach(function (q) { S.watch[q.code] = true; });
       renderTop();
+      loadNotify();   // overview 会触发服务端波动扫描，顺手把新提醒取回来（内部 10s 节流）
       if (first && d.practice_granted) {
         toast('已发放 ' + d.practice_granted + ' 学元投资练习金', 'success');
       }
@@ -2875,7 +2970,7 @@
     // 首次加载：先拿资产（顺带发放练习金），再拿行情/规则/报告
     loadOverview().then(function () {
       renderMain();
-      return Promise.all([loadMarket(), loadRules(), loadReport(), loadFastNews()]);
+      return Promise.all([loadMarket(), loadRules(), loadReport(), loadFastNews(), loadNotify(true)]);
     }).then(function () {
       renderTop();
       if (S.tab === 'market') renderMain();
