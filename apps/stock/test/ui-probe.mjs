@@ -374,6 +374,23 @@ const monthPainted = await evalJS(`(function(){
   } catch (e) { return false; }
 })()`);
 ok('月 K 图已绘制', monthPainted);
+
+// 长按/拖动十字线：竖线 + 数值气泡（平板没有 hover，只能按压）
+const hover = await evalJS(`(function(){
+  var c = document.querySelector('.ci-stock canvas[data-chart]');
+  if (!c) return { err: 'no-canvas' };
+  var r = c.getBoundingClientRect();
+  function ev(type) { return new PointerEvent(type, { clientX: r.left + r.width * 0.5, clientY: r.top + r.height * 0.5, bubbles: true }); }
+  c.dispatchEvent(ev('pointerdown'));
+  var t = document.querySelector('.ci-stock .chart-tip');
+  var shown = !!(t && t.style.display !== 'none');
+  var txt = t ? t.textContent : '';
+  c.dispatchEvent(ev('pointerup'));
+  var t2 = document.querySelector('.ci-stock .chart-tip');
+  return { shown: shown, txt: txt, hiddenAfter: !t2 || t2.style.display === 'none' };
+})()`);
+ok('长按图表显示十字线数值（日期/开高低收）', hover && hover.shown && /开/.test(hover.txt || ''), hover);
+ok('松手后数值气泡自动隐藏', hover && hover.hiddenAfter, hover);
 // 回日K，后面的交易面板测试保持在有数据的周期上
 await evalJS(`(function(){
   var items = document.querySelectorAll('.ci-stock .chart-tabs .seg-item');
@@ -463,6 +480,31 @@ const pos = await evalJS(`(function(){
 ok('持仓页渲染', pos.cards >= 1, pos.cards + ' 张持仓卡');
 ok('持仓页高亮导航正确', /持仓/.test(pos.active), pos.active);
 await shot('06-positions');
+
+// 资金流水：最近 6 条 + 查看全部
+const lg = await evalJS(`(function(){
+  return {
+    rows: document.querySelectorAll('.ci-stock .ledger-row').length,
+    more: !!document.querySelector('.ci-stock .ledger-more'),
+    bal: (document.querySelector('.ci-stock .lg-bal') || {}).textContent || ''
+  };
+})()`);
+ok('持仓页有资金流水（最近记录）', lg.rows >= 1 && lg.more, lg.rows + ' 条，more=' + lg.more);
+ok('流水带余额（可对账）', /余额/.test(lg.bal || ''), lg.bal);
+await evalJS(`(function(){ var m = document.querySelector('.ci-stock .ledger-more'); if (m) m.click(); return true; })()`);
+await sleep(900);
+const lgView = await evalJS(`(function(){
+  return {
+    isLedger: !!document.querySelector('.ci-stock .view-ledger'),
+    name: (document.querySelector('.ci-stock .view-ledger .detail-name') || {}).textContent || '',
+    rows: document.querySelectorAll('.ci-stock .view-ledger .ledger-row').length
+  };
+})()`);
+ok('「查看全部」进入流水页', lgView.isLedger && /资金流水/.test(lgView.name), lgView.name);
+ok('流水页有明细行', lgView.rows >= 1, lgView.rows + ' 行');
+await shot('07b-ledger');
+await evalJS(`(function(){ var b = document.querySelector('.ci-stock .view-ledger .back-btn'); if (b) b.click(); return true; })()`);
+await sleep(700);
 
 // 持仓速览：从持仓页点进个股，详情顶部应显示成本 / 可卖 / 浮盈
 await evalJS(`(function(){ var c = document.querySelector('.ci-stock .pos-card'); if (c) c.click(); return true; })()`);

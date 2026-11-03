@@ -1512,6 +1512,71 @@
 .ci-stock .gi-terms b { flex: 0 0 84px; color: var(--text); font-weight: 600; }
 .ci-stock .gi-terms span { flex: 1 1 auto; }
 
+/* ================= 资金流水 ================= */
+.ci-stock .ledger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 4px;
+  border-bottom: 1px dashed rgba(255,255,255,.05);
+}
+.ci-stock .ledger-row:last-child { border-bottom: none; }
+.ci-stock .lg-left { flex: 1 1 auto; min-width: 0; margin-right: 10px; }
+.ci-stock .lg-title { font-size: 12.5px; color: var(--text); }
+.ci-stock .lg-sub {
+  font-size: 10.5px;
+  color: var(--dim);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-stock .lg-time { font-size: 10px; color: var(--dim); margin-top: 2px; }
+.ci-stock .lg-right { flex: 0 0 auto; text-align: right; }
+.ci-stock .lg-amt { font-size: 13px; font-weight: 600; }
+.ci-stock .lg-bal { font-size: 10px; color: var(--dim); margin-top: 2px; }
+.ci-stock .ledger-more {
+  text-align: center;
+  padding: 11px 0 3px;
+  font-size: 12px;
+  color: var(--gold);
+  cursor: pointer;
+}
+.ci-stock .ledger-more:active { opacity: .7; }
+.ci-stock .ledger-more-btn {
+  display: block;
+  width: 100%;
+  height: 42px;
+  margin-top: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.ci-stock .ledger-more-btn:active { background: rgba(255,255,255,.1); }
+.ci-stock .empty-mini { padding: 14px 4px 6px; font-size: 12px; color: var(--dim); text-align: center; }
+
+/* 图表十字线数值气泡 */
+.ci-stock .chart-tip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  max-width: calc(100% - 12px);
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgba(12,16,22,.92);
+  border: 1px solid rgba(232,195,106,.3);
+  font-size: 11px;
+  color: #E8E6E1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

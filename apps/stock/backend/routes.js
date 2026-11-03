@@ -279,6 +279,15 @@ router.get('/positions', wrap(function (req, res) {
   });
 }));
 
+// ---- 资金流水（学元账本：买卖、费用、奖励、班管发放，逐笔可追溯）----
+// 直接复用宿主的 xy_entry 视图，避免应用自己再记一套流水导致对不上账。
+router.get('/ledger', wrap(function (req, res) {
+  ok(res, xueyuan.history(uid(req), {
+    limit: req.query.limit,
+    beforeId: req.query.beforeId
+  }));
+}));
+
 // ---- 自选 ----
 router.get('/watch', wrap(function (req, res) {
   return quotes.getSnapshot().then(function (snap) {

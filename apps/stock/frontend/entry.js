@@ -30,6 +30,13 @@
   var context = null;
   var api = null;
   var container_ = null;
+  var chartGeo = null;   // 当前图表的坐标映射（供十字线反查）
+
+  function volText(v) {
+    var n = Number(v) || 0;
+    if (n >= 10000) return (n / 10000).toFixed(2) + ' 万手';
+    return n + ' 手';
+  }
 
   var S = {
     tab: 'market',
@@ -48,6 +55,9 @@
     // key = code:tab，trend 缓存 30s、K线 5 分钟（2026-11-03）。
     chartCache: {},
     detailJustOpened: false,
+    hoverIdx: null,     // 图表长按/拖动的十字线位置（null = 未激活）
+    subview: '',        // 持仓页内的子视图：'' | 'ledger'
+    ledger: null,       // 学元流水（{ list, next_before_id }）
     orders: null,
     trades: null,
     rank: null,
@@ -261,9 +271,10 @@
         e.appendChild(svg(item.icon));
         e.appendChild(h('span', null, item.label));
         e.onclick = function () {
-          if (S.tab === item.key && !S.detailCode) return;
+          if (S.tab === item.key && !S.detailCode && !S.subview) return;
           S.tab = item.key;
           S.detailCode = '';
+          S.subview = '';
           renderNav();
           renderMain();
           loadTab(item.key);
@@ -286,7 +297,7 @@
     } else if (S.tab === 'market') {
       main.appendChild(viewMarket());
     } else if (S.tab === 'positions') {
-      main.appendChild(viewPositions());
+      main.appendChild(S.subview === 'ledger' ? viewLedger() : viewPositions());
     } else if (S.tab === 'orders') {
       main.appendChild(viewOrders());
     } else if (S.tab === 'rank') {
@@ -741,6 +752,7 @@
     S.detailQuote = null;
     S.chartTab = 'trend';
     S.detailJustOpened = true;   // 刚打开时强制拉一次图表，不吃缓存
+    S.hoverIdx = null;
     S.tab = 'market';
     renderMain();
     loadDetail(code);
@@ -820,6 +832,7 @@
       b.onclick = function () {
         if (S.chartTab === item[0]) return;
         S.chartTab = item[0];
+        S.hoverIdx = null;
         renderMain();
         loadChart();
       };
@@ -835,6 +848,54 @@
     var canvas = document.createElement('canvas');
     canvas.setAttribute('data-chart', '1');
     chartWrap.appendChild(canvas);
+
+    // 长按 / 拖动看某一天（或某一分钟）—— 平板没有鼠标悬停，只能按压
+    var chartTip = h('div', 'chart-tip');
+    chartTip.style.display = 'none';
+    chartWrap.appendChild(chartTip);
+    S.hoverIdx = null;
+    var hovering = false;
+
+    function clearHover() {
+      if (S.hoverIdx === null) return;
+      S.hoverIdx = null;
+      chartTip.style.display = 'none';
+      drawChart();
+    }
+    function hoverAt(ev) {
+      if (!chartGeo || !chartGeo.n) return;
+      var rect = canvas.getBoundingClientRect();
+      if (!rect.width) return;
+      var x = ev.clientX - rect.left;
+      var i;
+      if (chartGeo.kind === 'trend') {
+        i = Math.round((x - 1) / Math.max(chartGeo.plotW - 2, 1) * (chartGeo.n - 1));
+      } else {
+        i = Math.floor(x / Math.max(chartGeo.step, 0.001));
+      }
+      i = Math.max(0, Math.min(chartGeo.n - 1, i));
+      S.hoverIdx = i;
+      drawChart();
+      var text;
+      if (chartGeo.kind === 'trend') {
+        var pt = chartGeo.pts[i];
+        text = (pt.time || '') + '  价 ' + fmt(pt.price, 2) + '  均 ' + (pt.avg > 0 ? fmt(pt.avg, 2) : '—');
+      } else {
+        var row = chartGeo.rows[i];
+        text = String(row.date || '').slice(5) + '  开' + fmt(row.open, 2) + ' 高' + fmt(row.high, 2) +
+          ' 低' + fmt(row.low, 2) + ' 收' + fmt(row.close, 2) + '  量 ' + volText(row.volume);
+      }
+      chartTip.textContent = text;
+      chartTip.style.display = 'block';
+      var tw = chartTip.offsetWidth || 200;
+      var maxLeft = Math.max(4, (chartWrap.clientWidth || 300) - tw - 4);
+      chartTip.style.left = Math.max(4, Math.min(x - tw / 2, maxLeft)) + 'px';
+    }
+    canvas.addEventListener('pointerdown', function (ev) { hovering = true; hoverAt(ev); });
+    canvas.addEventListener('pointermove', function (ev) { if (hovering) hoverAt(ev); });
+    canvas.addEventListener('pointerup', function () { hovering = false; clearHover(); });
+    canvas.addEventListener('pointercancel', function () { hovering = false; clearHover(); });
+    canvas.addEventListener('pointerleave', function () { hovering = false; clearHover(); });
     chartCard.appendChild(chartWrap);
     wrap.appendChild(chartCard);
 
@@ -898,8 +959,37 @@
     ctx.clearRect(0, 0, w, hgt);
 
     if (!S.detail) return;
+    chartGeo = null;
     if (S.chartTab === 'trend') drawTrend(ctx, w, hgt, S.detail);
     else drawKline(ctx, w, hgt, S.detail);
+
+    // 十字线（长按/拖动触发）：竖线 + 横线 + 黄点，数值由 DOM 气泡显示
+    if (S.hoverIdx != null && chartGeo && chartGeo.n) {
+      var hi2 = Math.max(0, Math.min(chartGeo.n - 1, S.hoverIdx));
+      var hx = chartGeo.xAt(hi2);
+      var hv = chartGeo.kind === 'trend' ? chartGeo.pts[hi2].price : chartGeo.rows[hi2].close;
+      var hy = chartGeo.yAt(hv);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.42)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(hx, chartGeo.top);
+      ctx.lineTo(hx, chartGeo.bottom);
+      ctx.stroke();
+      if (isFinite(hy)) {
+        ctx.beginPath();
+        ctx.moveTo(0, hy);
+        ctx.lineTo(chartGeo.plotW, hy);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#E8C36A';
+      ctx.beginPath();
+      ctx.arc(hx, hy, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   function gridLines(ctx, w, hgt, rows) {
@@ -1013,6 +1103,11 @@
     ctx.fillText('09:30', 2, hgt - 6);
     ctx.textAlign = 'right';
     ctx.fillText('15:00', plotW - 2, hgt - 6);
+
+    chartGeo = {
+      kind: 'trend', n: pts.length, plotW: plotW, xAt: xAt, yAt: yAt, pts: pts,
+      top: padTop, bottom: padTop + plotH
+    };
   }
 
   function drawKline(ctx, w, hgt, data) {
@@ -1128,6 +1223,12 @@
     ctx.fillText(String(rows[0].date).slice(5), 2, hgt - 5);
     ctx.textAlign = 'right';
     ctx.fillText(String(rows[rows.length - 1].date).slice(5), plotW - 2, hgt - 5);
+
+    chartGeo = {
+      kind: 'kline', n: rows.length, plotW: plotW, step: step,
+      xAt: function (i) { return i * step + step / 2; }, yAt: yOf, rows: rows,
+      top: padTop, bottom: padTop + priceH
+    };
   }
 
   // ================= 持仓 =================
@@ -1155,6 +1256,7 @@
     }
 
     wrap.appendChild(achievementsCard());
+    wrap.appendChild(ledgerCard());
 
     // 底部说明：T+0（教学盘放宽）
     var note = h('div', 'submit-warn', '今天买入的股票也能立刻卖出（教学盘放宽了真实 A 股的 T+1，因为平板不是天天开机）。真实市场记住：A 股是次日才能卖。');
@@ -1194,6 +1296,105 @@
     }
     card.appendChild(grid);
     wrap.appendChild(card);
+    return wrap;
+  }
+
+  // ---- 资金流水（学元账本）----
+  function fmtDateTime(ts) {
+    var d = new Date(Number(ts));
+    if (!isFinite(d.getTime())) return '';
+    var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+    var dd = ('0' + d.getDate()).slice(-2);
+    var hh = ('0' + d.getHours()).slice(-2);
+    var mi = ('0' + d.getMinutes()).slice(-2);
+    return mm + '-' + dd + ' ' + hh + ':' + mi;
+  }
+
+  function ledgerRow(it) {
+    var row = h('div', 'ledger-row');
+    var left = h('div', 'lg-left');
+    left.appendChild(h('div', 'lg-title', it.kind_label || it.kind));
+    var sub = it.memo || '';
+    if (sub) {
+      var s = h('div', 'lg-sub', sub);
+      s.title = sub;
+      left.appendChild(s);
+    }
+    left.appendChild(h('div', 'lg-time num', fmtDateTime(it.created_at)));
+    row.appendChild(left);
+
+    var right = h('div', 'lg-right');
+    var d = Number(it.delta) || 0;
+    right.appendChild(h('div', 'lg-amt num ' + (d > 0 ? 'up' : (d < 0 ? 'down' : '')), signed(d)));
+    right.appendChild(h('div', 'lg-bal num', '余额 ' + money(it.balance_after)));
+    row.appendChild(right);
+    return row;
+  }
+
+  function ledgerCard() {
+    var box = h('div');
+    var head = h('div', 'chart-tabs');
+    head.appendChild(h('div', 'card-title', '资金流水'));
+    var ov = S.overview;
+    head.appendChild(h('div', 'card-more num', ov ? '余额 ' + money(ov.summary.cash.balance) + ' 学元' : ''));
+    box.appendChild(head);
+
+    var card = h('div', 'card');
+    if (!S.ledger) {
+      card.appendChild(h('div', 'loading', '加载流水…'));
+    } else if (!S.ledger.list.length) {
+      card.appendChild(h('div', 'empty-mini', '还没有流水记录，买入第一只股票就会有了'));
+    } else {
+      var list = S.ledger.list.slice(0, 6);
+      for (var i = 0; i < list.length; i++) card.appendChild(ledgerRow(list[i]));
+      var more = h('div', 'ledger-more', '查看全部流水 ›');
+      more.onclick = function () {
+        S.subview = 'ledger';
+        renderMain();
+        if (S.ledger && S.ledger.list.length < 20) loadLedger(false);
+      };
+      card.appendChild(more);
+    }
+    box.appendChild(card);
+    return box;
+  }
+
+  function viewLedger() {
+    var wrap = h('div', 'view-ledger');
+    var top = h('div', 'detail-top');
+    var back = h('div', 'back-btn');
+    back.appendChild(document.createTextNode('‹ 持仓'));
+    back.onclick = function () { S.subview = ''; renderMain(); };
+    top.appendChild(back);
+
+    var idBox = h('div', 'detail-id');
+    idBox.appendChild(h('div', 'detail-name', '资金流水'));
+    var ov = S.overview;
+    idBox.appendChild(h('div', 'detail-code',
+      ov ? '可用 ' + money(ov.summary.cash.available) + ' · 余额 ' + money(ov.summary.cash.balance) : '学元账本'));
+    top.appendChild(idBox);
+    wrap.appendChild(top);
+
+    if (!S.ledger) {
+      wrap.appendChild(loadingBox('加载流水'));
+      return wrap;
+    }
+    if (!S.ledger.list.length) {
+      wrap.appendChild(emptyBox('▤', '还没有流水记录', '买入、卖出、领津贴、班管发放都会记在这里'));
+      return wrap;
+    }
+
+    var card = h('div', 'card');
+    for (var i = 0; i < S.ledger.list.length; i++) card.appendChild(ledgerRow(S.ledger.list[i]));
+    wrap.appendChild(card);
+
+    if (S.ledger.next_before_id) {
+      var moreBtn = h('button', 'ledger-more-btn', '加载更多');
+      moreBtn.onclick = function () { loadLedger(false); };
+      wrap.appendChild(moreBtn);
+    } else {
+      wrap.appendChild(h('div', 'submit-warn', '已到最早一笔。每一笔都能对上：买入扣「成交额 + 费用」，卖出得「成交额 − 费用」。'));
+    }
     return wrap;
   }
 
@@ -1399,6 +1600,7 @@
       if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
       loadOrders();
       loadOverview();
+      loadLedger(true);   // 撤单解冻会写一笔流水，必须刷新，否则学生看到的余额对不上
     }).catch(function (e) {
       toast(errMsg(e), 'error');
     });
@@ -2263,6 +2465,7 @@
       }
       if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
       loadOverview();
+      loadLedger(true);
       if (S.detailCode) loadDetail(S.detailCode);
       if (S.tab === 'orders') loadOrders();
     }).catch(function (e) {
@@ -2395,6 +2598,19 @@
     }).catch(function (e) { toast(errMsg(e), 'error'); });
   }
 
+  function loadLedger(reset) {
+    var beforeId = reset ? 0 : ((S.ledger && S.ledger.next_before_id) || 0);
+    if (!reset && !beforeId) return Promise.resolve();
+    return get('/ledger', { limit: 20, beforeId: beforeId }).then(function (d) {
+      if (reset || !S.ledger) S.ledger = d;
+      else S.ledger = { list: (S.ledger.list || []).concat(d.list || []), next_before_id: d.next_before_id };
+      if (S.tab === 'positions') renderMain();
+      return d;
+    }).catch(function (e) {
+      toast(errMsg(e), 'error');
+    });
+  }
+
   function loadRank() {
     loadPeer();
     return get('/rank').then(function (d) {
@@ -2439,7 +2655,7 @@
 
   function loadTab(tab) {
     if (tab === 'market') { loadMarket(); loadOverview(); loadReport(); }
-    else if (tab === 'positions') { loadOverview(); loadAchievements(); }
+    else if (tab === 'positions') { loadOverview(); loadAchievements(); loadLedger(true); }
     else if (tab === 'orders') { loadOrders(); }
     else if (tab === 'rank') { loadRank(); }
     else if (tab === 'guide') { if (!S.rules) loadRules(); }

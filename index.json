@@ -1,6 +1,6 @@
 {
-  "version": 29,
-  "updated_at": "2026-11-03T02:32:31.230Z",
+  "version": 30,
+  "updated_at": "2026-11-03T03:02:23.283Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.6.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
+      "version": "1.7.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。亏了也不能充值 —— 本金只有学元。内置 5 步新手引导与 12 节指南（费用算例、术语表、新手常见错误），第一次来也不会懵；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -467,6 +467,7 @@
         "apps/stock/screenshots/02-detail.png",
         "apps/stock/screenshots/03-rank.png",
         "apps/stock/screenshots/04-guide.png",
+        "apps/stock/screenshots/05-ledger.png",
         "apps/stock/test/e2e.cjs",
         "apps/stock/test/ui-probe.mjs"
       ],
@@ -477,19 +478,20 @@
         "backend/peer.js": "1f3683beb40e6cd9b50f097518e8b22c9abc9374c94acfac734c4aa203474822",
         "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "6772862ee99a263bd262a875a9957fb5a6f171f6ab403193dde5e27f40a6ba13",
-        "backend/routes.js": "c3065e2f7860442f8e69be0ec7760660f25761bd528bb6ade13f6004be6a7cc0",
+        "backend/routes.js": "9c9e52d7d0d297d15823d9e929c9c1c234f7082c93611b7e1f50cab9ee731a07",
         "backend/store.js": "5dac89a4fd780b686ae85d0a0534d92d4a5429777218cc074a20afe51bcd9d04",
         "backend/trading.js": "70b3de5e6fba063c443fc212db4cb995089415e313b2fd6102580e6c6b68c198",
-        "frontend/entry.js": "a067fbf14f973a691690a3a98388b75a269872d18fa7ffa9e80f4e62e789f8bc",
-        "frontend/style.css": "5ea93f8858b8169fdb5161ce2c79346b0c738790e3acfa86cc6560999d85862e",
+        "frontend/entry.js": "8c0c629c907ad4ae9cbd6901b286594d99c8302749c218355851bce18942bfa4",
+        "frontend/style.css": "e7da3fae9d3470ac8f89bb5ceec6fbe8c92969dc305cfe319e45d444ff0a5e6a",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "0e04a65692307d175fd717a7bb778acd4c6978f0f07e11efc85163c42c54010a",
-        "screenshots/01-overview.png": "2596d7176694d652f9133ec04f5e7ac107be509cf9906e3946c7d8c4c718b724",
-        "screenshots/02-detail.png": "141bf41fddf17fe08375a183220db0ed21b98d225482de318b1e55a688e57613",
-        "screenshots/03-rank.png": "dcb7604675263b7346d1989909e72acffbd604a9412e0b5036a10a4d7003279d",
-        "screenshots/04-guide.png": "a42c137128e120d4dbf6fd8f31732a24de9e70be60002e2c3b315bd0b28fc8fb",
-        "test/e2e.cjs": "f7d4811ac483ee308916224e9aa6d6a81591dbddd08a6d8c5afef69504145875",
-        "test/ui-probe.mjs": "2fdb78cb15905f21ca78d0edceae0efec66b4dff11f1298fd3b2ece11e548eff"
+        "manifest.json": "3abfead9eb779a21afdb90f76040e062d7b219b69edbf0a001913524d0484f97",
+        "screenshots/01-overview.png": "7ad0ebe49d0197b1f927bce638a3aec0aba4d46023337d2e1a080b94a141c684",
+        "screenshots/02-detail.png": "58a1d5d958374578413ce19943df5be5d1df4e49d314c38682597f043e7de4ab",
+        "screenshots/03-rank.png": "866c1007b98711add457c8c60c501ea5104e7c839745e8559c86ef9bff9f982a",
+        "screenshots/04-guide.png": "7681f6304095514c43cf122e20cea5b62130ad2393fc1fd32a867ecc2d889190",
+        "screenshots/05-ledger.png": "f7b7464a0f42ed46e7dccfd4bb0f89ccaa504626034522f1949bd332e6f4c9cb",
+        "test/e2e.cjs": "9ad7e1e0f8d9034ffe7a5393e6272ca81156e2124735822e05ed24810804d63e",
+        "test/ui-probe.mjs": "90794818df4f27256c3e8b09e5df3defac8993d0bdc77c8c356d5e865f0f1357"
       },
       "group": "study",
       "color": "#E5484D",
@@ -497,9 +499,14 @@
         "apps/stock/screenshots/01-overview.png",
         "apps/stock/screenshots/02-detail.png",
         "apps/stock/screenshots/03-rank.png",
-        "apps/stock/screenshots/04-guide.png"
+        "apps/stock/screenshots/04-guide.png",
+        "apps/stock/screenshots/05-ledger.png"
       ],
       "changelog": [
+        {
+          "version": "1.7.0",
+          "notes": "新增「资金流水」：持仓页显示最近 6 条（余额/备注/时间/±金额），点「查看全部」可按页翻完整账本 —— 买卖、费用、成就奖励、班管发放、同学转账逐笔可对，直接读宿主的学元复式账本，不另记一套账。新增图表十字线：长按/拖动分时或 K 线显示该分钟价格或该日开高低收+成交量，松手自动收起（平板没有 hover）。"
+        },
         {
           "version": "1.6.0",
           "notes": "T+1 → T+0：当天买入当天就能卖（平板不是天天开机，不再卡「次日才能卖」），卖出所得立刻可再买；规则页与指南明确标注真实 A 股仍是 T+1。新增：详情页「持仓速览」条（持仓/成本/可卖/浮盈，点一下跳持仓页）；成交记录点行看费用明细（佣金/印花税/过户费/已实现盈亏）。测试：e2e 125/125、ui-probe 61/61。"
@@ -510,19 +517,19 @@
         },
         {
           "version": "1.4.0",
-          "notes": "新增两个板块：AI 大模型（10 只）—— DeepSeek 概念股（每日互动/青云科技/优刻得/首都在线/拓维信息）与已上市大模型厂商（三六零/昆仑万维/云从/拓尔思/万兴）；小米产业链（8 只）—— 小米集团在港股买不到，这里放 A 股供应商（光弘科技/精研科技/领益智造/蓝思科技/银轮股份/拓普集团/三花智控/无锡振华）。指南新增一节「DeepSeek、华为、小米：为什么买不到」，讲清未上市/港股/美股三类边界与「概念股 ≠ 那家公司」。股票池 49 → 67 只、18 → 20 个板块（含全部板块胶囊）。"
+          "notes": "新增两个板块：AI 大模型（10 只）与小米产业链（8 只），并在指南里讲清未上市/港股/美股的边界与「概念股 ≠ 那家公司」。股票池 49 → 67 只、18 → 20 个板块。"
         },
         {
           "version": "1.3.0",
-          "notes": "新增新手教程与指南：首次进入自动弹 5 步聚光灯引导（高亮资产卡/板块筛选/行情行/导航），跳过或完成都记在本地、可在指南页随时重看；指南页 11 节（三分钟上手、看懂行情、限价与市价、一手与预扣、1 万学元手续费算例、T+1、涨跌停、委托状态、新手五大错、术语表、班级对决）。导航新增「指南」页。"
+          "notes": "新增新手教程与指南：首访 5 步聚光灯引导 + 指南页 11 节（含费用算例、术语表、新手常见错误）。导航新增「指南」。"
         },
         {
           "version": "1.2.0",
-          "notes": "新增人工智能板块（10 只：算力/光模块/服务器/终端应用，创业板科创板 ±20% 与主板 ±10% 对照）+ 板块快捷筛选 + 日K成交量副图。修复：开盘前行情整表为空（东财 f2 现价返回 \"-\" 时被整只丢弃，早读时段必现）、排行「我」标签不显示（me 缺 user_id）；盘前详情把今开/最高/最低显示为「—」并提示休市，不再拿昨收冒充今开。"
+          "notes": "新增人工智能板块 + 板块筛选 + 日K成交量副图；修复盘前行情整表为空、排行「我」标签不显示。"
         },
         {
           "version": "1.1.0",
-          "notes": "改名「学元证券」。修复：成就系统从未解锁（建表缺失 + db 误当函数调用）、排行榜收到对端战报后白屏（vsSide 从未实现）、班级对决永远 peer-empty（payload 未解析）、收盘报告工作日上午必 500（同步返回非 Promise）；排行榜/对决收益率不再把现金余额重复计入盈亏，与资产页同口径。新增：行情搜索、详情页自选星标、委托自动刷新、涨停/跌停徽标、行情错误态与重试、限价快捷档。委托彻底放开时间限制（含市价单），休市挂单开盘自动撮合。"
+          "notes": "改名「学元证券」；修复成就永不解锁、排行白屏、周结算 peer-empty、报告 500；收益率不再把现金重复计入盈亏；委托全时段可下。"
         }
       ]
     }

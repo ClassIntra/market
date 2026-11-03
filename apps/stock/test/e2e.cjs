@@ -282,6 +282,17 @@ async function main() {
     ok('买回后持仓恢复且可卖', posBack && posBack.qty === 100 && posBack.available_qty === 100, posBack && {
       qty: posBack.qty, available: posBack.available_qty
     });
+
+    console.log('\n=== 资金流水 ===');
+    var ledger = await api('GET', '/api/stock/ledger?limit=10', { token: T1 });
+    eq('资金流水 200', ledger.status, 200);
+    var lrows = (ledger.body.data && ledger.body.data.list) || [];
+    ok('流水有记录', lrows.length > 0, lrows.length);
+    ok('流水含买入扣款', lrows.some(function (x) { return x.delta < 0 && /买入/.test(x.memo || ''); }),
+      lrows.slice(0, 3).map(function (x) { return x.memo; }));
+    ok('流水含卖出到账', lrows.some(function (x) { return x.delta > 0 && /卖出/.test(x.memo || ''); }),
+      lrows.slice(0, 3).map(function (x) { return x.memo; }));
+    ok('流水带余额快照（可逐笔对账）', typeof lrows[0].balance_after === 'number', lrows[0].balance_after);
   } else {
     ok('非交易时段下单进入排队（不报错）', buyData.order.status === 'pending', buyData.order.status);
   }
