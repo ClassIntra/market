@@ -2,7 +2,7 @@
 // 用法（在仓库根）："C:\Program Files\nodejs\node.exe" market-apps/stock/test/e2e.cjs
 //
 // 它会：重建临时库 → 起 9099 实例 → 造 3 个学生 → 用真实行情跑完
-// 「开户赠金 → 市价买入 → T+1 拦截 → 挂单冻结 → 撤单解冻 → 管理端发放 → 账本对账」。
+// 「开户赠金 → 市价买入 → 当天可卖（T+0）→ 挂单冻结 → 撤单解冻 → 管理端发放 → 账本对账」。
 //
 // 为什么不用现成的数据库：这条链路会真的发钱、真的扣钱，
 // 只能在一个从零开始的库上验证，否则「初始 1000 学元」这类断言全是脏的。
@@ -249,7 +249,9 @@ async function main() {
     var posRes = await api('GET', '/api/stock/positions', { token: T1 });
     var pos = (posRes.body.data.positions || []).filter(function (p) { return p.code === cheap.code; })[0];
     ok('持仓已建立', !!pos && pos.qty === 100, pos);
-    eq('T+1：当日买入不可卖', pos.available_qty, 0);
+    // 2026-11-03 起教学盘改为 T+0：平板不常开机，当天买当天可卖
+    eq('T+0：当日买入即可卖', pos.available_qty, 100);
+    eq('T+0：无锁定数量', pos.t1_locked_qty, 0);
     ok('持仓成本 = 成交额 + 费用', Math.abs(pos.cost_cent / 100 - (tr0.amount + tr0.fee)) < 0.02, { cost: pos.cost_cent / 100, expect: tr0.amount + tr0.fee });
 
     var cashAfter = buyData.summary.cash;
@@ -262,12 +264,24 @@ async function main() {
     ok('扣减额 = 成交额 + 费用 − 首单成就奖励',
       Math.abs(drop - (expectDrop - 20)) < 0.02, { drop: drop, expect: expectDrop });
 
-    console.log('\n=== T+1 拦截 ===');
+    console.log('\n=== 当天可卖（T+0）===');
     var sellNow = await api('POST', '/api/stock/order', {
       token: T1, body: { code: cheap.code, side: 'sell', type: 'market', qty: 100 }
     });
-    eq('当日卖出被拒', sellNow.status, 400);
-    ok('提示 T+1', /次日|可卖/.test(sellNow.body.message || ''), sellNow.body.message);
+    eq('当日卖出成功（教学盘 T+0）', sellNow.status, 200);
+    var posAfterSell = (await api('GET', '/api/stock/positions', { token: T1 })).body.data.positions;
+    ok('卖出后该股持仓清空', !posAfterSell.some(function (p) { return p.code === cheap.code; }), posAfterSell.length);
+
+    // 当天买回来：T+0 往返 + 已实现盈亏都要能算对（真实市场做不到这一点）
+    var buyBack = await api('POST', '/api/stock/order', {
+      token: T1, body: { code: cheap.code, side: 'buy', type: 'market', qty: 100 }
+    });
+    eq('当天买回成功（T+0）', buyBack.status, 200);
+    var posBack = (await api('GET', '/api/stock/positions', { token: T1 })).body.data.positions
+      .filter(function (p) { return p.code === cheap.code; })[0];
+    ok('买回后持仓恢复且可卖', posBack && posBack.qty === 100 && posBack.available_qty === 100, posBack && {
+      qty: posBack.qty, available: posBack.available_qty
+    });
   } else {
     ok('非交易时段下单进入排队（不报错）', buyData.order.status === 'pending', buyData.order.status);
   }

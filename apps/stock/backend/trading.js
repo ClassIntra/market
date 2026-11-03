@@ -2,16 +2,20 @@
 // ============================================================
 // 这里实现的是**真实 A 股规则**的模拟盘，钱是学元。
 // 与真实券商一致的部分（不要为了省事改掉，否则就成游戏了）：
-//   · T+1：当日买入次日才能卖
 //   · 涨跌停：主板 ±10%、创业板/科创板 ±20%，超价直接废单
 //   · 涨停买不到、跌停卖不掉（挂单排队，不强行成交）
 //   · 100 股一手；零股只能一次性卖出
 //   · 佣金万 2.5 最低 5 元、印花税卖出 0.05%、过户费 0.001%
-//   · 15:00 收盘，当日未成交委托自动失效并解冻
+//   · 9:25 集合竞价按开盘价撮合
 //
 // 与真实券商不同的部分（都是有意的）：
+//   · **T+0：当天买的当天就能卖**（2026-11-03）。校园平板不是天天开，
+//     T+1 会让「今天买的明天才能卖」直接卡死学生。真实 A 股仍是 T+1，
+//     规则页与指南都写明了这一点 —— 放宽体验，但不能记错规则。
+//   · **委托长期有效**：晚上/周末挂单不失效，开盘自动撮合；只有「委托价
+//     已出当日涨跌停范围」的死单会在撮合时作废并解冻。
 //   · 不撮合部分成交（学生资金量小，一次成交即可，也避免碎股）
-//   · 收盘后不接受隔夜委托（隔夜单会让学生忘记这单，反而更不真实）
+
 //
 // 编码约定：var / function
 
@@ -204,7 +208,7 @@ function placeOrder(userId, params) {
     // ---- 卖出 ----
     var pos = store.getPosition(userId, code);
     var sellable = pos ? pos.available_qty - frozenSellQty(userId, code) : 0;
-    if (!pos || sellable <= 0) throw TradeError('没有可卖持仓（当日买入需次日才能卖出）');
+    if (!pos || sellable <= 0) throw TradeError('没有可卖持仓（可卖数量 = 持仓 − 已挂卖单）');
     if (qty > sellable) throw TradeError('可卖数量不足（当前可卖 ' + sellable + ' 股）');
     if (qty < market.LOT_SIZE && qty !== sellable) {
       throw TradeError('零股（不足 100 股）必须一次性全部卖出');
@@ -361,14 +365,16 @@ function fillBuy(order, fillCent, amount, fees, now, today) {
       at: now
     });
 
-    // 2) 持仓：数量增加，可卖数量不变（T+1）
+    // 2) 持仓：数量与可卖数量一起增加（T+0）
+    // 2026-11-03 产品决策：校园平板不是天天开，T+1 会让「今天买的明天才能卖」
+    // 直接卡死学生 —— 教学盘改为当天可卖。真实 A 股仍是 T+1，规则页与指南都写明了。
     var pos = store.getPosition(order.user_id, order.code);
     if (pos) {
-      d.prepare('UPDATE stock_positions SET qty = qty + ?, cost_cent = cost_cent + ?, name = ?, updated_at = ? WHERE user_id = ? AND code = ?')
-        .run(order.qty, cost, order.name, now, order.user_id, order.code);
+      d.prepare('UPDATE stock_positions SET qty = qty + ?, available_qty = available_qty + ?, cost_cent = cost_cent + ?, name = ?, updated_at = ? WHERE user_id = ? AND code = ?')
+        .run(order.qty, order.qty, cost, order.name, now, order.user_id, order.code);
     } else {
-      d.prepare('INSERT INTO stock_positions (user_id, code, name, qty, available_qty, cost_cent, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)')
-        .run(order.user_id, order.code, order.name, order.qty, cost, now);
+      d.prepare('INSERT INTO stock_positions (user_id, code, name, qty, available_qty, cost_cent, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(order.user_id, order.code, order.name, order.qty, order.qty, cost, now);
     }
 
     // 3) 订单与成交明细

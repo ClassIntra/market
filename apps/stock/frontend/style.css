@@ -1332,6 +1332,23 @@
 .ci-stock .detail-star:active { background: rgba(255,255,255,.06); }
 .ci-stock .detail-star.on { color: var(--gold); }
 
+/* 详情页持仓速览 */
+.ci-stock .detail-pos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  background: rgba(232,195,106,.06);
+  border: 1px solid rgba(232,195,106,.18);
+  border-radius: 11px;
+  cursor: pointer;
+}
+.ci-stock .detail-pos:active { background: rgba(232,195,106,.1); }
+.ci-stock .dp-main { font-size: 13px; font-weight: 600; color: var(--text); }
+.ci-stock .dp-sub { font-size: 11px; color: var(--dim); margin-top: 3px; }
+.ci-stock .dp-pnl { font-size: 13px; font-weight: 600; }
+
 /* ================= 错误态（拉不到 ≠ 没有） ================= */
 .ci-stock .error-box {
   padding: 34px 20px;

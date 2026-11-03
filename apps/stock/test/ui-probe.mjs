@@ -464,6 +464,16 @@ ok('持仓页渲染', pos.cards >= 1, pos.cards + ' 张持仓卡');
 ok('持仓页高亮导航正确', /持仓/.test(pos.active), pos.active);
 await shot('06-positions');
 
+// 持仓速览：从持仓页点进个股，详情顶部应显示成本 / 可卖 / 浮盈
+await evalJS(`(function(){ var c = document.querySelector('.ci-stock .pos-card'); if (c) c.click(); return true; })()`);
+await sleep(2400);
+const strip = await evalJS(`(function(){ var s = document.querySelector('.ci-stock .detail-pos'); return s ? s.textContent : ''; })()`);
+ok('详情页显示我的持仓速览（持仓/成本/可卖）',
+  /持仓 /.test(strip || '') && /成本/.test(strip || '') && /可卖/.test(strip || ''), strip);
+await shot('06b-detail-pos');
+await clickNav('行情');
+await sleep(1200);
+
 await clickNav('委托');
 await sleep(1600);
 const orders = await evalJS(`(function(){
@@ -487,6 +497,13 @@ await evalJS(`(function(){
 await sleep(1400);
 const trades = await evalJS(`document.querySelectorAll('.ci-stock .trow').length`);
 ok('成交记录有数据', trades >= 1, trades + ' 笔');
+
+// 点成交行 → 费用明细（佣金/印花税/过户费）
+await evalJS(`(function(){ var r = document.querySelector('.ci-stock .trow'); if (r) r.click(); return true; })()`);
+await sleep(450);
+const feeToast = await evalJS(`(function(){ var t = document.querySelector('.ci-stock-toast'); return t ? t.textContent : ''; })()`);
+ok('成交行可看费用明细（佣金/印花税/过户费）',
+  /佣金/.test(feeToast || '') && /过户费/.test(feeToast || ''), feeToast);
 await shot('08-trades');
 
 await clickNav('排行');

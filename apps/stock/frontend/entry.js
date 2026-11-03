@@ -783,6 +783,34 @@
     top.appendChild(star);
     wrap.appendChild(top);
 
+    // 持仓速览：看 K 线的时候就知道自己的成本，不用来回切「持仓」页
+    var myPos = null;
+    if (S.overview && S.overview.summary && S.overview.summary.positions) {
+      var ps = S.overview.summary.positions;
+      for (var pi = 0; pi < ps.length; pi++) {
+        if (ps[pi].code === S.detailCode) { myPos = ps[pi]; break; }
+      }
+    }
+    if (myPos) {
+      var strip = h('div', 'detail-pos');
+      var dpL = h('div', 'dp-left');
+      dpL.appendChild(h('div', 'dp-main', '持仓 ' + myPos.qty + ' 股'));
+      dpL.appendChild(h('div', 'dp-sub', '成本 ' + fmt(myPos.avg_cost, 2) + ' · 可卖 ' + myPos.available_qty + ' 股'));
+      strip.appendChild(dpL);
+      strip.appendChild(h('div', 'dp-pnl num ' + trendClass(myPos.pnl),
+        signed(myPos.pnl) + '（' + pct(myPos.pnl_pct) + '）'));
+      strip.onclick = function () {
+        S.tab = 'positions';
+        S.detailCode = '';
+        S.detail = null;
+        S.detailQuote = null;
+        renderNav();
+        renderMain();
+        loadTab('positions');
+      };
+      wrap.appendChild(strip);
+    }
+
     // 图表
     var chartCard = h('div', 'card');
     var tabs = h('div', 'chart-tabs');
@@ -1128,8 +1156,8 @@
 
     wrap.appendChild(achievementsCard());
 
-    // 底部说明：T+1
-    var note = h('div', 'submit-warn', '当日买入的股票需下一交易日才能卖出（T+1）。带「锁」标记的是今日买入、暂不可卖的部分。');
+    // 底部说明：T+0（教学盘放宽）
+    var note = h('div', 'submit-warn', '今天买入的股票也能立刻卖出（教学盘放宽了真实 A 股的 T+1，因为平板不是天天开机）。真实市场记住：A 股是次日才能卖。');
     wrap.appendChild(note);
     return wrap;
   }
@@ -1262,6 +1290,20 @@
         c4.appendChild(h('div', null, money(t.amount)));
         c4.appendChild(h('div', 'flat', '费 ' + fmt(t.fee, 2)));
         row.appendChild(c4);
+        // 点一行看费用明细：佣金 / 印花税 / 过户费 —— 「为什么赚了却少了钱」都在这
+        (function (tr, rw) {
+          rw.onclick = function () {
+            var fd = tr.fee_detail || {};
+            var parts = [
+              '佣金 ' + fmt(fd.commission || 0, 2),
+              '印花税 ' + fmt(fd.stamp || 0, 2),
+              '过户费 ' + fmt(fd.transfer || 0, 2)
+            ];
+            var extra = tr.side === 'sell' ? ' · 已实现 ' + signed(tr.realized) : '';
+            toast(tr.name + ' ' + tr.side_label + ' ' + tr.qty + ' 股 @' + fmt(tr.price, 2) +
+              '：' + parts.join(' · ') + extra + '（合计 ' + fmt(tr.fee, 2) + ' 学元）');
+          };
+        })(t, row);
         tc.appendChild(row);
       }
       wrap.appendChild(tc);
@@ -1578,7 +1620,7 @@
     {
       target: null,
       title: '三条最重要的规则',
-      body: '<b>T+1</b>：今天买的明天才能卖。<br><b>手续费</b>：一买一卖至少 10 学元起，交易越勤亏得越快。<br><b>涨跌停</b>：涨停买不到、跌停卖不掉 —— 挂上了不等于会成交。'
+      body: '<b>T+0（本盘）</b>：当天买的当天就能卖 —— 平板不是天天开机，不卡你。<br><b>手续费</b>：一买一卖至少 10 学元起，交易越勤亏得越快。<br><b>涨跌停</b>：涨停买不到、跌停卖不掉 —— 挂上了不等于会成交。'
     }
   ];
 
@@ -1747,9 +1789,10 @@
         '<p>一买一卖 ≈ <b>15 元</b>，相当于 0.15%。每周买卖 5 次，一个月光手续费就吃掉 3% —— 这就是「频繁交易」为什么不划算。</p>'
     },
     {
-      icon: '⏳', title: 'T+1：今天买，明天才能卖',
-      html: '<p>当日买入的股票，下一个交易日才可卖出。持仓页里带「锁」标记的就是今天买的、暂时不能卖的部分。</p>' +
-        '<p>卖出得到的学元当天就能用（可以继续买别的），但同一只股票不能当天买回来再卖。</p>'
+      icon: '⏳', title: '当天就能卖，但真实市场是 T+1',
+      html: '<p>本盘为了「平板不是天天开机」放宽成 <b>T+0</b>：今天买的股票今天就能卖，卖出得到的学元马上又能买别的。</p>' +
+        '<p>但请记住真实规则：<b>A 股是 T+1</b> —— 今天买入的股票，下一个交易日才能卖出。模拟盘的便利别变成真实交易的错误记忆；考试里「T+1」也是必考点。</p>' +
+        '<p>另外，同一只股票<b>不能当天买回来再卖</b>这种反复操作赚差价 —— 在真实 T+1 下你根本做不到，本盘也不建议这么练。</p>'
     },
     {
       icon: '🚧', title: '涨跌停',
@@ -1845,7 +1888,7 @@
     card.appendChild(ruleItem('随时都能下单', r.orderWindow));
     card.appendChild(ruleItem('什么时候成交', r.session_note + ' ' + r.matching));
     card.appendChild(ruleItem('市价单', r.market_order));
-    card.appendChild(ruleItem('T+1', r.t1));
+    card.appendChild(ruleItem('卖出限制（T+0）', r.t1));
     card.appendChild(ruleItem('涨跌停', r.limits));
     card.appendChild(ruleItem('交易单位', r.lot.note));
     card.appendChild(ruleItem('费用', '佣金 <b>万 2.5</b>（单笔最低 <b>5 元</b>，买卖双向）；印花税 <b>卖出 0.05%</b>；过户费 <b>0.001%</b>（双向）。'));
@@ -1976,7 +2019,7 @@
           ? maxBuyQty(st.cash.available, st.price)
           : (pos ? pos.available_qty : 0);
         if (st.maxQty <= 0) {
-          toast(side === 'sell' ? '没有可卖持仓（T+1）' : '可用学元不足', 'error');
+          toast(side === 'sell' ? '没有可卖持仓' : '可用学元不足', 'error');
           st.side = side === 'buy' ? 'sell' : 'buy';
           return;
         }
@@ -2144,8 +2187,8 @@
 
     var warn = h('div', 'submit-warn', st.side === 'buy'
       ? (st.type === 'market'
-        ? '市价单任何时间可下：开市时按最新价立即成交，休市时排队、开盘后按开盘价成交。买入后当日不可卖出（T+1）。'
-        : '委托长期有效，价格合适就成交；晚上和周末挂的单开盘后自动撮合。买入后当日不可卖出（T+1）。')
+        ? '市价单任何时间可下：开市时按最新价立即成交，休市时排队、开盘后按开盘价成交。当天买当天可卖（T+0，真实市场是 T+1）。'
+        : '委托长期有效，价格合适就成交；晚上和周末挂的单开盘后自动撮合。当天买当天可卖（T+0，真实市场是 T+1）。')
       : '卖出不收冻结，成交后学元直接到账；印花税与佣金在成交时扣除。');
     foot.appendChild(warn);
     sheet.appendChild(foot);
