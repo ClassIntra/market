@@ -1756,6 +1756,78 @@
 .ci-stock .term-q:active { background: rgba(232,195,106,.15); }
 .ci-stock .estimate .term-hit:active { opacity: .7; }
 
+/* ================= 今日复盘 ================= */
+.ci-stock .rv-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 4px -3px;
+}
+.ci-stock .rv-item {
+  width: calc(33.333% - 6px);
+  margin: 4px 3px;
+  box-sizing: border-box;
+  background: rgba(255,255,255,.025);
+  border-radius: 9px;
+  padding: 8px 9px;
+}
+.ci-stock .rv-k { font-size: 10px; color: var(--dim); }
+.ci-stock .rv-v { font-size: 13px; margin-top: 3px; color: var(--text); }
+.ci-stock .rv-bestworst { display: flex; margin: 6px 2px 0; font-size: 11px; }
+.ci-stock .rv-bestworst .rv-bw + .rv-bw { margin-left: 12px; }
+.ci-stock .rv-bw { color: var(--muted); }
+.ci-stock .rv-alloc { margin-top: 10px; }
+.ci-stock .rv-alloc-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ci-stock .rv-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255,255,255,.07);
+  overflow: hidden;
+  margin: 5px 0 4px;
+}
+.ci-stock .rv-bar-stock {
+  height: 100%;
+  background: linear-gradient(90deg, #E8C36A, #F0A93F);
+  border-radius: 3px;
+}
+.ci-stock .rv-legend { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); }
+.ci-stock .rv-tip { font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+
+/* ================= 提醒设置 ================= */
+.ci-stock .notify-set {
+  font-size: 11px;
+  color: var(--gold);
+  padding: 4px 8px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: rgba(232,195,106,.08);
+  cursor: pointer;
+}
+.ci-stock .notify-set:active { background: rgba(232,195,106,.16); }
+.ci-stock .pref-row { display: flex; align-items: center; margin: 12px 0; }
+.ci-stock .pref-label { flex: 0 0 72px; font-size: 12px; color: var(--muted); }
+
+/* 公司概况（F10）：与行情指标同款网格，但单独一类，便于探针分别计数 */
+.ci-stock .profile-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 2px -4px;
+}
+.ci-stock .profile-grid .dg-item {
+  width: calc(33.333% - 8px);
+  margin: 4px;
+  box-sizing: border-box;
+  background: rgba(255,255,255,.025);
+  border-radius: 9px;
+  padding: 9px 10px;
+}
+.ci-stock .profile-grid .dg-k { font-size: 10px; color: var(--dim); }
+.ci-stock .profile-grid .dg-v { font-size: 13px; margin-top: 4px; color: var(--text); }
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

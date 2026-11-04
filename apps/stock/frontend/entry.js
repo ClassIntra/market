@@ -61,6 +61,8 @@
     fastNews: null,     // 市场快讯
     fastNewsAt: 0,
     stockNews: {},      // code -> { list, at }
+    profiles: {},       // code -> { data, at }
+    pref: null,         // 提醒偏好 { enabled, up_pct, loss_pct }
     notify: { list: [], unread: 0, at: 0 },
     orders: null,
     trades: null,
@@ -463,7 +465,13 @@
         else if (listMeta[mi].change_pct < 0) downN++;
       }
       var meta = h('div', 'market-meta');
-      meta.appendChild(h('span', null, '股票池 ' + upN + ' 涨 · ' + downN + ' 跌'));
+      // 盘前/集合竞价前全市场涨跌幅都是 0，写「0 涨 0 跌」等于没说 —— 换个说法
+      var preOpen = upN === 0 && downN === 0 && !(S.overview && S.overview.session && S.overview.session.tradable);
+      if (preOpen) {
+        meta.appendChild(h('span', null, '尚未开盘 · 昨收价待撮合'));
+      } else {
+        meta.appendChild(h('span', null, '股票池 ' + upN + ' 涨 · ' + downN + ' 跌'));
+      }
       meta.appendChild(h('span', 'num', (S.market.stale ? '行情延迟 · ' : '') +
         todayLabel(S.market.quoted_at) + ' 更新'));
       wrap.appendChild(meta);
@@ -943,6 +951,9 @@
       wrap.appendChild(grid);
     }
 
+    // 公司概况（F10 摘要：行业/上市/市值/估值）
+    wrap.appendChild(profileCard(S.detailCode));
+
     // 相关资讯（点了在应用内看摘要，不跳外链）
     wrap.appendChild(stockNewsCard(S.detailCode));
 
@@ -1261,6 +1272,7 @@
 
     var sum = ov.summary;
     wrap.appendChild(heroCard(sum));
+    wrap.appendChild(reviewCard(sum));
 
     var head = h('div', 'chart-tabs');
     head.appendChild(h('div', 'card-title', '我的持仓'));
@@ -1418,6 +1430,136 @@
       wrap.appendChild(h('div', 'submit-warn', '已到最早一笔。每一笔都能对上：买入扣「成交额 + 费用」，卖出得「成交额 − 费用」。'));
     }
     return wrap;
+  }
+
+  // ---- 今日复盘：今天做了什么、花了多少费用、仓位多重 ----
+  function reviewCard(sum) {
+    var rv = sum && sum.review;
+    var box = h('div');
+    var head = h('div', 'chart-tabs');
+    head.appendChild(h('div', 'card-title', '今日复盘'));
+    head.appendChild(h('div', 'card-more num ' + trendClass(rv ? rv.today_pnl : 0),
+      rv ? (rv.today_pnl >= 0 ? '+' : '') + money(rv.today_pnl) : ''));
+    box.appendChild(head);
+
+    var card = h('div', 'card review-card');
+    if (!rv) {
+      card.appendChild(h('div', 'loading', '加载复盘…'));
+      box.appendChild(card);
+      return box;
+    }
+
+    var cells = [
+      ['今日成交', rv.trades + ' 笔', ''],
+      ['今日费用', money(rv.fee), ''],
+      ['买入金额', money(rv.buy_amount), ''],
+      ['卖出金额', money(rv.sell_amount), ''],
+      ['已实现', (rv.realized >= 0 ? '+' : '') + money(rv.realized), trendClass(rv.realized)],
+      ['费用占比', rv.fee_rate ? fmt(rv.fee_rate, 2) + '%' : '—', rv.fee_rate >= 0.1 ? 'up' : '']
+    ];
+    var grid = h('div', 'rv-grid');
+    for (var i = 0; i < cells.length; i++) {
+      var it = h('div', 'rv-item');
+      it.appendChild(h('div', 'rv-k', cells[i][0]));
+      it.appendChild(h('div', 'rv-v num ' + cells[i][2], cells[i][1]));
+      grid.appendChild(it);
+    }
+    card.appendChild(grid);
+
+    // 最赚 / 最亏（至少两只持仓才有比较意义 —— 只有一只时两者永远相同，读起来像 bug）
+    if (rv.best && rv.worst && sum.positions.length >= 2) {
+      var bw = h('div', 'rv-bestworst');
+      bw.appendChild(h('span', 'rv-bw up', '最赚 ' + rv.best.name + ' ' +
+        (rv.best.pnl >= 0 ? '+' : '') + money(rv.best.pnl)));
+      bw.appendChild(h('span', 'rv-bw down', '最亏 ' + rv.worst.name + ' ' +
+        (rv.worst.pnl >= 0 ? '+' : '') + money(rv.worst.pnl)));
+      card.appendChild(bw);
+    }
+
+    // 仓位条：持仓 / 现金
+    var cash = sum.cash.balance;
+    var mv = sum.totals.market_value;
+    var total = cash + mv;
+    var stockPct = total > 0 ? Math.min(100, Math.max(0, mv / total * 100)) : 0;
+    var alloc = h('div', 'rv-alloc');
+    var aHead = h('div', 'rv-alloc-head');
+    aHead.appendChild(h('span', null, '仓位'));
+    aHead.appendChild(h('span', 'num', fmt(stockPct, 1) + '%'));
+    alloc.appendChild(aHead);
+    var bar = h('div', 'rv-bar');
+    bar.appendChild(h('div', 'rv-bar-stock'));
+    bar.lastChild.style.width = stockPct + '%';
+    alloc.appendChild(bar);
+    var lg = h('div', 'rv-legend');
+    lg.appendChild(h('span', 'num', '持仓 ' + money(mv)));
+    lg.appendChild(h('span', 'num', '现金 ' + money(cash)));
+    alloc.appendChild(lg);
+    card.appendChild(alloc);
+
+    if (rv.tip) card.appendChild(h('div', 'rv-tip', rv.tip));
+    box.appendChild(card);
+    return box;
+  }
+
+  // ---- 公司概况（F10）----
+  function mvYi(v) {
+    var n = Number(v) || 0;
+    return n > 0 ? fmt(n / 100000000, 2) + ' 亿' : '—';
+  }
+
+  function loadProfile(code) {
+    var hit = S.profiles[code];
+    if (hit && Date.now() - hit.at < 600000) return;
+    get('/profile/' + code).then(function (d) {
+      S.profiles[code] = { data: d || null, at: Date.now() };
+      if (S.detailCode === code) renderMain();
+    }).catch(function () {
+      S.profiles[code] = { data: null, at: Date.now() };
+      if (S.detailCode === code) renderMain();
+    });
+  }
+
+  function profileCard(code) {
+    var entry = S.profiles[code];
+    var box = h('div', 'profile-card');
+    var head = h('div', 'chart-tabs');
+    head.appendChild(h('div', 'card-title', '公司概况'));
+    head.appendChild(h('div', 'card-more', '数据：东方财富'));
+    box.appendChild(head);
+
+    var card = h('div', 'card');
+    if (!entry) {
+      card.appendChild(h('div', 'loading', '加载公司概况…'));
+      box.appendChild(card);
+      return box;
+    }
+    var d = entry.data;
+    if (!d) {
+      card.appendChild(h('div', 'empty-mini', '暂无公司概况'));
+      box.appendChild(card);
+      return box;
+    }
+    var cells = [
+      ['行业', d.industry || '—'],
+      ['上市日期', d.list_date || '—'],
+      ['总市值', mvYi(d.total_mv)],
+      ['流通市值', mvYi(d.float_mv)],
+      ['市盈率 PE', d.pe > 0 ? fmt(d.pe, 2) : '—'],
+      ['市净率 PB', d.pb > 0 ? fmt(d.pb, 2) : '—']
+    ];
+    var grid = h('div', 'profile-grid');
+    for (var i = 0; i < cells.length; i++) {
+      var it = h('div', 'dg-item');
+      var kEl = h('div', 'dg-k', cells[i][0]);
+      if (cells[i][0] === '市盈率 PE') termHit(kEl, '市盈率 PE');
+      it.appendChild(kEl);
+      it.appendChild(h('div', 'dg-v num', cells[i][1]));
+      grid.appendChild(it);
+    }
+    card.appendChild(grid);
+    card.appendChild(h('div', 'rv-tip', '市值 = 股价 × 总股本；PE 高说明市场对未来增长预期高，PB 高说明股价相对净资产贵。'));
+    box.appendChild(card);
+    return box;
   }
 
   function positionCard(p) {
@@ -2225,6 +2367,9 @@
     var panel = h('div', 'news-panel');
     var head = h('div', 'news-panel-head');
     head.appendChild(h('div', 'news-panel-title', '提醒' + (S.notify.unread ? '（' + S.notify.unread + ' 条未读）' : '')));
+    var gear = h('div', 'notify-set', '设置');
+    gear.onclick = function () { closeNewsModal(); openNotifyPref(); };
+    head.appendChild(gear);
     var x = h('div', 'news-close', '✕');
     x.onclick = closeNewsModal;
     head.appendChild(x);
@@ -2255,8 +2400,102 @@
     }
   }
 
-  function notifyRow(item) {
-    var meta = NOTIFY_META[item.kind] || { icon: '·', cls: '' };
+  // ---- 提醒设置：开关 + 阈值 ----
+  function loadPref() {
+    return get('/notify/pref').then(function (d) {
+      S.pref = d || { enabled: true, up_pct: 5, loss_pct: 8 };
+      return S.pref;
+    }).catch(function () {
+      if (!S.pref) S.pref = { enabled: true, up_pct: 5, loss_pct: 8 };
+      return S.pref;
+    });
+  }
+
+  function openNotifyPref() {
+    loadPref().then(function (p) {
+      var draft = { enabled: !!p.enabled, up_pct: p.up_pct || 5, loss_pct: p.loss_pct || 8 };
+      closeNewsModal();
+      var layer = h('div', 'news-modal');
+      var panel = h('div', 'news-panel');
+      var head = h('div', 'news-panel-head');
+      head.appendChild(h('div', 'news-panel-title', '提醒设置'));
+      var x = h('div', 'news-close', '✕');
+      x.onclick = closeNewsModal;
+      head.appendChild(x);
+      panel.appendChild(head);
+
+      var body = h('div', 'news-panel-body');
+      layer.appendChild(panel);
+      layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+
+      function chipRow(label, values, current, unit, apply) {
+        var row = h('div', 'pref-row');
+        row.appendChild(h('div', 'pref-label', label));
+        var seg = h('div', 'seg');
+        seg.style.flex = '1 1 0';
+        for (var i = 0; i < values.length; i++) {
+          (function (v) {
+            var b = h('div', 'seg-item' + (Number(current) === v ? ' active' : ''), v + unit);
+            b.style.flex = '1 1 0';
+            b.style.textAlign = 'center';
+            b.onclick = function () { apply(v); rerender(); };
+            seg.appendChild(b);
+          })(values[i]);
+        }
+        row.appendChild(seg);
+        return row;
+      }
+
+      function rerender() {
+        clear(body);
+
+        var swRow = h('div', 'pref-row');
+        swRow.appendChild(h('div', 'pref-label', '波动提醒'));
+        var sw = h('div', 'seg');
+        sw.style.flex = '1 1 0';
+        [['开', true], ['关', false]].forEach(function (it) {
+          var b = h('div', 'seg-item' + (draft.enabled === it[1] ? ' active' : ''), it[0]);
+          b.style.flex = '1 1 0';
+          b.style.textAlign = 'center';
+          b.onclick = function () { draft.enabled = it[1]; rerender(); };
+          sw.appendChild(b);
+        });
+        swRow.appendChild(sw);
+        body.appendChild(swRow);
+
+        body.appendChild(chipRow('涨跌提醒', [3, 5, 8], draft.up_pct, '%', function (v) { draft.up_pct = v; }));
+        body.appendChild(chipRow('浮亏提醒', [5, 8, 10], draft.loss_pct, '%', function (v) { draft.loss_pct = v; }));
+
+        body.appendChild(h('div', 'rv-tip',
+          '成交、委托失效、涨停跌停的提醒不受开关影响 —— 那些是「必须知道」的。关掉波动提醒后，打开应用也不会再扫描持仓。'));
+
+        var save = h('button', 'submit buy', '保存');
+        save.style.width = '100%';
+        save.style.marginTop = '14px';
+        save.onclick = function () {
+          save.disabled = true;
+          save.textContent = '保存中…';
+          post('/notify/pref', draft).then(function (d) {
+            S.pref = d || draft;
+            S.notify.at = 0;      // 让下次轮询强制刷新
+            toast('提醒设置已保存', 'success');
+            closeNewsModal();
+          }).catch(function (e) {
+            save.disabled = false;
+            save.textContent = '保存';
+            toast(errMsg(e), 'error');
+          });
+        };
+        body.appendChild(save);
+      }
+
+      rerender();
+      panel.appendChild(body);
+      root.appendChild(layer);
+    });
+  }
+
+  function notifyRow(item) {    var meta = NOTIFY_META[item.kind] || { icon: '·', cls: '' };
     var row = h('div', 'notify-item' + (item.read_at ? ' read' : ''));
     row.appendChild(h('span', 'nt-ico ' + meta.cls, meta.icon));
     var main = h('div', 'nt-main');
@@ -2881,6 +3120,7 @@
     return get('/quote/' + code).then(function (d) {
       S.detailQuote = d.quote;
       S.detailSession = d.session;
+      loadProfile(code);
       // 拿到名称后再查个股资讯（按名称搜命中率更高）
       if (S.detailCode === code && d.quote) loadStockNews(code, d.quote.name);
       if (S.detailCode === code) {

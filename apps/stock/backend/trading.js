@@ -95,6 +95,50 @@ function accountSummary(userId, snapshot) {
     'SELECT COALESCE(SUM(realized_cent), 0) AS s FROM stock_trades WHERE user_id = ? AND trade_date = ?'
   ).get(userId, today).s;
 
+  // ---- 今日复盘：教「交易频率 × 费用」这件事 ----
+  // 学生每天最多看几笔，这里只在打开应用时算一次聚合（都走索引，几十行）
+  var dayAgg = store.db().prepare([
+    'SELECT COUNT(*) AS n,',
+    '  COALESCE(SUM(CASE WHEN side = ? THEN amount_cent ELSE 0 END), 0) AS buy_amt,',
+    '  COALESCE(SUM(CASE WHEN side = ? THEN amount_cent ELSE 0 END), 0) AS sell_amt,',
+    '  COALESCE(SUM(fee_cent), 0) AS fee',
+    'FROM stock_trades WHERE user_id = ? AND trade_date = ?'
+  ].join('\n')).get('buy', 'sell', userId, today);
+
+  var best = null;
+  var worst = null;
+  for (var bi = 0; bi < items.length; bi++) {
+    var pi = items[bi];
+    if (!best || pi.pnl_cent > best.pnl_cent) best = pi;
+    if (!worst || pi.pnl_cent < worst.pnl_cent) worst = pi;
+  }
+
+  var review = {
+    trades: dayAgg.n || 0,
+    buy_amount: (dayAgg.buy_amt || 0) / 100,
+    sell_amount: (dayAgg.sell_amt || 0) / 100,
+    fee: (dayAgg.fee || 0) / 100,
+    realized: todayRealized / 100,
+    today_pnl: (todayPnl + todayRealized) / 100,
+    // 费用占「今日成交额」的比例 —— 比占本金更能说明「交易有多贵」
+    fee_rate: (dayAgg.buy_amt + dayAgg.sell_amt) > 0
+      ? Math.round((dayAgg.fee || 0) / (dayAgg.buy_amt + dayAgg.sell_amt) * 10000) / 100
+      : 0,
+    best: best ? { code: best.code, name: best.name, pnl: best.pnl, pnl_pct: best.pnl_pct } : null,
+    worst: worst ? { code: worst.code, name: worst.name, pnl: worst.pnl, pnl_pct: worst.pnl_pct } : null,
+    tip: ''
+  };
+  if (review.trades >= 6) {
+    review.tip = '今天成交 ' + review.trades + ' 笔、费用 ' + review.fee.toFixed(2) +
+      ' 学元 —— 手续费已经吃掉成交额的 ' + review.fee_rate.toFixed(2) + '%。频繁交易是新手亏损的头号原因。';
+  } else if (review.trades === 0 && items.length > 0) {
+    review.tip = '今天没有交易。拿住不动也是一种策略 —— 但要清楚自己为什么持有它。';
+  } else if (review.trades > 0) {
+    review.tip = '今天成交 ' + review.trades + ' 笔，费用 ' + review.fee.toFixed(2) + ' 学元。收盘前花两分钟复盘：每一笔都有理由吗？';
+  } else {
+    review.tip = '还没有交易记录。先去「行情」挑一只看得懂的公司。';
+  }
+
   return {
     cash: {
       balance: acc.balance,
@@ -124,6 +168,7 @@ function accountSummary(userId, snapshot) {
       fee_total: (row.fee_total_cent || 0) / 100,
       position_count: items.length
     },
+    review: review,
     session: market.currentSession(),
     stale: !!(snapshot && snapshot.stale)
   };

@@ -193,7 +193,9 @@ ok('资产总额已显示', /[\d,]+\.\d{2}/.test(market.hero), market.hero);
 ok('指数条已渲染', market.indexes >= 3, market.indexes);
 ok('按板块分组', market.sectors >= 5, market.sectors);
 const metaLine = await evalJS(`(function(){ var m = document.querySelector('.ci-stock .market-meta'); return m ? m.textContent : ''; })()`);
-ok('市场概况（涨跌家数 + 更新时间）', /涨/.test(metaLine || '') && /跌/.test(metaLine || '') && /更新/.test(metaLine || ''), metaLine);
+ok('市场概况（涨跌家数 / 未开盘提示 + 更新时间）',
+  ((/涨/.test(metaLine || '') && /跌/.test(metaLine || '')) || /尚未开盘/.test(metaLine || '')) && /更新/.test(metaLine || ''),
+  metaLine);
 
 // 市场快讯（东财 7×24；等接口返回，最多 6 秒）
 let newsRows = 0;
@@ -366,6 +368,15 @@ const termTest = await evalJS(`(function(){
   return { ok: !!t, title: t };
 })()`);
 ok('详情页指标点一下出术语解释', termTest.ok && /开|高|低|涨停|跌停|成交额|换手|市盈/.test(termTest.title || ''), termTest.title);
+
+// 公司概况（F10）：异步拉，轮询等
+let profCells = 0;
+for (let i = 0; i < 14; i++) {
+  profCells = await evalJS(`document.querySelectorAll('.ci-stock .profile-card .dg-item').length`);
+  if (profCells >= 6) break;
+  await sleep(500);
+}
+ok('详情页有公司概况 6 项（行业/市值/估值）', profCells >= 6, profCells + ' 项');
 
 // 相关资讯（按名称搜，等返回）
 let detailNews = 0;
@@ -571,6 +582,17 @@ const pos = await evalJS(`(function(){
   };
 })()`);
 ok('持仓页渲染', pos.cards >= 1, pos.cards + ' 张持仓卡');
+
+// 今日复盘：6 格 + 仓位条
+const rv = await evalJS(`(function(){
+  return {
+    cells: document.querySelectorAll('.ci-stock .rv-grid .rv-item').length,
+    bar: !!document.querySelector('.ci-stock .rv-bar-stock'),
+    tip: (document.querySelector('.ci-stock .rv-tip') || {}).textContent || ''
+  };
+})()`);
+ok('今日复盘卡 6 格', rv.cells === 6, rv.cells);
+ok('仓位条与教学提示', rv.bar && rv.tip.length > 6, rv.tip.slice(0, 24));
 ok('持仓页高亮导航正确', /持仓/.test(pos.active), pos.active);
 await shot('06-positions');
 
@@ -661,6 +683,28 @@ const ntPanel = await evalJS(`(function(){
 })()`);
 ok('提醒面板可打开且有记录', ntPanel.open && ntPanel.rows >= 1 && /提醒/.test(ntPanel.title), JSON.stringify(ntPanel));
 await shot('09b-notify');
+
+// 提醒设置：设置 → 阈值 chip → 保存
+await evalJS(`(function(){ var g = document.querySelector('.ci-stock .notify-set'); if (g) g.click(); return true; })()`);
+await sleep(800);
+const prefPanel = await evalJS(`(function(){
+  return {
+    rows: document.querySelectorAll('.ci-stock .pref-row').length,
+    chips: document.querySelectorAll('.ci-stock .pref-row .seg-item').length,
+    save: !!document.querySelector('.ci-stock .news-panel .submit')
+  };
+})()`);
+ok('提醒设置可打开（开关 + 两个阈值）', prefPanel.rows >= 3 && prefPanel.chips >= 7 && prefPanel.save, JSON.stringify(prefPanel));
+await shot('09c-pref');
+await evalJS(`(function(){
+  var chips = document.querySelectorAll('.ci-stock .pref-row .seg-item');
+  for (var i = 0; i < chips.length; i++) { if (chips[i].textContent === '3%') { chips[i].click(); return true; } }
+  return false;
+})()`);
+await sleep(400);
+await evalJS(`(function(){ var b = document.querySelector('.ci-stock .news-panel .submit'); if (b) b.click(); return true; })()`);
+await sleep(900);
+ok('保存后设置面板关闭', await evalJS(`!document.querySelector('.ci-stock .news-modal')`), '');
 await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
 await sleep(700);
 const badgeGone = await evalJS(`!document.querySelector('.ci-stock .nb-badge')`);

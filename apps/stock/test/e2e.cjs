@@ -190,6 +190,14 @@ async function main() {
   var sList = (stockNews.body.data && stockNews.body.data.list) || [];
   ok('个股资讯结构合法（空列表也允许）', sList.length === 0 || (!!sList[0].title), sList.length + ' 条');
 
+  // 公司概况（F10）
+  var prof = await api('GET', '/api/stock/profile/600519', { token: T1 });
+  eq('公司概况 200', prof.status, 200);
+  var pd = prof.body.data || {};
+  ok('概况含行业与市值', !!pd.industry && pd.total_mv > 0, pd.industry + ' / ' + Math.round((pd.total_mv || 0) / 1e8) + '亿');
+  ok('概况含上市日期', /^\d{4}-\d{2}-\d{2}$/.test(pd.list_date || ''), pd.list_date);
+  ok('概况含估值', pd.pe > 0 && pd.pb > 0, 'PE ' + pd.pe + ' PB ' + pd.pb);
+
   // 人工智能板块（2026-11-03 新增）：整条产业链 + 两种涨跌停幅度
   var aiList = list.filter(function (q) { return q.sector === '人工智能'; });
   ok('人工智能板块已上架（≥8 只）', aiList.length >= 8, aiList.length);
@@ -632,6 +640,28 @@ async function main() {
   ok('summary.stats.trade_count（新手默认市价依据）',
     typeof ((ovFin.body.data.summary || {}).stats || {}).trade_count === 'number',
     (ovFin.body.data.summary.stats || {}).trade_count);
+
+  console.log('\n=== 今日复盘 ===');
+  var rv = (ovFin.body.data.summary || {}).review || {};
+  ok('复盘含今日成交与费用', typeof rv.trades === 'number' && typeof rv.fee === 'number',
+    '成交 ' + rv.trades + ' 笔 / 费用 ' + rv.fee);
+  ok('复盘含最赚最亏', !!rv.best && !!rv.worst, (rv.best && rv.best.name) + ' / ' + (rv.worst && rv.worst.name));
+  ok('复盘有教学提示', typeof rv.tip === 'string' && rv.tip.length > 6, rv.tip);
+
+  console.log('\n=== 提醒设置 ===');
+  var pref0 = await api('GET', '/api/stock/notify/pref', { token: T1 });
+  eq('读取偏好 200', pref0.status, 200);
+  ok('默认阈值 5% / 8%',
+    pref0.body.data.up_pct === 5 && pref0.body.data.loss_pct === 8 && pref0.body.data.enabled === true,
+    JSON.stringify(pref0.body.data));
+  var pref1 = await api('POST', '/api/stock/notify/pref', { token: T1, body: { up_pct: 3, loss_pct: 10, enabled: true } });
+  eq('保存偏好 200', pref1.status, 200);
+  ok('保存后阈值生效', pref1.body.data.up_pct === 3 && pref1.body.data.loss_pct === 10, JSON.stringify(pref1.body.data));
+  var pref2 = await api('GET', '/api/stock/notify/pref', { token: T1 });
+  ok('偏好已持久化', pref2.body.data.up_pct === 3 && pref2.body.data.loss_pct === 10, JSON.stringify(pref2.body.data));
+  var pref3 = await api('POST', '/api/stock/notify/pref', { token: T1, body: { up_pct: 99, loss_pct: -5 } });
+  ok('阈值被夹到合法区间', pref3.body.data.up_pct <= 20 && pref3.body.data.loss_pct >= 2,
+    pref3.body.data.up_pct + ' / ' + pref3.body.data.loss_pct);
 
   // 给 UI 探针留一条未读：探针要验顶栏红点的渲染与「打开即清零」。
   // 只种数据、不改接口行为，避免探针依赖真实成交时机。

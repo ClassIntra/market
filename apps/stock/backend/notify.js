@@ -28,7 +28,15 @@ function ensure() {
     '  read_at INTEGER',
     ');',
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_notify_ref ON stock_notify(user_id, ref);',
-    'CREATE INDEX IF NOT EXISTS idx_stock_notify_user ON stock_notify(user_id, id DESC);'
+    'CREATE INDEX IF NOT EXISTS idx_stock_notify_user ON stock_notify(user_id, id DESC);',
+    // 每人一份提醒偏好：总开关 + 涨跌幅阈值 + 浮亏阈值（默认 5% / 8%）
+    'CREATE TABLE IF NOT EXISTS stock_notify_pref (',
+    '  user_id TEXT PRIMARY KEY,',
+    '  enabled INTEGER NOT NULL DEFAULT 1,',
+    '  up_pct REAL NOT NULL DEFAULT 5,',
+    '  loss_pct REAL NOT NULL DEFAULT 8,',
+    '  updated_at INTEGER NOT NULL DEFAULT 0',
+    ');'
   ].join('\n'));
   ready = true;
 }
@@ -72,6 +80,42 @@ function readAll(userId) {
   return info.changes;
 }
 
+// ---- 提醒偏好（总开关 / 阈值）----
+function clampPct(v, def, min, max) {
+  var n = parseFloat(v);
+  if (!isFinite(n)) return def;
+  return Math.min(Math.max(n, min), max);
+}
+
+function getPref(userId) {
+  ensure();
+  var row = db.prepare('SELECT * FROM stock_notify_pref WHERE user_id = ?').get(String(userId));
+  if (!row) return { enabled: true, up_pct: 5, loss_pct: 8 };
+  return {
+    enabled: !!row.enabled,
+    up_pct: Number(row.up_pct) || 5,
+    loss_pct: Number(row.loss_pct) || 8
+  };
+}
+
+function setPref(userId, patch) {
+  ensure();
+  var cur = getPref(userId);
+  var p = patch || {};
+  var next = {
+    enabled: p.enabled === undefined ? cur.enabled : !!p.enabled,
+    up_pct: p.up_pct === undefined ? cur.up_pct : clampPct(p.up_pct, cur.up_pct, 1, 20),
+    loss_pct: p.loss_pct === undefined ? cur.loss_pct : clampPct(p.loss_pct, cur.loss_pct, 2, 50)
+  };
+  db.prepare([
+    'INSERT INTO stock_notify_pref (user_id, enabled, up_pct, loss_pct, updated_at)',
+    'VALUES (?, ?, ?, ?, ?)',
+    'ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled,',
+    '  up_pct = excluded.up_pct, loss_pct = excluded.loss_pct, updated_at = excluded.updated_at'
+  ].join('\n')).run(String(userId), next.enabled ? 1 : 0, next.up_pct, next.loss_pct, Date.now());
+  return next;
+}
+
 function yi(cent) {
   return (Math.round(Number(cent) || 0) / 100).toFixed(2);
 }
@@ -80,10 +124,15 @@ function yi(cent) {
 // positions: store.listPositions(userId) 的结果；byCode: 行情快照
 function scanPositions(userId, positions, byCode) {
   ensure();
+  var pref = getPref(userId);
+  if (!pref.enabled) return 0;
   var now = Date.now();
   if (lastScan[userId] && now - lastScan[userId] < SCAN_GAP) return 0;
   lastScan[userId] = now;
 
+  var UP = pref.up_pct;
+  var LOSS = pref.loss_pct;
+  var GAIN = Math.round((pref.loss_pct + 2) * 10) / 10;
   var day = market.dateKey(now);
   var made = 0;
   var list_ = positions || [];
@@ -107,13 +156,13 @@ function scanPositions(userId, positions, byCode) {
         title: p.name + ' 跌停 ' + q.price.toFixed(2),
         body: '跌停时卖不出去是正常现象，别慌，等打开跌停再说。'
       })) made++;
-    } else if (pct >= 5) {
+    } else if (pct >= UP) {
       if (push(userId, {
         kind: 'up', code: p.code, name: p.name, ref: 'up:' + refBase,
         title: p.name + ' 上涨 ' + pct.toFixed(2) + '%',
         body: '现价 ' + q.price.toFixed(2) + '，你的持仓成本 ' + avg.toFixed(2) + '。'
       })) made++;
-    } else if (pct <= -5) {
+    } else if (pct <= -UP) {
       if (push(userId, {
         kind: 'down', code: p.code, name: p.name, ref: 'down:' + refBase,
         title: p.name + ' 下跌 ' + pct.toFixed(2) + '%',
@@ -123,13 +172,13 @@ function scanPositions(userId, positions, byCode) {
 
     if (avg > 0) {
       var pnlPct = (q.price - avg) / avg * 100;
-      if (pnlPct <= -8) {
+      if (pnlPct <= -LOSS) {
         if (push(userId, {
           kind: 'loss', code: p.code, name: p.name, ref: 'loss:' + refBase,
           title: p.name + ' 浮亏 ' + Math.abs(pnlPct).toFixed(1) + '%',
           body: '成本 ' + avg.toFixed(2) + '，现价 ' + q.price.toFixed(2) + '，浮亏 ' + yi((q.price - avg) * p.qty) + ' 学元。'
         })) made++;
-      } else if (pnlPct >= 10) {
+      } else if (pnlPct >= GAIN) {
         if (push(userId, {
           kind: 'gain', code: p.code, name: p.name, ref: 'gain:' + refBase,
           title: p.name + ' 浮盈 ' + pnlPct.toFixed(1) + '%',
@@ -166,6 +215,8 @@ module.exports = {
   push: push,
   list: list,
   readAll: readAll,
+  getPref: getPref,
+  setPref: setPref,
   scanPositions: scanPositions,
   notifyFill: notifyFill,
   notifyExpired: notifyExpired

@@ -24,6 +24,7 @@ var quotes = require('./quotes');
 var store = require('./store');
 var news = require('./news');
 var notify = require('./notify');
+var profile = require('./profile');
 var trading = require('./trading');
 var matcher = require('./matcher');
 var peer = require('./peer');
@@ -293,6 +294,23 @@ router.get('/notify', wrap(function (req, res) {
 router.post('/notify/read', wrap(function (req, res) {
   var n = notify.readAll(uid(req));
   ok(res, { marked: n, unread: 0 });
+}));
+
+router.get('/notify/pref', wrap(function (req, res) {
+  ok(res, notify.getPref(uid(req)));
+}));
+
+router.post('/notify/pref', wrap(function (req, res) {
+  ok(res, notify.setPref(uid(req), req.body || {}));
+}));
+
+// ---- 公司概况（F10 摘要：行业/上市日/市值/PE/PB，缓存 10 分钟）----
+router.get('/profile/:code', wrap(function (req, res) {
+  return profile.getProfile(req.params.code).then(function (data) {
+    ok(res, data);
+  }).catch(function () {
+    ok(res, null);   // 概况是增强信息：拉不到就返回 null，前端显示「暂无」
+  });
 }));
 
 // ---- 资讯（增强功能：上游失败返回空列表，绝不把主流程带崩）----

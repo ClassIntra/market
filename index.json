@@ -1,6 +1,6 @@
 {
-  "version": 35,
-  "updated_at": "2026-11-03T23:53:33.481Z",
+  "version": 36,
+  "updated_at": "2026-11-04T01:02:03.570Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.11.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。还有资讯：行情页 7×24 市场快讯、详情页个股相关资讯，点开在应用内看摘要。持仓涨跌超 5%、涨停跌停、浮亏 8%、委托成交或失效，都会在顶栏铃铛里提醒你，不会错过。亏了也不能充值 —— 本金只有学元。内置 6 步新手引导与 15 节指南（费用算例、术语表、提醒、资金流水、新手常见错误），第一次来也不会懵；专为零基础设计：不懂的词（换手、市盈、涨停…）点一下就有解释，前几单默认市价成交不用等，每周五还有跨班班级对决。",
+      "version": "1.12.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。还有资讯：行情页 7×24 市场快讯、详情页个股相关资讯，点开在应用内看摘要。持仓涨跌超 5%、涨停跌停、浮亏 8%、委托成交或失效，都会在顶栏铃铛里提醒你，不会错过。亏了也不能充值 —— 本金只有学元。内置 6 步新手引导与 15 节指南（费用算例、术语表、提醒、资金流水、新手常见错误），第一次来也不会懵；专为零基础设计：不懂的词（换手、市盈、涨停…）点一下就有解释，前几单默认市价成交不用等；持仓页有今日复盘（成交笔数/费用/仓位/最赚最亏），详情页有公司概况（行业/市值/PE/PB），每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -456,6 +456,7 @@
         "apps/stock/backend/news.js",
         "apps/stock/backend/notify.js",
         "apps/stock/backend/peer.js",
+        "apps/stock/backend/profile.js",
         "apps/stock/backend/quotes.js",
         "apps/stock/backend/report.js",
         "apps/stock/backend/routes.js",
@@ -472,6 +473,7 @@
         "apps/stock/screenshots/05-ledger.png",
         "apps/stock/screenshots/06-news.png",
         "apps/stock/screenshots/07-notify.png",
+        "apps/stock/screenshots/08-review.png",
         "apps/stock/test/e2e.cjs",
         "apps/stock/test/ui-probe.mjs"
       ],
@@ -480,26 +482,28 @@
         "backend/market.js": "c43a1285ce2d8a2ad40ad931d2684e173f94ce38ff89ecc6b9808f7cc24fe3c7",
         "backend/matcher.js": "ed585dbb92cb83f55743457c06b57ba97acfad658af991d30ce2dfdde89abeaa",
         "backend/news.js": "33c16008a577fe6789ae6b54fa9d75291289426860bda9084e0b6f3d46b2d274",
-        "backend/notify.js": "37a10dbcecda907f5cb7ae84dab1f9b3c8b06ed67df29bd6a4e34eddc032d583",
+        "backend/notify.js": "d3e9e81b652c5fb50c4afbea75a873c083ebfc752bb4b761d479a3c9f21ca91d",
         "backend/peer.js": "1f3683beb40e6cd9b50f097518e8b22c9abc9374c94acfac734c4aa203474822",
+        "backend/profile.js": "ecb2de7245ec3f6943ff13b309b5fd328be648a8752f524dcec8b117605f1b48",
         "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "6772862ee99a263bd262a875a9957fb5a6f171f6ab403193dde5e27f40a6ba13",
-        "backend/routes.js": "57ac2197c050c8cbb1ae7322f7cd3189b76c0d745de0798e134a50b71b3c5012",
+        "backend/routes.js": "03c57013a5c7f030ddb1394fecf5c1a6aa5c1de425483408ab5f84664a24655e",
         "backend/store.js": "e7985d8d4bd1c248f3e3010dfc8ccf797f63a97546e0c0307efab0398aa8a580",
-        "backend/trading.js": "c9936a1d0a0305b506397a3f496d86b92eab1c0c02e953f14bf40c286467052b",
-        "frontend/entry.js": "b7a27c0b54a2b06528850b81276b111d6db650cafb0b6e6a54a88c7c91436271",
-        "frontend/style.css": "05c8e5fe3ce26305bf6a1ae476c2f5bac0ee4de3e29a7ebbdf68b089ae7066a8",
+        "backend/trading.js": "30a2e460920e547d165ea5818e8f37ad865fbe2d0a207f4ef4fa6f0083fbd9f0",
+        "frontend/entry.js": "5570e6204d3807e391c6214e61f2569a03d8d19ffcaa9e459728af53134dad80",
+        "frontend/style.css": "222a090721096e9373a5b7e72ad47451a563b4bfae7a807948ea0288eebcda5f",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "fa81d391de10674558fa3f73daee8b2fd1137fcdebb2f05c83fac6f27cac0c4d",
-        "screenshots/01-overview.png": "a5441fbe8d5b93a0f261283f73bcd608481d49415b39ada571fdc208f3c0c408",
-        "screenshots/02-detail.png": "c37d7a7f6902ca2570cf72bdc868d67bc2ec22f98afb3c4e46a9f4deca31d771",
-        "screenshots/03-rank.png": "b7bbf11c34a33812d68db7771b70a562767d7623986b844e7ee7fd0637575aa7",
-        "screenshots/04-guide.png": "b84a08c4bbe178bfe799f0053691508be570c488e29f4ee23b5b7fc563717479",
-        "screenshots/05-ledger.png": "b922657f7d4ae3a33b61e9c2c99ca8b2ea7618a2dc9844c770b2f019323c2d61",
-        "screenshots/06-news.png": "37275d701c28a95e92888f34c5284ba95f9cf789335045284edfaa03cf078cc2",
-        "screenshots/07-notify.png": "a112a476bcdbd83c576d4060dc7edc24bde7b8b837575a0c484188dd9baf22aa",
-        "test/e2e.cjs": "3fd06a19cfd4b16e5a2481b8b54b79541895e5f3792854d157cb85ab08687017",
-        "test/ui-probe.mjs": "77c6b6ee415103d46d8bdb87bd080a591476721d9dc00b559c39d9b683aa703d"
+        "manifest.json": "df0da048fe0c7de090b2b349379d7bead8d57c13ed83f56fdfe46a6ea5eb950d",
+        "screenshots/01-overview.png": "0fe8a0d44953a15102aeb708d2a3e2a94518b972b09de410276ea1bf00bcfb17",
+        "screenshots/02-detail.png": "99994188e5642ba58eb45873d5c2dfce963953cdb99fc789b9597684a5dabbb0",
+        "screenshots/03-rank.png": "a34fbb6817e4c0c2f32563e5ece8cec40ea93f12f8a05411b5dca1ee55a3b161",
+        "screenshots/04-guide.png": "de7e1c6e2564a708dd6ca47a644b147e73c6ad7d806cfd9703919c453db13319",
+        "screenshots/05-ledger.png": "d18537473eb22d7fa42c5ca66741ad979801f74b2cab920e807c2c2571ab4a74",
+        "screenshots/06-news.png": "946bd83be4f6534c23d7c2cdc91eceaa8fd59e068c7ad4e3ce27fcae86998852",
+        "screenshots/07-notify.png": "b5d4beee86cf4924b4e65c120b51301033c7353316e2a441d20c9e542b80faab",
+        "screenshots/08-review.png": "a40cbd46bef3929792c500f673cdb81dbe99890a602ad02f27579edf8f0e7149",
+        "test/e2e.cjs": "ae7d587203612259a49092cf0c4cefcec7758708019181dfebd2890a68d60c84",
+        "test/ui-probe.mjs": "69adddec3c133568afe22f2b7f93d14b2717bc2fe0cf88500748031ae9ca7040"
       },
       "group": "study",
       "color": "#E5484D",
@@ -510,9 +514,14 @@
         "apps/stock/screenshots/04-guide.png",
         "apps/stock/screenshots/05-ledger.png",
         "apps/stock/screenshots/06-news.png",
-        "apps/stock/screenshots/07-notify.png"
+        "apps/stock/screenshots/07-notify.png",
+        "apps/stock/screenshots/08-review.png"
       ],
       "changelog": [
+        {
+          "version": "1.12.0",
+          "notes": "补全三块：① 今日复盘（持仓页）—— 今日成交笔数/费用/买卖金额/已实现/费用占比 + 仓位条 + 最赚最亏 + 一句教学提示（成交≥6 笔会直说「手续费吃了成交额的 x%」）；② 公司概况 F10（详情页）—— 行业、上市日期、总市值、流通市值、PE、PB，教「下单前先知道在买什么」；③ 提醒设置 —— 铃铛面板可自选阈值（涨跌 3/5/8%、浮亏 5/8/10%）与总开关（成交/失效/涨跌停提醒不受影响）。另修：盘前不再显示「0 涨 0 跌」，改为「尚未开盘 · 昨收价待撮合」。e2e 156/156、ui-probe 83/83。"
+        },
         {
           "version": "1.11.0",
           "notes": "零基础友好三件套：① 术语即点即译 —— 详情页指标（换手/市盈/涨停…）与交易面板的 ? 角标点一下就出白话解释，与指南术语表同一数据源；② 新手默认市价单 —— 成交不满 3 次的学生打开交易面板默认「市价委托」并附一行说明（不会再出现「限价挂高了半天不成交」），成交满 3 次自动恢复限价；③ 交易面板的成交金额/预估费用/可卖数量整行可点出解释。e2e 143/143、ui-probe 78/78。"
