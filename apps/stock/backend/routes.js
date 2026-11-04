@@ -25,6 +25,7 @@ var store = require('./store');
 var news = require('./news');
 var notify = require('./notify');
 var profile = require('./profile');
+var packet = require('./packet');
 var trading = require('./trading');
 var matcher = require('./matcher');
 var peer = require('./peer');
@@ -313,6 +314,57 @@ router.post('/wallet/daily', wrap(function (req, res) {
     streak: r.streak,
     account: r.account
   });
+}));
+
+// ---- 同学转账（幂等：同 request_id 不重复扣钱）----
+router.post('/wallet/transfer', wrap(function (req, res) {
+  var from = uid(req);
+  var to = String((req.body && req.body.to) || '').trim();
+  var amountCent = packet.toCent(req.body && req.body.amount);
+  var note = String((req.body && req.body.note) || '').slice(0, 30);
+  var rid = String((req.body && req.body.request_id) || '').trim();
+  if (!/^\d{6}$/.test(to)) throw new Error('对方学号是 6 位数字');
+  if (to === from) throw new Error('不能给自己转账');
+  if (amountCent <= 0) throw new Error('金额必须大于 0');
+  if (!rid) rid = Date.now() + ':' + Math.random().toString(36).slice(2, 8);
+
+  var r = xueyuan.transfer({
+    from: from,
+    to: to,
+    amountCent: amountCent,
+    ref: 'stock:transfer:' + rid,
+    app: 'stock',
+    memo: note || '同学转账'
+  });
+  if (!r.duplicate) {
+    try {
+      notify.push(to, {
+        kind: 'transfer',
+        title: packet.userName(from) + ' 转给你 ' + (amountCent / 100).toFixed(2) + ' 学元',
+        body: note || '',
+        ref: 'transfer:' + rid
+      });
+    } catch (e) { /* 通知失败不影响转账 */ }
+  }
+  ok(res, { duplicate: !!r.duplicate, amount: amountCent / 100, to: to });
+}));
+
+// ---- 红包 ----
+router.get('/wallet/packets', wrap(function (req, res) {
+  packet.sweepExpired();   // 懒清理：顺手把过期红包的冻结退掉
+  ok(res, packet.list(uid(req)));
+}));
+
+router.post('/wallet/packet', wrap(function (req, res) {
+  var b = req.body || {};
+  var r = packet.create(uid(req), packet.toCent(b.total), b.count, b.note);
+  ok(res, r);
+}));
+
+router.post('/wallet/packet/:id/claim', wrap(function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  if (!id) throw new Error('红包不存在');
+  ok(res, packet.claim(id, uid(req)));
 }));
 
 // ---- 站内通知（持仓波动 / 成交 / 委托失效）----

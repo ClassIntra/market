@@ -432,7 +432,7 @@
     bar.appendChild(search);
     wrap.appendChild(bar);
 
-    // 板块快捷筛选（17 个板块时，横滑一排比在长列表里找快得多）
+    // 板块快捷筛选（27 个板块时，横滑一排比在长列表里找快得多）
     if (S.market) {
       var chips = h('div', 'sector-chips');
       var all = h('div', 'chip' + (!S.sectorFilter ? ' active' : ''), '全部板块');
@@ -2040,7 +2040,7 @@
     {
       target: '.sector-chips',
       title: '先挑板块，再挑股票',
-      body: '<b>20 个板块</b>横着滑：消费、金融、AI 链、AI 大模型、小米产业链……点一个就只看它。右边搜索框支持代码、名称、板块（试试输入「平安」或「600519」）。'
+      body: '<b>27 个板块、136 只股票</b>横着滑：消费、金融、半导体、军工、机器人、AI 链……点一个就只看它。右边搜索框支持代码、名称、板块（试试输入「平安」或「600519」）。'
     },
     {
       target: '.market-list .qrow',
@@ -2296,6 +2296,7 @@
         '<li><b>跨班对决 100</b>：每周五胜方全班活跃学生每人一份。</li>' +
         '<li><b>班管发放 / 同学转账</b>：老师奖励，或同学之间互相转，钱包里都有记录。</li>' +
         '</ul>' +
+        '<p>钱包里还能<b>发红包</b>：设总额和个数，同学点一下就能领（随机金额，24 小时没领完自动退回），不用怕被「抢错人」。</p>' +
         '<p>⚠️ 亏了不能充值 —— 这是刻意的：真实市场里亏掉的钱不会有人补给你。想继续练，就靠津贴和课堂任务。</p>'
     },
     {
@@ -2361,7 +2362,9 @@
     gain: { icon: '↑', cls: 'up' },
     loss: { icon: '↓', cls: 'down' },
     fill: { icon: '✓', cls: 'gold' },
-    expired: { icon: '!', cls: 'dim' }
+    expired: { icon: '!', cls: 'dim' },
+    transfer: { icon: '¥', cls: 'gold' },
+    packet: { icon: '🧧', cls: 'gold' }
   };
 
   function loadNotify(force) {
@@ -2546,12 +2549,14 @@
 
     Promise.all([
       get('/wallet'),
-      get('/ledger', { limit: 5 }).catch(function () { return { list: [] }; })
+      get('/ledger', { limit: 5 }).catch(function () { return { list: [] }; }),
+      get('/wallet/packets').catch(function () { return { available: [], mine: [], claimed: [] }; })
     ]).then(function (res) {
       var w = res[0] || {};
       var acc = w.account || {};
       var daily = w.daily || { claimed: true, base: 10, bonus: 20, bonus_from: 7, streak: 0 };
       var rows = (res[1] && res[1].list) || [];
+      var packets = res[2] || { available: [], mine: [] };
 
       clear(body);
 
@@ -2597,6 +2602,62 @@
       }
       body.appendChild(dailyCard);
 
+      // 转账 / 红包
+      var acts = h('div', 'wallet-acts');
+      var tBtn = h('div', 'wallet-act', '转账给同学');
+      tBtn.onclick = openTransferForm;
+      var pBtn = h('div', 'wallet-act gold', '发红包');
+      pBtn.onclick = openPacketForm;
+      acts.appendChild(tBtn);
+      acts.appendChild(pBtn);
+      body.appendChild(acts);
+
+      // 可领红包
+      body.appendChild(h('div', 'wallet-sec', '可领红包'));
+      var pk = h('div', 'wallet-src');
+      var avail = packets.available || [];
+      if (!avail.length) {
+        pk.appendChild(h('div', 'empty-mini', '暂时没有可领的红包'));
+      } else {
+        for (var pi = 0; pi < avail.length; pi++) {
+          (function (it) {
+            var row = h('div', 'wallet-src-row');
+            var left = h('div', 'ws-left');
+            left.appendChild(h('div', 'ws-name', '🧧 ' + it.sender_name + ' 的红包 · ' + money(it.total) + ' 学元'));
+            left.appendChild(h('div', 'ws-desc',
+              (it.note ? it.note + ' · ' : '') + '剩 ' + it.remaining_count + '/' + it.count + ' 个'));
+            row.appendChild(left);
+            var btn = h('div', 'wallet-claim small', '领取');
+            btn.onclick = function () { claimPacket(it.id, btn); };
+            row.appendChild(btn);
+            pk.appendChild(row);
+          })(avail[pi]);
+        }
+      }
+      body.appendChild(pk);
+
+      // 我发出的红包（只看状态）
+      var mine = packets.mine || [];
+      if (mine.length) {
+        body.appendChild(h('div', 'wallet-sec', '我发出的红包'));
+        var mp = h('div', 'wallet-src');
+        for (var mi = 0; mi < mine.length; mi++) {
+          (function (it) {
+            var row = h('div', 'wallet-src-row');
+            var left = h('div', 'ws-left');
+            left.appendChild(h('div', 'ws-name', '🧧 ' + money(it.total) + ' 学元 / ' + it.count + ' 个'));
+            var state = it.status === 'expired' ? '已过期退回'
+              : it.status === 'done' ? '已领完'
+                : '剩 ' + it.remaining_count + ' 个 · 24 小时未领退回';
+            left.appendChild(h('div', 'ws-desc', (it.note ? it.note + ' · ' : '') + state));
+            row.appendChild(left);
+            row.appendChild(h('div', 'ws-amt num', '已领 ' + money(it.total - it.remaining) + ''));
+            mp.appendChild(row);
+          })(mine[mi]);
+        }
+        body.appendChild(mp);
+      }
+
       // 来源清单
       body.appendChild(h('div', 'wallet-sec', '学元从哪来'));
       var src = h('div', 'wallet-src');
@@ -2626,6 +2687,112 @@
     }).catch(function (e) {
       clear(body);
       body.appendChild(h('div', 'empty-mini', '钱包加载失败：' + errMsg(e)));
+    });
+  }
+
+  // 通用小表单（转账 / 发红包共用）
+  function walletForm(title, fields, onSubmit) {
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', title));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    var inputs = {};
+    for (var i = 0; i < fields.length; i++) {
+      (function (f) {
+        var row = h('div', 'pref-row');
+        row.appendChild(h('div', 'pref-label', f.label));
+        var inp = document.createElement('input');
+        inp.className = 'wallet-input';
+        inp.type = f.type || 'text';
+        inp.placeholder = f.placeholder || '';
+        inp.value = f.value || '';
+        if (f.maxlength) inp.maxLength = f.maxlength;
+        inputs[f.key] = inp;
+        row.appendChild(inp);
+        body.appendChild(row);
+      })(fields[i]);
+    }
+
+    var submit = h('button', 'submit buy', '确认');
+    submit.style.width = '100%';
+    submit.style.marginTop = '14px';
+    function fail(msg) {
+      submit.disabled = false;
+      submit.textContent = '确认';
+      if (msg) toast(msg, 'error');
+    }
+    submit.onclick = function () {
+      var v = {};
+      for (var k in inputs) if (inputs.hasOwnProperty(k)) v[k] = String(inputs[k].value || '').trim();
+      submit.disabled = true;
+      submit.textContent = '处理中…';
+      onSubmit(v, fail);
+    };
+    body.appendChild(submit);
+    body.appendChild(h('div', 'rv-tip', '学元是练习货币，转账只发生在同学之间，不能提现。'));
+
+    panel.appendChild(body);
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+  }
+
+  function openTransferForm() {
+    walletForm('转账给同学', [
+      { key: 'to', label: '对方学号', type: 'tel', placeholder: '6 位学号' },
+      { key: 'amount', label: '金额', type: 'number', placeholder: '学元，如 20' },
+      { key: 'note', label: '备注', placeholder: '选填', maxlength: 30 }
+    ], function (v, fail) {
+      if (!/^\d{6}$/.test(v.to || '')) return fail('学号是 6 位数字');
+      var amt = Number(v.amount);
+      if (!(amt > 0)) return fail('金额要大于 0');
+      post('/wallet/transfer', {
+        to: v.to, amount: amt, note: v.note, request_id: 'w' + Date.now()
+      }).then(function (r) {
+        toast('已转出 ' + money(r.amount) + ' 学元', 'success');
+        loadOverview();
+        loadLedger(true);
+        openWallet();
+      }).catch(function (e) { fail(errMsg(e)); });
+    });
+  }
+
+  function openPacketForm() {
+    walletForm('发红包', [
+      { key: 'total', label: '总金额', type: 'number', placeholder: '学元，如 50' },
+      { key: 'count', label: '个数', type: 'tel', placeholder: '1–20' },
+      { key: 'note', label: '祝福语', placeholder: '选填，如「恭喜发财」', maxlength: 20 }
+    ], function (v, fail) {
+      var total = Number(v.total);
+      var count = parseInt(v.count, 10);
+      if (!(total > 0)) return fail('总金额要大于 0');
+      if (!(count >= 1 && count <= 20)) return fail('个数要在 1–20 之间');
+      post('/wallet/packet', { total: total, count: count, note: v.note })
+        .then(function () {
+          toast('红包已发出，同学可以来领了', 'success');
+          loadLedger(true);
+          openWallet();
+        }).catch(function (e) { fail(errMsg(e)); });
+    });
+  }
+
+  function claimPacket(id, btn) {
+    btn.textContent = '领取中…';
+    post('/wallet/packet/' + id + '/claim').then(function (r) {
+      toast((r.duplicate ? '已经领过：' : '红包 +') + money(r.amount) + ' 学元', 'success');
+      loadOverview();
+      loadLedger(true);
+      openWallet();
+    }).catch(function (e) {
+      btn.textContent = '领取';
+      toast(errMsg(e), 'error');
     });
   }
 

@@ -746,6 +746,37 @@ ok('学元钱包可打开（余额/津贴/来源清单）',
   wallet.open && wallet.balance.length > 0 && wallet.src >= 6 && /领/.test(wallet.claim || ''),
   JSON.stringify(wallet));
 await shot('09d-wallet');
+
+// 转账 / 红包入口与表单
+const walletActs = await evalJS(`(function(){
+  var secs = [];
+  var els = document.querySelectorAll('.ci-stock .wallet-sec');
+  for (var i = 0; i < els.length; i++) secs.push(els[i].textContent);
+  return {
+    acts: document.querySelectorAll('.ci-stock .wallet-act').length,
+    secs: secs.join('|')
+  };
+})()`);
+ok('钱包内有「转账 / 发红包」入口与红包区',
+  walletActs.acts >= 2 && /可领红包/.test(walletActs.secs || ''), JSON.stringify(walletActs));
+
+await evalJS(`(function(){
+  var btns = document.querySelectorAll('.ci-stock .wallet-act');
+  for (var i = 0; i < btns.length; i++) { if (/红包/.test(btns[i].textContent)) { btns[i].click(); return true; } }
+  return false;
+})()`);
+await sleep(700);
+const packetForm = await evalJS(`(function(){
+  return {
+    inputs: document.querySelectorAll('.ci-stock .wallet-input').length,
+    title: (document.querySelector('.ci-stock .news-panel-title') || {}).textContent || '',
+    btn: (document.querySelector('.ci-stock .news-panel .submit') || {}).textContent || ''
+  };
+})()`);
+ok('发红包表单有三项输入', packetForm.inputs === 3 && /红包/.test(packetForm.title || '') && /确认/.test(packetForm.btn || ''),
+  JSON.stringify(packetForm));
+await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
+await sleep(400);
 await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
 await sleep(400);
 

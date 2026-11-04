@@ -683,6 +683,47 @@ async function main() {
   ok('领取后状态变为已领', wt2.body.data.daily.claimed === true && wt2.body.data.daily.streak >= 1,
     '连续 ' + wt2.body.data.daily.streak + ' 天');
 
+  console.log('\n=== 转账 / 红包 ===');
+  var balA0 = (await api('GET', '/api/stock/wallet', { token: T1 })).body.data.account.balance;
+  var balB0 = (await api('GET', '/api/stock/wallet', { token: T2 })).body.data.account.balance;
+  var tr1 = await api('POST', '/api/stock/wallet/transfer', {
+    token: T1, body: { to: '251802', amount: 5, note: '测试转账', request_id: 'e2e-tr-1' }
+  });
+  eq('转账 200', tr1.status, 200);
+  var wA1 = await api('GET', '/api/stock/wallet', { token: T1 });
+  var wB1 = await api('GET', '/api/stock/wallet', { token: T2 });
+  ok('转账双方金额一致（各 5 学元）',
+    Math.abs((balA0 - wA1.body.data.account.balance) - 5) < 0.001 &&
+    Math.abs((wB1.body.data.account.balance - balB0) - 5) < 0.001,
+    (balA0 - wA1.body.data.account.balance) + ' / ' + (wB1.body.data.account.balance - balB0));
+  var tr2 = await api('POST', '/api/stock/wallet/transfer', {
+    token: T1, body: { to: '251802', amount: 5, note: '测试转账', request_id: 'e2e-tr-1' }
+  });
+  ok('同一 request_id 不重复扣钱', tr2.body.data.duplicate === true, JSON.stringify(tr2.body.data));
+
+  var pk = await api('POST', '/api/stock/wallet/packet', {
+    token: T1, body: { total: 3, count: 3, note: '考试加油' }
+  });
+  eq('发红包 200', pk.status, 200);
+  var pid = pk.body.data.id;
+  var wA2 = await api('GET', '/api/stock/wallet', { token: T1 });
+  ok('发红包冻结总额（余额不变、冻结 +3）',
+    Math.abs(wA2.body.data.account.balance - wA1.body.data.account.balance) < 0.001 &&
+    Math.abs((wA2.body.data.account.frozen - wA1.body.data.account.frozen) - 3) < 0.001,
+    '冻结 ' + wA2.body.data.account.frozen);
+
+  var cl1 = await api('POST', '/api/stock/wallet/packet/' + pid + '/claim', { token: T2 });
+  eq('领红包 200', cl1.status, 200);
+  ok('红包金额在 0.01–3 之间', cl1.body.data.amount > 0 && cl1.body.data.amount <= 3, cl1.body.data.amount);
+  var cl2 = await api('POST', '/api/stock/wallet/packet/' + pid + '/claim', { token: T2 });
+  ok('重复领取幂等（金额相同）',
+    cl2.body.data.duplicate === true && Math.abs(cl2.body.data.amount - cl1.body.data.amount) < 0.001,
+    JSON.stringify(cl2.body.data));
+  var pkList = await api('GET', '/api/stock/wallet/packets', { token: T2 });
+  ok('已领的红包不再出现在可领列表',
+    (pkList.body.data.available || []).every(function (x) { return x.id !== pid; }),
+    (pkList.body.data.available || []).length + ' 个可领');
+
   console.log('\n=== 成就（v1.14 新增 5 个） ===');
   var ach = await api('GET', '/api/stock/achievements?force=1', { token: T1 });
   eq('成就总数 15', ach.body.data.total, 15);

@@ -1885,6 +1885,43 @@
 .ci-stock .pos-tag.hold { color: var(--dim); border-color: rgba(255,255,255,.12); }
 .ci-stock .pos-tag.hold.long { color: var(--gold); border-color: rgba(232,195,106,.35); background: rgba(232,195,106,.08); }
 
+/* 转账 / 红包 */
+.ci-stock .wallet-acts { display: flex; margin: 12px 0 2px; }
+.ci-stock .wallet-act {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 10px 0;
+  margin-right: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ci-stock .wallet-act:last-child { margin-right: 0; }
+.ci-stock .wallet-act:active { background: rgba(255,255,255,.09); }
+.ci-stock .wallet-act.gold {
+  border-color: rgba(232,195,106,.35);
+  color: var(--gold);
+  background: rgba(232,195,106,.07);
+}
+.ci-stock .wallet-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.ci-stock .wallet-input:focus { border-color: rgba(232,195,106,.45); }
+.ci-stock .wallet-claim.small { padding: 6px 12px; font-size: 12px; }
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {
