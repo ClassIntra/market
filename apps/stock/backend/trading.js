@@ -85,6 +85,8 @@ function accountSummary(userId, snapshot) {
       pnl_pct: p.cost_cent > 0 ? Math.round(pnl / p.cost_cent * 10000) / 100 : 0,
       day_pnl: dayPnl / 100,
       day_pnl_cent: dayPnl,
+      opened_at: p.opened_at || 0,
+      hold_days: p.opened_at ? Math.floor((Date.now() - p.opened_at) / 86400000) : 0,
       stale: q ? !!q.stale : true
     });
   }
@@ -425,8 +427,8 @@ function fillBuy(order, fillCent, amount, fees, now, today) {
       d.prepare('UPDATE stock_positions SET qty = qty + ?, available_qty = available_qty + ?, cost_cent = cost_cent + ?, name = ?, updated_at = ? WHERE user_id = ? AND code = ?')
         .run(order.qty, order.qty, cost, order.name, now, order.user_id, order.code);
     } else {
-      d.prepare('INSERT INTO stock_positions (user_id, code, name, qty, available_qty, cost_cent, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(order.user_id, order.code, order.name, order.qty, order.qty, cost, now);
+      d.prepare('INSERT INTO stock_positions (user_id, code, name, qty, available_qty, cost_cent, opened_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(order.user_id, order.code, order.name, order.qty, order.qty, cost, now, now);
     }
 
     // 3) 订单与成交明细

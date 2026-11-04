@@ -494,6 +494,11 @@ module.exports = {
   getKline: getKline,
   getTrends: getTrends,
   search: search,
+  // 同步拿最近一次快照（没有就 null）：成就判定、复盘这类同步路径用，
+  // 绝不要在同步函数里 await getSnapshot()。
+  getCached: function () {
+    return (_snapshot && _snapshot.list && _snapshot.list.length) ? _snapshot : null;
+  },
   isTradable: function (code) {
     var c = market.normalizeCode(code);
     return !!(c && UNIVERSE_MAP[c]);

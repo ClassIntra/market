@@ -593,6 +593,27 @@ const rv = await evalJS(`(function(){
 })()`);
 ok('今日复盘卡 6 格', rv.cells === 6, rv.cells);
 ok('仓位条与教学提示', rv.bar && rv.tip.length > 6, rv.tip.slice(0, 24));
+
+// 成就：15 个（v1.14 新增 5 个）
+const ach = await evalJS(`(function(){
+  return {
+    count: document.querySelectorAll('.ci-stock .ach-item').length,
+    head: (document.querySelectorAll('.ci-stock .chart-tabs .card-more')[0] || {}).textContent || ''
+  };
+})()`);
+let achCount = ach.count;
+for (let i = 0; i < 10 && achCount < 15; i++) {
+  await sleep(400);
+  achCount = await evalJS(`document.querySelectorAll('.ci-stock .ach-item').length`);
+}
+ok('成就墙 15 个（含新增 5 个）', achCount >= 15, achCount + ' 个');
+
+// 持仓天数标签（opened_at）
+const holdTag = await evalJS(`(function(){
+  var tags = document.querySelectorAll('.ci-stock .pos-tag.hold');
+  return { n: tags.length, text: tags.length ? tags[0].textContent : '' };
+})()`);
+ok('持仓显示持有天数', holdTag.n >= 1 && /天|建仓/.test(holdTag.text || ''), holdTag.text);
 ok('持仓页高亮导航正确', /持仓/.test(pos.active), pos.active);
 await shot('06-positions');
 

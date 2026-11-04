@@ -458,7 +458,7 @@ async function main() {
   eq('成就接口 200', ach.status, 200);
   if (ach.status === 200 && ach.body.data && Array.isArray(ach.body.data.list)) {
     var achList = ach.body.data.list;
-    eq('成就共 10 项', achList.length, 10);
+    eq('成就共 15 项', achList.length, 15);
     var firstDeal = achList.filter(function (x) { return x.code === 'first_deal'; })[0];
     ok('「第一单」已解锁（前面买过股票）', firstDeal && firstDeal.unlocked, firstDeal);
     var ach2 = await api('GET', '/api/stock/achievements', { token: T2 });
@@ -682,6 +682,41 @@ async function main() {
   var wt2 = await api('GET', '/api/stock/wallet', { token: T1 });
   ok('领取后状态变为已领', wt2.body.data.daily.claimed === true && wt2.body.data.daily.streak >= 1,
     '连续 ' + wt2.body.data.daily.streak + ' 天');
+
+  console.log('\n=== 成就（v1.14 新增 5 个） ===');
+  var ach = await api('GET', '/api/stock/achievements?force=1', { token: T1 });
+  eq('成就总数 15', ach.body.data.total, 15);
+  var achList = ach.body.data.list || [];
+  var achCodes = achList.map(function (x) { return x.code; });
+  ok('新增 5 个成就都在列',
+    ['hold_5', 'pos_half', 'asset_up10', 'first_loss', 'long_hold'].every(function (c) {
+      return achCodes.indexOf(c) >= 0;
+    }), achCodes.length + ' 项');
+  var achGot = {};
+  for (var ai = 0; ai < achList.length; ai++) achGot[achList[ai].code] = achList[ai].unlocked;
+  // 卖出过（同价买卖，扣掉手续费后必然亏损）→ 「交学费」应解锁
+  ok('卖出亏损后解锁「交学费」', achGot.first_loss === true, JSON.stringify(achGot.first_loss));
+
+  // 持仓天数（opened_at）
+  var posHold = await api('GET', '/api/stock/positions', { token: T1 });
+  var holdItem = (posHold.body.data.positions || [])[0];
+  ok('持仓带 opened_at 与 hold_days',
+    !!holdItem && typeof holdItem.hold_days === 'number' && holdItem.opened_at > 0,
+    holdItem && (holdItem.hold_days + ' 天'));
+
+  // 长期主义：把建仓时间回拨 8 天 → 强制检查应解锁
+  try {
+    var DBA = require(path.join(SERVER, 'node_modules/better-sqlite3'));
+    var adb = new DBA(DB);
+    adb.prepare('UPDATE stock_positions SET opened_at = ? WHERE user_id = ?').run(Date.now() - 8 * 86400000, '251801');
+    adb.close();
+    var ach2 = await api('GET', '/api/stock/achievements?force=1', { token: T1 });
+    var got2 = {};
+    (ach2.body.data.list || []).forEach(function (x) { got2[x.code] = x.unlocked; });
+    ok('持有超 7 天解锁「长期主义」', got2.long_hold === true, JSON.stringify(got2.long_hold));
+  } catch (e) {
+    ok('长期主义（DB 直连失败：' + e.message + '）', false);
+  }
 
   // 给 UI 探针留一条未读：探针要验顶栏红点的渲染与「打开即清零」。
   // 只种数据、不改接口行为，避免探针依赖真实成交时机。

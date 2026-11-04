@@ -1572,6 +1572,11 @@
     if (p.t1_locked_qty > 0) {
       name.appendChild(h('span', 'pos-tag', '锁 ' + p.t1_locked_qty));
     }
+    // 持有多久（opened_at 首次建仓时间）—— 和「长期主义」成就对应，也提醒别天天换股
+    if (p.hold_days >= 0) {
+      name.appendChild(h('span', 'pos-tag hold' + (p.hold_days >= 7 ? ' long' : ''),
+        p.hold_days === 0 ? '今天建仓' : '持 ' + p.hold_days + ' 天'));
+    }
     l1.appendChild(name);
 
     var pnl = h('div', 'pos-pnl num ' + trendClass(p.pnl), signed(p.pnl));

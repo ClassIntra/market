@@ -478,7 +478,8 @@ function settleReason(code) {
 router.get('/achievements', wrap(function (req, res) {
   var userId = uid(req);
   // 节流检查（10 分钟内不重复全表扫）；成交后的即时检查在交易接口里已做
-  achievements.checkUser(userId);
+  // ?force=1 跳过节流：给测试/排障用（正常调用不会带）
+  achievements.checkUser(userId, { force: req.query.force === '1' });
   ok(res, achievements.viewAll(userId));
 }));
 

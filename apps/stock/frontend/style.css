@@ -1882,6 +1882,9 @@
 .ci-stock .ws-desc { font-size: 10.5px; color: var(--dim); margin-top: 3px; }
 .ci-stock .ws-amt { font-size: 13px; color: var(--gold); }
 
+.ci-stock .pos-tag.hold { color: var(--dim); border-color: rgba(255,255,255,.12); }
+.ci-stock .pos-tag.hold.long { color: var(--gold); border-color: rgba(232,195,106,.35); background: rgba(232,195,106,.08); }
+
 /* ================= 竖屏 / 窄屏 ================= */
 @media (max-width: 860px) {
   .ci-stock .nav {

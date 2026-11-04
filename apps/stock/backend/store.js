@@ -102,10 +102,21 @@ function ensureSchema() {
     '  qty INTEGER NOT NULL DEFAULT 0,',
     '  available_qty INTEGER NOT NULL DEFAULT 0,',
     '  cost_cent INTEGER NOT NULL DEFAULT 0,',
+    // 首次建仓时间（成就「长期主义」用；加仓不动它）
+    '  opened_at INTEGER NOT NULL DEFAULT 0,',
     '  updated_at INTEGER NOT NULL DEFAULT 0,',
     '  PRIMARY KEY (user_id, code)',
     ')'
   ].join('\n'));
+
+  // 老库补列：SQLite 没有 ADD COLUMN IF NOT EXISTS，重复报错吞掉即可
+  try {
+    d.exec('ALTER TABLE stock_positions ADD COLUMN opened_at INTEGER NOT NULL DEFAULT 0');
+  } catch (e) { /* 列已存在 */ }
+  // 历史数据兜底：没有建仓时间的，用最后一次更新时间近似
+  try {
+    d.exec('UPDATE stock_positions SET opened_at = updated_at WHERE opened_at = 0');
+  } catch (e) { /* 忽略 */ }
 
   d.exec([
     'CREATE TABLE IF NOT EXISTS stock_watchlist (',

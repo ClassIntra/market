@@ -60,6 +60,27 @@ var DEFS = [
   {
     code: 'daily_7', label: '勤工俭学', icon: '🌅', reward_cent: 10000,
     desc: '在学元账户累计领取 7 天助学津贴。'
+  },
+  // ---- v1.14.0 新增 5 个：都对应一个真实的投资习惯 ----
+  {
+    code: 'hold_5', label: '组合成型', icon: '🧩', reward_cent: 10000,
+    desc: '同时持有 5 只股票。分散不是买十只，而是让不同板块互相缓冲。'
+  },
+  {
+    code: 'pos_half', label: '稳如泰山', icon: '⚖️', reward_cent: 8000,
+    desc: '持有 3 只以上，且仓位不超过 50%。留着现金，才有资格等机会。'
+  },
+  {
+    code: 'asset_up10', label: '第一个 10%', icon: '📈', reward_cent: 10000,
+    desc: '总资产比本金多出 10%（≥ 11,000 学元）。'
+  },
+  {
+    code: 'first_loss', label: '交学费', icon: '🩹', reward_cent: 3000,
+    desc: '第一次卖出亏损的股票。亏损是交易的一部分，敢认才走得远。'
+  },
+  {
+    code: 'long_hold', label: '长期主义', icon: '🌱', reward_cent: 10000,
+    desc: '同一只股票持有超过 7 天。真正的收益常常来自等待。'
   }
 ];
 
@@ -184,6 +205,30 @@ function collectStats(userId) {
   // 津贴天数（跨应用查学元账本）
   var dailyDays = d.prepare("SELECT COUNT(DISTINCT ref) AS n FROM xy_tx WHERE ref LIKE ?").get('daily:' + uid + ':%').n;
 
+  // 市值 / 仓位 / 总资产 / 最长持有天数
+  // 用同步快照（quotes.getCached），没有快照就退回成本价 —— 宁可保守，不能 async 爆掉同步检查
+  var snap = quotes.getCached ? quotes.getCached() : null;
+  var marketValue = 0;
+  var oldestOpen = 0;
+  for (var pi = 0; pi < positions.length; pi++) {
+    var p = positions[pi];
+    var px = 0;
+    if (snap && snap.byCode && snap.byCode[p.code] && snap.byCode[p.code].price) {
+      px = Math.round(snap.byCode[p.code].price * 100);
+    }
+    if (!px && p.qty > 0) px = Math.round(p.cost_cent / p.qty);
+    marketValue += px * p.qty;
+    if (p.opened_at && (!oldestOpen || p.opened_at < oldestOpen)) oldestOpen = p.opened_at;
+  }
+  var totalAsset = (acc.balance_cent || 0) + marketValue;
+  var posRatio = totalAsset > 0 ? marketValue / totalAsset : 0;
+  var holdDays = oldestOpen ? Math.floor((Date.now() - oldestOpen) / 86400000) : 0;
+
+  // 是否卖出过亏损单（含被手续费吃掉的平价单）
+  var hasLoss = !!d.prepare(
+    "SELECT 1 FROM stock_trades WHERE user_id = ? AND side = 'sell' AND realized_cent < 0 LIMIT 1"
+  ).get(uid);
+
   return {
     userId: uid,
     trades: tradeAgg.trades || 0,
@@ -192,10 +237,15 @@ function collectStats(userId) {
     realized: (tradeAgg.realized || 0),
     hasGain: hasGain,
     hasGain10: hasGain10,
+    hasLoss: hasLoss,
     feeTotal: acc.fee_total_cent || 0,
     positionCount: positions.length,
     sectorCount: Object.keys(sectors).length,
-    dailyDays: dailyDays || 0
+    dailyDays: dailyDays || 0,
+    marketValue: marketValue,
+    totalAsset: totalAsset,
+    posRatio: posRatio,
+    holdDays: holdDays
   };
 }
 
@@ -210,6 +260,11 @@ DEFS[6].check = function (s) { return s.maxBuy >= 500000; };
 DEFS[7].check = function (s) { return s.days >= 3; };
 DEFS[8].check = function (s) { return s.feeTotal >= 10000; };
 DEFS[9].check = function (s) { return s.dailyDays >= 7; };
+DEFS[10].check = function (s) { return s.positionCount >= 5; };                                  // 组合成型
+DEFS[11].check = function (s) { return s.positionCount >= 3 && s.posRatio > 0 && s.posRatio <= 0.5; }; // 稳如泰山
+DEFS[12].check = function (s) { return s.totalAsset >= 1100000; };                              // 第一个 10%（11000 学元）
+DEFS[13].check = function (s) { return s.hasLoss; };                                            // 交学费
+DEFS[14].check = function (s) { return s.holdDays >= 7; };                                      // 长期主义
 
 // 成交后立即检查（不带节流）
 function checkAfterTrade(userId) {
