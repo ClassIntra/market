@@ -244,11 +244,12 @@
     bell.onclick = openNotify;
     top.appendChild(bell);
 
-    // 钱包
+    // 钱包（可点：学元中心 —— 余额 / 每日津贴 / 来源说明 / 最近流水）
     var wallet = h('div', 'wallet');
     wallet.appendChild(h('span', 'lbl', '学元'));
     var avail = (S.overview && S.overview.summary && S.overview.summary.cash.available) || 0;
     wallet.appendChild(h('span', 'amt num', money(avail, 2)));
+    wallet.onclick = openWallet;
     top.appendChild(wallet);
   }
 
@@ -2029,7 +2030,7 @@
     {
       target: '.hero',
       title: '这是你的账户',
-      body: '开户送 <b>1000 学元</b>，首次进入本应用再发 <b>9000 投资练习金</b>。这里所有盈亏都只是学元：不能充值、不能提现，也不会变成真钱。'
+      body: '开户送 <b>1000 学元</b>，首次进入本应用再发 <b>9000 投资练习金</b>。这里所有盈亏都只是学元：不能充值、不能提现，也不会变成真钱。点右上角的「学元」还能领每日津贴。'
     },
     {
       target: '.sector-chips',
@@ -2280,6 +2281,19 @@
         '<p><b>概念股 ≠ 那家公司</b>：涨跌来自市场情绪和联想，和小米、DeepSeek 的真实业绩没有直接关系。消息出来时概念股可能连拉涨停，消息退潮时也跌得最快 —— 追概念股是最容易亏钱的玩法之一。</p>'
     },
     {
+      icon: '🪙', title: '学元从哪来、怎么领',
+      html: '<p>学元是平台的练习货币，<b>不能充值、不能提现</b>，也不会变成真钱。点顶栏右侧的「学元」打开钱包：看余额、领津贴、查最近流水。</p>' +
+        '<ul class="gi-list">' +
+        '<li><b>开户赠金 1000</b>：第一次开学元账户时自动到账，一次性。</li>' +
+        '<li><b>投资练习金 9000</b>：第一次进本应用自动发，专门用来练手。</li>' +
+        '<li><b>每日助学津贴 10</b>：钱包里点「领取」，每天一次；连续第 7 天起每天 20，断一天重新数。</li>' +
+        '<li><b>成就奖励 5–20</b>：解锁「第一单」「持股 5 只」等里程碑时自动到账。</li>' +
+        '<li><b>跨班对决 100</b>：每周五胜方全班活跃学生每人一份。</li>' +
+        '<li><b>班管发放 / 同学转账</b>：老师奖励，或同学之间互相转，钱包里都有记录。</li>' +
+        '</ul>' +
+        '<p>⚠️ 亏了不能充值 —— 这是刻意的：真实市场里亏掉的钱不会有人补给你。想继续练，就靠津贴和课堂任务。</p>'
+    },
+    {
       icon: '📖', title: '术语表',
       // 与各页面「点词解释」共用 TERMS 数据源（改这里 = 改到处）
       html: (function () {
@@ -2492,6 +2506,121 @@
       rerender();
       panel.appendChild(body);
       root.appendChild(layer);
+    });
+  }
+
+  // ================= 学元钱包 =================
+  // 学元是平台货币，但桌面端一直没有入口 —— 学生只能在证券里看到余额，
+  // 不知道去哪领津贴。这个面板把「领学元」变成可达的：余额 + 今日津贴 + 来源清单 + 最近流水。
+  var WALLET_SOURCES = [
+    ['开户赠金', '1000', '第一次开学元账户时自动到账，一次性'],
+    ['投资练习金', '9000', '第一次进本应用自动发，专门用来练手'],
+    ['每日助学津贴', '10', '钱包里每天点一次；连续第 7 天起每天 20'],
+    ['成就奖励', '5–20', '解锁「第一单」「持股 5 只」等里程碑'],
+    ['跨班对决', '100', '每周五胜方全班活跃学生每人一份'],
+    ['班管发放 / 同学转账', '不定', '老师奖励，或同学之间互相转']
+  ];
+
+  function openWallet() {
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', '学元'));
+    var x = h('div', 'news-close', '✕');
+    x.onclick = closeNewsModal;
+    head.appendChild(x);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    body.appendChild(h('div', 'loading', '加载钱包…'));
+    panel.appendChild(body);
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
+
+    Promise.all([
+      get('/wallet'),
+      get('/ledger', { limit: 5 }).catch(function () { return { list: [] }; })
+    ]).then(function (res) {
+      var w = res[0] || {};
+      var acc = w.account || {};
+      var daily = w.daily || { claimed: true, base: 10, bonus: 20, bonus_from: 7, streak: 0 };
+      var rows = (res[1] && res[1].list) || [];
+
+      clear(body);
+
+      // 余额
+      var hero = h('div', 'wallet-hero');
+      hero.appendChild(h('div', 'wallet-balance num', money(acc.balance || 0)));
+      var sub = h('div', 'wallet-sub');
+      sub.appendChild(h('span', 'num', '可用 ' + money(acc.available || 0)));
+      sub.appendChild(h('span', 'num', '冻结 ' + money(acc.frozen || 0)));
+      hero.appendChild(sub);
+      body.appendChild(hero);
+
+      // 今日津贴
+      var dailyCard = h('div', 'wallet-daily');
+      var dLeft = h('div', 'wd-left');
+      dLeft.appendChild(h('div', 'wd-title', '今日助学津贴'));
+      var dDesc = daily.claimed
+        ? '今天已领' + (daily.streak > 1 ? ' · 连续 ' + daily.streak + ' 天' : '') +
+          '（第 ' + daily.bonus_from + ' 天起每天 ' + daily.bonus + '）'
+        : '每天 ' + daily.base + ' 学元 · 连续第 ' + daily.bonus_from + ' 天起每天 ' + daily.bonus;
+      dLeft.appendChild(h('div', 'wd-desc', dDesc));
+      dailyCard.appendChild(dLeft);
+
+      if (daily.claimed) {
+        dailyCard.appendChild(h('div', 'wallet-claim done', '✓ 已领'));
+      } else {
+        var claim = h('div', 'wallet-claim', '领取 ' + daily.base + ' 学元');
+        claim.onclick = function () {
+          claim.textContent = '领取中…';
+          post('/wallet/daily').then(function (r) {
+            var amt = (r && r.amount) || daily.base;
+            toast('津贴已到账 +' + amt + ' 学元', 'success');
+            loadOverview();
+            loadLedger(true);
+            closeNewsModal();
+            openWallet();
+          }).catch(function (e) {
+            claim.textContent = '领取 ' + daily.base + ' 学元';
+            toast(errMsg(e), 'error');
+          });
+        };
+        dailyCard.appendChild(claim);
+      }
+      body.appendChild(dailyCard);
+
+      // 来源清单
+      body.appendChild(h('div', 'wallet-sec', '学元从哪来'));
+      var src = h('div', 'wallet-src');
+      for (var i = 0; i < WALLET_SOURCES.length; i++) {
+        var s = WALLET_SOURCES[i];
+        var row = h('div', 'wallet-src-row');
+        var l = h('div', 'ws-left');
+        l.appendChild(h('div', 'ws-name', s[0]));
+        l.appendChild(h('div', 'ws-desc', s[2]));
+        row.appendChild(l);
+        row.appendChild(h('div', 'ws-amt num', s[1]));
+        src.appendChild(row);
+      }
+      body.appendChild(src);
+
+      // 最近流水
+      body.appendChild(h('div', 'wallet-sec', '最近学元变动'));
+      var lg = h('div', 'wallet-src');
+      if (!rows.length) lg.appendChild(h('div', 'empty-mini', '还没有记录'));
+      else {
+        for (var j = 0; j < rows.length; j++) lg.appendChild(ledgerRow(rows[j]));
+      }
+      body.appendChild(lg);
+
+      body.appendChild(h('div', 'rv-tip',
+        '学元是练习货币：不能充值、不能提现，也不会变成真钱。亏了没人补给你 —— 真实市场也一样。'));
+    }).catch(function (e) {
+      clear(body);
+      body.appendChild(h('div', 'empty-mini', '钱包加载失败：' + errMsg(e)));
     });
   }
 

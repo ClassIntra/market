@@ -1,6 +1,6 @@
 {
-  "version": 36,
-  "updated_at": "2026-11-04T01:02:03.570Z",
+  "version": 37,
+  "updated_at": "2026-11-04T01:09:24.472Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "stock",
       "label": "学元证券",
-      "version": "1.12.0",
-      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。还有资讯：行情页 7×24 市场快讯、详情页个股相关资讯，点开在应用内看摘要。持仓涨跌超 5%、涨停跌停、浮亏 8%、委托成交或失效，都会在顶栏铃铛里提醒你，不会错过。亏了也不能充值 —— 本金只有学元。内置 6 步新手引导与 15 节指南（费用算例、术语表、提醒、资金流水、新手常见错误），第一次来也不会懵；专为零基础设计：不懂的词（换手、市盈、涨停…）点一下就有解释，前几单默认市价成交不用等；持仓页有今日复盘（成交笔数/费用/仓位/最赚最亏），详情页有公司概况（行业/市值/PE/PB），每周五还有跨班班级对决。",
+      "version": "1.13.0",
+      "description": "用学元练手的 A 股模拟盘：行情来自真实市场（盘中约 3 秒刷新），规则也按真实来 —— 涨跌停、100 股一手、佣金万 2.5 最低 5 元、印花税卖出 0.05%。为平板使用习惯放宽了一处：当天买入当天就能卖（真实 A 股是 T+1，规则页与指南都写明了）。股票池覆盖消费、金融、新能源、科技、人工智能、AI 大模型、小米产业链等 19 个板块：AI 链从算力、光模块、服务器到终端应用一条龙；DeepSeek、华为没上市，小米、腾讯、阿里在港股 —— 本盘只做 A 股，能买的是产业链与概念股（指南里专门讲了「概念股 ≠ 那家公司」）。行情支持分时与日/周/月 K 线（带成交量，长按十字线看某天），涨停买不到、跌停卖不掉；委托长期有效，晚上和周末挂的单开盘后自动撮合。每笔钱都能对上：资金流水里买卖、费用、奖励逐笔可查。还有资讯：行情页 7×24 市场快讯、详情页个股相关资讯，点开在应用内看摘要。持仓涨跌超 5%、涨停跌停、浮亏 8%、委托成交或失效，都会在顶栏铃铛里提醒你，不会错过。亏了也不能充值 —— 本金只有学元。内置 6 步新手引导与 15 节指南（费用算例、术语表、提醒、资金流水、新手常见错误），第一次来也不会懵；专为零基础设计：不懂的词（换手、市盈、涨停…）点一下就有解释，前几单默认市价成交不用等；持仓页有今日复盘（成交笔数/费用/仓位/最赚最亏），详情页有公司概况（行业/市值/PE/PB），顶栏「学元」钱包可直接领每日助学津贴（10 学元，连签第 7 天起 20）；每周五还有跨班班级对决。",
       "author": "ClassIntra",
       "icon": "apps/stock/icon.svg",
       "capabilities": [
@@ -474,6 +474,7 @@
         "apps/stock/screenshots/06-news.png",
         "apps/stock/screenshots/07-notify.png",
         "apps/stock/screenshots/08-review.png",
+        "apps/stock/screenshots/09-wallet.png",
         "apps/stock/test/e2e.cjs",
         "apps/stock/test/ui-probe.mjs"
       ],
@@ -487,23 +488,24 @@
         "backend/profile.js": "ecb2de7245ec3f6943ff13b309b5fd328be648a8752f524dcec8b117605f1b48",
         "backend/quotes.js": "4b2943e3ceb5eaf3aecda3bccfca2bd991972d766d23e25e0738709fe74e99d5",
         "backend/report.js": "6772862ee99a263bd262a875a9957fb5a6f171f6ab403193dde5e27f40a6ba13",
-        "backend/routes.js": "03c57013a5c7f030ddb1394fecf5c1a6aa5c1de425483408ab5f84664a24655e",
+        "backend/routes.js": "1ae653bedcf090516a625704d48809794898953963b04f47eb80088efbe5bdb8",
         "backend/store.js": "e7985d8d4bd1c248f3e3010dfc8ccf797f63a97546e0c0307efab0398aa8a580",
         "backend/trading.js": "30a2e460920e547d165ea5818e8f37ad865fbe2d0a207f4ef4fa6f0083fbd9f0",
-        "frontend/entry.js": "5570e6204d3807e391c6214e61f2569a03d8d19ffcaa9e459728af53134dad80",
-        "frontend/style.css": "222a090721096e9373a5b7e72ad47451a563b4bfae7a807948ea0288eebcda5f",
+        "frontend/entry.js": "6c1e6046b24bea2b0196128c1bb108c31ed24d27f871415593b1b99c3b4ea50d",
+        "frontend/style.css": "37a925336f8cb107ffa9bfda07a97bee8a31171d5227a43f73355ae4f51d9843",
         "icon.svg": "ff71f62233255603e0fb8124f8092345b9af016a7e7bddbedacef6c023f85d2d",
-        "manifest.json": "df0da048fe0c7de090b2b349379d7bead8d57c13ed83f56fdfe46a6ea5eb950d",
-        "screenshots/01-overview.png": "0fe8a0d44953a15102aeb708d2a3e2a94518b972b09de410276ea1bf00bcfb17",
-        "screenshots/02-detail.png": "99994188e5642ba58eb45873d5c2dfce963953cdb99fc789b9597684a5dabbb0",
-        "screenshots/03-rank.png": "a34fbb6817e4c0c2f32563e5ece8cec40ea93f12f8a05411b5dca1ee55a3b161",
-        "screenshots/04-guide.png": "de7e1c6e2564a708dd6ca47a644b147e73c6ad7d806cfd9703919c453db13319",
-        "screenshots/05-ledger.png": "d18537473eb22d7fa42c5ca66741ad979801f74b2cab920e807c2c2571ab4a74",
-        "screenshots/06-news.png": "946bd83be4f6534c23d7c2cdc91eceaa8fd59e068c7ad4e3ce27fcae86998852",
-        "screenshots/07-notify.png": "b5d4beee86cf4924b4e65c120b51301033c7353316e2a441d20c9e542b80faab",
-        "screenshots/08-review.png": "a40cbd46bef3929792c500f673cdb81dbe99890a602ad02f27579edf8f0e7149",
-        "test/e2e.cjs": "ae7d587203612259a49092cf0c4cefcec7758708019181dfebd2890a68d60c84",
-        "test/ui-probe.mjs": "69adddec3c133568afe22f2b7f93d14b2717bc2fe0cf88500748031ae9ca7040"
+        "manifest.json": "0ad04452ee9499a56e22980f16503f09efd68fc94c06740f189882f7c02df766",
+        "screenshots/01-overview.png": "5f9e0d7a18407de8c02e3dc3694d97a673072da966d648b6a5c99736d10b9f92",
+        "screenshots/02-detail.png": "6a0d1663a54acf43d9e0578fd19085f93e4ef1e4aceffbcdf4ed89b090df0824",
+        "screenshots/03-rank.png": "1417c6ef71e7e509cf42ed5127717faacf3122dbfba408bf57dd53f93acb9ecd",
+        "screenshots/04-guide.png": "4c1208120228713d151bf5017cf736e2cf8fb57d375ee61815227809272242d9",
+        "screenshots/05-ledger.png": "030625499f774991bdd3fd8aed9a0ed3d1a881f4b25d1ff13e8d80fa6a50e1d6",
+        "screenshots/06-news.png": "4413e03e1a38058dbd03f056a084288df0360b433a5cf66237dd6615574c5f39",
+        "screenshots/07-notify.png": "1c30fa80a4828af75f9aa2c6854c4a1e698836177cb74d412a3a2167246a9247",
+        "screenshots/08-review.png": "240db5e182857fcf246c493549709813cd69db97f5098fd32272349610b4e201",
+        "screenshots/09-wallet.png": "26e6ac782dce7aca775f3a404821072b020ea258325cac1891ba1dfedd3b92ba",
+        "test/e2e.cjs": "e2e9bca148df3fe9b408f2a63e03c67c981d7b84b4657e61050badba838fbd16",
+        "test/ui-probe.mjs": "56f76cdbae26d873ca2a929f90603c7466f44cb5ea38f9829ab1f61d51dc165b"
       },
       "group": "study",
       "color": "#E5484D",
@@ -515,9 +517,14 @@
         "apps/stock/screenshots/05-ledger.png",
         "apps/stock/screenshots/06-news.png",
         "apps/stock/screenshots/07-notify.png",
-        "apps/stock/screenshots/08-review.png"
+        "apps/stock/screenshots/08-review.png",
+        "apps/stock/screenshots/09-wallet.png"
       ],
       "changelog": [
+        {
+          "version": "1.13.0",
+          "notes": "新增「学元钱包」：顶栏「学元」可点开 —— 余额/可用/冻结、每日助学津贴一键领取（10 学元，连签第 7 天起 20）、6 条学元来源清单（开户赠金/投资练习金/津贴/成就/跨班对决/班管发放与转账）、最近学元流水。修复一个平台性缺口：津贴接口一直存在，但桌面端没有任何入口，学生根本不知道去哪领。指南新增第 16 节「学元从哪来、怎么领」。e2e 162/162、ui-probe 84/84。"
+        },
         {
           "version": "1.12.0",
           "notes": "补全三块：① 今日复盘（持仓页）—— 今日成交笔数/费用/买卖金额/已实现/费用占比 + 仓位条 + 最赚最亏 + 一句教学提示（成交≥6 笔会直说「手续费吃了成交额的 x%」）；② 公司概况 F10（详情页）—— 行业、上市日期、总市值、流通市值、PE、PB，教「下单前先知道在买什么」；③ 提醒设置 —— 铃铛面板可自选阈值（涨跌 3/5/8%、浮亏 5/8/10%）与总开关（成交/失效/涨跌停提醒不受影响）。另修：盘前不再显示「0 涨 0 跌」，改为「尚未开盘 · 昨收价待撮合」。e2e 156/156、ui-probe 83/83。"

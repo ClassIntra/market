@@ -663,6 +663,26 @@ async function main() {
   ok('阈值被夹到合法区间', pref3.body.data.up_pct <= 20 && pref3.body.data.loss_pct >= 2,
     pref3.body.data.up_pct + ' / ' + pref3.body.data.loss_pct);
 
+  console.log('\n=== 学元钱包 ===');
+  var wt = await api('GET', '/api/stock/wallet', { token: T1 });
+  eq('钱包 200', wt.status, 200);
+  ok('钱包含余额与津贴状态',
+    typeof wt.body.data.account.balance === 'number' && typeof wt.body.data.daily.claimed === 'boolean',
+    '余额 ' + wt.body.data.account.balance + ' / 已领 ' + wt.body.data.daily.claimed);
+  var c1 = await api('POST', '/api/stock/wallet/daily', { token: T1 });
+  eq('领取津贴 200', c1.status, 200);
+  // 前面「学元」用例可能已经领过，两种结果都要自洽：首次 = 10，重复 = 0
+  ok('领取结果自洽（首次 10 / 重复 0）',
+    (c1.body.data.duplicate === true && c1.body.data.amount === 0) ||
+    (c1.body.data.duplicate === false && c1.body.data.amount === 10),
+    JSON.stringify({ dup: c1.body.data.duplicate, amount: c1.body.data.amount, streak: c1.body.data.streak }));
+  var c2 = await api('POST', '/api/stock/wallet/daily', { token: T1 });
+  ok('重复领取幂等（不再加钱）', c2.body.data.duplicate === true && c2.body.data.amount === 0,
+    JSON.stringify(c2.body.data));
+  var wt2 = await api('GET', '/api/stock/wallet', { token: T1 });
+  ok('领取后状态变为已领', wt2.body.data.daily.claimed === true && wt2.body.data.daily.streak >= 1,
+    '连续 ' + wt2.body.data.daily.streak + ' 天');
+
   // 给 UI 探针留一条未读：探针要验顶栏红点的渲染与「打开即清零」。
   // 只种数据、不改接口行为，避免探针依赖真实成交时机。
   try {

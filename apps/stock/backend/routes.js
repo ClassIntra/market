@@ -286,6 +286,35 @@ router.get('/positions', wrap(function (req, res) {
   });
 }));
 
+// ---- 学元钱包（平台货币，本应用是唯一有界面的入口）----
+// 平台有 /api/xueyuan/* 接口，但桌面端没有任何「领学元」的入口 ——
+// 学生只能在证券里看到余额，不知道去哪领津贴。这里把钱包做成可达的。
+router.get('/wallet', wrap(function (req, res) {
+  var userId = uid(req);
+  var opened = xueyuan.ensureAccount(userId);
+  var today = xueyuan.todayKey();
+  var claimed = !!db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get('daily:' + userId + ':' + today);
+  var lastDaily = db.prepare(
+    'SELECT meta_json FROM xy_tx WHERE ref LIKE ? ORDER BY id DESC LIMIT 1'
+  ).get('daily:' + userId + ':%');
+  var streak = 0;
+  try { streak = JSON.parse((lastDaily && lastDaily.meta_json) || '{}').streak || 0; } catch (e) { streak = 0; }
+  ok(res, {
+    account: opened.account,
+    daily: { claimed: claimed, base: 10, bonus: 20, bonus_from: 7, streak: streak }
+  });
+}));
+
+router.post('/wallet/daily', wrap(function (req, res) {
+  var r = xueyuan.claimDaily(uid(req));
+  ok(res, {
+    duplicate: !!r.duplicate,
+    amount: r.amount,
+    streak: r.streak,
+    account: r.account
+  });
+}));
+
 // ---- 站内通知（持仓波动 / 成交 / 委托失效）----
 router.get('/notify', wrap(function (req, res) {
   ok(res, notify.list(uid(req), { limit: req.query.limit }));

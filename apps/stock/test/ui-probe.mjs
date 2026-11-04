@@ -710,6 +710,24 @@ await sleep(700);
 const badgeGone = await evalJS(`!document.querySelector('.ci-stock .nb-badge')`);
 ok('打开后未读清零', badgeGone, badgeGone);
 
+// 学元钱包：点顶栏「学元」→ 余额 / 津贴 / 来源清单
+await evalJS(`(function(){ var w = document.querySelector('.ci-stock .wallet'); if (w) w.click(); return true; })()`);
+await sleep(1000);
+const wallet = await evalJS(`(function(){
+  return {
+    open: !!document.querySelector('.ci-stock .news-modal'),
+    balance: (document.querySelector('.ci-stock .wallet-balance') || {}).textContent || '',
+    claim: (document.querySelector('.ci-stock .wallet-claim') || {}).textContent || '',
+    src: document.querySelectorAll('.ci-stock .wallet-src-row').length
+  };
+})()`);
+ok('学元钱包可打开（余额/津贴/来源清单）',
+  wallet.open && wallet.balance.length > 0 && wallet.src >= 6 && /领/.test(wallet.claim || ''),
+  JSON.stringify(wallet));
+await shot('09d-wallet');
+await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
+await sleep(400);
+
 await clickNav('排行');
 // 排行要先拉快照再算，慢的时候 2~3 秒，轮询等待
 let rank = null;
