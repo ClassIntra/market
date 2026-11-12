@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="拾光群岛">
+  <title>拾光群岛</title>
+  <defs>
+    <linearGradient id="sgSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13233d"/>
+      <stop offset="1" stop-color="#080d18"/>
+    </linearGradient>
+    <radialGradient id="sgGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd98a" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#ffc06a" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffc06a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#sgSky)"/>
+
+  <!-- 星野 -->
+  <circle cx="12" cy="14" r="1" fill="#cfe4ff" opacity="0.7"/>
+  <circle cx="24" cy="9" r="0.8" fill="#cfe4ff" opacity="0.5"/>
+  <circle cx="48" cy="12" r="1.1" fill="#cfe4ff" opacity="0.75"/>
+  <circle cx="55" cy="21" r="0.7" fill="#cfe4ff" opacity="0.45"/>
+  <circle cx="18" cy="24" r="0.7" fill="#cfe4ff" opacity="0.4"/>
+
+  <!-- 云海 -->
+  <path d="M0 44 Q10 40 20 44 T40 44 T64 43 L64 64 L0 64 Z" fill="#0d1626"/>
+  <path d="M0 48 Q14 44 26 48 T48 48 T64 47 L64 64 L0 64 Z" fill="#0a1220"/>
+
+  <!-- 主岛 -->
+  <ellipse cx="32" cy="42" rx="17" ry="6.4" fill="#2f6350"/>
+  <ellipse cx="32" cy="40.6" rx="14" ry="4.6" fill="#37705b"/>
+
+  <!-- 灯塔光晕 -->
+  <circle cx="32" cy="27" r="15" fill="url(#sgGlow)"/>
+
+  <!-- 灯柱 -->
+  <rect x="30.9" y="30" width="2.2" height="10" rx="1" fill="#6d5a3c"/>
+  <circle cx="32" cy="27.5" r="3.4" fill="#ffe6b0"/>
+  <circle cx="32" cy="27.5" r="1.5" fill="#fffaf0"/>
+
+  <!-- 侧岛 -->
+  <ellipse cx="51" cy="49" rx="9" ry="3.6" fill="#2b5b49"/>
+  <ellipse cx="51" cy="48.2" rx="7" ry="2.6" fill="#33705a"/>
+  <ellipse cx="13" cy="51" rx="8" ry="3.2" fill="#4b5563"/>
+  <ellipse cx="13" cy="50.3" rx="6.2" ry="2.3" fill="#525d6c"/>
+</svg>
