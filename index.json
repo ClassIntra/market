@@ -1,6 +1,6 @@
 {
-  "version": 52,
-  "updated_at": "2026-11-12T19:03:53.155Z",
+  "version": 54,
+  "updated_at": "2026-11-12T23:24:31.337Z",
   "apps": [
     {
       "name": "chess",
@@ -471,8 +471,8 @@
         "backend/routes.js": "2e57fe1f52eede0f24022d71fa80b9715bad7983405dd7bbb4b5d1025aabbdfb",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "8aaaf0b8f672d7d9b24548be783af7a9f7e472fc4296d56d0f54b0faa92d2a45",
-        "CHANGELOG.md": "b5204df59d4af8aef2d39ddac9b1cdfa06fbb316251d91ce7bbc8874603c16ca",
-        "frontend/entry.js": "d3a089889f1b207989bf4275c4f5996a4d549fd4407559d34b025a530e1d5daf",
+        "CHANGELOG.md": "cb0e4a5c5b3205e8139352d8e6f860ca57e57f13764339c1246cd2f2e664c95f",
+        "frontend/entry.js": "b20f351bcd292a062a78d1ff14b29048da2a32457e894405274de5c88b1db361",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
