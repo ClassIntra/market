@@ -4334,8 +4334,14 @@
     var darkCtx = null;
 
     function drawDarkness(ox, oy, t) {
-      var dw = Math.ceil(view.w / 2);
-      var dh = Math.ceil(view.h / 2);
+      // 满火时整层跳过：此时边缘暗度只有 0.28，肉眼几乎看不出，
+      // 但它是每帧一次全屏离屏合成 + 一次 drawImage —— 这是最贵的一层。
+      // 让它只在「火开始弱」时出现，等于把代价挪到真正需要氛围的时刻。
+      if (lightState.v > 92 && !wraiths.length) return;
+      // 1/3 分辨率：这一层本来就是软边，缩到 1/3 与 1/2 看不出差别，
+      // 像素量再少 55%。校园平板每帧预算只有 16ms，这 2~3ms 很关键。
+      var dw = Math.ceil(view.w / 3);
+      var dh = Math.ceil(view.h / 3);
       if (!darkCv) {
         darkCv = document.createElement('canvas');
         darkCtx = darkCv.getContext('2d');
@@ -4358,10 +4364,10 @@
       // 玩家只会觉得「卡了/糊了」。现在 0.78，并且把「全亮的中心区」从
       // 0.34R 抬到 0.58R —— 要让中心一片真的干净，人才有「站在光里」的感觉。
       var edge = 0.78 - lv * 0.50;
-      var px = (ox + (state.me.x + 0.5) * t) / 2;
-      var py = (oy + (state.me.y + 0.5) * t) / 2;
+      var px = (ox + (state.me.x + 0.5) * t) / 3;
+      var py = (oy + (state.me.y + 0.5) * t) / 3;
       // 视野：满火 10.2 格，半火 7.4，将尽 4.2
-      var R = (4.2 + lv * 6.0) * t / 2;
+      var R = (4.2 + lv * 6.0) * t / 3;
 
       var g = c.createRadialGradient(px, py, R * 0.58, px, py, R * 1.75);
       g.addColorStop(0, 'rgba(5, 9, 18, 0)');
@@ -4375,9 +4381,9 @@
       for (var i = 0; i < keys.length; i++) {
         var lp = state.lamps[keys[i]];
         if (!lp) continue;
-        var lx = (ox + (lp.x + 0.5) * t) / 2;
-        var ly = (oy + (lp.y + 0.5) * t) / 2;
-        var lr = t * 4.2 / 2;
+        var lx = (ox + (lp.x + 0.5) * t) / 3;
+        var ly = (oy + (lp.y + 0.5) * t) / 3;
+        var lr = t * 4.2 / 3;
         if (lx < -lr || lx > dw + lr || ly < -lr || ly > dh + lr) continue;
         vis.push([lx, ly, lr]);
       }
@@ -5142,7 +5148,15 @@
 
     function attemptMove(dx, dy) {
       if (!state.ready || flying) return;
-      if (talkBox.hidden === false) return;   // 对话中不能走：否则台词会跟着人漂走
+      // ⚠️ 这里原来是 `if (talkBox.hidden === false) return;` —— 对话中不许走。
+      // 后果是致命的：NPC 在 4 格内**自动**开口，而村口出生点离守灯人正好 4 格，
+      // 于是玩家一进世界就被对话框顶住，摇杆连一个 /move 都不发出去，
+      // 看起来就是「摇杆坏了」。唯一的解法是点对话框把 5 句台词看完 ——
+      // 没人会想到「想走路得先跟人聊完天」。
+      //
+      // 任何游戏里推摇杆都该打断对话。台词跟人漂走是次要问题：
+      // 人走了就把对话框收掉，比把人锁在原地好一万倍。
+      if (talkBox.hidden === false) talkClose();
       if (fishing) {
         fishing = null;
         toast('走动收回了鱼线');
@@ -5386,6 +5400,22 @@
       stick.removeEventListener('pointerup', stickRelease);
       stick.removeEventListener('pointercancel', stickRelease);
     });
+
+    // 自查钩子：摇杆不动时先看这四个闸门哪个是关的。
+    // （生产上排查过一次「进了世界就走不动」，所以留一个只读的观测点。）
+    window.__sgDiag = function () {
+      return {
+        ready: state.ready,
+        flying: flying,
+        talk: talkBox.hidden === false,
+        me: [state.me.x, state.me.y],
+        stickDir: stickDir,
+        stickPtr: stickPointer,
+        sinceLastMove: Date.now() - lastMoveAt,
+        moveGap: MOVE_GAP,
+        moveInterval: MOVE_INTERVAL
+      };
+    };
 
     function onCanvasClick(e) {
       if (!state.ready) return;
@@ -6987,7 +7017,10 @@
     // ---------- NPC 对话：靠近即触发 ----------
     // 设计意图：玩家不需要「想起来去点 NPC」。走到 4 格内，对方自己开口。
     // 这一下同时补掉了三个窟窿：有人在、有事做、世界记得你。
-    var TALK_RADIUS = 4;
+    // ⚠️ 4 格是「一进世界就被人搭话」的距离：出生点 (80,88) 与守灯人 (76,92)
+    // 的切比雪夫距离正好 4，于是每次进入都先弹一个对话框。
+    // 收到 2 格：必须真的走到人家跟前才会开口，同时保留「走近就有人说话」的设计。
+    var TALK_RADIUS = 2;
     var TALK_TYPE_MS = 34;
     var talk = { npc: null, lines: [], idx: 0, full: '', shown: 0, tick: 0, seen: {} };
 
