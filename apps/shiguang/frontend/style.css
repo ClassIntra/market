@@ -84,7 +84,21 @@
   display: block;
 }
 
-/* ---------------- 顶部 HUD ---------------- */
+/* ---------------- 顶部 HUD ----------------
+ *
+ * ⚠️ 顶部没有任何「面板」。
+ *
+ * 上一版是「深色玻璃卡片 + 圆角 + 阴影 + 内描边」—— 那是 2020 年移动端 App 的
+ * 模板语言，贴在一幅手绘夜空上，观感就是「把 iOS 控制中心压在一幅油画上」。
+ * 这种做法的根本问题不是不好看，是**它属于另一个世界**：
+ * 画面是连续的、有雾有光的；HUD 是硬的、有边框的、漂浮的。两套物理规则打架。
+ *
+ * 现在的做法：文字直接落在画面上，靠三件事立住 ——
+ *   1. 字距（0.18~0.22em）—— 拉开就从「App 标题」变成「书名」；
+ *   2. 字号层级（19 / 10 / 9.5）—— 靠大小分主次，不靠容器；
+ *   3. 极轻的压暗渐变 —— 只为让白字在任何地形上都读得出来。
+ * 整个顶部没有一条边框、没有一个圆角。
+ */
 
 .sg-hud {
   position: absolute;
@@ -93,68 +107,67 @@
   width: 100%;
   height: 96px;
   pointer-events: none;
-  /* 从顶端淡出：世界从它底下透出来，不做通栏黑条 */
-  background: linear-gradient(180deg, rgba(6, 10, 22, 0.52) 0%, rgba(6, 10, 22, 0.20) 52%, rgba(6, 10, 22, 0) 100%);
+  background: linear-gradient(180deg, rgba(4, 8, 18, 0.38) 0%, rgba(4, 8, 18, 0.12) 44%, rgba(4, 8, 18, 0) 100%);
   z-index: 30;
 }
 
 .sg-hud-brand {
   position: absolute;
-  left: 14px;
-  top: 12px;
+  left: 20px;
+  top: 15px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   pointer-events: auto;
-  background: var(--sg-glass);
-  border: 1px solid var(--sg-line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--sg-shadow-sm);
-  padding: 8px 12px 8px 9px;
 }
 
+/* 品牌标：不装在任何容器里，就是一枚发光的星 */
 .sg-brand-mark {
-  width: 30px;
-  height: 30px;
+  width: 16px;
+  height: 16px;
+  margin-top: 5px;
+  margin-right: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  background: linear-gradient(145deg, rgba(255, 217, 138, 0.22), rgba(159, 224, 255, 0.14));
   color: var(--sg-gold);
   flex: none;
+  filter: drop-shadow(0 0 8px rgba(255, 210, 130, 0.72));
 }
 
 .sg-brand-mark svg {
-  width: 19px;
-  height: 19px;
+  width: 16px;
+  height: 16px;
 }
 
 .sg-brand-text {
-  margin-left: 8px;
+  margin-left: 0;
 }
 
 .sg-brand-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.15;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  line-height: 1.1;
+  color: rgba(255, 248, 236, 0.96);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.74), 0 0 32px rgba(255, 200, 120, 0.14);
 }
 
 .sg-brand-sub {
-  font-size: 10.5px;
-  color: var(--sg-ink-2);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(255, 214, 150, 0.60);
   line-height: 1.3;
-  margin-top: 1px;
+  margin-top: 5px;
 }
 
-/* 到下一道天光门槛的发丝进度线 */
+/* 天光进度：一根 44px 的细线。
+   进度条是「仪表」，细线是「刻度」—— 前者像后台，后者像世界。 */
 .sg-stagebar {
   position: relative;
-  width: 106px;
-  height: 2px;
-  margin-top: 5px;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.12);
+  width: 44px;
+  height: 1px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.13);
   overflow: hidden;
 }
 
@@ -165,16 +178,16 @@
   width: 100%;
   height: 100%;
   transform-origin: 0 50%;
-  background: linear-gradient(90deg, var(--sg-gold), #ffe9bb);
-  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, rgba(255, 214, 150, 0.45), rgba(255, 242, 212, 0.95));
   transition: transform 0.5s var(--sg-ease);
 }
 
-/* 资源胶囊：星屑 / 灯柱 */
+/* 资源：裸数字 + 小图标。
+   数字 19px、单位 9.5px —— 层级靠字号差，不靠胶囊。 */
 .sg-hud-pills {
   position: absolute;
-  left: 14px;
-  top: 66px;
+  left: 20px;
+  top: 74px;
   display: flex;
   align-items: center;
   pointer-events: auto;
@@ -183,62 +196,68 @@
 .sg-pill {
   display: flex;
   align-items: center;
-  height: 30px;
-  padding: 0 10px 0 7px;
-  margin-right: 8px;
-  background: var(--sg-glass-2);
-  border: 1px solid var(--sg-line-soft);
-  border-radius: var(--radius-pill);
-  box-shadow: var(--sg-shadow-sm);
-  transition: transform 0.32s var(--sg-ease-back), background 0.2s var(--sg-ease);
+  height: auto;
+  padding: 0;
+  margin-right: 22px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: transform 0.32s var(--sg-ease-back);
 }
 
 .sg-pill-ico {
-  width: 17px;
-  height: 17px;
+  width: 13px;
+  height: 13px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 5px;
+  margin-right: 7px;
 }
 
 .sg-pill-ico svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
 }
 
 .sg-pill-shard .sg-pill-ico {
   color: var(--sg-cyan);
+  filter: drop-shadow(0 0 7px rgba(159, 224, 255, 0.55));
 }
 
 .sg-pill-lamp .sg-pill-ico {
   color: var(--sg-gold);
+  filter: drop-shadow(0 0 7px rgba(255, 217, 138, 0.55));
 }
 
 .sg-pill-val {
-  font-size: 13px;
-  font-weight: 700;
-  min-width: 14px;
+  font-size: 19px;
+  font-weight: 600;
+  min-width: 12px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: rgba(255, 250, 240, 0.95);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
 }
 
 .sg-pill-unit {
-  font-size: 10px;
-  color: var(--sg-ink-2);
-  margin-left: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: rgba(240, 246, 255, 0.40);
+  margin-left: 5px;
 }
 
 .sg-pill.is-bump {
-  transform: translateY(-3px) scale(1.06);
-  background: var(--sg-glass);
+  transform: translateY(-3px) scale(1.05);
 }
 
-/* 右上：在线人数 + 图标按钮组 */
+/* 右上：在线人数 + 图标。
+   图标一律无底、无框 —— 一排方块按钮是「工具栏」，一排裸图标才是「世界」。 */
 .sg-hud-right {
   position: absolute;
-  right: 14px;
-  top: 12px;
+  right: 16px;
+  top: 16px;
   display: flex;
   align-items: center;
   pointer-events: auto;
@@ -247,59 +266,62 @@
 .sg-online {
   display: flex;
   align-items: center;
-  height: 30px;
-  padding: 0 11px;
-  margin-right: 8px;
-  background: var(--sg-glass-2);
-  border: 1px solid var(--sg-line-soft);
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  color: var(--sg-ink-2);
+  height: auto;
+  padding: 0;
+  margin-right: 14px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.10em;
+  color: rgba(240, 246, 255, 0.46);
 }
 
 .sg-online-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--sg-jade);
-  margin-right: 6px;
-  box-shadow: 0 0 6px rgba(142, 240, 198, 0.8);
+  margin-right: 7px;
+  box-shadow: 0 0 7px rgba(142, 240, 198, 0.85);
 }
 
 .sg-icon-btn {
   position: relative;
-  width: 36px;
-  height: 36px;
-  margin-left: 7px;
+  width: 34px;
+  height: 34px;
+  margin-left: 1px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--sg-glass);
-  border: 1px solid var(--sg-line);
-  border-radius: var(--radius-md);
-  box-shadow: var(--sg-shadow-sm);
-  color: var(--sg-ink-2);
-  transition: transform 0.24s var(--sg-ease-spring), color 0.2s var(--sg-ease), background 0.2s var(--sg-ease);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  box-shadow: none;
+  color: rgba(240, 246, 255, 0.48);
+  transition: transform 0.24s var(--sg-ease-spring), color 0.2s var(--sg-ease),
+              border-color 0.2s var(--sg-ease), background 0.2s var(--sg-ease);
 }
 
 .sg-icon-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
 }
 
 .sg-icon-btn:active {
-  transform: scale(0.90);
-  color: var(--sg-ink);
-  background: var(--sg-glass-deep);
+  transform: scale(0.92);
+  color: var(--sg-gold);
+  border-color: rgba(255, 217, 138, 0.32);
+  background: rgba(255, 217, 138, 0.07);
 }
 
 /* 任务有可领奖时的红点 */
 .sg-btn-dot {
   position: absolute;
-  right: 5px;
-  top: 5px;
-  width: 7px;
-  height: 7px;
+  right: 6px;
+  top: 6px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: transparent;
   transform: scale(0);
@@ -307,8 +329,8 @@
 }
 
 .sg-btn-dot.is-on {
-  background: #ff7a8a;
-  box-shadow: 0 0 7px rgba(255, 122, 138, 0.9);
+  background: #ff8a96;
+  box-shadow: 0 0 8px rgba(255, 138, 150, 0.9);
   transform: scale(1);
 }
 
@@ -509,19 +531,26 @@
   letter-spacing: 0.08em;
 }
 
-/* ---------------- 小地图 ---------------- */
+/* ---------------- 小地图 ----------------
+ *
+ * 不是「一个 App 方块」。黑色圆角方块 + 厚阴影是手机 App 的画法，
+ * 世界地图应该像一块嵌在画面里的旧玻璃：
+ *   · 背景几乎透明（云海颜色从底下透出来）
+ *   · 1px 暖金细边 + 四角各一道短刻度（罗盘暗示，不用画指针）
+ *   · 没有外发光 —— 它是「信息」，不是「光源」
+ */
 
 .sg-minimap {
   position: absolute;
-  right: 14px;
+  right: 18px;
   top: 60px;
-  width: 104px;
-  height: 104px;
-  border-radius: var(--radius-lg);
+  width: 100px;
+  height: 100px;
+  border-radius: 7px;
   overflow: hidden;
-  border: 1px solid var(--sg-line);
-  background: rgba(8, 12, 24, 0.66);
-  box-shadow: var(--sg-shadow-sm);
+  border: 1px solid rgba(255, 214, 150, 0.17);
+  background: rgba(6, 11, 22, 0.44);
+  box-shadow: 0 10px 30px rgba(2, 6, 14, 0.40);
   pointer-events: auto;
   z-index: 28;
   cursor: pointer;
@@ -532,6 +561,33 @@
 .sg-minimap.is-big {
   width: 152px;
   height: 152px;
+  border-radius: 9px;
+}
+
+/* 四角刻度：每条 9px，只出现在四个角上 */
+.sg-minimap::before,
+.sg-minimap::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.5;
+}
+
+.sg-minimap::before {
+  left: 5px;
+  top: 5px;
+  border-left: 1px solid rgba(255, 214, 150, 0.6);
+  border-top: 1px solid rgba(255, 214, 150, 0.6);
+}
+
+.sg-minimap::after {
+  right: 5px;
+  bottom: 5px;
+  border-right: 1px solid rgba(255, 214, 150, 0.6);
+  border-bottom: 1px solid rgba(255, 214, 150, 0.6);
 }
 
 .sg-mm-canvas {
@@ -548,11 +604,12 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 3px 0 4px;
+  padding: 4px 0 5px;
   text-align: center;
-  font-size: 9.5px;
-  color: var(--sg-ink-3);
-  background: linear-gradient(180deg, rgba(8, 12, 24, 0), rgba(8, 12, 24, 0.72));
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: rgba(255, 226, 190, 0.55);
+  background: linear-gradient(180deg, rgba(6, 11, 22, 0), rgba(4, 8, 18, 0.78));
   opacity: 0;
   transition: opacity 0.24s var(--sg-ease);
 }
@@ -561,7 +618,13 @@
   opacity: 1;
 }
 
-/* ---------------- 摇杆 ---------------- */
+/* ---------------- 摇杆 ----------------
+ *
+ * 上一版是一个「半透明灰圆盘 + 内阴影」，在深色草地上几乎看不见。
+ * 现在改成：一圈虚线 + 一颗发光的灯。
+ * 摇杆头做成暖金实心，是因为玩家手里提的就是灯 ——
+ * HUD 上唯一的实体光源，应该和世界里的光是同一个东西。
+ */
 
 .sg-stick {
   position: absolute;
@@ -576,14 +639,19 @@
 
 .sg-stick-core {
   position: absolute;
-  left: 6px;
-  top: 6px;
-  right: 6px;
-  bottom: 6px;
+  left: 4px;
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(20, 30, 54, 0.24) 0%, rgba(20, 30, 54, 0.42) 62%, rgba(10, 16, 30, 0.5) 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 2px 12px rgba(255, 255, 255, 0.05), var(--sg-shadow-sm);
+  background: none;
+  border: 1px dashed rgba(255, 246, 230, 0.20);
+  box-shadow: none;
+}
+
+.sg-stick.is-active .sg-stick-core {
+  border-style: solid;
+  border-color: rgba(255, 226, 180, 0.34);
 }
 
 .sg-stick.is-hint .sg-stick-core {
@@ -591,18 +659,18 @@
 }
 
 @keyframes sg-stick-breathe {
-  0%, 100% { box-shadow: inset 0 2px 12px rgba(255, 255, 255, 0.05), 0 0 0 0 rgba(159, 224, 255, 0.16); }
-  50% { box-shadow: inset 0 2px 12px rgba(255, 255, 255, 0.08), 0 0 0 9px rgba(159, 224, 255, 0); }
+  0%, 100% { border-color: rgba(255, 246, 230, 0.18); }
+  50% { border-color: rgba(255, 226, 180, 0.44); }
 }
 
 .sg-stick-tick {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: rgba(240, 246, 255, 0.22);
+  background: rgba(255, 246, 230, 0.20);
   transform: translate(-50%, -50%) scale(0.62);
   transition: transform 0.22s var(--sg-ease-back), background 0.22s var(--sg-ease);
 }
@@ -613,8 +681,8 @@
 .sg-tick-r.is-on { transform: translate(calc(46px - 50%), -50%) scale(1); }
 
 .sg-stick-tick.is-on {
-  background: var(--sg-cyan);
-  box-shadow: 0 0 9px rgba(159, 224, 255, 0.7);
+  background: rgba(255, 226, 180, 0.95);
+  box-shadow: 0 0 10px rgba(255, 210, 140, 0.8);
 }
 
 /* 推力光带：从圆心伸出的细长渐变，角度与长度跟手 */
@@ -623,39 +691,51 @@
   left: 50%;
   top: 50%;
   width: 52px;
-  height: 3px;
-  margin: -1.5px 0 0 -2px;
-  border-radius: var(--radius-pill);
+  height: 2px;
+  margin: -1px 0 0 -2px;
+  border-radius: 2px;
   transform-origin: 2px 50%;
-  background: linear-gradient(90deg, rgba(159, 224, 255, 0.85), rgba(159, 224, 255, 0));
+  background: linear-gradient(90deg, rgba(255, 220, 160, 0.9), rgba(255, 220, 160, 0));
   opacity: 0;
   transition: opacity 0.18s var(--sg-ease);
   pointer-events: none;
 }
 
+/* 摇杆头 = 手上那盏灯 */
 .sg-stick-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 56px;
-  height: 56px;
-  margin: -28px 0 0 -28px;
+  /* 46px 不是 62px：摇杆是手指按住的地方，按压目标 44px 就够。
+     再大就会变成画面左下角一个「橘子」，抢掉世界本身的注意力。 */
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.05) 42%, rgba(20, 30, 54, 0.16) 100%),
-    linear-gradient(160deg, rgba(44, 58, 92, 0.9), rgba(24, 34, 60, 0.9));
-  border: 1.5px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 6px 18px rgba(2, 6, 14, 0.5), inset 0 1px 6px rgba(255, 255, 255, 0.14);
+  background: radial-gradient(circle at 38% 32%, rgba(255, 246, 224, 0.88), rgba(240, 196, 132, 0.66) 48%, rgba(166, 110, 56, 0.52) 100%);
+  border: 0;
+  box-shadow: 0 0 16px rgba(255, 196, 116, 0.32), 0 5px 14px rgba(2, 6, 14, 0.46),
+              inset 0 -2px 6px rgba(140, 88, 34, 0.36);
   transition: transform 0.34s var(--sg-ease-spring);
   pointer-events: none;
 }
 
 .sg-stick.is-active .sg-stick-knob {
   transition: transform 0.06s linear;
-  border-color: rgba(159, 224, 255, 0.45);
 }
 
-/* ---------------- 动作簇 ---------------- */
+/* ---------------- 动作簇 ----------------
+ *
+ * 上一版是「六个带玻璃底、带 1.5px 白边、各染一种颜色的圆」——
+ * 六个圆一样响，等于没有主次；六种颜色，等于没有颜色。
+ *
+ * 现在的规则：
+ *   · 全屏只有一个按钮有实心填充（采集）—— 它是「此刻该按的东西」，
+ *     这一件事只用光晕说，不用文字说；
+ *   · 其余按钮只有一道 1px 细描边，必须在余光里存在，但不许抢；
+ *   · 所有按钮同一个色系（暖白），区分靠图标形状和位置，不靠染颜色。
+ *     一个按钮一种颜色是新手做法 —— 眼睛会先注意到「颜色」而不是「功能」。
+ */
 
 .sg-acts {
   position: absolute;
@@ -674,26 +754,25 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.02) 46%, rgba(10, 16, 30, 0.30) 100%),
-    rgba(14, 22, 40, 0.66);
-  border: 1.5px solid rgba(255, 255, 255, 0.16);
-  box-shadow: var(--sg-shadow-sm);
-  color: var(--sg-ink-2);
+  background: rgba(8, 13, 24, 0.20);
+  border: 1px solid rgba(255, 246, 230, 0.20);
+  box-shadow: none;
+  color: rgba(255, 246, 230, 0.72);
   pointer-events: auto;
   transition: transform 0.26s var(--sg-ease-back), border-color 0.2s var(--sg-ease),
-              box-shadow 0.24s var(--sg-ease), color 0.2s var(--sg-ease);
+              background 0.2s var(--sg-ease), color 0.2s var(--sg-ease);
 }
 
 .sg-act:active {
   transform: scale(0.90);
+  background: rgba(255, 240, 214, 0.10);
 }
 
 .sg-act-ico {
   position: absolute;
   left: 0;
   right: 0;
-  top: 26%;
+  top: 22%;
   height: 44%;
   display: flex;
   align-items: center;
@@ -701,114 +780,118 @@
 }
 
 .sg-act-ico svg {
-  width: 42%;
-  height: 42%;
+  width: 44%;
+  height: 44%;
 }
 
 .sg-act-label {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 12%;
-  font-size: 9.5px;
+  bottom: 13%;
+  font-size: 9px;
   line-height: 1;
-  color: var(--sg-ink-2);
+  letter-spacing: 0.06em;
+  color: rgba(255, 246, 230, 0.50);
   text-align: center;
 }
 
-/* 大按钮：采集（拇指自然落点） */
+/* 主键：唯一有实心填充的按钮 */
 .sg-act-gather {
   right: 0;
   bottom: 0;
-  width: 78px;
-  height: 78px;
-  color: var(--sg-cyan);
+  width: 84px;
+  height: 84px;
+  border: 1px solid rgba(255, 226, 180, 0.50);
+  background:
+    radial-gradient(circle at 38% 30%, rgba(255, 244, 222, 0.26), rgba(255, 214, 150, 0.08) 55%, rgba(48, 34, 20, 0.44) 100%),
+    rgba(24, 18, 12, 0.55);
+  color: rgba(255, 250, 236, 0.98);
+  box-shadow: 0 0 28px rgba(255, 204, 130, 0.18), 0 10px 26px rgba(2, 6, 14, 0.40);
+}
+
+.sg-act-gather .sg-act-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 248, 232, 0.86);
 }
 
 .sg-act-build,
 .sg-act-plant,
 .sg-act-fish {
-  width: 56px;
-  height: 56px;
+  width: 50px;
+  height: 50px;
 }
 
+/* 布局：两列，**圆心对齐**。
+   散着放的时候，六个圆看起来像随手撒在角落 —— 因为眼睛会自动找对齐线，
+   找不到就判定「乱」。右列圆心统一距右 46px，左列统一距右 118px。 */
 .sg-act-build {
-  right: 86px;
-  bottom: 2px;
-  color: var(--sg-gold);
+  right: 93px;
+  bottom: 8px;
 }
 
 .sg-act-plant {
-  right: 66px;
-  bottom: 70px;
-  color: var(--sg-jade);
+  right: 93px;
+  bottom: 76px;
 }
 
 .sg-act-fish {
-  right: 2px;
-  bottom: 88px;
-  color: var(--sg-cyan);
+  right: 21px;
+  bottom: 100px;
 }
 
-/* 次级动作：漂流 / 表情 */
+/* 次级动作：漂流 / 表情 / 情境键（快线、触碑） */
 .sg-act-bottle,
-.sg-act-emote {
-  width: 46px;
-  height: 46px;
+.sg-act-emote,
+.sg-act-fly,
+.sg-act-stele {
+  width: 40px;
+  height: 40px;
 }
 
 .sg-act-emote {
-  right: 2px;
-  bottom: 158px;
+  right: 26px;
+  bottom: 164px;
 }
 
 .sg-act-bottle {
-  right: 60px;
-  bottom: 140px;
-  color: var(--sg-rose);
+  right: 98px;
+  bottom: 152px;
 }
 
-/* 可用态：整颗按钮泛出属于自己的光 */
+/* 可用态：只提亮描边和图标，不加底、不加框 */
 .sg-act.is-ready {
-  color: var(--sg-ink);
-  border-color: rgba(255, 255, 255, 0.34);
-  box-shadow: 0 0 18px rgba(159, 224, 255, 0.20), var(--sg-shadow-sm);
+  border-color: rgba(255, 232, 196, 0.44);
+  color: rgba(255, 250, 240, 0.94);
 }
 
 .sg-act-gather.is-ready {
-  box-shadow: 0 0 26px rgba(159, 224, 255, 0.34), var(--sg-shadow-sm);
-}
-
-.sg-act-build.is-ready {
-  box-shadow: 0 0 22px rgba(255, 217, 138, 0.30), var(--sg-shadow-sm);
-}
-
-.sg-act-plant.is-ready {
-  box-shadow: 0 0 22px rgba(142, 240, 198, 0.28), var(--sg-shadow-sm);
+  box-shadow: 0 0 34px rgba(255, 208, 140, 0.30), 0 10px 26px rgba(2, 6, 14, 0.40);
 }
 
 /* 消耗角标 */
 .sg-badge {
   position: absolute;
-  right: -2px;
-  top: -2px;
-  min-width: 17px;
-  height: 17px;
+  right: -1px;
+  top: -1px;
+  min-width: 16px;
+  height: 16px;
   box-sizing: border-box;
-  padding: 0 4px;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(160deg, #ffca6e, #ffab4a);
-  color: #40300f;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 17px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: rgba(255, 216, 156, 0.94);
+  color: #2a1c08;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 16px;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(255, 171, 74, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .sg-badge.is-out {
-  background: rgba(120, 130, 150, 0.5);
-  color: rgba(240, 246, 255, 0.7);
+  background: rgba(120, 130, 150, 0.45);
+  color: rgba(240, 246, 255, 0.62);
   box-shadow: none;
 }
 
@@ -821,21 +904,6 @@
   height: 100%;
   transform: rotate(-90deg);
   pointer-events: none;
-}
-
-.sg-ring-bg {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.10);
-  stroke-width: 3;
-}
-
-.sg-ring-fg {
-  fill: none;
-  stroke: var(--sg-cyan);
-  stroke-width: 3;
-  stroke-linecap: round;
-  opacity: 0;
-  transition: stroke-dashoffset 0.26s linear, opacity 0.2s var(--sg-ease);
 }
 
 /* ---------------- 表情盘 ---------------- */
@@ -2075,26 +2143,30 @@
     height: 68px;
   }
 
+  /* 移动端：右列圆心距右 38，左列距右 102（与桌面同一套比例，整体 ×0.86） */
   .sg-act-build {
-    right: 74px;
+    right: 80px;
+    bottom: 6px;
   }
 
   .sg-act-plant {
-    right: 56px;
-    bottom: 62px;
+    right: 80px;
+    bottom: 66px;
   }
 
   .sg-act-fish {
-    bottom: 76px;
+    right: 16px;
+    bottom: 86px;
   }
 
   .sg-act-emote {
-    bottom: 136px;
+    right: 20px;
+    bottom: 142px;
   }
 
   .sg-act-bottle {
-    right: 52px;
-    bottom: 120px;
+    right: 84px;
+    bottom: 132px;
   }
 
   .sg-tray {
@@ -2309,10 +2381,14 @@
   display: flex;
   align-items: flex-start;
   padding: 16px 18px 16px 16px;
-  background: linear-gradient(165deg, rgba(38, 30, 58, 0.96), rgba(16, 18, 38, 0.96));
-  border: 1px solid rgba(255, 214, 150, 0.32);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 20px 48px rgba(4, 6, 16, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  /* 暖褐黑，不是紫黑。
+     紫黑是「科技感」的默认色，但这个世界里所有暖色都该来自火和灯 ——
+     一块紫黑面板会让人立刻意识到「这是 UI」，而不是「他在说话」。
+     圆角也从 xl 收到 md：信笺不该长成药丸。 */
+  background: linear-gradient(168deg, rgba(36, 26, 19, 0.95), rgba(15, 12, 10, 0.96));
+  border: 1px solid rgba(255, 206, 148, 0.26);
+  border-radius: var(--radius-md);
+  box-shadow: 0 22px 52px rgba(4, 4, 8, 0.62), inset 0 1px 0 rgba(255, 232, 200, 0.06);
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
@@ -2338,9 +2414,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(160deg, rgba(255, 224, 170, 0.24), rgba(140, 120, 220, 0.18));
-  border: 1px solid rgba(255, 214, 150, 0.42);
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 34%, rgba(255, 226, 178, 0.26), rgba(120, 84, 44, 0.22));
+  border: 1px solid rgba(255, 214, 150, 0.40);
   color: #ffe6b8;
   font-size: 20px;
   font-weight: 700;

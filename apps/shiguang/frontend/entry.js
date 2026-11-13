@@ -30,6 +30,7 @@
   var T_STONE = 3;
   var T_DOCK = 4;   // 码头木栈道（可走、可钓星）
   var T_PATH = 5;   // 石板路（可走、可种花）
+  var T_LAKE = 6;   // 岛内静水（不可走、不可点灯）
 
   var MOVE_INTERVAL = 170;   // 本地连走的节奏（服务端下限 80ms，留足网络抖动余量）
   var MOVE_GAP = 126;
@@ -175,15 +176,35 @@
 
   // 生态调色：每种 biome 一套「草地/岩地/路」的受光/阴影双色。
   // 岛屿性格靠这个拉开 —— 雾隐偏青、星坠偏蓝、萤火泽墨绿、织花谷暖绿、霜屿泛白。
+  // 生态调色板。
+  //
+  // ⚠️ 配色只有一条铁律：**全画面只允许暖色属于光**。
+  //
+  // 上一版 sand 通道借用 pathLit [148,134,116]（暖米色），而沙环占陆地 27%
+  // —— 于是画面上面积最大的暖色是「没人点亮的沙子」，灯反而比不过它，
+  // 整屏读起来是「发灰发白的沙滩地图」。现在沙滩压成冷褐，
+  // 暖色只准出现在三个地方：灯火、窗口、星屑。
+  //
+  // lit = 受光面，shd = 背光面，light 在两者之间插值。
+  // 四组通道各管一件事：lit/shd 草地，stLit/stShd 岩层，
+  // sandLit/sandShd 沙地，pathLit/pathShd 土径。
   var BIOME_PALETTES = {
-    meadow: { lit: [44, 84, 62], shd: [11, 30, 32], stLit: [92, 104, 124], stShd: [30, 36, 50], pathLit: [148, 134, 116], pathShd: [70, 62, 56] },
-    mist:   { lit: [46, 88, 88], shd: [12, 32, 40], stLit: [88, 104, 128], stShd: [28, 36, 52], pathLit: [140, 134, 124], pathShd: [64, 62, 60] },
-    stone:  { lit: [96, 106, 126], shd: [30, 36, 50], stLit: [116, 128, 150], stShd: [40, 46, 62], pathLit: [152, 144, 130], pathShd: [72, 66, 58] },
-    beach:  { lit: [140, 138, 106], shd: [46, 46, 40], stLit: [104, 112, 128], stShd: [36, 42, 56], pathLit: [168, 150, 122], pathShd: [84, 72, 58] },
-    marsh:  { lit: [36, 66, 56], shd: [8, 24, 26], stLit: [78, 90, 104], stShd: [26, 32, 44], pathLit: [126, 122, 106], pathShd: [58, 56, 50] },
-    flower: { lit: [56, 92, 58], shd: [14, 34, 28], stLit: [98, 106, 122], stShd: [32, 38, 50], pathLit: [156, 132, 112], pathShd: [74, 62, 54] },
-    coral:  { lit: [88, 92, 112], shd: [28, 32, 46], stLit: [112, 112, 136], stShd: [38, 40, 56], pathLit: [150, 134, 122], pathShd: [70, 62, 56] },
-    frost:  { lit: [138, 156, 168], shd: [56, 70, 86], stLit: [150, 164, 180], stShd: [60, 72, 88], pathLit: [170, 172, 178], pathShd: [88, 92, 100] }
+    meadow: { lit: [40, 66, 60],   shd: [10, 23, 26],    stLit: [80, 90, 106],   stShd: [26, 30, 40],
+              sandLit: [74, 68, 56],   sandShd: [34, 31, 27],   pathLit: [58, 46, 36],  pathShd: [24, 19, 15] },
+    mist:   { lit: [42, 68, 72],   shd: [11, 25, 30],    stLit: [78, 92, 108],   stShd: [24, 30, 42],
+              sandLit: [70, 70, 66],   sandShd: [32, 33, 31],   pathLit: [54, 48, 42],  pathShd: [22, 20, 17] },
+    stone:  { lit: [82, 88, 102],  shd: [26, 30, 40],    stLit: [104, 112, 130], stShd: [36, 40, 54],
+              sandLit: [84, 80, 72],   sandShd: [38, 36, 33],   pathLit: [64, 54, 44],  pathShd: [27, 23, 18] },
+    beach:  { lit: [96, 88, 70],   shd: [34, 32, 28],    stLit: [90, 96, 110],   stShd: [32, 36, 46],
+              sandLit: [104, 94, 74],  sandShd: [44, 40, 32],   pathLit: [70, 56, 42],  pathShd: [30, 24, 18] },
+    marsh:  { lit: [32, 54, 48],   shd: [8, 19, 21],     stLit: [70, 80, 92],    stShd: [24, 28, 36],
+              sandLit: [62, 60, 50],   sandShd: [28, 28, 24],   pathLit: [50, 42, 33],  pathShd: [20, 17, 14] },
+    flower: { lit: [50, 70, 48],   shd: [13, 25, 23],    stLit: [88, 94, 108],   stShd: [30, 34, 44],
+              sandLit: [82, 74, 58],   sandShd: [36, 32, 26],   pathLit: [62, 50, 38],  pathShd: [26, 21, 16] },
+    coral:  { lit: [76, 74, 88],   shd: [24, 26, 34],    stLit: [100, 100, 120], stShd: [36, 38, 48],
+              sandLit: [88, 80, 76],   sandShd: [38, 35, 33],   pathLit: [66, 54, 46],  pathShd: [28, 24, 20] },
+    frost:  { lit: [106, 120, 132], shd: [44, 54, 66],   stLit: [126, 138, 152], stShd: [54, 62, 76],
+              sandLit: [112, 116, 118], sandShd: [50, 54, 58],  pathLit: [76, 68, 62],  pathShd: [34, 31, 28] }
   };
   var BIOME_FALLBACK = BIOME_PALETTES.meadow;
 
@@ -1318,6 +1339,7 @@
     var maskSand = null;
     var maskStone = null;
     var maskPath = null;
+    var maskLake = null;
 
     function buildMasks() {
       var size = state.size;
@@ -1328,12 +1350,13 @@
       var sand = new Float32Array(M * M);
       var stone = new Float32Array(M * M);
       var path = new Float32Array(M * M);
+      var lake = new Float32Array(M * M);
       var x, y, sx, sy, code, rowOff, idx;
       for (y = 0; y < size; y++) {
         for (x = 0; x < size; x++) {
           code = state.cells.charCodeAt(y * size + x) - 48;
           if (code === T_DOCK) code = T_CLOUD;
-          if (!(code >= 1 && code <= 5)) code = T_CLOUD;
+          if (!(code >= 1 && code <= 6)) code = T_CLOUD;
           for (sy = 0; sy < MASK_SUB; sy++) {
             rowOff = (y * MASK_SUB + sy) * M + x * MASK_SUB;
             for (sx = 0; sx < MASK_SUB; sx++) {
@@ -1344,6 +1367,7 @@
               if (code === T_PATH) path[idx] = 1;
               else if (code === T_SAND) sand[idx] = 1;
               else if (code === T_STONE) stone[idx] = 1;
+              else if (code === T_LAKE) lake[idx] = 1;
               else mead[idx] = 1;
             }
           }
@@ -1354,7 +1378,11 @@
       maskSand = boxBlur(sand, M, 1);
       maskStone = boxBlur(stone, M, 1);
       // 路不糊：石板是硬边，糊了就成一条软渐变带（就是「褐色带」那个坑）
-      maskPath = path;
+      // 路要「一点点」软边。
+      // 硬 0/1 的边界是逐格直角台阶 —— 一条「锯齿公路」，比直边更假。
+      // 半径 3（sub=4 时约 0.75 格）只影响交界带，真正做出毛边的是取色阶段的噪声侵蚀。
+      maskPath = boxBlur(path, M, 3);
+      maskLake = boxBlur(lake, M, 1);
     }
 
     function sampleMask(arr, wx, wy) {
@@ -1445,8 +1473,10 @@
 
             var MD_R = pal.shd[0], MD_G = pal.shd[1], MD_B = pal.shd[2];
             var ML_R = pal.lit[0], ML_G = pal.lit[1], ML_B = pal.lit[2];
-            var SD_R = pal.shd[0], SD_G = pal.shd[1], SD_B = pal.shd[2];
-            var SL_R = pal.pathLit[0], SL_G = pal.pathLit[1], SL_B = pal.pathLit[2];
+            // ⚠️ 沙地必须有自己的通道。上一版借的是 pathLit（暖米色），
+            // 结果 27% 的陆地变成全屏最亮的暖块，把灯全压下去了。
+            var SD_R = pal.sandShd[0], SD_G = pal.sandShd[1], SD_B = pal.sandShd[2];
+            var SL_R = pal.sandLit[0], SL_G = pal.sandLit[1], SL_B = pal.sandLit[2];
             var KD_R = pal.stShd[0], KD_G = pal.stShd[1], KD_B = pal.stShd[2];
             var KL_R = pal.stLit[0], KL_G = pal.stLit[1], KL_B = pal.stLit[2];
 
@@ -1461,16 +1491,45 @@
             // 它必须「可读」但不许抢戏 —— 路是引导线，不是主角。
             var pw = sampleMask(maskPath, wwx, wwy);
             if (pw > 0.01) {
-              var pk = pw > 1 ? 1 : pw;
-              var pv = 0.55 + (vnoise(wx0, wy0, 1.6, 431) - 0.5) * 0.55;
-              var pr2 = 44 + pv * 22;
-              var pg2 = 52 + pv * 24;
-              var pb2 = 62 + pv * 30;
+              // 边缘侵蚀：土路是被脚踩出来的，边缘永远毛糙。
+              // 只在过渡带上做，内部保持实心，不然路会碎成沙。
+              var pk = pw;
+              if (pk < 0.85) {
+                var pn = vnoise(wx0 * 0.9, wy0 * 0.9, 1.4, 437);
+                pk = sstep(0.10, 0.88, pk + (pn - 0.5) * 0.62);
+              }
+              if (pk > 1) pk = 1;
+              // 土径：暖褐，明度与草地接近，靠**色相**区分而不是靠亮度。
+              // 上一版是冷青灰且比草地亮 —— 夜里读起来是一条水泥公路。
+              var pv = 0.50 + (vnoise(wx0, wy0, 1.6, 431) - 0.5) * 0.60;
+              var pr2 = pal.pathShd[0] + (pal.pathLit[0] - pal.pathShd[0]) * pv;
+              var pg2 = pal.pathShd[1] + (pal.pathLit[1] - pal.pathShd[1]) * pv;
+              var pb2 = pal.pathShd[2] + (pal.pathLit[2] - pal.pathShd[2]) * pv;
               // 横缝：每 0.9 格一道暗线，石板才有「铺」的感觉
               if (((wy0 * 1.1) % 1) > 0.94) { pr2 *= 0.72; pg2 *= 0.72; pb2 *= 0.72; }
               r = r * (1 - pk) + pr2 * pk;
               g = g * (1 - pk) + pg2 * pk;
               b = b * (1 - pk) + pb2 * pk;
+            }
+
+            // 岛内静水。必须比草地暗一档、几乎不反光 ——
+            // 一亮就变成贴在地上的一块玻璃。
+            var lw = sampleMask(maskLake, wwx, wwy);
+            if (lw > 0.01) {
+              var lk = lw > 1 ? 1 : lw;
+              var lv = vnoise(wx0, wy0, 2.4, 457);
+              var lr = 12 + lv * 10;
+              var lg = 26 + lv * 12;
+              var lb = 40 + lv * 16;
+              // 镜面反射：频率很低、幅度很小的一条横向亮纹（天光倒影）
+              var spec = vnoise(wx0 * 0.6, wy0 * 3.4, 1.1, 461);
+              if (spec > 0.74) {
+                var sp2 = (spec - 0.74) * 2.6;
+                lr += sp2 * 26; lg += sp2 * 34; lb += sp2 * 42;
+              }
+              r = r * (1 - lk) + lr * lk;
+              g = g * (1 - lk) + lg * lk;
+              b = b * (1 - lk) + lb * lk;
             }
 
             var wet = (1 - sstep(0.36, 0.52, landF)) * sw;
@@ -1920,55 +1979,64 @@
     }
 
     function drawPathTile(x, y, sx, sy, t) {
-      // 石板：月光下的石头是青灰的，不是暖灰的。
-      // 上一版用 rgb(148,136,122) 铺满一格再四边描缝 ——
-      // 在夜色里读起来是一排贴上去的水泥瓷砖，还是「网格」而不是「路」。
-      var shade = 0.80 + hash2(x, y, 951) * 0.34;
-      var r = Math.round(50 * shade), g = Math.round(58 * shade), b = Math.round(67 * shade);
-      ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
-      ctx.fillRect(sx, sy, t, t);
+      // 土径。
+      //
+      // ⚠️ 这一层**不铺底色**。底色归底图渲染（暖褐 + 噪声 + 毛边侵蚀）。
+      // 矢量层再盖一层满格方砖，等于把底图的毛边全部抹平 ——
+      // 上一版就是这么变成「2.3 格宽的水泥广场」的：路加宽 35% 之后，
+      // 几十块冷青灰方块拼成一整片，比草地还亮，成了画面的主角。
+      //
+      // 这里只加两样东西：散落的碎石，和每几格一盏路灯。
 
-      // 缝只压右边和下边：四边都描会读成网格，错缝才像路
-      ctx.fillStyle = 'rgba(7, 11, 17, 0.40)';
-      ctx.fillRect(sx + t * 0.88, sy, Math.max(1, t * 0.12), t);
-      ctx.fillRect(sx, sy + t * 0.88, t, Math.max(1, t * 0.12));
-      // 受光：左上一道很窄的亮边，石板才有厚度（不是贴纸）
-      ctx.fillStyle = 'rgba(196, 212, 232, 0.05)';
-      ctx.fillRect(sx, sy, t, Math.max(1, t * 0.05));
-      // 石面颗粒：两三颗，位置带哈希 —— 全平滑的石板在近景会觉得没材质
-      ctx.fillStyle = 'rgba(210, 222, 238, 0.07)';
-      for (var sp2 = 0; sp2 < 3; sp2++) {
-        var px2 = sx + t * (0.10 + hash2(x + sp2, y, 963) * 0.72);
-        var py2 = sy + t * (0.12 + hash2(x, y + sp2, 967) * 0.68);
-        ctx.fillRect(px2, py2, Math.max(1, t * 0.030), Math.max(1, t * 0.026));
+      // 碎石：一半的格子上放 2~3 颗，大小/位置/明度全带哈希。
+      // ⚠️ 不是每格都画。594 格视野里路面约 80 格，每格 4 颗就是 320 个
+      // ellipse + 320 个高光 —— 实测帧时从 25ms 涨到 37ms（软渲染）。
+      // 只用暖色 —— 冷色石头会让一条土路在夜色里读起来是「湿的」。
+      var nStone = (hash2(x, y, 969) < 0.52) ? 2 + ((hash2(x, y, 971) * 2) | 0) : 0;
+      for (var st = 0; st < nStone; st++) {
+        var hx = hash2(x + st * 3, y, 973);
+        var hy = hash2(x, y + st * 5, 977);
+        var hr = hash2(x + st, y + st, 979);
+        var rad = t * (0.028 + hr * 0.040);
+        var px2 = sx + t * (0.12 + hx * 0.76);
+        var py2 = sy + t * (0.12 + hy * 0.76);
+        var lv = 0.46 + hash2(x - st, y + st, 983) * 0.50;
+        ctx.fillStyle = 'rgba(' + Math.round(104 * lv) + ',' + Math.round(88 * lv) + ',' + Math.round(68 * lv) + ',0.78)';
+        ctx.beginPath();
+        ctx.ellipse(px2, py2, rad, rad * 0.74, hr * 3.14, 0, 6.2832);
+        ctx.fill();
+        // 左上一点高光：石子有厚度才不是地上的污点
+        ctx.fillStyle = 'rgba(214, 190, 152, 0.11)';
+        ctx.beginPath();
+        ctx.ellipse(px2 - rad * 0.24, py2 - rad * 0.24, rad * 0.40, rad * 0.26, hr * 3.14, 0, 6.2832);
+        ctx.fill();
       }
 
-      // 大道上的路灯：石板路每隔几格、且右邻不是路时立一盏。
-      // 精灵换成矢量：一根细杆 + 一盏灯 + 一圈光。孤零零一根杆也能立住，
-      // 而 16px 的路灯瓦片放大 3 倍后是一块带底色的方砖。
-      var isAvenue = Math.abs(x - 80) <= 2 || Math.abs(y - 88) <= 2;
-      if (isAvenue && (x + y) % 3 === 0 && !isPathCell(x + 1, y)) {
-        var lx2 = sx + t * 0.80;
-        var ly2 = sy + t * 0.16;
-        var lg2 = ctx.createRadialGradient(lx2, ly2, 0, lx2, ly2, t * 0.95);
-        lg2.addColorStop(0, 'rgba(255, 216, 152, 0.34)');
-        lg2.addColorStop(0.40, 'rgba(255, 200, 130, 0.10)');
-        lg2.addColorStop(1, 'rgba(255, 200, 130, 0)');
+      // 主街的路灯：每 4 格一盏，立在路右肩（右邻不是路才立，否则会立在路中间）。
+      // 这是画面里仅有的几个暖色光源之一 —— 所以宁可少、不可弱。
+      var isAvenue = Math.abs(x - 80) <= 1;
+      if (isAvenue && y % 4 === 1 && !isPathCell(x + 1, y)) {
+        var lx2 = sx + t * 0.78;
+        var ly2 = sy + t * 0.14;
+        var lg2 = ctx.createRadialGradient(lx2, ly2, 0, lx2, ly2, t * 1.30);
+        lg2.addColorStop(0, 'rgba(255, 214, 148, 0.46)');
+        lg2.addColorStop(0.34, 'rgba(255, 198, 126, 0.15)');
+        lg2.addColorStop(1, 'rgba(255, 198, 126, 0)');
         ctx.fillStyle = lg2;
         ctx.beginPath();
-        ctx.arc(lx2, ly2, t * 0.95, 0, 6.2832);
+        ctx.arc(lx2, ly2, t * 1.30, 0, 6.2832);
         ctx.fill();
 
-        ctx.strokeStyle = 'rgba(30, 36, 46, 0.92)';
-        ctx.lineWidth = Math.max(1, t * 0.035);
+        ctx.strokeStyle = 'rgba(26, 30, 38, 0.94)';
+        ctx.lineWidth = Math.max(1, t * 0.038);
         ctx.beginPath();
-        ctx.moveTo(lx2, ly2 + t * 0.10);
-        ctx.lineTo(lx2, ly2 + t * 0.52);
+        ctx.moveTo(lx2, ly2 + t * 0.08);
+        ctx.lineTo(lx2, ly2 + t * 0.50);
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(255, 226, 168, 0.96)';
+        ctx.fillStyle = 'rgba(255, 232, 176, 0.98)';
         ctx.beginPath();
-        ctx.arc(lx2, ly2, Math.max(1.2, t * 0.055), 0, 6.2832);
+        ctx.arc(lx2, ly2, Math.max(1.3, t * 0.060), 0, 6.2832);
         ctx.fill();
       }
     }
@@ -1999,13 +2067,29 @@
     // 第一版 mid 只有 (20,44,35)，比草地（约 45,62,55）还暗 ——
     // 缩到 30px 之后整片林子就是一团暗绿霉斑，这是「不好看」的第一因。
     // 现在 mid 提到草地同档，lit / rim 拉高一档半，树才立得出来。
+    // 树色。
+    //
+    // ⚠️ rim（逆光边）上一版是 [102,150,116] —— 亮度接近草地高光的 4 倍。
+    // 结果每棵树轮廓上都挂着一圈荧光绿描边，整片林子读起来像「发光的花椰菜」。
+    // 夜里月光照在树上，最亮的部分也**不该亮过天空**：rim 现在只比 lit 亮一档，
+    // 体积靠斜坡渐变，不靠描边。
+    //
+    // deep 也压到接近黑 —— 树在夜里首先是「一团比草地更暗的体积」，
+    // 只在左上被月光擦到一条边。这是夜晚树林的真实读法。
+    // ⚠️ 树的中调色必须和草地的中调色「色相不同」，不能只是更暗。
+    // 草地 meadow lit 是 (44, 84, 62) —— 青绿。上一版树 mid 是 (22, 42, 34)，
+    // 正好是草地的一半：同色相、只差明度。于是树和草的区别只剩「谁更黑」，
+    // 而「更黑的草地」在眼睛里的第一读法是石头/苔块，不是树。
+    //
+    // 改法：树的蓝通道全部压低、红通道抬高 —— 叶绿偏橄榄（黄绿），
+    // 草地偏青。同一个亮度下色相就分开了，树不再需要靠「压黑」来区分。
     var TREE_TONES = [
-      { deep: [7, 16, 14], mid: [25, 47, 39], lit: [46, 84, 64], rim: [102, 150, 116] },
-      { deep: [8, 17, 20], mid: [25, 45, 50], lit: [52, 84, 92], rim: [106, 152, 160] },
-      { deep: [12, 19, 11], mid: [33, 49, 30], lit: [62, 92, 52], rim: [120, 160, 100] },
-      { deep: [10, 14, 16], mid: [37, 47, 51], lit: [62, 78, 84], rim: [116, 136, 142] },
-      { deep: [8, 14, 22], mid: [28, 44, 58], lit: [56, 80, 104], rim: [112, 142, 172] },
-      { deep: [8, 18, 16], mid: [26, 50, 42], lit: [50, 90, 66], rim: [110, 160, 120] }
+      { deep: [10, 18, 10], mid: [28, 46, 24], lit: [50, 76, 38], rim: [64, 94, 46] },
+      { deep: [8, 18, 22],  mid: [22, 44, 50], lit: [40, 68, 74], rim: [52, 86, 92] },
+      { deep: [14, 20, 8],  mid: [34, 50, 20], lit: [58, 82, 30], rim: [74, 102, 38] },
+      { deep: [11, 16, 16], mid: [30, 42, 40], lit: [52, 66, 60], rim: [66, 84, 76] },
+      { deep: [8, 14, 24],  mid: [24, 40, 54], lit: [44, 64, 82], rim: [58, 82, 104] },
+      { deep: [9, 17, 12],  mid: [26, 44, 28], lit: [46, 72, 40], rim: [58, 90, 50] }
     ];
 
     // 每色调的形状变体数。树变大之后图章会更容易被看出来，从 2 提到 3。
@@ -2019,22 +2103,50 @@
     // 外沿半径 = 瓣心距 + 瓣半径，所以每瓣的最外点都落在同一个圆上，
     // 瓣与瓣之间必然凹下去一块。这才是叶缘；
     // 若只是把几个圆随手摊在中心附近，并集就是一个近似的圆，画出来是鹅卵石。
+    // 树冠轮廓 = 3 个不对称的叶扇 + 中心盘。
+    //
+    // 五次试错的完整结论（每一次都是截图验证过的）：
+    //   6 个圆瓣   → 花椰菜
+    //   11 个小瓣  → 葡萄串
+    //   5 个等分瓣 → 梅花
+    //   1 个椭圆   → 鹅卵石
+    //   正弦叠加   → 海星（振幅一大）/ 圆盘（振幅一小）
+    //
+    // 为什么都不行：前四种败在「交角只有固定几档」，眼睛三秒读出是拼的；
+    // 正弦叠加败在「凸起个数恒定」—— 一棵树是某形状，整片林子就全是那个形状。
+    //
+    // 现在这条路要同时满足两件事：
+    //   ① 轮廓必须有**深凹口** —— 这是树冠和石头的唯一分界。
+    //      圆盘再怎么做质感，只要边缘是连续的凸形，就一定读成石头/苔块。
+    //   ② 凹口的位置、深浅、宽度必须每棵树都不同。
+    //
+    // 做法：3 个叶扇（不等分角度），每个扇 = 3 个**椭圆**的并集。
+    // 椭圆而不是圆：椭圆与椭圆的交角随两边离心率和旋转角变化，
+    // 不会像圆弧相交那样恒定；再给每个椭圆一个随机旋转，
+    // 「同一个印章」的破绽就被抹掉了。扇与扇之间的缝自然成为一个深凹口。
     function leafCluster(c, cx, cy, R, seed, squash) {
-      var N = 6;
       c.beginPath();
-      for (var i = 0; i < N; i++) {
-        var a = i * 6.2832 / N + hash2(seed, i, 631) * 0.30;
-        var outer = R * (0.84 + hash2(seed, i, 633) * 0.22);
-        var rr = R * (0.31 + hash2(seed, i, 637) * 0.13);
-        var d = outer - rr;
-        var ex = cx + Math.cos(a) * d;
-        var ey = cy + Math.sin(a) * d * squash;
-        c.moveTo(ex + rr, ey);
-        c.ellipse(ex, ey, rr, rr * squash, 0, 0, 6.2832);
+      var dirs = [0, 2.15, 4.05];        // 不等分：123° / 109° / 128°
+      for (var fnd = 0; fnd < 3; fnd++) {
+        var a0 = dirs[fnd] + (hash2(seed, fnd, 701) - 0.5) * 0.58;
+        var lobeR = R * (0.34 + hash2(seed, fnd, 703) * 0.10);
+        var dist = R * (0.48 + hash2(seed, fnd, 705) * 0.10);
+        for (var k = 0; k < 3; k++) {
+          var aa = a0 + (k - 1) * 0.60 + (hash2(seed, fnd * 5 + k, 707) - 0.5) * 0.30;
+          var dd = dist * (k === 1 ? 1.00 : 0.82);
+          var ex = cx + Math.cos(aa) * dd;
+          var ey = cy + Math.sin(aa) * dd * squash;
+          var rr = lobeR * (0.78 + hash2(seed, fnd * 7 + k, 709) * 0.42);
+          var rot = hash2(seed, fnd * 11 + k, 711) * 3.1416;
+          c.moveTo(ex + rr, ey);
+          c.ellipse(ex, ey, rr, rr * (0.66 + hash2(seed, fnd * 13 + k, 713) * 0.26),
+                    rot, 0, 6.2832);
+        }
       }
-      // 芯填到 0.58R：够实心，又不至于把瓣间的凹口填平
-      c.moveTo(cx + R * 0.58, cy);
-      c.ellipse(cx, cy, R * 0.58, R * 0.58 * squash, 0, 0, 6.2832);
+      // 中心盘：把三个扇焊在一起。没有它，三个扇只在外沿相接，
+      // 正中会露一个三角形的洞 —— 缩小后是冠面上一个亮点，像被虫蛀了。
+      c.moveTo(cx + R * 0.54, cy);
+      c.ellipse(cx, cy, R * 0.54, R * 0.54 * squash, 0, 0, 6.2832);
     }
 
     function bakeTree(seed, tone, dpr) {
@@ -2068,83 +2180,117 @@
       c.fill();
       c.restore();
 
-      // 逆光边：先把整个剪影填成高光色，再用主体在右下偏移一点盖上去，
-      // 左上就露出一道亮边。树从草地上「立起来」全靠这道边 ——
-      // 没有它，无论内部怎么渐变，读到的都是一块贴纸。
+      // 树冠：4~6 团叶簇互相压叠，每团自己受光。
       //
-      // ⚠️ 偏移量要按「实显尺寸」倒推。精灵 96 单位、实显 28~52px，
-      // 缩放只有 0.3~0.5。早先写 0.075R ≈ 2.2 单位，落到屏上是 0.7~1.1px，
-      // 抗锯齿直接抹平 —— 于是只剩一团暗色。
-      // 现在 0.22R ≈ 6.4 单位，实显 2~3px，才真正读得出「有一束光从左上过来」。
-      c.fillStyle = rgbStr(tone.rim);
-      leafCluster(c, TREE_CX, TREE_CY, TREE_R, seed, squash);
-      c.fill();
-
-      var off = TREE_R * 0.22;
+      // 这是整棵树能不能读成「叶子」的关键 —— 不是轮廓。
+      // 早先的做法是「一层覆盖全冠的径向斜坡 + 上面叠几团 lit」，
+      // 斜坡已经先把左上整块提亮，叶团再画 lit 上去等于没画，
+      // 结果是一颗光滑的球，缩到 28px 什么细节都不剩。
+      //
+      // 现在反过来：底铺主体色，叶团用 rim→lit→mid→deep 各自成球。
+      // 球与球相交处会落下 deep 的暗缝 —— 那道缝就是叶与叶的分界，
+      // 比任何噪声轮廓都更像叶子。
       c.save();
-      c.translate(off, off);
       leafCluster(c, TREE_CX, TREE_CY, TREE_R, seed, squash);
       c.clip();
 
-      // 打底用暗部。以前打底 mid，指望后面那层「整体压暗」压出体积；
-      // 但那层的渐变外半径是 1.58R、起色点 0.60 —— 真正落到树冠（半径 1R）
-      // 上的只有最后 7%，等于全程压在树冠外面。这就是树冠停在 mid、
-      // 比草地还暗的原因。
-      // 现在反过来：底是暗的，体积由一层「左上受光」的斜坡一次画出来。
-      c.fillStyle = rgbStr(tone.deep);
+      c.fillStyle = rgbStr(tone.mid);
       c.fillRect(0, 0, S, S);
 
-      // 主光斜坡：以左上为心的大径向渐变。
-      // 0 → 逆光边色，0.26 → 受光，0.56 → 主体，0.86 → 暗部。
-      // 这是「球受一束平行光」最省的一版，也是最抗缩小的：
-      // 明暗跨度够大，缩到 28px 依然一眼读得出朝向。
-      var kx = TREE_CX - TREE_R * 0.34;
-      var ky = TREE_CY - TREE_R * 0.40;
-      var kg = c.createRadialGradient(kx, ky, TREE_R * 0.06, kx, ky, TREE_R * 1.52);
-      // 色标位置决定「受光面占多大」。0.26 的时候，从左上到右下第一段
-      // 有近三成落在 lit 上，整冠被提亮，树就成了发光的绿球。
-      // 收到 0.15，受光只剩左上角一小块，其余迅速回到主体色。
-      kg.addColorStop(0, rgbStr(tone.rim));
-      kg.addColorStop(0.15, rgbStr(tone.lit));
-      kg.addColorStop(0.42, rgbStr(tone.mid));
-      kg.addColorStop(0.80, rgbStr(tone.deep));
-      kg.addColorStop(1, rgbStr(tone.deep));
-      c.fillStyle = kg;
-      c.fillRect(0, 0, S, S);
-
-      // 叶团：3~5 簇，每簇自己受光。
-      // 体积已经交给上面的斜坡，这里的作用变成了「打断连续性」——
-      // 纯斜坡是一颗光滑的球，加了叶团才读得出「这是一冠叶子」。
-      // 所以透明度压到 0.55，不让它把斜坡的方向盖掉。
-      var clusters = 3 + ((hash2(seed, 7, 671) * 3) | 0);
-      c.globalAlpha = 0.78;
-      for (var b = 0; b < clusters; b++) {
-        var ba = b * (6.2832 / clusters) + hash2(seed, b, 661) * 0.90;
-        var bd = TREE_R * (0.12 + hash2(seed, b, 663) * 0.40);
+      // ⚠️ 团数少了、半径小了，就会露出「一颗一颗」的本来面目：
+      // 4 团小半径 + 每团中心一点 rim，读出来是一串黑葡萄。
+      // 现在 6~8 团、半径 0.40~0.56R、环距收到 0.30R —— 团与团大面积重叠，
+      // 交界只剩几段短弧，才读成「一冠叶子」而不是「一捧果子」。
+      var clumps = 6 + ((hash2(seed, 7, 671) * 3) | 0);
+      for (var b = 0; b < clumps; b++) {
+        // 第 0 团压在正中、个头最大，其余绕它一圈。
+        // 纯极坐标均分会在正中留一个洞，缩到 28px 就是个甜甜圈的冠。
+        var isCore = (b === 0);
+        var ba = isCore ? 0
+          : (b - 1) * (6.2832 / (clumps - 1)) + hash2(seed, b, 661) * 0.90;
+        var bd = isCore ? 0 : TREE_R * (0.26 + hash2(seed, b, 663) * 0.16);
         var bx2 = TREE_CX + Math.cos(ba) * bd;
         var by2 = TREE_CY + Math.sin(ba) * bd * squash;
-        var br = TREE_R * (0.30 + hash2(seed, b, 667) * 0.20);
-        var gg = c.createRadialGradient(bx2 - br * 0.32, by2 - br * 0.36, br * 0.04,
-                                        bx2, by2, br * 1.15);
-        gg.addColorStop(0, rgbStr(tone.lit));
-        gg.addColorStop(0.48, rgbStr(tone.mid));
-        gg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        var br = TREE_R * (isCore ? 0.60 : 0.40 + hash2(seed, b, 667) * 0.16);
+        var gg = c.createRadialGradient(
+          bx2 - br * 0.30, by2 - br * 0.34, br * 0.10,
+          bx2, by2, br * 1.02);
+        // ⚠️ 起色点绝不能是 rim。rim 比 lit 只亮一档，但放在半径 br*0.05 的
+        // 一个小圈上，就是一颗标准的高光点 —— 每团一颗，整树立刻变黑莓。
+        // 起点直接给 lit、并且一直铺到 0.40，团内是一片平的亮面，
+        // 体积交给下面那层覆盖全冠的方向渐变。
+        // 团内只给「中调 → 暗边」的柔和过渡，不再自带亮面。
+        // 亮面交给下面那层散点 —— 亮面一旦贴在团心上，就是一颗光亮的果子。
+        gg.addColorStop(0, rgbStr(tone.mid));
+        gg.addColorStop(0.62, rgbStr(tone.mid));
+        gg.addColorStop(1, rgbStr(tone.deep));
         c.fillStyle = gg;
         c.beginPath();
-        c.arc(bx2, by2, br * 1.15, 0, 6.2832);
+        c.arc(bx2, by2, br, 0, 6.2832);
+        c.fill();
+
+        // 这一团自己的亮面：落在团心偏左上，比团小得多。
+        //
+        // ⚠️ 亮面绝不能按「整冠左上角」撒。我上一版就是这么写的 ——
+        // 6~10 块亮斑全挤在左上 100° 的一段弧上，互相一叠，
+        // 又变回一条贴着轮廓的连续亮边，也就是湿石头。
+        // 挂在每一团自己身上，亮斑就自然散满整个冠面：
+        // 有的团亮、有的团暗，正是林子里月光穿叶的效果。
+        var hw = 0.72 + hash2(seed, b, 719) * 0.42;
+        var hx2 = bx2 - br * 0.30;
+        var hy2 = by2 - br * 0.34;
+        var hg = c.createRadialGradient(hx2, hy2, br * 0.04, hx2, hy2, br * 0.52 * hw);
+        hg.addColorStop(0, 'rgba(' + tone.lit[0] + ',' + tone.lit[1] + ',' +
+                            tone.lit[2] + ',' + (0.34 + hash2(seed, b, 723) * 0.22).toFixed(2) + ')');
+        hg.addColorStop(0.50, 'rgba(' + tone.lit[0] + ',' + tone.lit[1] + ',' +
+                               tone.lit[2] + ',0.12)');
+        hg.addColorStop(1, 'rgba(' + tone.lit[0] + ',' + tone.lit[1] + ',' +
+                             tone.lit[2] + ',0)');
+        c.fillStyle = hg;
+        c.beginPath();
+        c.arc(hx2, hy2, br * 0.52 * hw, 0, 6.2832);
         c.fill();
       }
-      c.globalAlpha = 1;
 
-      // 统一压暗右下：叶团各自亮成一堆会散，必须还有一层整体方向。
-      // 半径改成跟树冠对齐（1.34R，起色点 0.62）—— 之前 1.58R 落在冠外，
-      // 这一层等于没生效。
-      var vg = c.createRadialGradient(kx, ky, TREE_R * 0.30, kx, ky, TREE_R * 1.34);
-      vg.addColorStop(0, 'rgba(0, 0, 0, 0)');
-      vg.addColorStop(0.62, 'rgba(0, 0, 0, 0)');
-      vg.addColorStop(1, 'rgba(' + tone.deep[0] + ',' + tone.deep[1] + ',' + tone.deep[2] + ',0.62)');
-      c.fillStyle = vg;
+      // 统一方向：整冠左上提一点、右下压一大截。
+      // 叶团各自受光会让整棵树「散」成几块，必须有覆盖全冠的一层方向
+      // 把它们重新捆在一起 —— 这是「一冠叶子」和「几片叶子」的区别。
+      var dg = c.createLinearGradient(
+        TREE_CX - TREE_R * 0.80, TREE_CY - TREE_R * 0.86,
+        TREE_CX + TREE_R * 0.72, TREE_CY + TREE_R * 0.78);
+      dg.addColorStop(0, 'rgba(255, 238, 200, 0.09)');
+      dg.addColorStop(0.40, 'rgba(0, 0, 0, 0)');
+      dg.addColorStop(0.72, 'rgba(0, 0, 0, 0.24)');
+      dg.addColorStop(1, 'rgba(0, 0, 0, 0.44)');
+      c.fillStyle = dg;
       c.fillRect(0, 0, S, S);
+
+      // 叶面颗粒：一堆一寸大小的亮点和暗点。
+      //
+      // 缩到 30px 之后，单个点只有 0.3~0.5px —— 它不再是「点」，
+      // 而是让整个冠面产生细密噪点。没有这一层，无论叶团怎么叠，
+      // 冠面在缩小后都是一片光滑的塑料。
+      // 代价为零：这是烘焙期一次性画的，运行时只是一张图。
+      var dots = 34 + ((hash2(seed, 41, 673) * 16) | 0);
+      for (var d = 0; d < dots; d++) {
+        var da = hash2(seed, d, 677) * 6.2832;
+        var dd = TREE_R * Math.sqrt(hash2(seed, d, 679)) * 0.86;
+        var dx2 = TREE_CX + Math.cos(da) * dd;
+        var dy2 = TREE_CY + Math.sin(da) * dd * squash;
+        var dr = TREE_R * (0.020 + hash2(seed, d, 683) * 0.038);
+        var up = hash2(seed, d, 687) < 0.52;
+        c.fillStyle = up ? 'rgba(150, 196, 158, 0.16)'
+                         : 'rgba(3, 11, 9, 0.30)';
+        c.beginPath();
+        c.ellipse(dx2, dy2, dr, dr * 0.80, da, 0, 6.2832);
+        c.fill();
+      }
+
+      // ⚠️ 这里曾经有一圈「左上亮 → 右下透明」的轮廓光。
+      // 它是我这轮改树最大的弯路：连续、且严格贴着轮廓的亮边，
+      // 在眼睛里的固定读法是「一个光滑球体被一束光擦到边缘」——
+      // 也就是**湿石头/抛光鹅卵石**。叶子不会给出连续的边缘光，
+      // 它给的是一块一块、断开的亮斑。所以整段删掉，改写散点受光。
 
       // 叶隙：三四道细长的暗缝，顺着冠的走势摆。
       // 圆点会被读成「洞」，细缝才是叶子之间的间隙。
@@ -2165,20 +2311,20 @@
         c.stroke();
       }
 
-      // 叶簇受光：左上两笔短弧，只提亮，不画形状 ——
-      // 画成实心块的话，1:1 下就是「树上粘了几颗蛋」。
-      // 从四笔细的收到两笔粗的：笔数少、笔画宽，缩小时才不会被抹成噪点。
-      c.strokeStyle = 'rgba(196, 238, 208, 0.22)';
-      c.lineWidth = TREE_R * 0.12;
+      // ⚠️ 这里曾经有两笔 0.12R 宽的亮弧（alpha 0.22），落在 191° 和 221°。
+      // 它们是「湿石头」的真正元凶：两条弧在左侧一叠，就是一道贴着轮廓的
+      // 连续月牙高光 —— 和上一版被删掉的轮廓光完全同一个效果。
+      // 亮面现在由每个叶团自己承担（见上面的 hg），冠面上已经有明暗分布，
+      // 这里只留一笔很淡的、且角度提到左上（不是正左）补一点方向感。
+      c.strokeStyle = 'rgba(196, 238, 208, 0.10)';
+      c.lineWidth = TREE_R * 0.09;
       c.lineCap = 'round';
-      for (var j = 0; j < 2; j++) {
-        var la = 3.34 + j * 0.52 + hash2(seed, j, 223) * 0.20;
-        var ld = TREE_R * (0.34 + hash2(seed, j, 227) * 0.26);
-        c.beginPath();
-        c.arc(TREE_CX + Math.cos(la) * ld * 0.30, TREE_CY + Math.sin(la) * ld * 0.30 * squash,
-              ld * 0.74, la - 0.42, la + 0.42);
-        c.stroke();
-      }
+      var la = 3.62 + hash2(seed, 0, 223) * 0.22;
+      var ld = TREE_R * (0.40 + hash2(seed, 0, 227) * 0.14);
+      c.beginPath();
+      c.arc(TREE_CX + Math.cos(la) * ld * 0.30, TREE_CY + Math.sin(la) * ld * 0.30 * squash,
+            ld * 0.70, la - 0.50, la + 0.50);
+      c.stroke();
       c.restore();
       return cv;
     }
@@ -2247,7 +2393,8 @@
       var py = (oy * 0.55 + now * 0.0015) % sc;
       if (px > 0) px -= sc;
       if (py > 0) py -= sc;
-      ctx.globalAlpha = 0.62;
+      // 0.62 在夜色底图上会把整屏洗灰，右下那块「雾斑」就是它。
+      ctx.globalAlpha = 0.36;
       for (var y = py; y < h; y += sc) {
         for (var x = px; x < w; x += sc) {
           ctx.drawImage(spr, x, y, sc, sc);
@@ -2494,24 +2641,27 @@
     }
 
     function drawLighthouse(sx, sy, t, now) {
-      // 地标要「比一切都高」才配叫地标。
-      // 原版塔身 2.17 格，跟一间民房差不多，立在路边像个配电箱。
-      // K 只往上长、塔基不动 —— 放大不会把塔陷进地里。
-      var K = 1.34;
+      // 灯塔的第一视觉特征是「细长」，不是「有红白条纹」。
+      //
+      // 上一版：塔身 2.13 格高、底宽 1.29 格 —— 宽高比 1 : 1.65。
+      // 现实里的灯塔高度是直径的 5~8 倍。1:1.65 画出来是水塔，
+      // 而「水塔」和「灯塔」在剪影上根本区分不出来。
+      // 现在：3.0 格高、底宽 0.76 格 —— 1 : 3.9，剪影一眼就是灯塔。
       var bx = sx + t;
       var baseY = sy + t * 1.75;
-      var towerH = t * 1.59 * K;
-      var segH = towerH / 5;
+      var towerH = t * 3.0;
+      var SEGS = 8;
+      var segH = towerH / SEGS;
+      var wBot = t * 0.76, wTop = t * 0.42;
 
       // 地面光池：先铺一块「被塔照亮」的草地。
       // 少了这块，塔就是一张贴在地上的剪贴画 ——
       // 光源必须落在它照到的东西上，画面上才有因果关系。
-      // 用 lighter 而不是 source-over：叠光会变亮，叠灰只会变脏。
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       var pool = ctx.createRadialGradient(bx, baseY, 0, bx, baseY, t * 3.1);
-      pool.addColorStop(0, 'rgba(106, 86, 52, 0.40)');
-      pool.addColorStop(0.50, 'rgba(78, 66, 42, 0.15)');
+      pool.addColorStop(0, 'rgba(116, 94, 56, 0.46)');
+      pool.addColorStop(0.50, 'rgba(84, 70, 44, 0.17)');
       pool.addColorStop(1, 'rgba(54, 48, 32, 0)');
       ctx.fillStyle = pool;
       ctx.beginPath();
@@ -2521,7 +2671,6 @@
 
       // 落影压在塔基，塔才「站在地上」。
       // ⚠️ 必须是软边渐变：实心椭圆在夜里读起来不是影子，是地上一个洞。
-      // 影子的边界永远比它包住的东西模糊 —— 这是「有体积」和「贴纸」的分水岭。
       ctx.save();
       ctx.translate(bx + t * 0.12, baseY + t * 0.06);
       ctx.scale(1, 0.30);
@@ -2535,22 +2684,21 @@
       ctx.fill();
       ctx.restore();
 
-      // 塔身五段，自下而上白红相间。
-      // 每段走横向渐变（左侧受光、右侧背光），不是一块纯色 ——
-      // 五个纯色矩形叠起来，读出来是「一摞刷了漆的纸箱」。
-      var wTop = t * 0.60, wBot = t * 0.96;
-      for (var i = 0; i < 5; i++) {
+      // 塔身：八段，自下而上白红相间，越往上越细。
+      // 每段走横向渐变（左侧受光、右侧背光）—— 纯色矩形叠起来
+      // 会读成「一摞刷了漆的纸箱」，横向渐变才让它成为一根圆柱。
+      for (var i = 0; i < SEGS; i++) {
         var yTop = baseY - segH * (i + 1);
-        var wt = (wTop + (wBot - wTop) * (i / 5)) * K;
-        var wb = (wTop + (wBot - wTop) * ((i + 1) / 5)) * K;
+        var wt = wTop + (wBot - wTop) * (i / SEGS);
+        var wb = wTop + (wBot - wTop) * ((i + 1) / SEGS);
         var red = (i % 2) === 1;
-        var cLit = red ? '#d0644f' : '#f4eee2';
-        var cMid = red ? '#a8402f' : '#cdc6b8';
-        var cShd = red ? '#682319' : '#867f76';
+        var cLit = red ? '#c8604c' : '#e8e2d4';
+        var cMid = red ? '#9c3c2c' : '#bfb8a9';
+        var cShd = red ? '#5e2018' : '#6f6960';
         var tg = ctx.createLinearGradient(bx - wb * 0.5, 0, bx + wb * 0.5, 0);
         tg.addColorStop(0, cMid);
-        tg.addColorStop(0.24, cLit);
-        tg.addColorStop(0.60, cMid);
+        tg.addColorStop(0.20, cLit);
+        tg.addColorStop(0.56, cMid);
         tg.addColorStop(1, cShd);
         ctx.fillStyle = tg;
         ctx.beginPath();
@@ -2560,61 +2708,122 @@
         ctx.lineTo(bx - wb * 0.5, yTop + segH + 0.6);
         ctx.closePath();
         ctx.fill();
+        // 段与段之间一道极细的压暗：没有它，八段会连成一整根柱子，
+        // 条纹只剩下「色块交界」，少了「砌上去」的层次。
+        ctx.fillStyle = 'rgba(20, 16, 12, 0.22)';
+        ctx.fillRect(bx - wb * 0.5, yTop + segH - Math.max(0.5, t * 0.012), wb, Math.max(0.5, t * 0.02));
       }
 
-      // 灯室 + 塔帽。
-      // ⚠️ 原来的塔帽是 #3a322a（近黑）—— 压在同样是近黑的夜空上，
-      // 加上顶栏自带的暗色渐变，塔顶直接消失，整座塔看起来是被切掉的。
-      // 夜里的深色形体必须靠「比背景亮一档」才存在，不能靠形状。
-      var lampY = baseY - towerH;
-      var lw = t * 0.70;
-      ctx.fillStyle = '#4a3f33';
-      ctx.fillRect(bx - lw * 0.5, lampY - t * 0.46, lw, t * 0.48);
-      ctx.fillStyle = 'rgba(255, 232, 168, 0.98)';
-      ctx.fillRect(bx - lw * 0.34, lampY - t * 0.40, lw * 0.68, t * 0.36);
-      ctx.fillStyle = '#6f5b45';
+      // 左缘一道暖白亮边：圆柱要有轮廓，否则在夜色里会融进背景
+      var edgeX = bx - wBot * 0.5 + t * 0.04;
+      var edgeG = ctx.createLinearGradient(0, baseY - towerH, 0, baseY);
+      edgeG.addColorStop(0, 'rgba(255, 240, 214, 0.30)');
+      edgeG.addColorStop(1, 'rgba(255, 236, 206, 0.12)');
+      ctx.strokeStyle = edgeG;
+      ctx.lineWidth = Math.max(1, t * 0.035);
       ctx.beginPath();
-      ctx.moveTo(bx - lw * 0.62, lampY - t * 0.46);
-      ctx.lineTo(bx + lw * 0.62, lampY - t * 0.46);
-      ctx.lineTo(bx, lampY - t * 0.88);
+      ctx.moveTo(edgeX + t * 0.18, baseY - towerH);
+      ctx.lineTo(edgeX, baseY - t * 0.02);
+      ctx.stroke();
+
+      // 塔基的门：一个拱形暗口 + 里面漏出的暖光。
+      // 灯塔得有人住，门就是「有人住」的唯一证据。
+      var doorW = t * 0.20, doorH = t * 0.34;
+      ctx.fillStyle = 'rgba(26, 20, 14, 0.92)';
+      ctx.beginPath();
+      ctx.moveTo(bx - doorW * 0.5, baseY);
+      ctx.lineTo(bx - doorW * 0.5, baseY - doorH * 0.62);
+      ctx.quadraticCurveTo(bx, baseY - doorH * 1.16, bx + doorW * 0.5, baseY - doorH * 0.62);
+      ctx.lineTo(bx + doorW * 0.5, baseY);
       ctx.closePath();
       ctx.fill();
-      // 塔帽左侧一道受光边：轮廓要有亮边才读得出是个尖顶
-      ctx.strokeStyle = 'rgba(226, 196, 148, 0.55)';
-      ctx.lineWidth = Math.max(1, t * 0.05);
+      ctx.fillStyle = 'rgba(255, 196, 118, 0.30)';
+      ctx.fillRect(bx - doorW * 0.34, baseY - doorH * 0.40, doorW * 0.68, doorH * 0.40);
+
+      // 灯室 + 护栏平台 + 锥顶。
+      var lampY = baseY - towerH;
+      var lw = t * 0.58;
+
+      // 护栏平台：比塔顶宽一圈，是灯室的立足处
+      ctx.fillStyle = '#2b2620';
+      ctx.fillRect(bx - lw * 0.82, lampY + t * 0.06, lw * 1.64, t * 0.12);
+      ctx.fillStyle = 'rgba(255, 226, 176, 0.16)';
+      ctx.fillRect(bx - lw * 0.82, lampY + t * 0.06, lw * 1.64, Math.max(0.5, t * 0.018));
+
+      // 灯室框
+      ctx.fillStyle = '#453a2e';
+      ctx.fillRect(bx - lw * 0.5, lampY - t * 0.50, lw, t * 0.62);
+      // 玻璃
+      ctx.fillStyle = 'rgba(255, 238, 186, 0.98)';
+      ctx.fillRect(bx - lw * 0.38, lampY - t * 0.42, lw * 0.76, t * 0.48);
+      // 竖向窗框：两根细柱，玻璃才不会是一块白板
+      ctx.fillStyle = '#3c3228';
+      ctx.fillRect(bx - t * 0.026, lampY - t * 0.42, Math.max(1, t * 0.052), t * 0.48);
+      ctx.fillRect(bx - lw * 0.38, lampY - t * 0.20, lw * 0.76, Math.max(0.5, t * 0.022));
+
+      // 锥顶
+      ctx.fillStyle = '#6b563f';
       ctx.beginPath();
-      ctx.moveTo(bx - lw * 0.62, lampY - t * 0.46);
-      ctx.lineTo(bx, lampY - t * 0.88);
+      ctx.moveTo(bx - lw * 0.68, lampY - t * 0.50);
+      ctx.lineTo(bx + lw * 0.68, lampY - t * 0.50);
+      ctx.lineTo(bx, lampY - t * 1.02);
+      ctx.closePath();
+      ctx.fill();
+      // 锥顶左侧受光
+      ctx.strokeStyle = 'rgba(255, 232, 190, 0.42)';
+      ctx.lineWidth = Math.max(1, t * 0.030);
+      ctx.beginPath();
+      ctx.moveTo(bx - lw * 0.66, lampY - t * 0.52);
+      ctx.lineTo(bx, lampY - t * 1.00);
       ctx.stroke();
+      // 顶针
+      ctx.fillStyle = '#4a3d2e';
+      ctx.fillRect(bx - Math.max(1, t * 0.018), lampY - t * 1.22, Math.max(2, t * 0.036), t * 0.22);
 
       // 光晕 + 旋转光束，一起走 lighter ——
       // 光束要是用 source-over 画，扫过草地就是两块灰三角形。
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
+      // ⚠️ 色相必须留在橙黄区。
+      // 上一版是 rgba(255,228,160) —— 接近白色。lighter 合成是「通道相加」，
+      // 加进去的白光只会提高亮度、不增加饱和，结果就是一束灰白的扇形。
       var halo = ctx.createRadialGradient(bx, lampY - t * 0.22, 0, bx, lampY - t * 0.22, t * 2.1);
-      halo.addColorStop(0, 'rgba(255, 228, 160, 0.34)');
-      halo.addColorStop(0.40, 'rgba(255, 204, 124, 0.12)');
-      halo.addColorStop(1, 'rgba(255, 192, 110, 0)');
+      halo.addColorStop(0, 'rgba(255, 196, 108, 0.42)');
+      halo.addColorStop(0.34, 'rgba(255, 176, 88, 0.16)');
+      halo.addColorStop(1, 'rgba(255, 160, 70, 0)');
       ctx.fillStyle = halo;
       ctx.beginPath();
       ctx.arc(bx, lampY - t * 0.22, t * 2.1, 0, 6.2832);
       ctx.fill();
 
-      // 两片对置扇形慢速扫过云海 —— 夜里唯一会动的东西，全靠它当锚点
+      // 两片对置扇形慢速扫过云海 —— 夜里唯一会动的东西，全靠它当锚点。
+      //
+      // 画三层而不是一层：一层三角形无论怎么调 alpha 都是「一块均匀的雾」，
+      // 真实的光束一定是中心亮、边缘散。
+      var flick = 0.88 + Math.sin(now * 0.0017) * 0.06 + Math.sin(now * 0.0043) * 0.03;
+      var BEAM_LAYERS = [
+        { w: 1.05, a: 0.055, len: 1.00 },
+        { w: 0.58, a: 0.075, len: 0.98 },
+        { w: 0.22, a: 0.105, len: 0.94 }
+      ];
       ctx.translate(bx, lampY - t * 0.22);
       ctx.rotate(now * 0.00045);
       for (var b2 = 0; b2 < 2; b2++) {
-        var beam = ctx.createLinearGradient(0, 0, t * 9, 0);
-        beam.addColorStop(0, 'rgba(255, 236, 178, 0.28)');
-        beam.addColorStop(0.45, 'rgba(255, 226, 160, 0.075)');
-        beam.addColorStop(1, 'rgba(255, 220, 150, 0)');
-        ctx.fillStyle = beam;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(t * 9, -t * 1.05);
-        ctx.lineTo(t * 9, t * 1.05);
-        ctx.closePath();
-        ctx.fill();
+        for (var L3 = 0; L3 < BEAM_LAYERS.length; L3++) {
+          var BL = BEAM_LAYERS[L3];
+          var beam = ctx.createLinearGradient(0, 0, t * 9 * BL.len, 0);
+          beam.addColorStop(0, 'rgba(255, 186, 92, ' + (BL.a * flick).toFixed(4) + ')');
+          beam.addColorStop(0.30, 'rgba(255, 176, 82, ' + (BL.a * 0.62).toFixed(4) + ')');
+          beam.addColorStop(0.70, 'rgba(255, 166, 74, ' + (BL.a * 0.20).toFixed(4) + ')');
+          beam.addColorStop(1, 'rgba(255, 158, 66, 0)');
+          ctx.fillStyle = beam;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(t * 9 * BL.len, -t * BL.w);
+          ctx.lineTo(t * 9 * BL.len, t * BL.w);
+          ctx.closePath();
+          ctx.fill();
+        }
         ctx.rotate(3.1416);
       }
       ctx.restore();
@@ -4279,10 +4488,11 @@
     var MM_COLORS = {};
     MM_COLORS[T_CLOUD] = [26, 40, 70];
     MM_COLORS[T_MEADOW] = [64, 118, 88];
-    MM_COLORS[T_SAND] = [148, 136, 108];
+    MM_COLORS[T_SAND] = [92, 84, 68];
+    MM_COLORS[T_LAKE] = [18, 32, 48];
     MM_COLORS[T_STONE] = [104, 116, 138];
     MM_COLORS[T_DOCK] = [128, 100, 68];
-    MM_COLORS[T_PATH] = [150, 138, 122];
+    MM_COLORS[T_PATH] = [96, 78, 60];
 
     function paintMinimapBase() {
       var mbc = mmBase.getContext('2d');

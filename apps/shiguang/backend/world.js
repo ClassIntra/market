@@ -26,19 +26,83 @@ var SAND = 2;    // 岸边沙地 / 云桥
 var STONE = 3;   // 高地岩层
 var DOCK = 4;    // 云海码头木栈道（可走，可钓星，不可种花/点灯）
 var PATH = 5;    // 石板路（可走，可种花 —— 路边开一排花很好看）
+var LAKE = 6;    // 岛内静水（不可走、不可点灯；视觉上是深色水面）
 
 // 群岛：cx/cy 是岛心，r 是基准半径，biome 决定客户端调色，dock 是码头延伸方向。
 // 半径与间距都留足了呼吸感：最近的两个岛心距也要 > r1 + r2 + 6，
 // 否则两岛的沙环会在云桥之外又黏在一起。
+// 每座岛都是 lobes（多个偏移圆的并集），不是一个正圆。
+//
+// ⚠️ 上一版全部走 `dist <= r * (0.90 + 0.07sin + 0.05cos)` —— 半径只差 ±12%，
+// 从高空看是「八个圆」。玩家在岛上走一圈感受不到任何地形变化，
+// 这就是「地图无聊」的几何原因：不是素材不够，是**形状没有信息量**。
+//
+// lobes 里 dx/dy 是相对岛心的偏移（单位 = r 的倍数），r 是该瓣的半径倍数。
+// 主瓣在 (0,0)，其余瓣负责长出半岛、地峡、内湾 —— 每座岛的轮廓必须能一眼认出：
+//   启明 = 星形（西北+东南两条长臂）    雾隐 = 月牙（西侧长臂环抱内湾）
+//   星坠 = 葫芦（南侧一个圆瘤）          拾贝 = 钩子（东臂上扬、南侧尖角）
+//   萤火泽 = 三叶                        织花谷 = 水滴（东北长尾）
+//   望潮 = 哑铃（南北两个圆瘤）          霜屿 = 小卵石（东侧微凸）
+// lakes 是岛内静水，只在岛的核心区（depth > 0.34）生效，保证不会把岛切断。
 var ISLANDS = [
-  { cx: 80, cy: 88, r: 24, biome: 'meadow',  name: '启明岛', dock: 'S' },   // 中央枢纽
-  { cx: 34, cy: 34, r: 18, biome: 'mist',    name: '雾隐岛', dock: 'N' },
-  { cx: 124, cy: 30, r: 16, biome: 'stone',  name: '星坠岛', dock: 'E' },
-  { cx: 30, cy: 116, r: 16, biome: 'beach',  name: '拾贝岛', dock: 'W' },
-  { cx: 58, cy: 132, r: 15, biome: 'marsh',  name: '萤火泽', dock: 'S' },
-  { cx: 112, cy: 70, r: 15, biome: 'flower', name: '织花谷', dock: 'E' },
-  { cx: 130, cy: 124, r: 16, biome: 'coral', name: '望潮岛', dock: 'S' },
-  { cx: 78, cy: 14, r: 12, biome: 'frost',   name: '霜屿',   dock: 'E' }
+  { cx: 80, cy: 88, r: 24, biome: 'meadow',  name: '启明岛', dock: 'S',   // 中央枢纽
+    lobes: [
+      { dx: 0.00, dy: 0.00, r: 0.94 },
+      { dx: -0.66, dy: -0.30, r: 0.56 },
+      { dx: 0.58, dy: 0.42, r: 0.52 },
+      { dx: 0.22, dy: -0.66, r: 0.40 }
+    ],
+    lakes: [ { dx: -0.26, dy: 0.46, r: 0.20 } ] },
+
+  { cx: 34, cy: 34, r: 18, biome: 'mist',    name: '雾隐岛', dock: 'N',
+    lobes: [
+      { dx: 0.08, dy: 0.06, r: 0.72 },
+      { dx: -0.64, dy: -0.06, r: 0.50 },
+      { dx: -0.34, dy: 0.52, r: 0.40 },
+      { dx: 0.30, dy: -0.48, r: 0.38 }
+    ] },
+
+  { cx: 124, cy: 30, r: 16, biome: 'stone',  name: '星坠岛', dock: 'E',
+    lobes: [
+      { dx: -0.06, dy: -0.10, r: 0.82 },
+      { dx: 0.10, dy: 0.62, r: 0.48 },
+      { dx: -0.44, dy: 0.18, r: 0.34 }
+    ] },
+
+  { cx: 30, cy: 116, r: 16, biome: 'beach',  name: '拾贝岛', dock: 'W',
+    lobes: [
+      { dx: -0.10, dy: 0.00, r: 0.74 },
+      { dx: 0.62, dy: -0.30, r: 0.42 },
+      { dx: 0.10, dy: 0.58, r: 0.34 }
+    ] },
+
+  { cx: 58, cy: 132, r: 15, biome: 'marsh',  name: '萤火泽', dock: 'S',
+    lobes: [
+      { dx: 0.00, dy: -0.10, r: 0.66 },
+      { dx: -0.48, dy: 0.40, r: 0.42 },
+      { dx: 0.46, dy: 0.34, r: 0.40 }
+    ],
+    lakes: [ { dx: 0.00, dy: 0.06, r: 0.20 } ] },
+
+  { cx: 112, cy: 70, r: 15, biome: 'flower', name: '织花谷', dock: 'E',
+    lobes: [
+      { dx: -0.08, dy: 0.06, r: 0.76 },
+      { dx: 0.50, dy: -0.50, r: 0.46 },
+      { dx: -0.44, dy: -0.22, r: 0.34 }
+    ] },
+
+  { cx: 130, cy: 124, r: 16, biome: 'coral', name: '望潮岛', dock: 'S',
+    lobes: [
+      { dx: -0.04, dy: 0.02, r: 0.62 },
+      { dx: -0.12, dy: -0.64, r: 0.40 },
+      { dx: 0.46, dy: 0.50, r: 0.42 }
+    ] },
+
+  { cx: 78, cy: 14, r: 12, biome: 'frost',   name: '霜屿',   dock: 'E',
+    lobes: [
+      { dx: -0.10, dy: 0.00, r: 0.82 },
+      { dx: 0.54, dy: 0.18, r: 0.38 }
+    ] }
 ];
 
 // 云桥网：中央岛向外辐射 + 两条外岛环线。全部落在开阔云海上，不穿过岛体。
@@ -53,7 +117,7 @@ var BRIDGES = [
   [[30, 116], [58, 132]]     // 拾贝 → 萤火泽（外环）
 ];
 
-var TERRAIN_VERSION = 'v3';
+var TERRAIN_VERSION = 'v4';
 // 出生点在主岛南侧大道路口：站定后北望是灯火与大道，南望两三格就是海岸线。
 // 出生点放在主路与横路的十字路口上，正北 8 格就是拾光灯塔。
 //
@@ -101,7 +165,10 @@ var dockTiles = [];        // [{x, y, island}] 按岛排列
 var dockMap = {};          // 'x,y' -> island index
 
 // 石板路：码头根部 → 岛心的一条主路 + 启明岛十字大道。
-var PATH_HALF_WIDTH_SQ = 0.85 * 0.85;
+// 路宽：半径 1.15 格 ⇒ 直径 2.3 格。
+// 上一版 0.85（1.7 格宽）在 27 格视野里只有 62px，走上去像一条裂缝，
+// 玩家根本认不出「这是一条路」。2.3 格刚好容一个角色居中、两侧还有余量。
+var PATH_HALF_WIDTH_SQ = 1.15 * 1.15;
 var PATHS = [];   // [{ax,ay,bx,by,isle}]
 
 // 地标（客户端绘制，服务端只关心石碑）：
@@ -125,6 +192,58 @@ var STELES = [
   { x: 134, y: 128, name: '望潮之碑', isle: 6, rune: '灯塔亮到第七夜，鲸群会来看你们。' }
 ];
 
+// ---------------------------------------------------------------------------
+// 岛的形状（多圆并集）
+//
+// 返回归一化深度：> 0 在陆地上（数值越大越靠内陆），<= 0 是海。
+// 用「归一化深度」而不是「到岛心的距离 / 半径」有两个好处：
+//   1. 多瓣形状自动成立 —— 取所有瓣里最深的那个，地峡与内湾自然长出来；
+//   2. 沙环宽度可以按 depth 切，于是半岛尖端沙地窄、宽阔处沙地宽，
+//      这是真实海岸的规律，也是「看起来像岛」和「看起来像圆」的分水岭。
+// ---------------------------------------------------------------------------
+function islandDepth(x, y, island) {
+  var best = -9;
+  var lobes = island.lobes;
+  for (var i = 0; i < lobes.length; i++) {
+    var L = lobes[i];
+    var lx = island.cx + L.dx * island.r;
+    var ly = island.cy + L.dy * island.r;
+    var rr = L.r * island.r;
+    var dx = x - lx;
+    var dy = y - ly;
+    var d2 = dx * dx + dy * dy;
+    // 距离超过 1.3r 的瓣不可能成为最深瓣，跳过开方（25600 格 × 8 岛 × 4 瓣）
+    if (d2 > rr * rr * 1.69) continue;
+    // 海岸扰动：三个不同波长叠加 —— 湾角（~23 格）/ 岬角（~26 格）/ 细碎岸线（~10 格）
+    var wob = 0.94
+      + 0.075 * Math.sin(x * 0.27 + y * 0.12 + island.cx * 0.09)
+      + 0.055 * Math.cos(y * 0.24 - x * 0.14 + island.cy * 0.06)
+      + 0.032 * Math.sin(x * 0.62 + y * 0.55 + island.cx * 0.31);
+    var depth = 1 - Math.sqrt(d2) / (rr * wob);
+    if (depth > best) best = depth;
+  }
+  return best;
+}
+
+function inLake(x, y, island) {
+  if (!island.lakes) return false;
+  for (var i = 0; i < island.lakes.length; i++) {
+    var L = island.lakes[i];
+    var lx = island.cx + L.dx * island.r;
+    var ly = island.cy + L.dy * island.r;
+    var rr = L.r * island.r;
+    var dx = x - lx;
+    var dy = y - ly;
+    if (dx * dx + dy * dy <= rr * rr) return true;
+  }
+  return false;
+}
+
+// 沙环厚度：depth 从 0 到 SAND_DEPTH 是沙滩，以内是内陆。
+// 0.13 ≈ 半径的 13%（主岛约 3 格，小岛约 1.6 格），比原来窄了一档 ——
+// 上一版 10% 的沙环在 24 格半径上是 2.4 格宽，走起来像「一圈白色跑道」。
+var SAND_DEPTH = 0.13;
+
 (function buildDocksAndPaths() {
   function key2(x, y) { return x + ',' + y; }
 
@@ -135,15 +254,8 @@ var STELES = [
     if (x < 3 || y < 3 || x >= SIZE - 3 || y >= SIZE - 3) return CLOUD;
     for (var n = 0; n < ISLANDS.length; n++) {
       var island2 = ISLANDS[n];
-      var dx = x - island2.cx;
-      var dy = y - island2.cy;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-      var wobble = 0.90
-        + 0.07 * Math.sin(x * 0.31 + island2.cy * 0.17)
-        + 0.05 * Math.cos(y * 0.27 + island2.cx * 0.23);
-      if (dist <= island2.r * wobble) {
-        return island2.biome === 'stone' || island2.biome === 'coral' || island2.biome === 'frost' ? STONE : MEADOW;
-      }
+      if (islandDepth(x, y, island2) <= 0) continue;
+      return island2.biome === 'stone' || island2.biome === 'coral' || island2.biome === 'frost' ? STONE : MEADOW;
     }
     for (var m = 0; m < BRIDGES.length; m++) {
       var seg = BRIDGES[m];
@@ -204,24 +316,17 @@ function tileAt(x, y) {
 
   var i;
   var landIsle = -1;
-  var landDist = 0;
+  var landDepth = -9;
   var landKind = CLOUD;
   for (i = 0; i < ISLANDS.length; i++) {
     var island = ISLANDS[i];
-    var dx = x - island.cx;
-    var dy = y - island.cy;
-    var dist = Math.sqrt(dx * dx + dy * dy);
-    // 海岸线扰动：两个不同频率的三角函数叠加，让圆的边缘长出湾角和岬角。
-    var wobble = 0.90
-      + 0.07 * Math.sin(x * 0.31 + island.cy * 0.17)
-      + 0.05 * Math.cos(y * 0.27 + island.cx * 0.23);
-    var radius = island.r * wobble;
-    if (dist <= radius) {
-      landIsle = i;
-      landDist = dist;
-      landKind = dist <= radius * 0.90 ? (island.biome === 'stone' || island.biome === 'coral' || island.biome === 'frost' ? STONE : MEADOW) : SAND;
-      break;   // 岛间距足够远，第一个命中即唯一命中
-    }
+    var depth = islandDepth(x, y, island);
+    if (depth <= 0) continue;
+    landIsle = i;
+    landDepth = depth;
+    landKind = depth <= SAND_DEPTH ? SAND
+      : ((island.biome === 'stone' || island.biome === 'coral' || island.biome === 'frost') ? STONE : MEADOW);
+    break;   // 岛间距足够远，第一个命中即唯一命中
   }
 
   if (landIsle < 0) {
@@ -233,9 +338,12 @@ function tileAt(x, y) {
     return CLOUD;
   }
 
-  // 石板路：只铺在岛内陆地上（沙环以内），压过草地与岩层。
-  var isle = ISLANDS[landIsle];
-  if (landKind !== SAND && landDist <= isle.r * 0.86) {
+  // 岛内静水：depth > 0.34 才允许成湖 —— 湖心必须深在内陆，
+  // 否则一个偏心的湖可能正好压在细地峡上，把岛切成两半、把玩家关在里面。
+  if (landDepth > 0.34 && inLake(x, y, ISLANDS[landIsle])) return LAKE;
+
+  // 石板路：只铺在岛内内陆上（沙环以内），压过草地与岩层。
+  if (landKind !== SAND) {
     for (i = 0; i < PATHS.length; i++) {
       var p = PATHS[i];
       if (p.isle !== landIsle) continue;
@@ -261,7 +369,8 @@ function terrainCells() {
 }
 
 function walkable(x, y) {
-  return tileAt(x, y) !== CLOUD;
+  var t = tileAt(x, y);
+  return t !== CLOUD && t !== LAKE;
 }
 
 // 星屑节点：确定性分布。码头与广场不生成（栈道上挂光点像灯串，广场上像碎玻璃）。
@@ -269,7 +378,7 @@ function walkable(x, y) {
 function hasNode(x, y) {
   if (!walkable(x, y)) return false;
   var t = tileAt(x, y);
-  if (t === DOCK || t === PATH) return false;
+  if (t === DOCK || t === PATH || t === LAKE) return false;
   return hash2(x, y, 7) < 0.05;
 }
 
@@ -290,10 +399,7 @@ function nodeBits() {
 // 岛名判定：落在岛半径内。云桥与码头返回空 —— 站在桥上不属于任何岛。
 function islandNameAt(x, y) {
   for (var i = 0; i < ISLANDS.length; i++) {
-    var island = ISLANDS[i];
-    var dx = x - island.cx;
-    var dy = y - island.cy;
-    if (dx * dx + dy * dy <= island.r * island.r) return island.name;
+    if (islandDepth(x, y, ISLANDS[i]) > 0) return ISLANDS[i].name;
   }
   return '';
 }
@@ -348,8 +454,9 @@ module.exports = {
   SIZE: SIZE,
   SPAWN: SPAWN,
   TERRAIN_VERSION: TERRAIN_VERSION,
-  TILE: { CLOUD: CLOUD, MEADOW: MEADOW, SAND: SAND, STONE: STONE, DOCK: DOCK, PATH: PATH },
+  TILE: { CLOUD: CLOUD, MEADOW: MEADOW, SAND: SAND, STONE: STONE, DOCK: DOCK, PATH: PATH, LAKE: LAKE },
   hash2: hash2,
+  islandDepth: islandDepth,
   tileAt: tileAt,
   terrainCells: terrainCells,
   nodeBits: nodeBits,
