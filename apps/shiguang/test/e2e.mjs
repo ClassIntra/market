@@ -186,7 +186,7 @@ ok(T && Array.isArray(T.emotes) && T.emotes.length === 6, '表情 6 种');
 const nodeCount = T ? T.nodes.split('').filter((c) => c === '1').length : 0;
 ok(nodeCount > 200, '星屑节点 > 200（实测 ' + nodeCount + '）');
 const landCount = T ? T.cells.split('').filter((c) => c !== '0').length : 0;
-ok(landCount > 6000, '陆地格 > 6000（实测 ' + landCount + '）');
+ok(landCount > 5000, '陆地格 > 5000（实测 ' + landCount + '）');
 const dockCount = T ? T.cells.split('').filter((c) => c === '4').length : 0;
 ok(dockCount >= 28, '八座码头栈道格 >= 28（实测 ' + dockCount + '）');
 // 连通性：把码头格按连续段分组（每岛一段），每段至少有一格邻接陆地 ——

@@ -1,6 +1,6 @@
 {
-  "version": 57,
-  "updated_at": "2026-11-13T07:59:39.837Z",
+  "version": 58,
+  "updated_at": "2026-11-13T08:24:47.977Z",
   "apps": [
     {
       "name": "chess",
@@ -470,9 +470,9 @@
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
         "backend/routes.js": "4098d05f31ce46b384c6c38fce06f58d3cb0233917817cb69cc6d12347c065d4",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
-        "backend/world.js": "71dc815085a366b1a360912939a071ce2ed78f28d3cc84b446b34b417bd8ab72",
+        "backend/world.js": "d187716ccc7fc62dcb7663ba603a90327334a443355b3721ca560e6b4018626a",
         "CHANGELOG.md": "f0bad8d6b6570169c44c0b64c3374da6183b55bc8082e8c4f2cbb367890ab8bd",
-        "frontend/entry.js": "38e5c7393caf8b4977bea843b906e7edf1b201a2d92f431c2a93e64dc118622a",
+        "frontend/entry.js": "744071c8fc55e723f7fcf8fb2a3dd31f8a999912805d5648df57f99f8802c417",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -480,13 +480,13 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "31534e8f2edeadb523cb4904a42b2c7122375962df52803d72737e9958950c2d",
+        "frontend/style.css": "28c0076cdf3cff459d868184fac4ed0a7ef9cfd198f066bb42f2b765bb27a32e",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
         "manifest.json": "e344f6a1950bea9a7ddd22fecffc6417a5fd514c700fedc0bea30c8f393a2547",
-        "preview.png": "c8edcc0011de63e9fe87c557a4b502c67dcf5b77a230f899282d6c19b1a1b8ad",
+        "preview.png": "6979359cdde8c2719d2b38d8379e4923b35eae9f22e7149f34daacd2a31250a4",
         "README.md": "b95daa1989c913c37e12a6be2597a9ba80bf4057f9cfb6d29e23b50d863ee49e",
         "screenshots/1043x787-1.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
-        "test/e2e.mjs": "56a2b881c91ceb58c341018ec872fe21f95242129fa53c5d87039693d0edc9d1"
+        "test/e2e.mjs": "43a29332913e24eef2d0ee5f68c036a1990704df5b2c947b7037d025d83af50d"
       },
       "icon": "./icon.svg",
       "changelog": [
