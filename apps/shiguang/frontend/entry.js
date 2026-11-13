@@ -4678,6 +4678,29 @@
         ctx.stroke();
       }
 
+      // 自动行走：目的地脉冲环 + 前 8 格虚线路径
+      if (walkDest && walkPath.length) {
+        var mwx = ox + (walkDest.x + 0.5) * t;
+        var mwy = oy + (walkDest.y + 0.5) * t;
+        var wpulse = 0.5 + 0.5 * Math.sin(now * 0.006);
+        ctx.strokeStyle = 'rgba(255, 226, 150, ' + (0.55 + 0.30 * wpulse).toFixed(3) + ')';
+        ctx.lineWidth = Math.max(1.5, t * 0.045);
+        ctx.beginPath();
+        ctx.ellipse(mwx, mwy, t * (0.26 + 0.08 * wpulse), t * (0.15 + 0.05 * wpulse), 0, 0, 6.2832);
+        ctx.stroke();
+        ctx.setLineDash([t * 0.10, t * 0.15]);
+        ctx.strokeStyle = 'rgba(255, 226, 150, 0.38)';
+        ctx.lineWidth = Math.max(1, t * 0.028);
+        ctx.beginPath();
+        ctx.moveTo(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t);
+        var trailN = Math.min(walkPath.length, 8);
+        for (var wi3 = 0; wi3 < trailN; wi3++) {
+          ctx.lineTo(ox + (walkPath[wi3].x + 0.5) * t, oy + (walkPath[wi3].y + 0.5) * t);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
       var ids = Object.keys(state.players);
       for (var pi = 0; pi < ids.length; pi++) {
         var p = state.players[ids[pi]];
@@ -5040,6 +5063,7 @@
       var key = '';
       if (flying) key = 'flying';
       else if (fishing) key = 'fishing';
+      else if (walkPath.length) key = 'walking';
       else if (meteorNodeUnderMe()) key = 'meteor';
       else if (nodeUnderMe()) key = 'node';
       else if (steleNearMe()) key = 'stele';
@@ -5049,6 +5073,7 @@
       else if (state.meteor && state.meteor.active) key = 'meteorFar';
       var text = '';
       if (key === 'flying') text = '纸鸢掠过云海……';
+      else if (key === 'walking') text = '正在走过去……（摇杆 / 键盘随时打断）';
       else if (key === 'fishing') text = '收线中……';
       else if (key === 'meteor') text = '脚下有一颗星陨，快按采集';
       else if (key === 'node') text = '脚下有星屑，按「采集」';
@@ -5146,6 +5171,103 @@
 
     var lastMoveAt = 0;
 
+    // ---------- 点击移动（BFS 寻路 + 沿路自动行走） ----------
+    // 点地面任意可走格 → 客户端 BFS（CLOUD 与 LAKE 都是墙）→ ticker 每 180ms
+    // 走一步。摇杆 / 键盘 / 动作按钮打断；服务端拒绝时 attemptMove 会把
+    // state.me 校正回真实位置，walkTick 发现「下一格不挨着」就整条重算。
+    var walkPath = [];
+    var walkDest = null;
+    var walkTimer = 0;
+
+    function cellBlocked(x, y) {
+      if (x < 0 || y < 0 || x >= state.size || y >= state.size) return true;
+      var cc = state.cells.charCodeAt(y * state.size + x) - 48;
+      return cc === 0 || cc === 6;   // CLOUD 与 LAKE 都不可走（与 world.walkable 一致）
+    }
+
+    function findPath(sx, sy, tx, ty, maxSteps) {
+      var size = state.size;
+      var total = size * size;
+      if (sx === tx && sy === ty) return [];
+      if (cellBlocked(tx, ty)) return null;
+      var visited = new Uint8Array(total);
+      var prev = new Int32Array(total);
+      var start = sy * size + sx;
+      var target = ty * size + tx;
+      var queue = [start];
+      visited[start] = 1;
+      prev[start] = -1;
+      var head = 0;
+      var found = false;
+      var dxs = [1, -1, 0, 0];
+      var dys = [0, 0, 1, -1];
+      while (head < queue.length) {
+        var cur = queue[head++];
+        if (cur === target) { found = true; break; }
+        var ccx = cur % size;
+        var ccy = (cur / size) | 0;
+        for (var d = 0; d < 4; d++) {
+          var nx = ccx + dxs[d];
+          var ny = ccy + dys[d];
+          if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+          var ni = ny * size + nx;
+          if (visited[ni]) continue;
+          if (cellBlocked(nx, ny)) continue;
+          visited[ni] = 1;
+          prev[ni] = cur;
+          queue.push(ni);
+        }
+      }
+      if (!found) return null;
+      var path = [];
+      var node = target;
+      while (node !== start) {
+        path.push({ x: node % size, y: (node / size) | 0 });
+        node = prev[node];
+      }
+      path.reverse();
+      if (maxSteps && path.length > maxSteps) path = path.slice(0, maxSteps);
+      return path;
+    }
+
+    function startWalk(tx, ty) {
+      if (!state.ready || flying) return;
+      var path = findPath(state.me.x, state.me.y, tx, ty, 100);
+      if (!path) { toast('那边过不去'); return; }
+      if (!path.length) return;
+      if (path.length > 90) { toast('太远了，先走近一点再点'); return; }
+      walkPath = path;
+      walkDest = { x: walkPath[walkPath.length - 1].x, y: walkPath[walkPath.length - 1].y };
+      if (!walkTimer) walkTimer = setInterval(walkTick, 180);
+      updateHint();
+    }
+
+    function stopWalk() {
+      if (walkTimer) { clearInterval(walkTimer); walkTimer = 0; }
+      walkPath = [];
+      walkDest = null;
+    }
+
+    function walkTick() {
+      if (!walkPath.length) { stopWalk(); return; }
+      if (!state.ready || flying) return;
+      var next = walkPath[0];
+      var dx = next.x - state.me.x;
+      var dy = next.y - state.me.y;
+      if (dx === 0 && dy === 0) {
+        walkPath.shift();
+        if (!walkPath.length) stopWalk();
+        return;
+      }
+      if (Math.abs(dx) + Math.abs(dy) !== 1) {
+        var np = walkDest ? findPath(state.me.x, state.me.y, walkDest.x, walkDest.y, 100) : null;
+        if (!np || !np.length) { stopWalk(); return; }
+        walkPath = np;
+        return;
+      }
+      attemptMove(dx, dy);
+    }
+
     function attemptMove(dx, dy) {
       if (!state.ready || flying) return;
       // ⚠️ 这里原来是 `if (talkBox.hidden === false) return;` —— 对话中不许走。
@@ -5191,6 +5313,8 @@
             state.me.y = data.me.y;
           }
           if (data.rejected === 'cloud' || data.rejected === 'bounds') bump(dx, dy);
+          // 位置被校正：自动行走的旧路径已失效（'fast' 只是节流，下个 tick 重试）
+          if (walkPath.length && data.rejected !== 'fast') stopWalk();
           return;
         }
         if (data.me) {
@@ -5203,6 +5327,7 @@
       }).catch(function() {
         state.me.x = nx - dx;
         state.me.y = ny - dy;
+        if (walkPath.length) stopWalk();
         toast('网络有点慢，走不动了');
       });
     }
@@ -5243,6 +5368,7 @@
       var dir = KEY_DIR[e.keyCode];
       if (!dir) return;
       e.preventDefault();
+      if (walkPath.length) stopWalk();
       if (heldKey === e.keyCode) return;
       heldKey = e.keyCode;
       attemptMove(dir[0], dir[1]);
@@ -5362,6 +5488,7 @@
 
     function stickDown(e) {
       if (!state.ready || flying) return;
+      if (walkPath.length) stopWalk();
       if (stickPointer !== null) return;
       e.preventDefault();
       stickPointer = e.pointerId;
@@ -5418,22 +5545,33 @@
     };
 
     function onCanvasClick(e) {
-      if (!state.ready) return;
-      if (sheet.hidden === false || modal.hidden === false) return;
+      if (!state.ready || flying) return;
+      if (sheet.hidden === false || modal.hidden === false || tutorial.hidden === false) return;
       var rect = canvas.getBoundingClientRect();
       var wx = Math.floor((e.clientX - rect.left - view.ox) / view.tile);
       var wy = Math.floor((e.clientY - rect.top - view.oy) / view.tile);
+      if (wx < 0 || wy < 0 || wx >= state.size || wy >= state.size) return;
+      // 云海与湖水都不可点（那是墙，不是路）
+      var cc = state.cells.charCodeAt(wy * state.size + wx) - 48;
+      if (cc === 0 || cc === 6) return;
       var dx = wx - state.me.x;
       var dy = wy - state.me.y;
-      if (Math.abs(dx) + Math.abs(dy) === 1) attemptMove(dx, dy);
+      if (Math.abs(dx) + Math.abs(dy) === 1) {
+        stopWalk();
+        attemptMove(dx, dy);
+        return;
+      }
+      startWalk(wx, wy);
     }
     canvas.addEventListener('click', onCanvasClick);
     onDestroy(function() { canvas.removeEventListener('click', onCanvasClick); });
+    onDestroy(function() { if (walkTimer) { clearInterval(walkTimer); walkTimer = 0; } });
 
     // ---------- 动作 ----------
 
     function doGather() {
       if (!state.ready) return;
+      if (walkPath.length) stopWalk();
       var x = state.me.x;
       var y = state.me.y;
       if (!nodeUnderMe() && !meteorNodeUnderMe()) {
@@ -5469,6 +5607,7 @@
 
     function doBuild() {
       if (!state.ready) return;
+      if (walkPath.length) stopWalk();
       if ((state.me.shards || 0) < state.lampCost) {
         toast('还差 ' + (state.lampCost - state.me.shards) + ' 枚星屑');
         return;
@@ -5518,6 +5657,7 @@
 
     function doPlant() {
       if (!state.ready) return;
+      if (walkPath.length) stopWalk();
       var tl = tileUnderMe();
       if (tl !== T_MEADOW && tl !== T_PATH) {
         toast('光花只肯在草地和路边扎根');
@@ -5555,6 +5695,7 @@
 
     function doFish() {
       if (!state.ready) return;
+      if (walkPath.length) stopWalk();
       if (fishing) return;
       if (tileUnderMe() !== T_DOCK) {
         toast('走上码头才能抛竿');
@@ -5589,6 +5730,7 @@
 
     function doEmote(id) {
       if (!state.ready) return;
+      if (walkPath.length) stopWalk();
       var now = Date.now();
       if (now - cooldowns.emote < 1800) return;
       cooldowns.emote = now;
@@ -5605,6 +5747,7 @@
     // 石碑：唤醒（首建者拿星屑，全班看碑文，集齐五座触发秘境）
     function doStele() {
       if (!state.ready || flying) return;
+      if (walkPath.length) stopWalk();
       var s = steleNearMe();
       if (!s) return;
       http('post', '/shiguang/stele', { x: s.x, y: s.y }).then(function(data) {
@@ -5630,6 +5773,7 @@
     // 纸鸢快线：打开选岛面板
     function doFly() {
       if (!state.ready || flying) return;
+      if (walkPath.length) stopWalk();
       if (tileUnderMe() !== T_DOCK) return;
       openSheet('fly', '纸鸢快线');
     }
@@ -6433,7 +6577,7 @@
       openSheet('help', '怎么玩');
       clearNode(sheetBody);
       var steps = [
-        ['走', '左下摇杆漫步（键盘 WASD 也行），石板路会带你逛遍八座岛。'],
+        ['走', '左下摇杆漫步（键盘 WASD 也行）；点地面任意一格，小人会自动沿路走过去。'],
         ['捡', '闪烁的菱形是星屑。站上去按「采集」，90 秒后原地重生。'],
         ['点', '攒够 3 枚星屑原地「点灯」。灯柱是「你的颜色」，全班永久可见。'],
         ['花', '草地和路边可「种花」（2 星屑）。花会破土、含苞、盛开，永远开在那里。'],
