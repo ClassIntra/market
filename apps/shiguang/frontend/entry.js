@@ -190,13 +190,13 @@
   // sandLit/sandShd 沙地，pathLit/pathShd 土径。
   var BIOME_PALETTES = {
     meadow: { lit: [40, 66, 60],   shd: [10, 23, 26],    stLit: [80, 90, 106],   stShd: [26, 30, 40],
-              sandLit: [74, 68, 56],   sandShd: [34, 31, 27],   pathLit: [58, 46, 36],  pathShd: [24, 19, 15] },
+              sandLit: [74, 68, 56],   sandShd: [34, 31, 27],   pathLit: [106, 90, 70], pathShd: [42, 34, 26] },
     mist:   { lit: [42, 68, 72],   shd: [11, 25, 30],    stLit: [78, 92, 108],   stShd: [24, 30, 42],
-              sandLit: [70, 70, 66],   sandShd: [32, 33, 31],   pathLit: [54, 48, 42],  pathShd: [22, 20, 17] },
+              sandLit: [70, 70, 66],   sandShd: [32, 33, 31],   pathLit: [100, 92, 80], pathShd: [40, 35, 30] },
     stone:  { lit: [82, 88, 102],  shd: [26, 30, 40],    stLit: [104, 112, 130], stShd: [36, 40, 54],
-              sandLit: [84, 80, 72],   sandShd: [38, 36, 33],   pathLit: [64, 54, 44],  pathShd: [27, 23, 18] },
+              sandLit: [84, 80, 72],   sandShd: [38, 36, 33],   pathLit: [114, 98, 80], pathShd: [46, 39, 31] },
     beach:  { lit: [96, 88, 70],   shd: [34, 32, 28],    stLit: [90, 96, 110],   stShd: [32, 36, 46],
-              sandLit: [104, 94, 74],  sandShd: [44, 40, 32],   pathLit: [70, 56, 42],  pathShd: [30, 24, 18] },
+              sandLit: [104, 94, 74],  sandShd: [44, 40, 32],   pathLit: [120, 102, 78], pathShd: [49, 41, 31] },
     marsh:  { lit: [32, 54, 48],   shd: [8, 19, 21],     stLit: [70, 80, 92],    stShd: [24, 28, 36],
               sandLit: [62, 60, 50],   sandShd: [28, 28, 24],   pathLit: [50, 42, 33],  pathShd: [20, 17, 14] },
     flower: { lit: [50, 70, 48],   shd: [13, 25, 23],    stLit: [88, 94, 108],   stShd: [30, 34, 44],
@@ -1381,7 +1381,7 @@
       // 路要「一点点」软边。
       // 硬 0/1 的边界是逐格直角台阶 —— 一条「锯齿公路」，比直边更假。
       // 半径 3（sub=4 时约 0.75 格）只影响交界带，真正做出毛边的是取色阶段的噪声侵蚀。
-      maskPath = boxBlur(path, M, 3);
+      maskPath = boxBlur(path, M, 2);
       maskLake = boxBlur(lake, M, 1);
     }
 
