@@ -2483,3 +2483,19 @@
     min-height: 25px;
   }
 }
+
+/* 灯火熄灭时的昏迷：整个界面跟着黑屏一起沉下去。
+   只压 canvas 不压 DOM 的话，黑屏上还浮着摇杆和提示条 —— 读起来像卡死而不是演出。*/
+.sg-hud, .sg-stick, .sg-acts, .sg-hint, .sg-minimap {
+  transition: opacity 0.45s ease;
+}
+.sg-root.is-faint .sg-hud,
+.sg-root.is-faint .sg-stick,
+.sg-root.is-faint .sg-acts,
+.sg-root.is-faint .sg-minimap,
+/* ⚠️ 提示条必须用和 .sg-root.is-settled .sg-hint.is-on（4 个类）同级或更高的
+   选择器，否则被它压住 —— 昏迷时黑屏中间还挂着一句「顺着石板路走」很出戏。*/
+.sg-root.is-faint.is-settled .sg-hint,
+.sg-root.is-faint.is-settled .sg-hint.is-on {
+  opacity: 0;
+}

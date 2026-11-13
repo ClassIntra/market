@@ -4215,7 +4215,10 @@
     function updateLight(dt, now) {
       // 昏迷期间一切冻结：黑屏里掉火没有意义，还会让人以为卡住了
       if (lightState.veilAt) {
-        if (now - lightState.veilAt > 2400) lightState.veilAt = 0;
+        if (now - lightState.veilAt > 3000) {
+          lightState.veilAt = 0;
+          root.className = root.className.replace(' is-faint', '');
+        }
         return;
       }
       if (!state.ready) return;
@@ -4270,6 +4273,9 @@
         lightState.v = 45;
         wraiths.length = 0;
         cam.shake = 14;
+        // 屏幕压黑的同时把 DOM 层也沉下去：
+        // 黑屏上还浮着摇杆、动作键和「顺着石板路走」的提示，读起来像卡死。
+        root.className = root.className.replace(' is-faint', '') + ' is-faint';
         if (typeof toast === 'function') toast('灯火灭了　雾把你吞了下去', 'warm');
       }
     }
