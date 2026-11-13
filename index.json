@@ -1,6 +1,6 @@
 {
   "version": 58,
-  "updated_at": "2026-11-13T08:50:00.471Z",
+  "updated_at": "2026-11-13T08:51:08.535Z",
   "apps": [
     {
       "name": "chess",
@@ -462,7 +462,9 @@
         "apps/shiguang/manifest.json",
         "apps/shiguang/preview.png",
         "apps/shiguang/README.md",
-        "apps/shiguang/screenshots/1043x787-1.png",
+        "apps/shiguang/screenshots/01-world.png",
+        "apps/shiguang/screenshots/02-lowlight.png",
+        "apps/shiguang/screenshots/03-talk.png",
         "apps/shiguang/test/e2e.mjs"
       ],
       "hashes": {
@@ -485,11 +487,17 @@
         "manifest.json": "8819b3781b2d14e0fc1f77194b899dde1c4f28f2aa76168c61a4fb829e9f1567",
         "preview.png": "fa46f4409a3a3bbf80180b16a3be4429cb19ca642af51aae18f5a911f80c42d4",
         "README.md": "b95daa1989c913c37e12a6be2597a9ba80bf4057f9cfb6d29e23b50d863ee49e",
-        "screenshots/1043x787-1.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
+        "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
+        "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",
+        "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
         "test/e2e.mjs": "43a29332913e24eef2d0ee5f68c036a1990704df5b2c947b7037d025d83af50d"
       },
       "icon": "apps/shiguang/icon.svg",
       "changelog": [
+        {
+          "version": "4.0.0",
+          "notes": "灯火。把「你手里还有多少火」做成唯一的资源，同时接管血量、视野、货币三件事：走路 0.95/秒、站着 0.30/秒持续流失，火只剩一成时视野从 10 格缩到 4 格；站在点亮过的灯柱 6 格内回火（别人的灯一样管用），点一盏灯要烧掉自己 22 点火 —— 你把自己的命换成一块永久的安全区。火低于 34% 雾灵从黑暗里围上来（最多 4 只，比你慢得多，跑得掉但必须走），碰到偷 9 点火；火灭了全黑昏迷三秒，醒来原地剩 45 火。顶栏第一次把主线写出来：「长夜 · 3/10」—— /terrain 从 3.0 起就一直在返回阶段表，前端从来没接住，所以「全班点灯 10/30/60/100 根把天光推到拾光之海」一直是隐形的。同版重做世界：8 座正圆岛改成每岛 3~4 个偏移圆瓣取归一化深度的复合岛形（地峡、内湾、半岛自然长出，沙环按深度切），新增内陆湖；启明岛 44 格正交十字大道改成主街 + 四条斜支路（原来是一条跑道）；沙岸与土径拆成两套色（沙环占陆地 27%，曾是全画面最大的暖色块，灯反而比不过它）；UI 全面去面板化，改字距与字号层级立住；灯塔 1:1.65 改 1:3.9。"
+        },
         {
           "version": "3.1.0",
           "notes": "岛上有人。NPC 从「随机游荡 + 公共台词池」改成有记忆的人：走近 4 格自动开口，每人一套专属剧情按见面次数推进且落库（换设备也记得）；初见先播报世界的真实状态——几个人上过岛、上一个叫什么、最后停在哪个坐标、全班点了多少盏灯、离下一阶天光还差几盏，数字全部现算，所以每句都是真的。固定剧情走完进入动态模式，六种话题轮转、永不重复。新增底部对话卡（打字机 + 身份牌 + 空格/回车推进）、对话时镜头取「玩家与说话人」中点并上抬 1.3 格、没聊过的人头顶浮「…」。灯柱加九格高光柱，隔着雾也能看见别人的灯。NPC 从 Kenney 像素改回矢量，与场景统一画风。修复生产库缺 shiguang_steles 表导致石碑链路整条不可用。"
@@ -515,6 +523,11 @@
         "data.http",
         "data.realtime",
         "data.storage"
+      ],
+      "screenshots": [
+        "apps/shiguang/screenshots/01-world.png",
+        "apps/shiguang/screenshots/02-lowlight.png",
+        "apps/shiguang/screenshots/03-talk.png"
       ]
     },
     {
