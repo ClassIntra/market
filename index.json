@@ -1,6 +1,6 @@
 {
-  "version": 54,
-  "updated_at": "2026-11-12T23:24:31.337Z",
+  "version": 55,
+  "updated_at": "2026-11-13T05:36:18.518Z",
   "apps": [
     {
       "name": "chess",
@@ -483,9 +483,9 @@
         "frontend/style.css": "e37c9cc7a58a4ec4d83d273a013ca367a5b32bcef655a2e71cf7b37105bb62ae",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
         "manifest.json": "0b4a383ef2f70ab7eb3587261dd60f2350428259713a8acd2ac08490bb70be84",
-        "preview.png": "4282bceb48294da45c460e033a7a58e1b183f40c05c905adef5595088aa98acf",
+        "preview.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
         "README.md": "43d8ee3ab2fc32888d6a947d6e8d08b7499504438909fdc01b95692ae653566f",
-        "screenshots/1043x787-1.png": "4282bceb48294da45c460e033a7a58e1b183f40c05c905adef5595088aa98acf",
+        "screenshots/1043x787-1.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
         "test/e2e.mjs": "56a2b881c91ceb58c341018ec872fe21f95242129fa53c5d87039693d0edc9d1"
       },
       "icon": "./icon.svg",
