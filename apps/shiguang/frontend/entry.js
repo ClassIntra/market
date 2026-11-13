@@ -849,6 +849,33 @@
     pillLamp.appendChild(lampsVal);
     pillLamp.appendChild(el('span', 'sg-pill-unit', '灯柱'));
 
+    // 灯油弧表：核心生存资源的「可读化」。黑暗层会告诉你要不要慌，
+    // 但「还剩多少」必须有个能瞄一眼的地方 —— 否则恐惧没有刻度。
+    var oilGauge = el('div', 'sg-oil');
+    var oilSvg = document.createElementNS(SVG_NS, 'svg');
+    oilSvg.setAttribute('viewBox', '0 0 30 30');
+    oilSvg.setAttribute('class', 'sg-oil-arc');
+    var oilBg = document.createElementNS(SVG_NS, 'circle');
+    oilBg.setAttribute('cx', '15'); oilBg.setAttribute('cy', '15'); oilBg.setAttribute('r', '12');
+    oilBg.setAttribute('fill', 'none');
+    oilBg.setAttribute('stroke', 'rgba(255, 255, 255, 0.14)');
+    oilBg.setAttribute('stroke-width', '3');
+    var oilFg = document.createElementNS(SVG_NS, 'circle');
+    oilFg.setAttribute('cx', '15'); oilFg.setAttribute('cy', '15'); oilFg.setAttribute('r', '12');
+    oilFg.setAttribute('fill', 'none');
+    oilFg.setAttribute('stroke', '#ffd98a');
+    oilFg.setAttribute('stroke-width', '3');
+    oilFg.setAttribute('stroke-linecap', 'round');
+    oilFg.setAttribute('stroke-dasharray', '75.4');
+    oilFg.setAttribute('stroke-dashoffset', '0');
+    oilSvg.appendChild(oilBg);
+    oilSvg.appendChild(oilFg);
+    var oilIco = el('span', 'sg-oil-ico');
+    oilIco.appendChild(svgIcon('lamp'));
+    oilGauge.appendChild(oilSvg);
+    oilGauge.appendChild(oilIco);
+    pills.appendChild(oilGauge);
+
     pills.appendChild(pillShard);
     pills.appendChild(pillLamp);
     hud.appendChild(pills);
@@ -881,6 +908,9 @@
     dawnCard.appendChild(dawnTitle);
     dawnCard.appendChild(dawnDesc);
     dawnFx.appendChild(dawnCard);
+    // 天光扫光：一条暖色光带从顶掠到底 —— 「整个世界被照亮了一遍」
+    var dawnSweep = el('div', 'sg-dawn-sweep');
+    dawnFx.appendChild(dawnSweep);
 
     // ---------- 小地图 ----------
     var minimap = el('div', 'sg-minimap');
@@ -3281,9 +3311,10 @@
     // 正面 chibi 角色：大头小身、四肢、行走摆动、发型肤色按 id 确定性生成。
     // 朝向：0 下（露脸）/ 1 左 / 2 右（侧脸）/ 3 上（满头发的后脑勺）。
     // walkK ∈ [0,1]：行走强度（刚移动过为 1，静止为 0），驱动抬脚 / 摆臂 / 提灯摆动。
-    function drawAvatar(cx, cy, t, color, dir, isSelf, name, now, hat, lanternId, npcSprite, walkK) {
+    function drawAvatar(cx, cy, t, color, dir, isSelf, name, now, hat, lanternId, npcSprite, walkK, sitK, pTitle) {
       var lc = LANTERN_COLORS[lanternId] || LANTERN_COLORS['0'];
       var walk = clamp(walkK || 0, 0, 1);
+      var sit = clamp(sitK || 0, 0, 1);
 
       // ---- NPC：Kenney 精灵（专业像素画，和 chibi 玩家同一比例语言） ----
       if (npcSprite) {
@@ -3320,10 +3351,11 @@
       // ---- 行走相位 ----
       var ph = now * 0.026;
       var bob = Math.abs(Math.sin(ph)) * 0.022 * t * walk
-              + Math.sin(now * 0.0026 + seedB % 6.283) * 0.008 * t * (1 - walk);
-      var liftA = Math.max(0, Math.sin(ph)) * 0.035 * t * walk;
-      var liftB = Math.max(0, -Math.sin(ph)) * 0.035 * t * walk;
-      var armSwing = Math.sin(ph) * 0.018 * t * walk;
+              + Math.sin(now * 0.0026 + seedB % 6.283) * 0.008 * t * (1 - walk)
+              + sit * t * 0.055;
+      var liftA = Math.max(0, Math.sin(ph)) * 0.035 * t * walk * (1 - sit);
+      var liftB = Math.max(0, -Math.sin(ph)) * 0.035 * t * walk * (1 - sit);
+      var armSwing = Math.sin(ph) * 0.018 * t * walk * (1 - sit);
 
       // ---- 影子 ----
       ctx.fillStyle = 'rgba(0, 0, 0, 0.30)';
@@ -3348,12 +3380,20 @@
       var legY0 = cy + t * 0.13;
       var legY1 = cy + t * 0.295;
       var legW = t * 0.062;
-      ctx.fillStyle = '#2e2630';
-      ctx.fillRect(cx - t * 0.105, legY0 - liftA, legW, legY1 - legY0 + liftA * 0.4);
-      ctx.fillRect(cx + t * 0.105 - legW, legY0 - liftB, legW, legY1 - legY0 + liftB * 0.4);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
-      ctx.fillRect(cx - t * 0.105, legY0 - liftA, legW, Math.max(1, t * 0.014));
-      ctx.fillRect(cx + t * 0.105 - legW, legY0 - liftB, legW, Math.max(1, t * 0.014));
+      if (sit > 0.5) {
+        // 盘坐：一条宽暗影代替两条腿
+        ctx.fillStyle = 'rgba(24, 18, 28, 0.55)';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy + t * 0.235, t * 0.19, t * 0.075, 0, 0, 6.2832);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#2e2630';
+        ctx.fillRect(cx - t * 0.105, legY0 - liftA, legW, legY1 - legY0 + liftA * 0.4);
+        ctx.fillRect(cx + t * 0.105 - legW, legY0 - liftB, legW, legY1 - legY0 + liftB * 0.4);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+        ctx.fillRect(cx - t * 0.105, legY0 - liftA, legW, Math.max(1, t * 0.014));
+        ctx.fillRect(cx + t * 0.105 - legW, legY0 - liftB, legW, Math.max(1, t * 0.014));
+      }
 
       // ---- 身体（罩袍）：上窄下宽的圆角梯形，左上受光 ----
       var bodyTop = cy - t * 0.05 + bob;
@@ -3454,17 +3494,25 @@
         var ex = cx + faceX * t * 0.055;
         var ey = headY + t * 0.012;
         var eyeGap = t * 0.066;
+        // 眨眼：sin 的峰尖非常窄 —— 过阈值的窗口只有约 150ms，
+        // 每次相位循环（约 5.7 秒）眨一次。角色立刻「活」了。
+        var blink = Math.sin(now * 0.0011 + seedB * 2.7) > 0.985;
         ctx.fillStyle = '#2a2230';
-        ctx.beginPath();
-        ctx.arc(ex - eyeGap, ey, t * 0.024, 0, 6.2832);
-        ctx.arc(ex + eyeGap, ey, t * 0.024, 0, 6.2832);
-        ctx.fill();
-        // 眼里高光
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.beginPath();
-        ctx.arc(ex - eyeGap + t * 0.008, ey - t * 0.008, t * 0.008, 0, 6.2832);
-        ctx.arc(ex + eyeGap + t * 0.008, ey - t * 0.008, t * 0.008, 0, 6.2832);
-        ctx.fill();
+        if (blink) {
+          ctx.fillRect(ex - eyeGap - t * 0.024, ey - t * 0.006, t * 0.048, Math.max(1, t * 0.012));
+          ctx.fillRect(ex + eyeGap - t * 0.024, ey - t * 0.006, t * 0.048, Math.max(1, t * 0.012));
+        } else {
+          ctx.beginPath();
+          ctx.arc(ex - eyeGap, ey, t * 0.024, 0, 6.2832);
+          ctx.arc(ex + eyeGap, ey, t * 0.024, 0, 6.2832);
+          ctx.fill();
+          // 眼里高光
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.beginPath();
+          ctx.arc(ex - eyeGap + t * 0.008, ey - t * 0.008, t * 0.008, 0, 6.2832);
+          ctx.arc(ex + eyeGap + t * 0.008, ey - t * 0.008, t * 0.008, 0, 6.2832);
+          ctx.fill();
+        }
         // 腮红 + 小嘴
         ctx.fillStyle = 'rgba(240, 130, 120, 0.35)';
         ctx.beginPath();
@@ -3656,7 +3704,7 @@
       ctx.fillRect(-t * 0.030, t * 0.102, t * 0.020, t * 0.020);
       ctx.restore();
 
-      // ---- 名字 ----
+      // ---- 名字 + 称号 ----
       if (name) {
         var fs = Math.max(10, Math.round(t * 0.27));
         ctx.font = canvasFont(fs, false);
@@ -3667,6 +3715,23 @@
         ctx.strokeText(name, cx, cy - t * 0.62);
         ctx.fillStyle = isSelf ? '#ffe9b8' : 'rgba(232, 240, 255, 0.92)';
         ctx.fillText(name, cx, cy - t * 0.62);
+        // 称号小注：衣柜里的称号终于穿在身上 —— 金字小注悬在名字下方
+        if (pTitle && pTitle !== 't_pick') {
+          var tName = '';
+          var tShop = (state.catalog.shop && state.catalog.shop.title) || [];
+          for (var tsi = 0; tsi < tShop.length; tsi++) {
+            if (tShop[tsi].id === pTitle) tName = tShop[tsi].name;
+          }
+          if (tName) {
+            var tfs = Math.max(8, Math.round(t * 0.185));
+            ctx.font = canvasFont(tfs, false);
+            ctx.lineWidth = Math.max(1.5, tfs * 0.26);
+            ctx.strokeStyle = 'rgba(4, 9, 18, 0.8)';
+            ctx.strokeText('「' + tName + '」', cx, cy - t * 0.47);
+            ctx.fillStyle = 'rgba(255, 217, 138, 0.88)';
+            ctx.fillText('「' + tName + '」', cx, cy - t * 0.47);
+          }
+        }
       }
     }
 
@@ -3995,6 +4060,93 @@
       cam.hold = Date.now() + (ms || 200);
     }
 
+    // ---------- 湖的映画与荷灯 ----------
+    // 湖不该是一块深色贴图。荷灯是「夜里的湖」的灵魂：
+    // 它们同时也是灯油的安全点 —— 站在湖边，灯火会慢慢回来。
+    var lotusList = [];
+
+    function buildLotusList() {
+      lotusList = [];
+      var size = state.size;
+      var cells = state.cells;
+      if (!cells || cells.length < size * size) return;
+      for (var y = 4; y < size - 4; y++) {
+        for (var x = 4; x < size - 4; x++) {
+          if (cells.charCodeAt(y * size + x) - 48 !== 6) continue;
+          if (hash2(x, y, 931) < 0.055 && lotusList.length < 26) {
+            lotusList.push({ x: x + 0.30 + hash2(x, y, 933) * 0.4, y: y + 0.30 + hash2(x, y, 937) * 0.4, ph: hash2(x, y, 939) * 6.283 });
+          }
+        }
+      }
+    }
+
+    function lightNearLotus(x, y) {
+      var best = 1e9;
+      for (var i = 0; i < lotusList.length; i++) {
+        var lo = lotusList[i];
+        var dx = lo.x - x;
+        var dy = lo.y - y;
+        var d = Math.sqrt(dx * dx + dy * dy);
+        if (d < best) best = d;
+      }
+      return best;
+    }
+
+    // 湖面动画：星子的碎光 + 缓慢扩散的涟漪。只处理视野内的湖格。
+    function drawLakeFx(ox, oy, t, now, x0, x1, y0, y1, size) {
+      var cells = state.cells;
+      for (var y = y0; y <= y1; y++) {
+        for (var x = x0; x <= x1; x++) {
+          if (x < 0 || y < 0 || x >= size || y >= size) continue;
+          if (cells.charCodeAt(y * size + x) - 48 !== 6) continue;
+          if (hash2(x, y, 941) > 0.16) continue;
+          var tw = 0.5 + 0.5 * Math.sin(now * 0.0013 + hash2(x, y, 943) * 6.283);
+          if (tw < 0.4) continue;
+          var sx = ox + (x + hash2(x, y, 947)) * t;
+          var sy = oy + (y + hash2(x, y, 949)) * t;
+          ctx.fillStyle = 'rgba(170, 214, 255, ' + (0.20 * tw).toFixed(3) + ')';
+          ctx.fillRect(sx, sy, Math.max(1.5, t * 0.09), Math.max(1, t * 0.028));
+        }
+      }
+      // 荷灯
+      for (var i = 0; i < lotusList.length; i++) {
+        var lo = lotusList[i];
+        var lx = ox + lo.x * t;
+        var ly = oy + lo.y * t;
+        if (lx < -t * 2 || lx > ox + view.w + t * 2 || ly < -t * 2 || ly > oy + view.h + t * 2) continue;
+        var bob = Math.sin(now * 0.0016 + lo.ph) * t * 0.018;
+        var pulse = 0.5 + 0.5 * Math.sin(now * 0.0021 + lo.ph * 2.0);
+        var g = ctx.createRadialGradient(lx, ly + bob, 0, lx, ly + bob, t * 0.62);
+        g.addColorStop(0, 'rgba(255, 214, 158, ' + (0.26 + 0.10 * pulse).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(255, 214, 158, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(lx, ly + bob, t * 0.62, 0, 6.2832);
+        ctx.fill();
+        // 莲座：五瓣 + 暖芯
+        for (var pi2 = 0; pi2 < 5; pi2++) {
+          var pa = pi2 * 6.2832 / 5 + lo.ph;
+          ctx.fillStyle = 'rgba(255, 196, 150, 0.85)';
+          ctx.beginPath();
+          ctx.ellipse(lx + Math.cos(pa) * t * 0.075, ly + bob + Math.sin(pa) * t * 0.055, t * 0.048, t * 0.030, pa, 0, 6.2832);
+          ctx.fill();
+        }
+        ctx.fillStyle = 'rgba(255, 244, 214, 0.95)';
+        ctx.beginPath();
+        ctx.arc(lx, ly + bob, t * 0.038, 0, 6.2832);
+        ctx.fill();
+        // 偶发涟漪
+        var rk = ((now * 0.001 + lo.ph * 3) % 4) / 4;
+        if (rk < 0.45) {
+          ctx.strokeStyle = 'rgba(170, 214, 255, ' + (0.22 * (1 - rk / 0.45)).toFixed(3) + ')';
+          ctx.lineWidth = Math.max(1, t * 0.016);
+          ctx.beginPath();
+          ctx.ellipse(lx, ly + bob, t * (0.18 + rk * 1.5), t * (0.09 + rk * 0.7), 0, 0, 6.2832);
+          ctx.stroke();
+        }
+      }
+    }
+
     // ---------- 粒子与浮字 ----------
     // 一次采集要给出六层反馈：粒子、屏震、推拉、浮字、光环、音阶。
     // 缺任何一层，手感都会掉一档 —— 这就是「数字 +1」和「捡到东西」的差别。
@@ -4234,6 +4386,41 @@
         // 否则「安全区」会变成一个必须精确踩中的点，走位变成找格子。
         refill = lightState.refill * (0.30 + k * 0.70);
       }
+      // 荷灯：湖边的第二个安全区。它比灯柱弱一档 —— 湖是浪漫，灯塔是命。
+      if (refill < lightState.refill * 0.8 && lotusList.length) {
+        var ld = lightNearLotus(state.me.x + 0.5, state.me.y + 0.5);
+        if (ld < lightState.safeR) {
+          var lk2 = 1 - ld / lightState.safeR;
+          refill = Math.max(refill, lightState.refill * 0.62 * (0.30 + lk2 * 0.70));
+        }
+      }
+      // 灯塔回火：旋转的光束扫过你的时候，灯火会亮一下 ——
+      // 灯塔从「背景板」变成全图的太平洋灯塔：看到光束压过来，往那走就对了。
+      var lhKey = null;
+      var landmarksL = state.catalog.landmarks || [];
+      for (var lbi = 0; lbi < landmarksL.length; lbi++) {
+        if (landmarksL[lbi].key === 'lighthouse') { lhKey = landmarksL[lbi]; break; }
+      }
+      if (lhKey) {
+        var lhx = lhKey.x + 0.5;
+        var lhy = lhKey.y + 0.5;
+        var pdx = state.me.x + 0.5 - lhx;
+        var pdy = state.me.y + 0.5 - lhy;
+        var pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+        if (pdist < 22) {
+          var pAng = Math.atan2(pdy, pdx);
+          var beamAng = (now * 0.00045) % Math.PI;
+          var diff = Math.abs(pAng - beamAng) % Math.PI;
+          if (diff > Math.PI / 2) diff = Math.PI - diff;
+          if (diff < 0.11) {
+            refill += 2.2;
+            if (!lightState.beamHit || now - lightState.beamHit > 3000) {
+              lightState.beamHit = now;
+              spawnParts(state.me.x + 0.5, state.me.y + 0.35, 8, 0.9, 1.3, [255, 226, 158], false);
+            }
+          }
+        }
+      }
 
       lightState.v += (refill - drain) * dt;
       if (lightState.v > LIGHT_MAX) lightState.v = LIGHT_MAX;
@@ -4244,8 +4431,27 @@
       var lv = lightState.v / LIGHT_MAX;
       var want = 0;
       if (lv < 0.34) want = Math.min(4, 1 + Math.floor((0.34 - lv) / 0.09));
+      var hadW = wraiths.length;
       while (wraiths.length < want) spawnWraith();
       while (wraiths.length > want) wraiths.pop();
+      // 雾灵现身的一瞬要有声音：一支从高处滑下来的冷音。
+      // 威胁先被耳朵听见，再被眼睛看见 —— 这是恐怖片的基本法。
+      if (wraiths.length > hadW && prefs.sound) {
+        try {
+          var c3 = audio.ctx;
+          var t3 = c3.currentTime;
+          var o3 = c3.createOscillator();
+          o3.type = 'sine';
+          o3.frequency.setValueAtTime(660, t3);
+          o3.frequency.exponentialRampToValueAtTime(196, t3 + 1.1);
+          var g3 = c3.createGain();
+          g3.gain.setValueAtTime(0, t3);
+          g3.gain.linearRampToValueAtTime(0.07, t3 + 0.20);
+          g3.gain.exponentialRampToValueAtTime(0.0001, t3 + 1.4);
+          o3.connect(g3); g3.connect(audio.master);
+          o3.start(t3); o3.stop(t3 + 1.5);
+        } catch (e3) {}
+      }
 
       for (var wi = 0; wi < wraiths.length; wi++) {
         var wr = wraiths[wi];
@@ -4548,6 +4754,7 @@
 
       drawTerrainLayer(ox, oy, t);
       if (fieldReady) drawSeaFx(ox, oy, t, now, x0, x1, y0, y1, size);
+      if (fieldReady) drawLakeFx(ox, oy, t, now, x0, x1, y0, y1, size);
       // 鲸影贴着云海游（陆地之下、雾之上）
       drawWhale(ox, oy, t, now);
 
@@ -4714,7 +4921,13 @@
         // 现在统一走矢量：靠低饱和的 NPC_TONE 和头顶标记区分居民，不靠画风。
         var isNpc = isNpcId(p.id);
         var walkK = clamp(1 - (now - p.t) / 450, 0, 1);
-        drawAvatar(ox + (px + 0.5) * t, oy + (py + 0.5) * t, t * AVATAR_SCALE, playerColor(p.id), p.dir, false, p.name, now, p.hat, p.lantern, null, walkK);
+        // 走路扬尘：迈步时脚下撒起两粒浮尘 —— 「重量感」的最低成本方案
+        if (walkK > 0.5 && !isNpc && now - (p.lastPuff || 0) > 340) {
+          p.lastPuff = now;
+          spawnParts(px + 0.5, py + 0.62, 2, 0.16, 0.06, [142, 130, 110], false);
+        }
+        var sitK = isNpc ? 0 : clamp(1 - (now - p.t) / 12000, 0, 1) * 0 + ((now - p.t) > 12000 ? 1 : 0);
+        drawAvatar(ox + (px + 0.5) * t, oy + (py + 0.5) * t, t * AVATAR_SCALE, playerColor(p.id), p.dir, false, p.name, now, p.hat, p.lantern, null, walkK, sitK, p.title);
         // 头顶「…」：不用玩家自己去点 NPC，远远看见就知道这个人有话要说。
         if (isNpc && !talkMarkHidden(p.id)) {
           var mkX = ox + (px + 0.5) * t;
@@ -4731,13 +4944,26 @@
       }
 
       var selfWalk = clamp(1 - (Date.now() - lastMoveAt) / 450, 0, 1);
+      if (selfWalk > 0.5 && Date.now() - (state.me.lastPuff || 0) > 340) {
+        state.me.lastPuff = Date.now();
+        spawnParts(state.me.x + 0.5, state.me.y + 0.62, 2, 0.16, 0.06, [142, 130, 110], false);
+      }
+      var selfSit = clamp((Date.now() - lastMoveAt - 12000) / 2000, 0, 1);
       drawAvatar(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t * AVATAR_SCALE,
-        playerColor(myId || 'me'), state.me.dir, true, state.me.name, now, state.me.hat, state.me.lantern, null, selfWalk);
+        playerColor(myId || 'me'), state.me.dir, true, state.me.name, now, state.me.hat, state.me.lantern, null, selfWalk, selfSit, state.me.title);
 
       // 气泡（表情图形 + NPC 台词）
       for (var ei = 0; ei < state.emoteFx.length; ei++) {
         var rec = state.emoteFx[ei];
         if (now - rec.at > 4200) continue;
+        // 表情的「动作层」：刚发出的 300ms 内给一次粒子/环爆，
+        // 颜色跟表情走 —— 比心飘粉、欢呼炸金、疑问冒蓝。
+        if (!rec.burst && now - rec.at < 400) {
+          rec.burst = 1;
+          var bc = rec.id === 'heart' ? [255, 150, 170] : (rec.id === 'spark' ? [255, 214, 130] : (rec.id === 'note' ? [150, 200, 255] : [200, 190, 255]));
+          spawnParts(rec.x + 0.5, rec.y + 0.3, rec.id === 'spark' ? 14 : 8, 0.7, 1.1, bc, false);
+          if (rec.id === 'spark') spawnRing(rec.x + 0.5, rec.y + 0.3, bc);
+        }
         var target = rec.uid === myId ? null : state.players[rec.uid];
         var ex = rec.uid === myId ? state.me.x : (target ? target.x : rec.x);
         var ey = rec.uid === myId ? state.me.y : (target ? target.y : rec.y);
@@ -5150,6 +5376,11 @@
         var now = Date.now();
         setRing(btnFish, state.fishCooldownMs ? (now - cooldowns.fish) / state.fishCooldownMs : 1);
         setRing(btnBottle, (now - cooldowns.bottle) / (4 * 60 * 1000));
+        // 灯油弧：颜色随余量从金 → 橙 → 红，低于 28% 整表开始搏动
+        var lv = clamp(lightState.v / LIGHT_MAX, 0, 1);
+        oilFg.style.strokeDashoffset = String(75.4 * (1 - lv));
+        oilFg.style.stroke = lv > 0.5 ? '#ffd98a' : (lv > 0.28 ? '#ffab6e' : '#ff7a5e');
+        oilGauge.className = 'sg-oil' + (lv < 0.28 ? ' is-low' : '');
       }, 250);
       onDestroy(function() { if (ringTimer) { clearInterval(ringTimer); ringTimer = 0; } });
     }
@@ -7399,6 +7630,7 @@
         state.size = terrain.size || 160;
         state.cells = terrain.cells || '';
         state.nodes = terrain.nodes || '';
+        buildLotusList();   // 湖上的荷灯：地形一到位就定位（确定性哈希）
         state.lampCost = terrain.lampCost || 3;
         state.lampRadius = terrain.lampRadius || 4;
         state.flowerCost = terrain.flowerCost || 2;

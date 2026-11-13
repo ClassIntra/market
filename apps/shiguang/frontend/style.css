@@ -2499,3 +2499,79 @@
 .sg-root.is-faint.is-settled .sg-hint.is-on {
   opacity: 0;
 }
+
+
+/* ---------------- 终章：灯油弧表 + 黎明扫光 ---------------- */
+
+.sg-oil {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--sg-glass-2);
+  border: 1px solid var(--sg-line-soft);
+  box-shadow: var(--sg-shadow-sm);
+  transition: box-shadow 0.3s var(--sg-ease);
+}
+
+.sg-oil-arc {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.sg-oil-ico {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sg-gold);
+}
+
+.sg-oil-ico svg {
+  width: 13px;
+  height: 13px;
+}
+
+.sg-oil.is-low {
+  animation: sg-oil-alarm 1.1s var(--sg-ease) infinite;
+}
+
+@keyframes sg-oil-alarm {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 122, 94, 0.25); }
+  50% { box-shadow: 0 0 18px rgba(255, 122, 94, 0.65); }
+}
+
+/* 黎明扫光：天光推进时一道暖光带从顶掠到底 */
+.sg-dawn-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 36%;
+  top: -40%;
+  background: linear-gradient(180deg,
+    rgba(255, 214, 150, 0) 0%,
+    rgba(255, 226, 170, 0.30) 45%,
+    rgba(255, 238, 200, 0.42) 55%,
+    rgba(255, 214, 150, 0) 100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sg-dawn-fx.is-show .sg-dawn-sweep {
+  animation: sg-dawn-sweep 1.7s var(--sg-ease) forwards;
+}
+
+@keyframes sg-dawn-sweep {
+  0% { top: -40%; opacity: 0; }
+  25% { opacity: 1; }
+  100% { top: 115%; opacity: 0; }
+}

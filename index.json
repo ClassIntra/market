@@ -1,6 +1,6 @@
 {
-  "version": 60,
-  "updated_at": "2026-11-13T16:28:32.769Z",
+  "version": 61,
+  "updated_at": "2026-11-13T16:57:43.453Z",
   "apps": [
     {
       "name": "chess",
@@ -474,7 +474,7 @@
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "cbdea965889d5f259ef0c7354aca32d12e9bedbd4e50a91166eac3be26704de1",
         "CHANGELOG.md": "caa511618afa7706d6b1490477f03780137ac503b8dfbc2156c9039ef441e8da",
-        "frontend/entry.js": "293208694d25290685b48aa73e9ea4b46a8fd88f5622b8ef28e4e0dcad4e33bc",
+        "frontend/entry.js": "693ed399130ba4d0faa9e505bae2103e41d133c9f598e2ab88c36063560ffa6d",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -482,7 +482,7 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "fd55b278f35baf0349009608fbaf1c75287ffb6558c7656591478b8ccf1838c5",
+        "frontend/style.css": "41c3acf7d02024629ab82003b2e386ca4b848519fc30a7a445367fa1599bba70",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
         "manifest.json": "957e30a3b4d4de5d7a4c47ed29742821310ee566efec6c80171a3983761323d3",
         "preview.png": "12983346e942d1936a1eaa2b35be5de88c3091767469d63182fdb2fde6b77deb",
