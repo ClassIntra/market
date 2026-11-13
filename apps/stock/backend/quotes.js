@@ -1,7 +1,16 @@
 // 行情层：真实 A 股行情（东方财富公开行情接口）+ 缓存 + 离线兜底
 // ============================================================
 // ---- 真实性声明（不要删）----
-// 价格来自东方财富的公开行情快照，盘中约 3 秒刷新一次。
+// 价格来自**两条**公开行情源：
+//   ① 东方财富（HTTPS，主源，字段最全）
+//   ② 腾讯 qt.gtimg.cn（**明文 HTTP**，备用源）
+// 为什么需要备用：本机所在网络封 TLS 不封 80 端口 —— 东财全站 HTTPS、
+// 新浪 HTTPS 全部 socket hang up，而 http://qt.gtimg.cn 秒回。
+// 没有备用源时，价格只能靠「最后真实价 + 微动」，学生看到的是一条假盘。
+//
+// ⚠️ 备用源的代价必须写清楚：明文 HTTP，链路上任何人都能看/改。
+// 只取公开行情、不传任何用户凭证、服务端只解析数字并做区间校验，
+// 教学场景可接受；但它绝不能用于下单通道。
 // 网络不可用时**不会**假装行情正常：返回的 quote 会带 stale=true，
 // 价格由「最后一次真实价 + 确定性微幅游走」生成，前端必须显示「行情延迟」。
 // 校园网络断掉时，宁可让学生看到「行情中断」，也不能让他以为自己在看真实盘口。
@@ -14,6 +23,7 @@
 // 编码约定：var / function
 
 var https = require('https');
+var http = require('http');
 var market = require('./market');
 
 // ---- 教学股票池 ----
@@ -351,6 +361,142 @@ function latestQuoteOf(list) {
   return best;
 }
 
+// ============ 备用行情源：腾讯（明文 HTTP）============
+//
+// 报文格式（2026-11-13 用真实响应逐字段核对过，不是凭记忆）：
+//   v_sh600519="1~贵州茅台~600519~1435.26~1410.27~1404.00~41780~...";
+// 拆 ~ 之后：
+//   1 名称(GBK) 2 代码 3 现价 4 昨收 5 今开 6 成交量(手)
+//   30 时间 YYYYMMDDHHMMSS(北京) 31 涨跌 32 涨跌% 33 最高 34 最低
+//   36 成交量(手) 37 成交额(万元) 38 换手率 39 市盈率
+//   45 总市值(亿) 46 市净率 47 涨停 48 跌停
+//
+// ⚠️ 名称是 GBK，不是 UTF-8。直接 toString('utf8') 会得到乱码并写进库。
+// Node 24 自带 full-icu，TextDecoder('gbk') 可用；万一环境裁了 ICU，
+// 就退化成「沿用上一次已知名称」，绝不把乱码当名字。
+var TEN_HOST = 'qt.gtimg.cn';
+
+function httpGetPlain(host, path) {
+  return new Promise(function (resolve, reject) {
+    var req = http.request({
+      hostname: host,
+      path: path,
+      method: 'GET',
+      timeout: HTTP_TIMEOUT,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ClassIntra-Stock/1.0',
+        'Referer': 'http://gu.qq.com/',
+        'Accept': 'text/plain,*/*'
+      }
+    }, function (res) {
+      var chunks = [];
+      res.on('data', function (c) { chunks.push(c); });
+      res.on('end', function () {
+        if (res.statusCode !== 200) return reject(new Error('备用行情源返回 ' + res.statusCode));
+        resolve(Buffer.concat(chunks));
+      });
+    });
+    req.on('timeout', function () { req.destroy(); reject(new Error('备用行情超时')); });
+    req.on('error', function (e) { reject(new Error('备用行情请求失败: ' + e.message)); });
+    req.end();
+  });
+}
+
+function decodeGbk(buf) {
+  try {
+    return new TextDecoder('gbk').decode(buf);
+  } catch (e) {
+    // 没有 ICU：按 latin1 读结构（数字与 ASCII 不受影响），名称留空由调用方兜底
+    return buf.toString('latin1');
+  }
+}
+
+// 时间串 "20261113161455"（北京时间）→ epoch ms
+function tencentTs(str) {
+  var s = String(str || '');
+  if (s.length < 14) return 0;
+  var y = +s.slice(0, 4), mo = +s.slice(4, 6), d = +s.slice(6, 8);
+  var h = +s.slice(8, 10), mi = +s.slice(10, 12), se = +s.slice(12, 14);
+  if (!y || !mo || !d) return 0;
+  // Date.UTC 把这些数字当成 UTC，实际是北京时间 → 减 8 小时
+  return Date.UTC(y, mo - 1, d, h, mi, se) - 8 * 3600 * 1000;
+}
+
+function buildQuoteTencent(rowStr) {
+  var f = String(rowStr).split('~');
+  if (f.length < 48) return null;
+  var code = String(f[2] || '');
+  var prevClose = num(f[4]);
+  if (!code || prevClose === null || prevClose <= 0) return null;
+
+  var price = num(f[3]);
+  var preOpen = price === null || price <= 0;
+  if (preOpen) price = prevClose;
+  // 区间校验：宁可丢掉这一条，也不把脏价写进钱包
+  if (price < prevClose * 0.5 || price > prevClose * 2) return null;
+
+  var limits = market.limitPrices(code, prevClose);
+  var amountWan = num(f[37], 0);
+  var capYi = num(f[45], 0);
+  var ts = tencentTs(f[30]);
+  var name = String(f[1] || '');
+  // GBK 解不出来时 name 是乱码/空 —— 用上一次已知名称顶上
+  if (!name || name.indexOf('�') >= 0) {
+    name = (_lastGood[code] && _lastGood[code].name) || code;
+  }
+
+  return {
+    code: code,
+    name: name,
+    price: price,
+    prev_close: prevClose,
+    open: preOpen ? prevClose : num(f[5], prevClose),
+    high: preOpen ? prevClose : num(f[33], price),
+    low: preOpen ? prevClose : num(f[34], price),
+    change: preOpen ? 0 : num(f[31], price - prevClose),
+    change_pct: preOpen ? 0 : num(f[32], 0),
+    volume: num(f[6], 0),                       // 手
+    amount: amountWan ? Math.round(amountWan * 10000) : 0,  // 万元 → 元
+    turnover: num(f[38], 0),
+    pe: num(f[39], 0),
+    pb: num(f[46], 0),
+    market_cap: capYi ? Math.round(capYi * 1e8) : 0,        // 亿 → 元
+    limit_up: limits.up,
+    limit_down: limits.down,
+    limit_ratio: limits.ratio,
+    price_cent: toCent(price),
+    prev_close_cent: toCent(prevClose),
+    sector: (UNIVERSE_MAP[code] && UNIVERSE_MAP[code].sector) || '',
+    tradable: !!UNIVERSE_MAP[code],
+    stale: false,
+    source: 'tencent',
+    pre_open: preOpen,
+    quote_ts: ts,
+    quote_date: ts ? market.dateKey(ts) : '',
+    quoted_at: Date.now()
+  };
+}
+
+function fetchSnapshotTencent() {
+  var qs = [];
+  for (var i = 0; i < UNIVERSE.length; i++) {
+    var sid = market.toSecId(UNIVERSE[i].code);
+    qs.push((sid.charAt(0) === '1' ? 'sh' : 'sz') + UNIVERSE[i].code);
+  }
+  return httpGetPlain(TEN_HOST, '/q=' + qs.join(',')).then(function (buf) {
+    var body = decodeGbk(buf);
+    var re = /v_(?:sh|sz)(\d{6})="([^"]*)"/g;
+    var list = [];
+    var m;
+    while ((m = re.exec(body))) {
+      var q = buildQuoteTencent(m[2]);
+      if (q) list.push(q);
+    }
+    if (!list.length) throw new Error('备用行情源没有返回可用数据');
+    return list;
+  });
+}
+
 // 对外主入口：返回 { list, byCode, stale, error, at }
 // ---- 失败退避 ----
 // ⚠️ 校园网到东财是不通的（socket hang up）。而下面的 catch 分支只写 _snapshot、
@@ -382,7 +528,13 @@ function getSnapshot(opts) {
     return Promise.resolve(_snapshot);
   }
 
-  return fetchSnapshot().then(function (list) {
+  return fetchSnapshot().catch(function (err0) {
+    // 主源（东财 HTTPS）失败：先试备用源（腾讯 HTTP）。
+    // 两条都挂才退到「最后真实价 + 微动」的兜底价。
+    return fetchSnapshotTencent().catch(function () {
+      throw err0;
+    });
+  }).then(function (list) {
     if (RT.failStreak >= 2) console.log('[stock] 行情源已恢复');
     RT.failStreak = 0;
     RT.coolUntil = 0;
