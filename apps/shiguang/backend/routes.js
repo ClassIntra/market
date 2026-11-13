@@ -64,11 +64,13 @@ var EMOTES = ['wave', 'heart', 'note', 'zzz', 'spark', 'ask'];
 
 // NPC 行者：世界里的常驻居民。客户端用 Kenney 精灵绘制，服务端负责游荡与说话。
 var NPCS = [
-  { id: 'npc_li',   name: '守灯人·栗', isle: 0, hx: 76, hy: 92, hat: '1', lantern: '0', sprite: 87 },
-  { id: 'npc_yao',  name: '观星·遥',   isle: 2, hx: 126, hy: 32, hat: '5', lantern: '1', sprite: 85 },
-  { id: 'npc_lu',   name: '泽畔·芦',   isle: 4, hx: 56, hy: 128, hat: '2', lantern: '2', sprite: 111 },
-  { id: 'npc_lang', name: '花匠·榔',   isle: 5, hx: 110, hy: 72, hat: '4', lantern: '3', sprite: 88 }
+  { id: 'npc_li',   name: '守灯人·栗', role: '守着启明岛灯塔的人', isle: 0, hx: 76, hy: 92, hat: '1', lantern: '0', sprite: 87 },
+  { id: 'npc_yao',  name: '观星·遥',   role: '在星坠岛记天的人',   isle: 2, hx: 126, hy: 32, hat: '5', lantern: '1', sprite: 85 },
+  { id: 'npc_lu',   name: '泽畔·芦',   role: '拾贝岛码头的渔人',   isle: 4, hx: 56, hy: 128, hat: '2', lantern: '2', sprite: 111 },
+  { id: 'npc_lang', name: '花匠·榔',   role: '霜屿上种光花的人',   isle: 5, hx: 110, hy: 72, hat: '4', lantern: '3', sprite: 88 }
 ];
+var NPC_BY_ID = {};
+for (var _ni = 0; _ni < NPCS.length; _ni++) NPC_BY_ID[NPCS[_ni].id] = NPCS[_ni];
 var NPC_WANDER_MS = 2200;       // 游荡节拍
 var NPC_WANDER_RANGE = 7;       // 距锚点的最大切比雪夫距离
 var NPC_SPEAK_MS = 11000;       // 说话节拍
@@ -83,6 +85,200 @@ var SPEECH_LINES = [
   '你闻，望潮岛的海是咸的。', '霜屿的夜里，能听见星星结霜。',
   '纸鸢记得每一座码头。', '别在云桥上打盹，会梦游进海里。'
 ];
+
+// ---------------- NPC 对话 ----------------
+// 「有角色没有戏」是这个世界最大的漏洞：NPC 原来只是随机游荡 + 从公共池里抽一句台词，
+// 玩家走过他们身边什么也不会发生。这里把 NPC 改成**有记忆的人**：
+//   · 每人一套专属台词，按见面次数推进（said 游标落库，跨会话不丢）
+//   · 固定台词说完之后进入「动态模式」—— 每句话都从世界的真实状态现算，
+//     所以永远不会重复，也永远不会说谎（灯几盏、花几朵、谁来过）。
+// 这是「世界是活的」最廉价的实现：不需要真人在线，也能让人感到被记得。
+var NPC_TALKS = {
+  npc_li: [
+    [
+      '雾一起来，灯就得有人守。',
+      '守了这么久，只守住这一盏。',
+      '你手里没有火。去捡三颗星屑 —— 落在草里会自己闪的那些。',
+      '够了就沿石板往北走，到灯塔底下。那儿还黑着，点上它。'
+    ],
+    [
+      '还没点上？',
+      '星屑落在草里会闪。低头看，别抬头 —— 抬头只有雾。'
+    ],
+    [
+      '看见了。那点火光是你的。',
+      '从今夜起，那盏灯认了你。它会替我记着，你来过。'
+    ]
+  ],
+  npc_yao: [
+    [
+      '嘘。别踩影子。',
+      '你抬头看看天 —— 那片黑不是夜，是一笔没被点亮的账。',
+      '每十盏灯，天就退一寸。我记了三年，一天不差。',
+      '风从西南来的时候，星屑落得最密。记住这个。'
+    ],
+    [
+      '还在走？',
+      '走也好。这岛上值得看的东西，都不在路中间。'
+    ]
+  ],
+  npc_lu: [
+    [
+      '海里有星。',
+      '落下来的那些，没死 —— 它们学会了游。',
+      '码头上搁着竿。抛出去，等。别急着收。',
+      '钓上来的东西会记进你的图鉴。每座岛的水里，游的不是同一批。'
+    ],
+    [
+      '空手？',
+      '钓鱼这事，急的人一条也钓不上来。'
+    ]
+  ],
+  npc_lang: [
+    [
+      '别踩那朵。',
+      '花不是种给眼睛的，是种给以后来的人。',
+      '你走了以后，它还在这儿开着 —— 这就是种花的全部理由。',
+      '两颗星屑一朵。种在路边，别人夜里走路会看见。'
+    ],
+    [
+      '种下去要等一会儿。',
+      '它自己会开。你只管种。'
+    ]
+  ]
+};
+
+// 动态台词：轮流播报六种「世界的真实状态」。
+// phase 是「固定剧情之后聊到第几轮」，从 0 开始 —— 所以第一次进入动态模式
+// 说的就是灯数（玩家最需要知道的那个数字），而不是随机某一条。
+function npcDynamicLine(nid, phase, userId) {
+  var out = null;
+  var slot = phase % 6;
+  var total = 0;
+  try { total = lampCount(); } catch (e) {}
+
+  if (slot === 0) {
+    // 距离下一个阶段还差几盏 —— 这是玩家最需要知道的数字
+    var stage = stageFor(total);
+    var nextAt = -1;
+    for (var i = 0; i < STAGES.length; i++) {
+      if (STAGES[i].at > total) { nextAt = STAGES[i].at; break; }
+    }
+    if (nextAt < 0) {
+      out = ['全班已经点了 ' + total + ' 盏灯。', '天亮了。真的亮了。'];
+    } else {
+      out = ['全班一共点了 ' + total + ' 盏灯。', '再点 ' + (nextAt - total) + ' 盏，天就再退一寸。'];
+    }
+  } else if (slot === 1) {
+    // 最近来过的另一个人 —— 让「世界里有别人」变成一句具体的话
+    var who = null;
+    try {
+      who = db.prepare('SELECT user_id, x, y, last_seen FROM shiguang_players WHERE user_id != ? ORDER BY last_seen DESC LIMIT 1').get(userId);
+    } catch (e) {}
+    if (who) {
+      var nm = userName(who.user_id);
+      var when = dayPhrase(who.last_seen);
+      out = [nm + ' ' + when + '来过。', '在 (' + who.x + ', ' + who.y + ') 那个地方停了很久。'];
+    } else {
+      out = ['这片岛上，只有你一个人。', '我没算错 —— 三年了，我数得很清楚。'];
+    }
+  } else if (slot === 2) {
+    var fl = 0;
+    try { fl = db.prepare('SELECT COUNT(*) AS c FROM shiguang_flowers').get().c; } catch (e) {}
+    if (fl > 0) {
+      out = ['地上有 ' + fl + ' 朵光花。', '都是别人种下的。你路过的时候，替我看一眼。'];
+    } else {
+      out = ['一朵花也没有。', '不是没人来 —— 是没人舍得那两颗星屑。'];
+    }
+  } else if (slot === 3) {
+    var on = online.size;
+    if (on > 1) {
+      out = ['此刻岛上还有 ' + (on - 1) + ' 个人。', '你们都听得见我说话。这很少见。'];
+    } else {
+      out = ['现在岛上只有你。', '别怕。灯亮着，我就还在。'];
+    }
+  } else if (slot === 4) {
+    var st = STAGES[stageFor(total)];
+    out = ['现在是「' + st.name + '」。', st.desc];
+  } else {
+    out = ['流星雨来的时候，星屑会自己落下来。', '别跑，站着等 —— 跑起来反而接不住。'];
+  }
+  return out;
+}
+
+// 时间措辞：必须按自然日算，不能按毫秒差。
+// 「22 小时前」跨过午夜就是昨天 —— 如果 NPC 把昨天说成今天，
+// 这个「会记得你」的世界当场就露馅了。
+function dayPhrase(ts) {
+  if (!ts) return '很久以前';
+  var now = new Date();
+  var d = new Date(ts);
+  function key(x) { return x.getFullYear() + '-' + x.getMonth() + '-' + x.getDate(); }
+  var today = key(now);
+  var that = key(d);
+  var diffMs = now.getTime() - d.getTime();
+  if (today === that) {
+    return diffMs < 120000 ? '刚才' : '今天早些时候';
+  }
+  var y = new Date(now.getTime() - 86400000);
+  if (key(y) === that) return '昨天';
+  var days = Math.floor(diffMs / 86400000);
+  return (days <= 1 ? 1 : days) + ' 天前';
+}
+
+// 第一次见面时的「世界开场白」。
+// 这是整个应用里最要紧的一句话：它必须让玩家在 5 秒内明白
+// ——这个世界里来过别人，而且她记得住。
+// 所以不求煽情，只求**每个数字都是真的**：几个人来过、上一个叫什么、在哪儿停的。
+function npcWorldIntro(userId) {
+  var out = [];
+  var total = 0;
+  try { total = db.prepare('SELECT COUNT(*) AS c FROM shiguang_players').get().c; } catch (e) {}
+
+  var who = null;
+  try {
+    who = db.prepare('SELECT user_id, x, y, last_seen FROM shiguang_players WHERE user_id != ? ORDER BY last_seen DESC LIMIT 1').get(userId);
+  } catch (e) {}
+
+  if (who) {
+    var nm = userName(who.user_id);
+    var when = dayPhrase(who.last_seen);
+    if (total <= 2) {
+      out.push('这半个月只有两个人上过岛。');
+      out.push('你，和一个叫 ' + nm + ' 的 —— ' + when + '他还在 (' + who.x + ', ' + who.y + ') 站着。');
+    } else {
+      out.push('你是第 ' + total + ' 个走到这里的人。');
+      out.push('上一个叫 ' + nm + '，' + when + '还在 (' + who.x + ', ' + who.y + ') 那边。');
+    }
+  } else {
+    out.push('你是第一个走到这里的人。');
+    out.push('我在这条石板路上守了三年，头一回听见脚步声。');
+  }
+  return out;
+}
+
+// 取下一个 NPC 的对话。返回 { lines, said, fixed }：
+//   fixed=true  还在一段固定剧情里（说完 said+1）
+//   fixed=false 已经进入动态模式（每次现算，said 也推进，用来轮转话题）
+function npcTalkFor(nid, userId) {
+  var said = 0;
+  try {
+    var r = db.prepare('SELECT said FROM shiguang_npc_talk WHERE user_id = ? AND npc_id = ?').get(userId, nid);
+    if (r) said = r.said | 0;
+  } catch (e) {}
+
+  var script = NPC_TALKS[nid] || [];
+  if (said === 0) {
+    // 初见：世界开场白 + 这个 NPC 的第一段剧情，拼成一次连续的对话
+    var intro = npcWorldIntro(userId);
+    var body = script[0] || [];
+    return { lines: intro.concat(body), said: 1, fixed: true, step: 0 };
+  }
+  if (said < script.length) {
+    return { lines: script[said], said: said + 1, fixed: true, step: said };
+  }
+  return { lines: npcDynamicLine(nid, said - script.length, userId), said: said + 1, fixed: false, step: said };
+}
 
 // 流星雨
 var METEOR_MIN_GAP_MS = 8 * 60 * 1000;    // 两场之间的最小间隔
@@ -233,6 +429,9 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_achievements (user_id TEXT NOT NULL
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_wardrobe (user_id TEXT NOT NULL, kind TEXT NOT NULL, item TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, kind, item))');
 // v3 —— 石碑：全班共建的唤醒记录（x,y 主键；激活人与时间）
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_steles (x INTEGER NOT NULL, y INTEGER NOT NULL, user_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (x, y))');
+// v3.1 —— NPC 对话进度：每人跟每个 NPC 聊到第几句。
+// 必须落库：一次会话里聊完就忘，等于「这个世界不记得你」。
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, said INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, PRIMARY KEY (user_id, npc_id))');
 
 // v1 → v2 迁移：更新重装时数据保留，players 表需要补新列。
 // ALTER TABLE 没有幂等语法，只能先查 PRAGMA 再逐个补。
@@ -1425,6 +1624,39 @@ router.post('/emote', requireAuth, function (req, res) {
 });
 
 // ---------------- 路由：漂流瓶 ----------------
+
+// ---------------- 路由：跟 NPC 说话 ----------------
+// 客户端靠近 NPC 自动调用。服务端校验距离，防止远程刷剧情。
+router.post('/npc/talk', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var nid = String((req.body && req.body.npc) || '');
+  var n = npcState.get(nid);
+  if (!n) return res.status(404).json({ code: 404, message: '岛上没有这个人' });
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  // 5 格容差：NPC 在游荡，客户端看到的位置可能比服务端晚一拍
+  if (Math.abs(row.x - n.x) > 5 || Math.abs(row.y - n.y) > 5) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+
+  var got = npcTalkFor(nid, userId);
+  try {
+    db.prepare('INSERT OR REPLACE INTO shiguang_npc_talk (user_id, npc_id, said, at) VALUES (?, ?, ?, ?)')
+      .run(userId, nid, got.said, Date.now());
+  } catch (e) {}
+
+  res.json({
+    code: 200,
+    data: {
+      npc: nid,
+      name: n.def.name,
+      role: n.def.role || '岛民',
+      lines: got.lines,
+      fixed: got.fixed,
+      said: got.said
+    }
+  });
+});
 
 router.get('/bottles', requireAuth, function (req, res) {
   var x = parseInt(req.query.x, 10);

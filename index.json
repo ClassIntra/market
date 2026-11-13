@@ -1,6 +1,6 @@
 {
-  "version": 55,
-  "updated_at": "2026-11-13T05:36:18.518Z",
+  "version": 56,
+  "updated_at": "2026-11-13T07:53:00.033Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "3.0.0",
-      "description": "全班同处一片云海群岛的多人小世界：走动、捡星屑、点灯柱驱散共享迷雾，天光随全班进度推进。v2 新增表情动作、种光花（全班共建花海）、码头钓星（10 种星鱼图鉴）、流星雨全服事件、任务与成就、拾光衣柜（帽子/提灯/称号）、小地图与拾光明信片。",
+      "version": "3.1.0",
+      "description": "全班同处一片云海群岛的多人小世界：走动、捡星屑、点灯柱驱散共享迷雾，天光随全班进度推进。v3.1：岛上的居民有了记忆 —— 走近就开口，第一句话就说得出「上一个来的人叫什么、在哪儿停过」。灯柱升起九格高的光柱，隔着雾也能看见别人的灯。",
       "author": "ClassIntra",
       "files": [
         "apps/shiguang/CHANGELOG.md",
@@ -468,11 +468,11 @@
       "hashes": {
         "backend/cleanup.js": "2638e68d8899c1eb49c6279ce77c613b69139e5f96c6c5e3fd38447d85a6cce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "2e57fe1f52eede0f24022d71fa80b9715bad7983405dd7bbb4b5d1025aabbdfb",
+        "backend/routes.js": "4098d05f31ce46b384c6c38fce06f58d3cb0233917817cb69cc6d12347c065d4",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
-        "backend/world.js": "8aaaf0b8f672d7d9b24548be783af7a9f7e472fc4296d56d0f54b0faa92d2a45",
-        "CHANGELOG.md": "cb0e4a5c5b3205e8139352d8e6f860ca57e57f13764339c1246cd2f2e664c95f",
-        "frontend/entry.js": "b20f351bcd292a062a78d1ff14b29048da2a32457e894405274de5c88b1db361",
+        "backend/world.js": "71dc815085a366b1a360912939a071ce2ed78f28d3cc84b446b34b417bd8ab72",
+        "CHANGELOG.md": "f0bad8d6b6570169c44c0b64c3374da6183b55bc8082e8c4f2cbb367890ab8bd",
+        "frontend/entry.js": "38e5c7393caf8b4977bea843b906e7edf1b201a2d92f431c2a93e64dc118622a",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -480,16 +480,24 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "e37c9cc7a58a4ec4d83d273a013ca367a5b32bcef655a2e71cf7b37105bb62ae",
+        "frontend/style.css": "1e5b127496000b231b1d974a01a98e649c61b5042cdd1f0c506865d34394c53e",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "0b4a383ef2f70ab7eb3587261dd60f2350428259713a8acd2ac08490bb70be84",
-        "preview.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
-        "README.md": "43d8ee3ab2fc32888d6a947d6e8d08b7499504438909fdc01b95692ae653566f",
+        "manifest.json": "e344f6a1950bea9a7ddd22fecffc6417a5fd514c700fedc0bea30c8f393a2547",
+        "preview.png": "c8edcc0011de63e9fe87c557a4b502c67dcf5b77a230f899282d6c19b1a1b8ad",
+        "README.md": "b95daa1989c913c37e12a6be2597a9ba80bf4057f9cfb6d29e23b50d863ee49e",
         "screenshots/1043x787-1.png": "7775092cb559ff22619e961c3c6e168be18ed46b60d2bcdbfa3be80a9fe1bbe2",
         "test/e2e.mjs": "56a2b881c91ceb58c341018ec872fe21f95242129fa53c5d87039693d0edc9d1"
       },
       "icon": "./icon.svg",
       "changelog": [
+        {
+          "version": "3.1.0",
+          "notes": "岛上有人。NPC 从「随机游荡 + 公共台词池」改成有记忆的人：走近 4 格自动开口，每人一套专属剧情按见面次数推进且落库（换设备也记得）；初见先播报世界的真实状态——几个人上过岛、上一个叫什么、最后停在哪个坐标、全班点了多少盏灯、离下一阶天光还差几盏，数字全部现算，所以每句都是真的。固定剧情走完进入动态模式，六种话题轮转、永不重复。新增底部对话卡（打字机 + 身份牌 + 空格/回车推进）、对话时镜头取「玩家与说话人」中点并上抬 1.3 格、没聊过的人头顶浮「…」。灯柱加九格高光柱，隔着雾也能看见别人的灯。NPC 从 Kenney 像素改回矢量，与场景统一画风。修复生产库缺 shiguang_steles 表导致石碑链路整条不可用。"
+        },
+        {
+          "version": "3.0.0",
+          "notes": "大世界。从五座小岛扩建为 160×160 八座生态岛屿：每岛一套调色板与专属地标（拾光灯塔/星陨坑/雾隐巨树/萤光环/贝壳拱门/望潮池/织花风车/霜岩），石板路网按「码头→岛心」铺设、启明岛有十字大道与路灯。新增纸鸢快线跨岛飞行、逐岛钓星特产、五座石碑共建解锁秘境、NPC 行者四人（服务端游荡 + 台词节拍）。画面升级为「矢量地形 + 像素素材层」。"
+        },
         {
           "version": "1.1.0",
           "notes": "操作与画面重做。方向键换成虚拟摇杆（轴向吸附四方向，斜向停手沿用上次方向，死区取比例与 11px 中较大者）；顶栏改为顶端淡出 + 玻璃胶囊，动作键改三颗圆钮沿 135° 排开，图标全部换内联 SVG 逐节点构建。画面：地形底图提到 14 子像素/格，海岸线改由模糊掩膜取等值线，材质改「阴影色↔受光色」双色插值，材质边界用噪声当阈值去切（不再有台阶或软渐变），贴水一圈加湿沙；海面三层云带 + 错位噪声体积 + 岛缘投影 + 岸线泡沫；树改预烘精灵（叶瓣并集轮廓 + 逆光边）；角色改成俯视剪影（肩宽椭圆 + 帽顶 + 帽沿投影 + 提灯手臂）；未知区域改成有体积的云，边缘云头受光。视野改 27×17 格，出生点南移到岛缘，海岸线/沙滩/云海同框。CSS 全部改用宿主令牌，market-review 0 错 0 警。"

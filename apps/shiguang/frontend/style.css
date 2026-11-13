@@ -2292,3 +2292,118 @@
     bottom: 108px;
   }
 }
+
+/* ---------- NPC 对话 ----------
+   位置刻意落在「左下摇杆」与「右下动作键」之间的空档里：
+   两侧各留 150px 以上，1280 宽时卡片居中不会被压住。
+   字号比 banner 大一档（15px）—— 台词是要读的，不是要扫的。 */
+.sg-talk {
+  position: absolute;
+  left: 50%;
+  bottom: 100px;
+  transform: translate(-50%, 16px);
+  width: 62%;
+  max-width: 560px;
+  min-width: 300px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  padding: 16px 18px 16px 16px;
+  background: linear-gradient(165deg, rgba(38, 30, 58, 0.96), rgba(16, 18, 38, 0.96));
+  border: 1px solid rgba(255, 214, 150, 0.32);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 20px 48px rgba(4, 6, 16, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.08);
+  z-index: 44;
+}
+
+.sg-talk.is-on {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
+
+.sg-talk[hidden] {
+  display: none;
+}
+
+.sg-talk-face {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, rgba(255, 224, 170, 0.24), rgba(140, 120, 220, 0.18));
+  border: 1px solid rgba(255, 214, 150, 0.42);
+  color: #ffe6b8;
+  font-size: 20px;
+  font-weight: 700;
+  text-shadow: 0 1px 8px rgba(255, 190, 110, 0.6);
+}
+
+.sg-talk-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.sg-talk-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffe9c6;
+  line-height: 1.2;
+}
+
+.sg-talk-role {
+  font-size: 11px;
+  color: var(--sg-ink-2);
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.sg-talk-text {
+  font-size: 15px;
+  line-height: 1.62;
+  margin-top: 8px;
+  padding-right: 40px;
+  min-height: 27px;
+  color: #f3eefc;
+}
+
+.sg-talk-more {
+  position: absolute;
+  right: 16px;
+  bottom: 11px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 214, 150, 0.55);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.sg-talk-more.is-show {
+  opacity: 1;
+  animation: sg-talk-nudge 1.7s ease-in-out infinite;
+}
+
+@keyframes sg-talk-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(3px); }
+}
+
+@media (max-width: 720px) {
+  .sg-talk {
+    width: 84%;
+    bottom: 104px;
+    padding: 13px 14px 13px 13px;
+  }
+  .sg-talk-text {
+    font-size: 14px;
+    min-height: 25px;
+  }
+}
