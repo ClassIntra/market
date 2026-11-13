@@ -295,14 +295,30 @@ var SAND_DEPTH = 0.13;
         dockMap[key2(placed[j].x, placed[j].y)] = i;
       }
       island._dockHead = { x: x, y: y };   // 栈道根部（最后一格陆地）
-      // 主路：码头根部 → 岛心。只铺在岛内陆地上（不含沙环），见 tileAt。
-      PATHS.push({ ax: x, ay: y, bx: island.cx, by: island.cy, isle: i });
+      // 主路：码头根部 → 岛心。中途插一个哈希偏移的拐点 ——
+      // 两点之间直铺一段的路，在俯视图里就是一条用尺子画的线，八座岛一模一样。
+      // 拐点让每座岛的路各有走向，也让「路」读起来像人走出来的。
+      var midX = (x + island.cx) * 0.5 + (hash2(i, 3, 91) - 0.5) * island.r * 0.62;
+      var midY = (y + island.cy) * 0.5 + (hash2(i, 7, 93) - 0.5) * island.r * 0.62;
+      PATHS.push({ ax: x, ay: y, bx: midX, by: midY, isle: i });
+      PATHS.push({ ax: midX, ay: midY, bx: island.cx, by: island.cy, isle: i });
     }
   }
 
-  // 启明岛十字大道：让中央枢纽有「城镇」的骨架
-  PATHS.push({ ax: 80, ay: 66, bx: 80, by: 110, isle: 0 });
-  PATHS.push({ ax: 58, ay: 88, bx: 102, by: 88, isle: 0 });
+  // 启明岛村道：一条主街 + 四条斜支路，不是十字大道。
+  //
+  // ⚠️ 上一版是 44 格长的正交十字（80,66→80,110 / 58,88→102,88）。
+  // 俯视看是两条一直通到画外的宽带，配上 2.3 格路面，就是一架飞机跑道 ——
+  // 「城镇骨架」没做出来，先做出来一条高速公路。
+  //
+  // 现在南北主街只从灯塔脚下通到村口、再通到南岸；
+  // 东西方向拆成两条斜向支路，各自再拐一次弯，分别接西北民居和东南小店。
+  PATHS.push({ ax: 80, ay: 81, bx: 80, by: 88, isle: 0 });   // 灯塔脚下 → 村口
+  PATHS.push({ ax: 80, ay: 88, bx: 80, by: 110, isle: 0 });  // 村口 → 南岸
+  PATHS.push({ ax: 80, ay: 88, bx: 73, by: 84, isle: 0 });   // 西北支路
+  PATHS.push({ ax: 73, ay: 84, bx: 64, by: 80, isle: 0 });
+  PATHS.push({ ax: 80, ay: 88, bx: 89, by: 92, isle: 0 });   // 东南支路
+  PATHS.push({ ax: 89, ay: 92, bx: 99, by: 95, isle: 0 });
 })();
 
 // 单格地形。纯函数，无副作用，可被反复调用。

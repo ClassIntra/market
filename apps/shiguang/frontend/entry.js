@@ -291,7 +291,7 @@
       nodes: '',
       explored: null,
       exploreVer: 0,
-      me: { x: 0, y: 0, dir: 0, shards: 0, name: '', built: 0, hat: '0', lantern: '0', title: '', tutorial: 0 },
+      me: { x: 0, y: 0, dir: 0, shards: 0, name: '', built: 0, hat: '0', lantern: '0', title: '', tutorial: 0, light: 100 },
       players: {},            // 含 NPC（id 前缀 npc_，渲染走精灵图）
       lamps: {},              // 'x,y' -> { x, y, c }
       gathered: {},
@@ -311,7 +311,7 @@
       flowerCap: 40,
       flowerGrowMs: 90000,
       fishCooldownMs: 25000,
-      catalog: { shop: null, fishTable: [], emotes: [], flowerSpecies: [], islands: [], landmarks: [], steles: [], speechLines: [] },
+      catalog: { shop: null, fishTable: [], emotes: [], flowerSpecies: [], islands: [], landmarks: [], steles: [], speechLines: [], stages: [] },
       quests: { intro: [], daily: [] },
       wardrobe: { owned: { hat: [], lantern: [], title: [] }, equipped: { hat: '0', lantern: '0', title: '' } },
       achCount: 0,
@@ -3191,19 +3191,19 @@
       // 严格说俯视视角没有「竖直」，但夜里读得懂的东西比物理正确重要。
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      var beamH = t * 9.0;
-      var bw = t * 0.21;
+      var beamH = t * 4.2;
+      var bw = t * 0.17;
       var bg = ctx.createLinearGradient(0, ly - t * 0.06, 0, ly - beamH);
-      bg.addColorStop(0, 'rgba(' + lc.glow + ', ' + (0.44 * flicker).toFixed(3) + ')');
-      bg.addColorStop(0.20, 'rgba(' + lc.glow + ', 0.19)');
-      bg.addColorStop(0.58, 'rgba(' + lc.glow + ', 0.06)');
+      bg.addColorStop(0, 'rgba(' + lc.glow + ', ' + (0.26 * flicker).toFixed(3) + ')');
+      bg.addColorStop(0.26, 'rgba(' + lc.glow + ', 0.10)');
+      bg.addColorStop(0.60, 'rgba(' + lc.glow + ', 0.035)');
       bg.addColorStop(1, 'rgba(' + lc.glow + ', 0)');
       ctx.fillStyle = bg;
       ctx.beginPath();
       ctx.moveTo(lx - bw, ly - t * 0.06);
       ctx.lineTo(lx + bw, ly - t * 0.06);
-      ctx.lineTo(lx + bw * 2.2, ly - beamH);
-      ctx.lineTo(lx - bw * 2.2, ly - beamH);
+      ctx.lineTo(lx + bw * 1.55, ly - beamH);
+      ctx.lineTo(lx - bw * 1.55, ly - beamH);
       ctx.closePath();
       ctx.fill();
       // 柱心的亮芯：原来是第二个渐变，等于每盏灯两次全屏渐变合成。
@@ -4151,6 +4151,325 @@
       camPunch(1.038, 260);
     }
 
+    // ================= 灯火：血量 / 视野 / 唯一持续流失的资源 =================
+    //
+    // 为什么是「灯火」而不是一个血条：
+    // 这个世界的情感全部长在灯上 —— 你点的灯柱、别人留下的灯柱、灯塔的光。
+    // 把「还能撑多久」直接绑到灯上，玩法就不需要一句解释：
+    // 火光弱了，世界就暗下去；火灭了，你被雾吞掉，醒来只剩一盏余烬。
+    //
+    // 三条规则撑起全部张力：
+    //   ① 亮着就要烧：走路 1.15/秒，站着 0.55/秒 —— 站着也在熄，不能挂机
+    //   ② 灯柱是补给点：站在点亮的灯 6 格内回火 4.2/秒，别人的灯一样管用
+    //   ③ 火灭了就被吞：原地昏迷两秒半，醒来只剩 45 点火
+    //
+    // ⚠️ 数值链只在前端，服务端不参与。不是偷懒：
+    // 这个值每秒钟都在变，上服务端就要处理断线、重放、补偿，
+    // 而它没有任何经济后果 —— 典型的「客户端权威」状态。
+    // 真正有后果的（星屑增减、灯柱持久化）全部已经走服务端接口。
+    var LIGHT_MAX = 100;
+    var lightState = {
+      v: 100,
+      veilAt: 0,          // 昏迷起始时间戳；非 0 时冻结一切并压黑屏
+      hitAt: 0,           // 上次被雾灵偷火的时刻（冷却，防一帧连扣）
+      safeR: 6.0,         // 灯柱安全半径（格）
+      // ⚠️ 这两个数决定「这个应用欢不欢迎你发呆」。
+      // 0.55/秒 我试过：站着不动三分钟就灭 —— 对一个课间打开、
+      // 边聊边看的小应用来说太凶了，人会觉得自己被催。
+      // 0.30 = 五分半钟，足够发呆；0.95 让「跑图」这件事有代价。
+      drainIdle: 0.30,
+      drainMove: 0.95,
+      refill: 4.2
+    };
+    // 探针/自查用：把整个状态对象挂出去，方便直接设成低火看画面。
+    window.__sgLightState = lightState;
+
+    var wraiths = [];     // 雾灵：火弱时出现，朝玩家漂，碰到就偷火
+
+    function lightNearLamp(x, y) {
+      var keys = Object.keys(state.lamps);
+      var best = 1e9;
+      var bestLamp = null;
+      for (var i = 0; i < keys.length; i++) {
+        var lp = state.lamps[keys[i]];
+        if (!lp) continue;
+        var dx = lp.x - x;
+        var dy = lp.y - y;
+        var d = Math.sqrt(dx * dx + dy * dy);
+        if (d < best) { best = d; bestLamp = lp; }
+      }
+      return { dist: best, lamp: bestLamp };
+    }
+
+    function spawnWraith() {
+      var a = Math.random() * 6.2832;
+      var r = 5.5 + Math.random() * 3.0;
+      wraiths.push({
+        x: state.me.x + 0.5 + Math.cos(a) * r,
+        y: state.me.y + 0.5 + Math.sin(a) * r,
+        ph: Math.random() * 6.2832,
+        jit: Math.random()
+      });
+    }
+
+    function updateLight(dt, now) {
+      // 昏迷期间一切冻结：黑屏里掉火没有意义，还会让人以为卡住了
+      if (lightState.veilAt) {
+        if (now - lightState.veilAt > 2400) lightState.veilAt = 0;
+        return;
+      }
+      if (!state.ready) return;
+
+      var moving = (Date.now() - lastMoveAt) < 300;
+      var drain = moving ? lightState.drainMove : lightState.drainIdle;
+
+      var near = lightNearLamp(state.me.x + 0.5, state.me.y + 0.5);
+      var refill = 0;
+      if (near.lamp && near.dist < lightState.safeR) {
+        var k = 1 - near.dist / lightState.safeR;
+        // 越靠近灯心回得越快，但外圈也有一点 ——
+        // 否则「安全区」会变成一个必须精确踩中的点，走位变成找格子。
+        refill = lightState.refill * (0.30 + k * 0.70);
+      }
+
+      lightState.v += (refill - drain) * dt;
+      if (lightState.v > LIGHT_MAX) lightState.v = LIGHT_MAX;
+      if (lightState.v < 0) lightState.v = 0;
+
+      // 雾灵：火低于 34% 才开始出现，越低越多，最多 4 只。
+      // 这个阈值是「刚好在视野开始收窄之后」——威胁永远比惩罚早一步到。
+      var lv = lightState.v / LIGHT_MAX;
+      var want = 0;
+      if (lv < 0.34) want = Math.min(4, 1 + Math.floor((0.34 - lv) / 0.09));
+      while (wraiths.length < want) spawnWraith();
+      while (wraiths.length > want) wraiths.pop();
+
+      for (var wi = 0; wi < wraiths.length; wi++) {
+        var wr = wraiths[wi];
+        var tx = (state.me.x + 0.5) - wr.x;
+        var ty = (state.me.y + 0.5) - wr.y;
+        var dd = Math.sqrt(tx * tx + ty * ty) || 1;
+        // 1.15~1.5 格/秒：玩家一步 0.26 秒走 1 格（约 3.8 格/秒），
+        // 所以永远跑得掉。它逼你走，不该逼死你。
+        var spd = 1.15 + wr.jit * 0.35;
+        wr.x += tx / dd * spd * dt;
+        wr.y += ty / dd * spd * dt;
+        wr.ph += dt * (1.7 + wr.jit);
+
+        if (dd < 0.85 && now - lightState.hitAt > 900) {
+          lightState.hitAt = now;
+          lightState.v = Math.max(0, lightState.v - 9);
+          wr.x -= tx / dd * 2.6;
+          wr.y -= ty / dd * 2.6;
+          cam.shake = Math.max(cam.shake, 5);
+        }
+      }
+
+      if (lightState.v <= 0.01) {
+        lightState.veilAt = now;
+        lightState.v = 45;
+        wraiths.length = 0;
+        cam.shake = 14;
+        if (typeof toast === 'function') toast('灯火灭了　雾把你吞了下去', 'warm');
+      }
+    }
+
+    function drawWraiths(ox, oy, t, now) {
+      if (!wraiths.length) return;
+      for (var i = 0; i < wraiths.length; i++) {
+        var wr = wraiths[i];
+        var sx = ox + wr.x * t;
+        var sy = oy + wr.y * t;
+        var bob = Math.sin(wr.ph * 1.7) * t * 0.09;
+        var cy2 = sy + bob;
+        var R = t * 1.00;
+
+        // ⚠️ 这一层不能用 lighter。
+        // 我第一版用 lighter 画小软团，结果三只雾灵是「三颗发光的珠子」——
+        // lighter 在小半径高 alpha 下只会得到一个亮核，而幽灵要的是
+        // 「一层浅色的雾形」：有面积、有轮廓、亮度不高。
+        // 所以改回 source-over 半透明，并且整体放大到约一格高。
+        var g = ctx.createRadialGradient(
+          sx - R * 0.16, cy2 - R * 0.24, R * 0.05,
+          sx, cy2 + R * 0.10, R * 0.78);
+        g.addColorStop(0, 'rgba(216, 240, 250, 0.34)');
+        g.addColorStop(0.36, 'rgba(160, 202, 226, 0.24)');
+        g.addColorStop(0.72, 'rgba(98, 146, 182, 0.10)');
+        g.addColorStop(1, 'rgba(72, 112, 152, 0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(sx, cy2, R * 0.52, R * 0.80, 0, 0, 6.2832);
+        ctx.fill();
+
+        // 裙摆：两片更淡的下垂雾。有它才像「飘着的」，没有就是一个椭圆。
+        ctx.fillStyle = 'rgba(124, 170, 200, 0.13)';
+        ctx.beginPath();
+        ctx.ellipse(sx - R * 0.22, cy2 + R * 0.54, R * 0.26, R * 0.42, -0.22, 0, 6.2832);
+        ctx.ellipse(sx + R * 0.20, cy2 + R * 0.60, R * 0.23, R * 0.36, 0.18, 0, 6.2832);
+        ctx.fill();
+
+        // 两点冷光当眼睛：没有它，雾灵只是一团发亮的雾，没有「在看你了」。
+        var ey = cy2 - R * 0.14;
+        ctx.fillStyle = 'rgba(240, 252, 255, 0.80)';
+        ctx.beginPath();
+        ctx.ellipse(sx - R * 0.17, ey, R * 0.055, R * 0.042, 0, 0, 6.2832);
+        ctx.ellipse(sx + R * 0.17, ey, R * 0.055, R * 0.042, 0, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+
+    // ---------- 黑暗层：把「剩下多少火」直接画成「还能看多远」 ----------
+    //
+    // 半分辨率离屏 + destination-out 挖洞。
+    // 为什么不在主画布直接叠渐变：那样灯柱没法在黑暗里挖出光斑 ——
+    // 而「走到别人点亮的灯旁边就安全」这条规则，必须靠光斑才看得见。
+    // 半分辨率是因为这一层本来就是软边，缩一半看不出差别，代价直接降四倍。
+    var darkCv = null;
+    var darkCtx = null;
+
+    function drawDarkness(ox, oy, t) {
+      var dw = Math.ceil(view.w / 2);
+      var dh = Math.ceil(view.h / 2);
+      if (!darkCv) {
+        darkCv = document.createElement('canvas');
+        darkCtx = darkCv.getContext('2d');
+      }
+      if (darkCv.width !== dw || darkCv.height !== dh) {
+        darkCv.width = dw;
+        darkCv.height = dh;
+      }
+      var c = darkCtx;
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(0, 0, dw, dh);
+
+      var lv = lightState.v / LIGHT_MAX;
+      if (lv < 0) lv = 0;
+      if (lv > 1) lv = 1;
+      // 满火也留一点边缘暗角（0.30），火焰将尽时压到 0.88 ——
+      // 「一直有一点点暗」比「忽然全黑」更像夜，也保住了画面本身的层次。
+      // ⚠️ 暗到什么程度是这一层最关键的一次取舍。
+      // 0.88 的顶格暗度我试过：画面确实「有危险感」，但同时整张地图读不出来，
+      // 玩家只会觉得「卡了/糊了」。现在 0.78，并且把「全亮的中心区」从
+      // 0.34R 抬到 0.58R —— 要让中心一片真的干净，人才有「站在光里」的感觉。
+      var edge = 0.78 - lv * 0.50;
+      var px = (ox + (state.me.x + 0.5) * t) / 2;
+      var py = (oy + (state.me.y + 0.5) * t) / 2;
+      // 视野：满火 10.2 格，半火 7.4，将尽 4.2
+      var R = (4.2 + lv * 6.0) * t / 2;
+
+      var g = c.createRadialGradient(px, py, R * 0.58, px, py, R * 1.75);
+      g.addColorStop(0, 'rgba(5, 9, 18, 0)');
+      g.addColorStop(0.42, 'rgba(5, 9, 18, ' + (edge * 0.40).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(4, 7, 15, ' + edge.toFixed(3) + ')');
+      c.fillStyle = g;
+      c.fillRect(0, 0, dw, dh);
+
+      var vis = [];
+      var keys = Object.keys(state.lamps);
+      for (var i = 0; i < keys.length; i++) {
+        var lp = state.lamps[keys[i]];
+        if (!lp) continue;
+        var lx = (ox + (lp.x + 0.5) * t) / 2;
+        var ly = (oy + (lp.y + 0.5) * t) / 2;
+        var lr = t * 4.2 / 2;
+        if (lx < -lr || lx > dw + lr || ly < -lr || ly > dh + lr) continue;
+        vis.push([lx, ly, lr]);
+      }
+
+      // 灯柱挖洞
+      c.globalCompositeOperation = 'destination-out';
+      for (var a1 = 0; a1 < vis.length; a1++) {
+        var vx = vis[a1][0], vy = vis[a1][1], vr = vis[a1][2];
+        var lg = c.createRadialGradient(vx, vy, vr * 0.10, vx, vy, vr);
+        lg.addColorStop(0, 'rgba(0, 0, 0, 0.88)');
+        lg.addColorStop(0.52, 'rgba(0, 0, 0, 0.46)');
+        lg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = lg;
+        c.beginPath();
+        c.arc(vx, vy, vr, 0, 6.2832);
+        c.fill();
+      }
+
+      // 挖完洞还要补暖光。
+      // 只挖洞的话，灯下是一片「没那么黑的冷灰」—— 眼睛读到的是
+      // 「这儿的雾薄一点」，不是「这儿有一盏灯」。必须往上加暖色，
+      // 这一层用的是 lighter：加进黑暗层里的暖色，合成到场景上就是加光。
+      c.globalCompositeOperation = 'lighter';
+      for (var a2 = 0; a2 < vis.length; a2++) {
+        var wx = vis[a2][0], wy = vis[a2][1], wr2 = vis[a2][2] * 0.92;
+        var wg = c.createRadialGradient(wx, wy, wr2 * 0.06, wx, wy, wr2);
+        wg.addColorStop(0, 'rgba(255, 196, 118, 0.26)');
+        wg.addColorStop(0.38, 'rgba(248, 168, 92, 0.13)');
+        wg.addColorStop(1, 'rgba(210, 132, 64, 0)');
+        c.fillStyle = wg;
+        c.beginPath();
+        c.arc(wx, wy, wr2, 0, 6.2832);
+        c.fill();
+      }
+      c.globalCompositeOperation = 'source-over';
+
+      ctx.drawImage(darkCv, 0, 0, view.w, view.h);
+    }
+
+    // ---------- 脚下的火量环 ----------
+    // 只在不满的时候出现。满火时它消失 —— 画面干净比「始终有个 UI」重要。
+    function drawLightRing(cx, cy, t, now) {
+      var lv = clamp(lightState.v / LIGHT_MAX, 0, 1);
+      if (lv > 0.985) return;
+      var R = t * 0.60;
+      var px = cx;
+      var py = cy + t * 0.30;
+      ctx.save();
+      ctx.lineWidth = Math.max(1.2, t * 0.034);
+      ctx.strokeStyle = 'rgba(255, 214, 158, 0.16)';
+      ctx.beginPath();
+      ctx.arc(px, py, R, 0, 6.2832);
+      ctx.stroke();
+
+      ctx.strokeStyle = (lv > 0.28 ? 'rgba(255, 198, 122, ' : 'rgba(255, 128, 92, ') +
+        (0.44 + (1 - lv) * 0.42).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(1.8, t * 0.050);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(px, py, R, -1.5708, -1.5708 + 6.2832 * lv);
+      ctx.stroke();
+
+      // 低于 28% 开始呼吸 —— 用光的呼吸代替看不见的心跳音
+      if (lv < 0.28) {
+        var pulse = 0.5 + 0.5 * Math.sin(now * 0.006);
+        ctx.strokeStyle = 'rgba(255, 118, 84, ' + (0.10 + pulse * 0.22).toFixed(3) + ')';
+        ctx.lineWidth = Math.max(2, t * 0.085);
+        ctx.beginPath();
+        ctx.arc(px, py, R, -1.5708, -1.5708 + 6.2832 * lv);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawVeil(now) {
+      if (!lightState.veilAt) return;
+      var k = (now - lightState.veilAt) / 3000;
+      if (k < 0) k = 0;
+      if (k > 1) return;
+      // 前一半全黑，之后退开 —— 先「什么都没有」，再「你还在原地」。
+      // 全黑必须真的全黑（alpha 1.0）：留一层半透明的黑，玩家只会以为画面暗了。
+      var a = k < 0.5 ? 1 : (1 - (k - 0.5) / 0.5);
+      ctx.save();
+      ctx.fillStyle = 'rgba(2, 4, 9, ' + a.toFixed(3) + ')';
+      ctx.fillRect(0, 0, view.w, view.h);
+      if (a > 0.22) {
+        ctx.globalAlpha = a;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255, 226, 186, 0.74)';
+        ctx.font = '500 17px system-ui, -apple-system, "PingFang SC", sans-serif';
+        ctx.fillText('灯火灭了', view.w / 2, view.h / 2 - 4);
+        ctx.fillStyle = 'rgba(198, 178, 152, 0.50)';
+        ctx.font = '12px system-ui, -apple-system, "PingFang SC", sans-serif';
+        ctx.fillText('雾散开的时候，你还站在原地', view.w / 2, view.h / 2 + 18);
+      }
+      ctx.restore();
+    }
+
     function draw(now, dt) {
       var w = view.w;
       var h = view.h;
@@ -4452,6 +4771,17 @@
       ctx.fillStyle = vignette;
       ctx.fillRect(0, 0, w, h);
 
+      // 黑暗层压在暗角之后、浮字之前：
+      // 它必须盖住世界（那是「你看不见」），又必须让「+1」透出来。
+      drawDarkness(ox, oy, t);
+
+      // ⚠️ 雾灵和火量环必须画在黑暗层**之后**。
+      // 这两个东西都是「发光的信使」，压在黑暗底下等于自己把自己关掉 ——
+      // 我第一次就是这么写的，低火截图里雾灵只剩两团看不清的蓝灰斑。
+      drawWraiths(ox, oy, t, now);
+      drawLightRing(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t, now);
+      drawVeil(now);
+
       // 浮字放在最后：它必须比暗角更亮，否则「+1」会被压成一块灰
       drawFloats(ox, oy, t);
     }
@@ -4465,6 +4795,7 @@
       if (!(dt > 0)) dt = 0.016;
       if (dt > 0.05) dt = 0.05;
       lastFrame = now;
+      updateLight(dt, now);
       draw(now, dt);
       view.raf = window.requestAnimationFrame(loop);
     }
@@ -4722,10 +5053,23 @@
       }
     }
 
+    // 下一档天象。整个游戏的主线就藏在这一个函数里：
+    // 灯柱数跨过阈值 → 天光推进 → 全岛的配色、雾、视野一起变。
+    // 之前这段信息只表现为顶栏一根 44px 的细线，没人看得懂那是什么；
+    // 现在直接写成「长夜 · 3/10」—— 目标必须能被读成一句话。
+    function stageNext() {
+      var list = (state.catalog && state.catalog.stages) || [];
+      var i = clamp(state.stage, 0, Math.max(0, list.length - 1));
+      return list[i + 1] || null;
+    }
+
     function updateHud() {
       var shards = state.me.shards || 0;
       statOnline.textContent = state.onlineCount + ' 人在岛';
-      statStage.textContent = (state.stageInfo && state.stageInfo.name) || '长夜';
+      var nm = (state.stageInfo && state.stageInfo.name) || '长夜';
+      var nx = stageNext();
+      statStage.textContent = nx ? (nm + ' · ' + (state.lampCount || 0) + '/' + nx.at)
+                                 : (nm + ' · ' + (state.lampCount || 0));
 
       var stages = [
         [0, 10], [10, 30], [30, 60], [60, 100], [100, 100]
@@ -5065,6 +5409,9 @@
         // 增量要在覆盖 state.me.shards 之前算出来，浮字上写的必须是这一次真的捡到几枚
         var gain = Math.max(1, (data.shards | 0) - (state.me.shards | 0));
         state.me.shards = data.shards;
+        // 采集是唯一的「主动补火」：一次 +14，约等于走过五格半的消耗。
+        // 调这个数就是调整个游戏的节奏 —— 玩家必须不断地「出去捡、走回来」。
+        lightState.v = Math.min(LIGHT_MAX, lightState.v + (data.meteor ? 22 : 14));
         if (data.meteor) {
           delete state.meteorNodes[x + ',' + y];
           toast('拾到一颗星陨　共 ' + data.shards + ' 枚星屑', 'warm');
@@ -5085,6 +5432,14 @@
         toast('还差 ' + (state.lampCost - state.me.shards) + ' 枚星屑');
         return;
       }
+      // 点灯同时烧掉自己 22 点火。
+      // 这是整个玩法里最重要的一次取舍：你把自己的命换成一块永久的安全区，
+      // 而这块安全区对**别人**一样有效 —— 多人关系不是靠聊天建立的，
+      // 是靠「谁在这里点过灯」建立的。
+      if (lightState.v < 22) {
+        toast('火不够了　点灯会烧掉 22 点，先去找星屑');
+        return;
+      }
       var x = state.me.x;
       var y = state.me.y;
       http('post', '/shiguang/build', { x: x, y: y }).then(function(data) {
@@ -5098,13 +5453,21 @@
           return;
         }
         state.me.shards = data.shards;
+        lightState.v = Math.max(1, lightState.v - 22);
         state.lampCount = data.lampCount;
         state.stage = data.stage;
         state.stageInfo = data.stageInfo;
         addLamp(x, y, state.me.lantern);
         if (data.reveal) revealCells(data.reveal);
         bombBuild(x + 0.5, y + 0.5);
-        if (!data.dawn) toast('灯柱亮起，周围亮了一些', 'warm');
+        if (!data.dawn) {
+          var nx2 = stageNext();
+          var left = nx2 ? nx2.at - data.lampCount : 0;
+          if (nx2 && left <= 0) toast('灯柱亮起　天光动了一下', 'warm');
+          else if (nx2 && left <= 3) toast('灯柱亮起　离「' + nx2.name + '」只差 ' + left + ' 根', 'warm');
+          else if (nx2) toast('灯柱亮起　离「' + nx2.name + '」还差 ' + left + ' 根', 'warm');
+          else toast('灯柱亮起，周围亮了一些', 'warm');
+        }
         sfx.build();
         updateHud();
       }).catch(function(err) {
@@ -6859,6 +7222,9 @@
         state.catalog.landmarks = terrain.landmarks || [];
         state.catalog.steles = terrain.steles || [];
         state.catalog.speechLines = terrain.speechLines || [];
+        // 阶段表原本只存在于服务端。/terrain 一直在返回它，前端却从来没接住 ——
+        // 于是顶栏只能显示当前档名，显示不出「还差几根」。
+        state.catalog.stages = terrain.stages || [];
         buildField();
         applyExplored('');
         return http('post', '/shiguang/enter', {});
