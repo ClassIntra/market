@@ -546,7 +546,7 @@
   top: 60px;
   width: 100px;
   height: 100px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid rgba(255, 214, 150, 0.17);
   background: rgba(6, 11, 22, 0.44);
@@ -561,7 +561,7 @@
 .sg-minimap.is-big {
   width: 152px;
   height: 152px;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
 }
 
 /* 四角刻度：每条 9px，只出现在四个角上 */
@@ -693,7 +693,7 @@
   width: 52px;
   height: 2px;
   margin: -1px 0 0 -2px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   transform-origin: 2px 50%;
   background: linear-gradient(90deg, rgba(255, 220, 160, 0.9), rgba(255, 220, 160, 0));
   opacity: 0;
@@ -879,7 +879,7 @@
   height: 16px;
   box-sizing: border-box;
   padding: 0 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(255, 216, 156, 0.94);
   color: #2a1c08;
   font-size: 9.5px;

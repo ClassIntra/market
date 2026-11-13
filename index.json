@@ -1,6 +1,6 @@
 {
-  "version": 58,
-  "updated_at": "2026-11-13T08:51:08.535Z",
+  "version": 59,
+  "updated_at": "2026-11-13T09:05:52.031Z",
   "apps": [
     {
       "name": "chess",
@@ -443,25 +443,25 @@
       "description": "全班同处一片云海群岛的多人小世界。v4.0「灯火」：你手里的火就是命 —— 走路会烧、站着也会暗，火弱了视野缩成一圈、雾灵从黑暗里围上来；点亮灯柱要烧掉自己的火，但那盏灯整片云海都看得见，也替别人挡雾。全班把灯点到 10/30/60/100 根，天光就往前推一档：长夜 → 晨光初现 → 云开见月 → 群星归位 → 拾光之海。",
       "author": "ClassIntra",
       "files": [
-        "apps/shiguang/backend/cleanup.js",
+        "apps/shiguang/CHANGELOG.md",
+        "apps/shiguang/README.md",
         "apps/shiguang/backend/README.md",
+        "apps/shiguang/backend/cleanup.js",
         "apps/shiguang/backend/routes.js",
         "apps/shiguang/backend/schema.sql",
         "apps/shiguang/backend/world.js",
-        "apps/shiguang/CHANGELOG.md",
         "apps/shiguang/frontend/entry.js",
         "apps/shiguang/frontend/fonts/unifont-ex.woff2",
+        "apps/shiguang/frontend/img/LICENSE-kenney.txt",
         "apps/shiguang/frontend/img/battle.png",
         "apps/shiguang/frontend/img/city.png",
         "apps/shiguang/frontend/img/dungeon.png",
         "apps/shiguang/frontend/img/farm.png",
-        "apps/shiguang/frontend/img/LICENSE-kenney.txt",
         "apps/shiguang/frontend/img/town.png",
         "apps/shiguang/frontend/style.css",
         "apps/shiguang/icon.svg",
         "apps/shiguang/manifest.json",
         "apps/shiguang/preview.png",
-        "apps/shiguang/README.md",
         "apps/shiguang/screenshots/01-world.png",
         "apps/shiguang/screenshots/02-lowlight.png",
         "apps/shiguang/screenshots/03-talk.png",
@@ -474,7 +474,7 @@
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "cbdea965889d5f259ef0c7354aca32d12e9bedbd4e50a91166eac3be26704de1",
         "CHANGELOG.md": "caa511618afa7706d6b1490477f03780137ac503b8dfbc2156c9039ef441e8da",
-        "frontend/entry.js": "8e7a0b007f0fcf79c19fff6fbddd0fc8b772767780023b119615645e0c623af0",
+        "frontend/entry.js": "e0a0d469d3ffb009e6732579a089552838971d39aa338c4cdb59714495a986d9",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -482,7 +482,7 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "9d4b18c760cff12a635c7d4213adb13cf067d4f62a8f91ab2d6c4e9871380cbe",
+        "frontend/style.css": "fd55b278f35baf0349009608fbaf1c75287ffb6558c7656591478b8ccf1838c5",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
         "manifest.json": "8819b3781b2d14e0fc1f77194b899dde1c4f28f2aa76168c61a4fb829e9f1567",
         "preview.png": "fa46f4409a3a3bbf80180b16a3be4429cb19ca642af51aae18f5a911f80c42d4",
@@ -492,7 +492,12 @@
         "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
         "test/e2e.mjs": "43a29332913e24eef2d0ee5f68c036a1990704df5b2c947b7037d025d83af50d"
       },
-      "icon": "apps/shiguang/icon.svg",
+      "icon": "./icon.svg",
+      "screenshots": [
+        "apps/shiguang/screenshots/01-world.png",
+        "apps/shiguang/screenshots/02-lowlight.png",
+        "apps/shiguang/screenshots/03-talk.png"
+      ],
       "changelog": [
         {
           "version": "4.0.0",
@@ -518,16 +523,6 @@
           "version": "1.0.0",
           "notes": "首个版本。五座漂浮群岛（启明/雾隐/星坠/拾贝/望潮）+ 四条云桥；走动探索，揭开的迷雾全班永久可见；采集星屑（90 秒重生）、点灯柱（3 星屑，照亮半径 6）；全班共建天光，灯柱 5/15/30/60 根各推进一阶天象；漂流瓶留言、群岛志三榜（星屑/灯柱/探索格数）。服务端权威移动 + 200ms 合并广播，双人同屏实测正常。"
         }
-      ],
-      "capabilities": [
-        "data.http",
-        "data.realtime",
-        "data.storage"
-      ],
-      "screenshots": [
-        "apps/shiguang/screenshots/01-world.png",
-        "apps/shiguang/screenshots/02-lowlight.png",
-        "apps/shiguang/screenshots/03-talk.png"
       ]
     },
     {

@@ -7098,9 +7098,12 @@
       var cached = null;
       try { cached = storage.get('terrain', null); } catch (e) { cached = null; }
       var fresh = cached && cached.cells && cached.nodes && cached.version ? cached : null;
-      // 1 小时内的缓存直接用（v2 的 24h 曾让旧地形在版本升级后多活一天）；
-      // 拉取失败时退回缓存兜底 —— 26KB gzip 后不到 3KB，不值得为此省流量。
-      if (fresh && fresh.at && Date.now() - fresh.at < 3600000) {
+      // 尺寸自检：v1/v2 时代的旧缓存只有 80×80=6400 格，与 160×160 世界不匹配，
+      // 不校验的话会把旧地图当新世界渲染（生产「老样子」的直接元凶）。
+      var need = state.size * state.size;
+      if (fresh && (fresh.cells.length !== need || fresh.nodes.length !== need)) fresh = null;
+      // 缓存只兜底 5 分钟：地形 26KB（gzip ~3KB），世界每次进都是新的才稳。
+      if (fresh && fresh.at && Date.now() - fresh.at < 300000) {
         return Promise.resolve(fresh);
       }
       return http('get', '/shiguang/terrain').then(function(data) {
