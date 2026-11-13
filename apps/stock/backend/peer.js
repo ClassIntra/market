@@ -20,8 +20,10 @@ var nodePath = require('path');
 var market = require('./market');
 var store = require('./store');
 var quotes = require('./quotes');
-var xueyuan = require(nodePath.resolve(process.cwd(), 'src/services/xueyuan'));
-var db = require(nodePath.resolve(process.cwd(), 'src/utils/db'));
+// 账本开关（与 routes.js 保持一致）
+// 第三方应用：只能通过能力面发「练习金」
+var app = require('_sdk/backend/host').ledger;
+var db = require('_sdk/backend/host').db;
 
 var WEEKLY_WIN_REWARD_CENT = 10000;   // 周冠军奖励：100 学元/人
 var PEER_FRESH_MS = 48 * 3600 * 1000; // 对端数据有效期（平板不天天用，放宽到 48h）
@@ -32,9 +34,9 @@ var BROADCAST_INTERVAL = 30 * 60 * 1000;
 // 机器人账号（非 6 位学号）天然被排除。
 function localClassNo() {
   var rows = db.prepare([
-    "SELECT substr(a.user_id, 3, 2) AS cc, COUNT(*) AS n",
-    "FROM xy_account a",
-    "WHERE length(a.user_id) = 6 AND a.user_id NOT LIKE '@%'",
+    "SELECT substr(a.owner_id, 3, 2) AS cc, COUNT(*) AS n",
+    "FROM xy_ledger_accounts a",
+    "WHERE a.kind = 'user' AND length(a.owner_id) = 6",
     'GROUP BY cc ORDER BY n DESC LIMIT 1'
   ].join('\n')).get();
   return rows && rows.cc ? rows.cc : '';
@@ -54,13 +56,16 @@ function buildLocalPayload(snapshot) {
   // 「有没有真的在玩」的标记：对决的人均收益率只算有持仓或有过成交的活跃者，
   // 否则一屋子刚开户还没动手的账号会把均值稀释成 0（2026-11-03 修）。
   var accounts = db.prepare([
-    'SELECT a.user_id, a.balance, u.net_name,',
+    'SELECT a.owner_id AS user_id,',
+    "  COALESCE((SELECT b.balance FROM xy_ledger_balances b",
+    "            WHERE b.account_id = a.id AND b.asset = 'PRACTICE'), 0) AS balance,",
+    '  u.net_name,',
     '  COALESCE(s.trade_count, 0) AS trade_count,',
-    '  (SELECT COUNT(*) FROM stock_positions p WHERE p.user_id = a.user_id AND p.qty > 0) AS pos_count',
-    'FROM xy_account a',
-    'JOIN stock_account s ON s.user_id = a.user_id',
-    'LEFT JOIN users u ON u.user_id = a.user_id',
-    "WHERE a.user_id NOT LIKE '@%' AND length(a.user_id) = 6"
+    '  (SELECT COUNT(*) FROM stock_positions p WHERE p.user_id = a.owner_id AND p.qty > 0) AS pos_count',
+    'FROM xy_ledger_accounts a',
+    'JOIN stock_account s ON s.user_id = a.owner_id',
+    'LEFT JOIN users u ON u.user_id = a.owner_id',
+    "WHERE a.kind = 'user' AND length(a.owner_id) = 6"
   ].join('\n')).all();
 
   var posRows = db.prepare('SELECT user_id, code, qty, cost_cent FROM stock_positions WHERE qty > 0').all();
@@ -136,12 +141,13 @@ function buildLocalPayload(snapshot) {
 var bus = null;
 function getBus() {
   if (bus) return bus;
-  try { bus = require(nodePath.resolve(process.cwd(), 'src/utils/relay-bus')); } catch (e) { bus = null; }
+  try { bus = require('_sdk/backend/host').relayBus; } catch (e) { bus = null; }
   return bus;
 }
 
 function broadcastNow() {
   return quotes.getSnapshot().then(function (snap) {
+    if (snap.stale || (snap.quote_date && snap.quote_date !== market.dateKey())) return false;
     var payload = buildLocalPayload(snap);
     var b = getBus();
     if (b && typeof b.emit === 'function') {
@@ -243,6 +249,10 @@ function maybeWeeklySettle(now, opts) {
   if (!(peerPayload.participants > 0)) return Promise.resolve({ skipped: 'peer-empty' });
 
   return quotes.getSnapshot().then(function (snap) {
+    // 周五收盘结算必须用今天的真实收盘价；断网/节假日不结算，等下次再试
+    if (snap.stale || (snap.quote_date && snap.quote_date !== market.dateKey())) {
+      return { skipped: 'stale-quotes' };
+    }
     var myPayload = buildLocalPayload(snap);
     if (!(myPayload.participants > 0)) return { skipped: 'self-empty' };
 
@@ -262,15 +272,9 @@ function maybeWeeklySettle(now, opts) {
       var actives = weekActiveUsers(weekStart);
       for (var j = 0; j < actives.length; j++) {
         try {
-          var r = xueyuan.mint({
-            to: actives[j],
-            amountCent: WEEKLY_WIN_REWARD_CENT,
-            kind: 'reward',
-            ref: 'stock:weekly:' + weekKey + ':' + actives[j],
-            app: 'stock',
-            memo: '班级对决周冠军奖励（' + className(myClass) + '）',
-            meta: { week_key: weekKey, my_avg: myAvg, peer_avg: peerAvg }
-          });
+          var r = app.issue('stock', actives[j], WEEKLY_WIN_REWARD_CENT,
+            'stock:weekly:' + weekKey + ':' + actives[j],
+            '班级对决周冠军奖励（' + className(myClass) + '）');
           if (!r.duplicate) rewarded++;
         } catch (e) {
           console.error('[stock-peer] 周奖励发放失败 %s: %s', actives[j], e.message);
@@ -295,7 +299,13 @@ function maybeWeeklySettle(now, opts) {
 // ---- 定时器 ----
 var _timer = null;
 function start() {
-  if (_timer) return;
+  // 同 matcher.start()：热挂载会留下孤儿 interval，广播与周结会重复跑。
+  var G = global.__ciStockRuntime || (global.__ciStockRuntime = {});
+  if (G.peerTimer) {
+    clearInterval(G.peerTimer);
+    G.peerTimer = null;
+    console.log('[stock] 热挂载：已回收上一个跨班广播循环');
+  }
   registerRelay();
   // 启动 5 秒后先广播一次（对端尽快有数据），之后每 30 分钟
   setTimeout(broadcastNow, 5000);
@@ -303,11 +313,14 @@ function start() {
     broadcastNow();
     maybeWeeklySettle().catch(function () {});
   }, BROADCAST_INTERVAL);
+  G.peerTimer = _timer;
   if (_timer.unref) _timer.unref();
 }
 
 function stop() {
   if (_timer) { clearInterval(_timer); _timer = null; }
+  var G2 = global.__ciStockRuntime;
+  if (G2 && G2.peerTimer) { clearInterval(G2.peerTimer); G2.peerTimer = null; }
 }
 
 module.exports = {

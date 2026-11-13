@@ -243,6 +243,8 @@ function buildQuote(f) {
   if (preOpen) price = prevClose;
 
   var limits = market.limitPrices(code, prevClose);
+  var quoteTs = num(f.f124, 0);
+  quoteTs = quoteTs > 0 ? Math.round(quoteTs * 1000) : 0;
   return {
     code: code,
     name: String(f.f14 || ''),
@@ -268,6 +270,8 @@ function buildQuote(f) {
     tradable: !!UNIVERSE_MAP[code],
     stale: false,
     pre_open: preOpen,
+    quote_ts: quoteTs,
+    quote_date: quoteTs ? market.dateKey(quoteTs) : '',
     quoted_at: Date.now()
   };
 }
@@ -281,7 +285,7 @@ function secIds() {
 // 拉一次全池快照（一次请求，东财支持批量）
 function fetchSnapshot() {
   var ids = secIds();
-  var fields = 'f2,f3,f4,f5,f6,f8,f9,f12,f14,f15,f16,f17,f18,f20,f23';
+  var fields = 'f2,f3,f4,f5,f6,f8,f9,f12,f14,f15,f16,f17,f18,f20,f23,f124';
   var path = '/api/qt/ulist.np/get?fltt=2&invt=2&fields=' + fields + '&secids=' + ids.join(',');
   return httpGet('push2.eastmoney.com', path).then(function (body) {
     var diff = body && body.data && body.data.diff;
@@ -332,32 +336,78 @@ function simulateFromLast(code, ts) {
     sector: last.sector,
     tradable: last.tradable,
     stale: true,
+    quote_ts: last.quote_ts || 0,
+    quote_date: last.quote_date || '',
     quoted_at: ts
   };
 }
 
+function latestQuoteOf(list) {
+  var best = null;
+  for (var i = 0; i < (list || []).length; i++) {
+    var q = list[i];
+    if (!best || Number(q.quote_ts || 0) > Number(best.quote_ts || 0)) best = q;
+  }
+  return best;
+}
+
 // 对外主入口：返回 { list, byCode, stale, error, at }
+// ---- 失败退避 ----
+// ⚠️ 校园网到东财是不通的（socket hang up）。而下面的 catch 分支只写 _snapshot、
+// 不改 at，于是「缓存过期」永远成立 —— 每个 HTTP 请求、每个撮合 tick 都会再试一次
+// 网络。2026-11-13 一天打了 10132 行「行情拉取失败」（≈7 行/分钟，等于 7 个遗留
+// 撮合循环各自空转）。
+//
+// 现在：连续失败 2 次进入 60 秒冷却，期间直接返回上一份兜底快照，不碰网络、不打日志；
+// 恢复时补一条日志。句柄挂 global —— 市场应用「热挂载」会清 require 缓存，
+// 模块级变量活不过一次重载，挂模块上等于退避也会被清掉。
+var RT = global.__ciStockQuote || (global.__ciStockQuote = { failStreak: 0, coolUntil: 0, lastErr: '' });
+var QUOTE_COOL_MS = 60 * 1000;
+
 function getSnapshot(opts) {
   var o = opts || {};
   var now = Date.now();
   var session = market.currentSession(now);
-  var ttl = session.settles ? SNAPSHOT_TTL : SNAPSHOT_TTL_CLOSED;
+  var today = market.dateKey(now);
+  // 行情源在节假日会一直返回上一交易日的数据；此时不能每 3 秒狂拉，
+  // 也不能让撮合器把「昨天的价格」当今天成交。
+  var dataIsToday = !_snapshot.quote_date || _snapshot.quote_date === today;
+  var ttl = (session.matchable && dataIsToday) ? SNAPSHOT_TTL : SNAPSHOT_TTL_CLOSED;
 
   if (!o.force && _snapshot.at && now - _snapshot.at < ttl && _snapshot.list.length) {
     return Promise.resolve(_snapshot);
   }
+  // 冷却期内：有兜底快照就直接用，别再等一次注定失败的连接
+  if (!o.force && now < RT.coolUntil && _snapshot.list.length) {
+    return Promise.resolve(_snapshot);
+  }
 
   return fetchSnapshot().then(function (list) {
+    if (RT.failStreak >= 2) console.log('[stock] 行情源已恢复');
+    RT.failStreak = 0;
+    RT.coolUntil = 0;
     var byCode = {};
     for (var i = 0; i < list.length; i++) {
       byCode[list[i].code] = list[i];
       _lastGood[list[i].code] = list[i];
     }
-    _snapshot = { at: now, list: list, byCode: byCode, stale: false, error: null };
+    var latest = latestQuoteOf(list);
+    _snapshot = {
+      at: now, list: list, byCode: byCode, stale: false, error: null,
+      quote_date: (latest && latest.quote_date) || '',
+      quote_ts: (latest && latest.quote_ts) || 0
+    };
     persist(list);
     return _snapshot;
   }).catch(function (err) {
-    console.warn('[stock] 行情拉取失败，使用兜底数据:', err.message);
+    RT.failStreak += 1;
+    RT.lastErr = err.message;
+    if (RT.failStreak >= 2) RT.coolUntil = Date.now() + QUOTE_COOL_MS;
+    // 只在「刚进入退避」时打一行，之后冷却期内不再刷屏
+    if (RT.failStreak === 2) {
+      console.warn('[stock] 行情源不可达，进入 %d 秒退避（期间用兜底价，撮合照常）: %s',
+        Math.round(QUOTE_COOL_MS / 1000), err.message);
+    }
     // 兜底：优先用内存最后价，其次用库里落的最后价
     var fallbackList = [];
     for (var i = 0; i < UNIVERSE.length; i++) {
@@ -370,6 +420,7 @@ function getSnapshot(opts) {
       if (q) fallbackList.push(q);
     }
     // 从未成功拉过行情（首次启动且断网）：不编造价格，返回空 + 错误
+    var fallbackLatest = latestQuoteOf(fallbackList);
     _snapshot = {
       at: now,
       list: fallbackList,
@@ -379,6 +430,8 @@ function getSnapshot(opts) {
         return m;
       })(),
       stale: true,
+      quote_date: (fallbackLatest && fallbackLatest.quote_date) || '',
+      quote_ts: (fallbackLatest && fallbackLatest.quote_ts) || 0,
       error: err.message
     };
     return _snapshot;
@@ -443,7 +496,9 @@ function readCachedQuote(code) {
       limit_up: limits.up, limit_down: limits.down, limit_ratio: limits.ratio,
       price_cent: r.price_cent, prev_close_cent: r.prev_close_cent,
       sector: (UNIVERSE_MAP[code] && UNIVERSE_MAP[code].sector) || '',
-      tradable: true, stale: true, quoted_at: r.quoted_at
+      tradable: true, stale: true,
+      quote_ts: 0, quote_date: '',
+      quoted_at: r.quoted_at
     };
   } catch (e) {
     return null;
@@ -553,12 +608,25 @@ function search(keyword) {
   });
 }
 
+// 只读最近一次快照的元信息，不触发网络请求（供健康检查用）
+function lastSnapshot() {
+  return {
+    at: _snapshot.at,
+    quote_date: _snapshot.quote_date || '',
+    quote_ts: _snapshot.quote_ts || 0,
+    stale: !!_snapshot.stale,
+    error: _snapshot.error || null,
+    size: _snapshot.list.length
+  };
+}
+
 module.exports = {
   UNIVERSE: UNIVERSE,
   UNIVERSE_MAP: UNIVERSE_MAP,
   INDEXES: INDEXES,
   getSnapshot: getSnapshot,
   getQuote: getQuote,
+  lastSnapshot: lastSnapshot,
   getIndexes: getIndexes,
   getKline: getKline,
   getTrends: getTrends,
