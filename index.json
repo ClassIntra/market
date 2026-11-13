@@ -1,6 +1,6 @@
 {
-  "version": 56,
-  "updated_at": "2026-11-13T07:53:00.033Z",
+  "version": 57,
+  "updated_at": "2026-11-13T07:59:39.837Z",
   "apps": [
     {
       "name": "chess",
@@ -480,7 +480,7 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "1e5b127496000b231b1d974a01a98e649c61b5042cdd1f0c506865d34394c53e",
+        "frontend/style.css": "31534e8f2edeadb523cb4904a42b2c7122375962df52803d72737e9958950c2d",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
         "manifest.json": "e344f6a1950bea9a7ddd22fecffc6417a5fd514c700fedc0bea30c8f393a2547",
         "preview.png": "c8edcc0011de63e9fe87c557a4b502c67dcf5b77a230f899282d6c19b1a1b8ad",
