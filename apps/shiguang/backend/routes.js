@@ -1070,6 +1070,22 @@ router.post('/enter', requireAuth, function (req, res) {
   try { db.prepare('UPDATE shiguang_players SET last_seen = ? WHERE user_id = ?').run(now, userId); } catch (e) {}
   row.last_seen = now;
 
+  // ⚠️ 自愈：玩家可能停在一格**不可走**的地面上（地图改版、早期缺少校验的移动接口、
+  // 任何异常写入）。此时 /move 会拒绝他的每一步 —— 摇杆拖到底也一动不动，
+  // 而客户端救不了自己：坐标是服务端权威下发的。
+  // 所以每次进入都校验一次，不合格就挪到最近的可走格并落库。
+  if (!world.walkable(row.x, row.y)) {
+    var safe = world.nearestWalkable(row.x, row.y);
+    try {
+      db.prepare('UPDATE shiguang_players SET x = ?, y = ? WHERE user_id = ?')
+        .run(safe.x, safe.y, userId);
+    } catch (e) {}
+    console.log('[shiguang] 自愈：%s 卡在 %d,%d（不可走），挪到 %d,%d',
+      userId, row.x, row.y, safe.x, safe.y);
+    row.x = safe.x;
+    row.y = safe.y;
+  }
+
   var fresh = reveal(row.x, row.y, ENTER_REVEAL, userId);
   markOnline(row);
   // 进入时推进一次探索落盘，避免刚揭开的格子因进程重启丢失
@@ -1246,6 +1262,21 @@ router.post('/move', requireAuth, function (req, res) {
       code: 200,
       data: { rejected: reason, me: { x: row.x, y: row.y, dir: row.dir } }
     });
+  }
+
+  // 同上：万一是在「进入之后」才变成不可走（地图热更），这里也自愈一次，
+  // 并把修正后的坐标随拒绝一起回给客户端（客户端收到 me 会直接校正）。
+  if (!world.walkable(row.x, row.y)) {
+    var heal = world.nearestWalkable(row.x, row.y);
+    try {
+      db.prepare('UPDATE shiguang_players SET x = ?, y = ? WHERE user_id = ?')
+        .run(heal.x, heal.y, userId);
+    } catch (e) {}
+    console.log('[shiguang] 自愈：%s 卡在 %d,%d（不可走），挪到 %d,%d',
+      userId, row.x, row.y, heal.x, heal.y);
+    row.x = heal.x;
+    row.y = heal.y;
+    return rejectMove('healed');
   }
 
   var body = req.body || {};

@@ -5152,7 +5152,12 @@
       var ny = state.me.y + dy;
       if (nx < 0 || ny < 0 || nx >= state.size || ny >= state.size) return;
       var idx = ny * state.size + nx;
-      if (state.cells.charCodeAt(idx) === 48) {
+      // ⚠️ 这里原来只拦 CLOUD（'0'）。v4 加了岛内静水 LAKE（'6'），
+      // 湖面同样不可走 —— 客户端放行的话，每一步都会被服务端拒绝并把人拽回来，
+      // 手感上就是「按了没反应」，比直接撞墙更让人以为摇杆坏了。
+      // 判定必须和服务端 world.walkable 一致：CLOUD 与 LAKE 都不可走。
+      var cc = state.cells.charCodeAt(idx) - 48;
+      if (cc === 0 || cc === 6) {
         bump(dx, dy);
         return;
       }
