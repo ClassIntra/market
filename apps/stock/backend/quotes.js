@@ -507,8 +507,24 @@ function fetchSnapshotTencent() {
 // 现在：连续失败 2 次进入 60 秒冷却，期间直接返回上一份兜底快照，不碰网络、不打日志；
 // 恢复时补一条日志。句柄挂 global —— 市场应用「热挂载」会清 require 缓存，
 // 模块级变量活不过一次重载，挂模块上等于退避也会被清掉。
-var RT = global.__ciStockQuote || (global.__ciStockQuote = { failStreak: 0, coolUntil: 0, lastErr: '' });
+var RT = global.__ciStockQuote || (global.__ciStockQuote = { failStreak: 0, coolUntil: 0, lastErr: '', preferBackupUntil: 0 });
 var QUOTE_COOL_MS = 60 * 1000;
+// 主源（东财 HTTPS）挂掉后，5 分钟内直接先走备用源。
+// 不这么做的话，每次取价都要先等一次注定失败的 TLS 连接：现在是「立刻被重置」
+// 所以只多 0.3 秒，但换成丢包的网络就变成每次 5 秒超时，撮合 tick 也会跟着排队。
+var PRIMARY_DOWN_MS = 5 * 60 * 1000;
+
+// 取一份行情列表：主源优先；主源刚失败过时，备用源优先。
+function loadQuoteList() {
+  if (Date.now() < RT.preferBackupUntil) {
+    return fetchSnapshotTencent().catch(function () { return fetchSnapshot(); });
+  }
+  return fetchSnapshot().catch(function (err0) {
+    RT.preferBackupUntil = Date.now() + PRIMARY_DOWN_MS;
+    // 主源挂了：先试备用源，两条都挂才把主源的错抛出去（外层走兜底价）
+    return fetchSnapshotTencent().catch(function () { throw err0; });
+  });
+}
 
 function getSnapshot(opts) {
   var o = opts || {};
@@ -528,13 +544,7 @@ function getSnapshot(opts) {
     return Promise.resolve(_snapshot);
   }
 
-  return fetchSnapshot().catch(function (err0) {
-    // 主源（东财 HTTPS）失败：先试备用源（腾讯 HTTP）。
-    // 两条都挂才退到「最后真实价 + 微动」的兜底价。
-    return fetchSnapshotTencent().catch(function () {
-      throw err0;
-    });
-  }).then(function (list) {
+  return loadQuoteList().then(function (list) {
     if (RT.failStreak >= 2) console.log('[stock] 行情源已恢复');
     RT.failStreak = 0;
     RT.coolUntil = 0;
