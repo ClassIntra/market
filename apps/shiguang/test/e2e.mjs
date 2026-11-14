@@ -386,7 +386,10 @@ r = await call('POST', '/api/shiguang/farm/till', U.a, {});
 ok(r.json && r.json.data && r.json.data.rejected === 'tilled', '重复锄地被拒（tilled）');
 r = await call('POST', '/api/shiguang/plant', U.a, {});
 ok(r.status === 200 && r.json.data && typeof r.json.data.species === 'number', '翻好的土里播种成功，返回品种', r.json && r.json.data);
-ok(r.json.data && r.json.data.shards === 5, '种花扣 2 星屑（7 → 5）', r.json.data);
+// v4.8 节日半价：每季第一天种子半价 —— 用响应里的实际 cost 断言
+const plantCost = (r.json.data && r.json.data.cost) || 2;
+ok(r.json.data && r.json.data.shards === 7 - plantCost,
+  '种花扣款正确（' + plantCost + ' 星屑' + (plantCost < 2 ? '，节日半价' : '') + '）', r.json.data);
 ok(Number(q('SELECT COUNT(*) c FROM shiguang_flowers')[0].c) === 1, '光花落库 1 株');
 
 r = await call('POST', '/api/shiguang/plant', U.a, {});
@@ -433,6 +436,14 @@ r = await call('POST', '/api/shiguang/gift_xy', U.a, { to: U.b, amount: 5 });
 ok(r.json && r.json.data && r.json.data.rejected === 'amount', '单次超 2 学元被拒（amount）');
 teleport(U.b, 0, 0);
 await call('POST', '/api/shiguang/enter', U.b, {});
+
+// ---------- v4.8 相遇簿 ----------
+section('五点六前、相遇簿（v4.8）');
+r = await call('GET', '/api/shiguang/meets', U.a);
+ok(r.json && r.json.data && Array.isArray(r.json.data.meets),
+  '相遇簿接口可达（' + (r.json.data ? r.json.data.meets.length : 0) + ' 条相遇）', r.json && r.json.data);
+const meetB = (r.json.data.meets || []).find((m) => m.user_id === U.b);
+ok(meetB && meetB.count >= 1, '与 B 的相遇已计数（' + (meetB ? meetB.count : 0) + ' 次）');
 
 // ---------- v4.7 完整世界：采集 / 背包经济 / 好感 / 剧情 ----------
 section('五点六、采集背包与剧情（v4.7）');

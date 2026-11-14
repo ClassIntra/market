@@ -366,6 +366,7 @@ try {
 // 跨日推进：昨晚浇过水的作物 +1 节。sweep 里每 15s 检查一次，
 // 服务器重启导致的「几天并一天」会在这里循环补齐。
 function advanceFarmDay(now) {
+  var prevSeason = seasonOf(cal.day);
   cal.day += 1;
   // 星露谷的天气骰子：25% 雨天。雨天全班不用浇水 —— 云替你把水浇了，
   // 「雨天是假日」的松弛感是这个循环里最珍贵的礼物。
@@ -381,8 +382,11 @@ function advanceFarmDay(now) {
       db.prepare('UPDATE shiguang_flowers SET watered_day = ? WHERE species >= 0').run(cal.day);
     }
   } catch (e) {}
+  // v4.8 季节节日：每季第一天是全班的节日（种子半价，当天有效）
+  var newSeason = seasonOf(cal.day);
+  var festival = newSeason !== prevSeason ? SEASONS[newSeason] : '';
   // 新的一天 = 全班的晨光。田不会等人。
-  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather, season: SEASONS[seasonOf(cal.day)] });
+  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather, season: SEASONS[newSeason], festival: festival });
 }
 
 // ---------------- v4.7 世界剧情《灯火纪》 ----------------
@@ -681,6 +685,9 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, np
 // 送礼给岛民会攒好感：陌生 → 熟识 → 知己，台词与称呼都会变。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_favor (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, favor INTEGER NOT NULL DEFAULT 0, last_gift_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, npc_id))');
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_story_read (user_id TEXT NOT NULL, chapter TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, chapter))');
+
+// v4.8 相遇簿：见过的每一个人都留档。交友不是系统给你配的，是你们在岛上撞见的。
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_meets (user_a TEXT NOT NULL, user_b TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY (user_a, user_b))');
 
 // v4.2 —— 星露谷核心循环：全班共享的游戏日历 + 各人的农田。
 // 一天 6 分钟；作物「浇水才长、隔日抽高、成熟变现」——
@@ -1540,6 +1547,19 @@ router.post('/enter', requireAuth, function (req, res) {
     }
   } catch (e) {}
 
+  // 相遇簿：这次进岛，和哪些在线同学「撞见」了（双向计数）
+  try {
+    var meetNow = Date.now();
+    online.forEach(function (p, uid) {
+      if (uid === userId) return;
+      var lo = userId < uid ? userId : uid;
+      var hi = userId < uid ? uid : userId;
+      db.prepare('INSERT INTO shiguang_meets (user_a, user_b, count, first_at, last_at) VALUES (?, ?, 1, ?, ?) ' +
+        'ON CONFLICT(user_a, user_b) DO UPDATE SET count = count + 1, last_at = ?')
+        .run(lo, hi, meetNow, meetNow, meetNow);
+    });
+  } catch (e) {}
+
   res.json({
     code: 200,
     data: {
@@ -1897,8 +1917,11 @@ router.post('/plant', requireAuth, function (req, res) {
   if (wantCrop.season !== seasonOf(cal.day)) {
     return res.json({ code: 200, data: { rejected: 'season', season: seasonOf(cal.day), need: SEASONS[wantCrop.season] } });
   }
-  if (row.shards < wantCrop.cost) {
-    return res.json({ code: 200, data: { rejected: 'shards', need: wantCrop.cost, have: row.shards } });
+  // 节日当天种子半价（每季第一天）：庆祝翻篇，也让新季作物人人试得起
+  var isFestival = (cal.day - 1) % (SEASON_DAYS * 4) % SEASON_DAYS === 0;
+  var realCost = isFestival ? Math.max(1, Math.ceil(wantCrop.cost / 2)) : wantCrop.cost;
+  if (row.shards < realCost) {
+    return res.json({ code: 200, data: { rejected: 'shards', need: realCost, have: row.shards } });
   }
 
   // 星露谷规则：种子只肯落进翻好的土。先锄地，再播种 —— 工具的两步才叫耕作。
@@ -1932,7 +1955,7 @@ router.post('/plant', requireAuth, function (req, res) {
       db.prepare('UPDATE shiguang_flowers SET species = ?, planted_day = ?, growth = 0, watered_day = -1, created_at = ?, user_id = ? WHERE x = ? AND y = ?')
         .run(species, cal.day, now, userId, x, y);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, planted = planted + 1, last_seen = ?, last_plant_at = ? WHERE user_id = ?')
-        .run(wantCrop.cost, now, now, userId);
+        .run(realCost, now, now, userId);
     });
     tx2();
   } catch (e) {
@@ -1954,7 +1977,7 @@ router.post('/plant', requireAuth, function (req, res) {
       planted: updated ? updated.planted : 0,
       species: species,
       speciesName: wantCrop.name,
-      cost: wantCrop.cost,
+      cost: realCost,
       yield: wantCrop.yield,
       days: wantCrop.days
     }
@@ -2978,6 +3001,27 @@ router.post('/story/read', requireAuth, function (req, res) {
     db.prepare('INSERT OR IGNORE INTO shiguang_story_read (user_id, chapter, at) VALUES (?, ?, ?)').run(userId, known, Date.now());
   } catch (e) {}
   res.json({ code: 200, data: { chapter: known } });
+});
+
+// ---------------- v4.8 相遇簿：把交友变成一本看得见的账 ----------------
+router.get('/meets', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var out = [];
+  try {
+    // 我在 a 侧或 b 侧的相遇，取对方名字，按相遇次数排
+    var rows = db.prepare(
+      "SELECT CASE WHEN m.user_a = ? THEN m.user_b ELSE m.user_a END AS peer, m.count AS count, m.last_at AS last_at " +
+      "FROM shiguang_meets m WHERE m.user_a = ? OR m.user_b = ? ORDER BY m.count DESC LIMIT 24").all(userId, userId, userId);
+    for (var i = 0; i < rows.length; i++) {
+      var nm = '';
+      try {
+        var u = db.prepare('SELECT COALESCE(real_name, net_name) AS nm FROM users WHERE user_id = ?').get(rows[i].peer);
+        nm = (u && u.nm) || '';
+      } catch (e2) {}
+      out.push({ user_id: rows[i].peer, name: nm, count: rows[i].count, last_at: rows[i].last_at });
+    }
+  } catch (e) {}
+  res.json({ code: 200, data: { meets: out } });
 });
 
 router.get('/rank', requireAuth, function (req, res) {

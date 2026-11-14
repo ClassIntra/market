@@ -320,6 +320,7 @@
       weather: 'sun',           // 今天的天气（sun / rain）
       xyGrant: 0,               // 我的赠送学元余额（平台学元体系）
       bag: {},                  // 我的背包 { cropId|wood|ore: count }
+      meets: [],                // 相遇簿 [{ user_id, name, count, last_at }]
       season: '春',             // 今天的季节
       storyChapters: [],        // 《灯火纪》章节缓存
       house: null,              // 我的宅基地 { x, y, gate }
@@ -7085,13 +7086,16 @@
         topRow.appendChild(el('b', null, c.name));
         // v4.7 季节标记：当季生长，过季不能种
         var inSeason = c.season === SEASONS.indexOf(state.season || '春');
-        topRow.appendChild(el('i', null, c.cost + ' ★'));
+        // v4.8 节日半价：每季第一天
+        var isFestivalDay = ((state.calendar.day || 1) - 1) % 28 % 7 === 0;
+        var showCost = isFestivalDay ? Math.max(1, Math.ceil(c.cost / 2)) : c.cost;
+        topRow.appendChild(el('i', null, showCost + ' ★' + (isFestivalDay && c.cost > 1 ? '（节日半价）' : '')));
         body.appendChild(topRow);
         var seasonTag = el('span', 'sg-seed-season ' + (inSeason ? 'is-in' : 'is-out'),
           SEASONS[c.season] + '作物' + (inSeason ? ' · 当季' : ' · 要等' + SEASONS[c.season]));
         body.appendChild(seasonTag);
         body.appendChild(el('span', null,
-          c.days + ' 天成熟　收 ' + c.yield + '　净赚 ' + (c.yield - c.cost)));
+          c.days + ' 天成熟　收 ' + c.yield + '　净赚 ' + (c.yield - showCost)));
         row.appendChild(body);
         (function(crop) {
           row.addEventListener('click', function() {
@@ -7841,6 +7845,13 @@
       }
     }
 
+    // ---------- v4.8 相遇簿数据 ----------
+    function refreshMeets() {
+      http('get', '/shiguang/meets').then(function(d) {
+        if (d && !d.rejected) state.meets = d.meets || [];
+      }).catch(function() {});
+    }
+
     // ---------- v4.7 剧情《灯火纪》 ----------
     function refreshStory() {
       http('get', '/shiguang/story').then(function(d) {
@@ -7857,6 +7868,23 @@
 
     function renderStory(body) {
       clearNode(body);
+      // v4.8 相遇簿：这本志的第一页，永远写给「你遇见过的人」
+      var meets = state.meets || [];
+      var meetCard = el('div', 'sg-qcard');
+      meetCard.style.marginBottom = '12px';
+      meetCard.appendChild(el('div', 'sg-bottle-head',
+        [el('span', 'sg-bottle-name', '相遇簿'),
+         el('span', 'sg-bottle-pos', meets.length ? '遇见过 ' + meets.length + ' 位同学' : '还没有遇见谁')]));
+      for (var mi = 0; mi < meets.length; mi++) {
+        var mrow = el('div', 'sg-sum-row');
+        mrow.appendChild(el('b', 'sg-sum-key', (meets[mi].name || '同学')));
+        mrow.appendChild(el('span', 'sg-sum-val',
+          '相遇 ' + meets[mi].count + ' 次　最近 ' + new Date(meets[mi].last_at).getMonth() + 1 + '/' + new Date(meets[mi].last_at).getDate()));
+        meetCard.appendChild(mrow);
+      }
+      if (!meets.length) meetCard.appendChild(el('div', 'sg-cf-note', '在岛上遇见一位同学，这本簿子就会多一行字。'));
+      body.appendChild(meetCard);
+
       var chs = state.storyChapters || [];
       if (!chs.length) {
         body.appendChild(emptyBox('故事还在加载……'));
@@ -8130,7 +8158,7 @@
       var tRow = el('button', 'sg-set-action');
       tRow.type = 'button';
       tRow.appendChild(svgIcon('refresh'));
-      tRow.appendChild(el('span', null, '重看新手引导'));
+      tRow.appendChild(el('span', null, '重看开场剧情「长夜之始」'));
       tRow.addEventListener('click', function() {
         closeSheet();
         setTimeout(tutorialStart, 260);
@@ -8336,11 +8364,75 @@
       tNext.textContent = tIdx >= tSlides.length - 1 ? '开始拾光' : '下一步';
     }
 
+    // ---------- v4.8 开场剧情演出：长夜之始 ----------
+    // 取代分步引导。演出是一段沉进黑幕里的独白：世界为什么是长夜、
+    // 你为什么在这里、以及「灯不是灯」—— 看完的人才算真的踏进群岛。
+    var INTRO_PARAS = [
+      '很多年前，群岛的夜不是这样的。',
+      '那时灯塔自己会亮，鲸群每夜绕岛一圈，石碑上的名字在夜里发着微光。',
+      '后来灯塔的光一年比一年弱。不是灯芯坏了——',
+      '是点亮它的人，走散了。',
+      '现在，云海吞掉了最后一点天光。',
+      '而你们，在这个清晨登上了群岛。',
+      '灯不是灯。是「有人在」的证据。'
+    ];
+
+    function introCinema(skippable) {
+      if (cinemaPlaying) return;
+      cinemaPlaying = true;
+      var cinema = el('div', 'sg-cinema');
+      var stars = el('div', 'sg-cinema-stars');
+      for (var si = 0; si < 42; si++) {
+        var st = el('i', 'sg-cinema-star');
+        st.style.left = Math.round((si * 23.7) % 100) + '%';
+        st.style.top = Math.round((si * 41.3) % 100) + '%';
+        st.style.animationDelay = (si % 9) * 0.4 + 's';
+        stars.appendChild(st);
+      }
+      cinema.appendChild(stars);
+      var txt = el('div', 'sg-cinema-text');
+      cinema.appendChild(txt);
+      var skip = el('button', 'sg-cinema-skip', '跳过 ›');
+      skip.type = 'button';
+      cinema.appendChild(skip);
+      root.appendChild(cinema);
+      requestAnimationFrame(function() { cinema.className = 'sg-cinema is-show'; });
+
+      var idx = 0;
+      var timer = 0;
+      function showNext() {
+        if (idx >= INTRO_PARAS.length) { endCinema(); return; }
+        var line = el('p', 'sg-cinema-line', INTRO_PARAS[idx]);
+        txt.appendChild(line);
+        requestAnimationFrame(function() { line.className = 'sg-cinema-line is-in'; });
+        idx += 1;
+        timer = setTimeout(showNext, idx === INTRO_PARAS.length ? 1600 : 2100);
+      }
+      function endCinema() {
+        if (timer) clearTimeout(timer);
+        cinema.className = 'sg-cinema';
+        setTimeout(function() {
+          if (cinema.parentNode) cinema.parentNode.removeChild(cinema);
+          cinemaPlaying = false;
+        }, 1200);
+        if (!tutorialSent) {
+          tutorialSent = true;
+          http('post', '/shiguang/tutorial', {}).then(function() {
+            state.me.tutorial = 1;
+          }).catch(function() {});
+        }
+        setTimeout(function() {
+          toast('你在南岸醒来。走到光点前，按「采集」—— 群岛的故事从一捧星屑开始', 'warm');
+        }, 400);
+      }
+      skip.addEventListener('click', function() { endCinema(); });
+      setTimeout(showNext, 900);
+    }
+
+    var cinemaPlaying = false;
+
     function tutorialStart() {
-      tIdx = 0;
-      syncTutorial();
-      tutorial.hidden = false;
-      tutorial.className = 'sg-tutorial is-open';
+      introCinema();
     }
 
     function tutorialFinish(skipped) {
@@ -8553,9 +8645,13 @@
           rested = false;
           if (sleepPending) { finishSleep(state.weather); }
           else {
-            showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
-              state.weather === 'rain' ? '今天下雨 —— 云替你把水浇了' :
-              grown.length ? '昨晚浇过水的作物长高了一节' : '别忘了给作物浇水', '', 4200);
+            if (payload.festival) {
+              showBanner('flag', payload.festival + '灯节开始了！', '今天的种子半价 —— 新一季，从一块新田开始', '', 5200);
+            } else {
+              showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
+                state.weather === 'rain' ? '今天下雨 —— 云替你把水浇了' :
+                grown.length ? '昨晚浇过水的作物长高了一节' : '别忘了给作物浇水', '', 4200);
+            }
             sfx.dawn();
           }
           updateHud();
@@ -9051,6 +9147,7 @@
       state.season = (data.calendar && data.calendar.season) || '春';
       refreshWallet();
       refreshStory();
+      refreshMeets();
       applyMeteor(data.meteor);
 
       state.ready = true;
@@ -9110,7 +9207,7 @@
           onDestroy(function() { window.removeEventListener('pointerdown', kick); });
         }
         if (!state.me.tutorial) {
-          setTimeout(tutorialStart, 700);
+          setTimeout(introCinema, 800);
         } else {
           setTimeout(function() {
             toast('欢迎回到拾光群岛', 'warm');

@@ -1,6 +1,6 @@
 {
-  "version": 92,
-  "updated_at": "2026-11-14T10:31:26.021Z",
+  "version": 95,
+  "updated_at": "2026-11-14T11:19:46.470Z",
   "apps": [
     {
       "name": "chess",
@@ -439,7 +439,7 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "4.7.0",
+      "version": "4.8.0",
       "description": "全班同处一片云海群岛的多人小世界。v4.3「手感」：走过光点就自动捡起来，不用再停下来按按钮；连击到 8 会短暂加速；草地会随风起伏，萤火虫贴着草面飘 —— 世界不再是张静止的图。 v4.4「星露谷的一天」：一天 6 分钟，全班同住一个日历；一天浇一瓢水、隔夜长一节、浇了才长 —— 「明天再来」就是这个游戏的心跳。",
       "author": "ClassIntra",
       "files": [
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "3e741c5f564b1b2d6333e6879364f2eb1e92a72145c38785849da7c7b677fce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "d2fe6984f82e888e314156d835c14d0723f71cabb2b6807d496f224232c467ca",
+        "backend/routes.js": "21330eacce0ac95d085dcc8cc7d20536dffdd393eede6eee24a9a69370dcd966",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
-        "CHANGELOG.md": "7407a0dea815b483afac84af05219418ac49c23f65b72c13c6139c031e2b48c0",
-        "frontend/entry.js": "36e852dfd880772d7781a20854849a2fd890ad7f276d6f234462234cfb906c76",
+        "CHANGELOG.md": "c440bc45d66913116f958018f4b1a4c11330d42c48f7376174b6c88e39e39058",
+        "frontend/entry.js": "a9f98d2ed40f67df643be7835439ec2dee899eb20c080d19d4c29ab5886634e9",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -482,15 +482,15 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "9dac7d94b3b7066ac8dfe9cd351a057cb2b3a772f21a79ee3a0b8a213606336c",
+        "frontend/style.css": "e0fc815829f779fc7e920c1dbec6614464b616b9214632ac3b12c7ee5a3b1637",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "ad53b39efbb2fe173d5c900f7992cd48deca0bdc34849313a8d7cffd243e5900",
+        "manifest.json": "e077e97c860ca9057e1d9255a2aa850daaa223d43dd6ff4f52cb5df0bb444b68",
         "preview.png": "2cb9e6ba46f3210bc8c9e14146a9c1201511472a2ec53e157319181c16a5d768",
-        "README.md": "2b90bb125e39ecc4f4d741c2c43e93617e81e926e172267309caad0ab89062e6",
+        "README.md": "c1dfb9eb07918a6f66badda80f27ddb042b61dc86fe862ed9fa0cde5a274e200",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
         "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",
         "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
-        "test/e2e.mjs": "539b08764c2da390adbbe82ea5e62f3231c6194dc4f12e519e7750dcff54c233"
+        "test/e2e.mjs": "3dbdd11966f068556dbed4044307db6b5cd5ee8494b2da18251c69d7d09be1ca"
       },
       "icon": "./icon.svg",
       "screenshots": [

@@ -1752,6 +1752,86 @@
   margin-top: 1px;
 }
 
+/* ---------------- v4.8 开场剧情演出 ---------------- */
+
+.sg-cinema {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: radial-gradient(ellipse at 50% 42%, rgba(16, 26, 52, 0.97), rgba(3, 6, 14, 0.995));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 1.1s var(--sg-ease);
+}
+
+.sg-cinema.is-show {
+  opacity: 1;
+}
+
+.sg-cinema-stars {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.sg-cinema-star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: rgba(214, 228, 255, 0.85);
+  animation: sg-twinkle 3.2s ease-in-out infinite;
+}
+
+@keyframes sg-twinkle {
+  0%, 100% { opacity: 0.15; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+.sg-cinema-text {
+  position: relative;
+  max-width: 560px;
+  padding: 0 28px;
+  text-align: center;
+}
+
+.sg-cinema-line {
+  font-size: 15px;
+  line-height: 2.1;
+  color: rgba(226, 234, 252, 0.92);
+  margin: 6px 0;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 1.4s var(--sg-ease), transform 1.4s var(--sg-ease);
+}
+
+.sg-cinema-line.is-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.sg-cinema-skip {
+  position: absolute;
+  right: 22px;
+  bottom: 20px;
+  padding: 7px 18px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--sg-ink-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* ---------------- v4.7 完整世界：背包/剧情/好感 ---------------- */
 
 .sg-story-para {
