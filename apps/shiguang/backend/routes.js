@@ -737,6 +737,14 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, np
 // v4.7 —— NPC 好感度与剧情已读。
 // 送礼给岛民会攒好感：陌生 → 熟识 → 知己，台词与称呼都会变。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_favor (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, favor INTEGER NOT NULL DEFAULT 0, last_gift_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, npc_id))');
+(function ensureFavorRewarded() {
+  try {
+    var fr = db.prepare('PRAGMA table_info(shiguang_npc_favor)').all();
+    var fk = {};
+    for (var fi = 0; fi < fr.length; fi++) fk[fr[fi].name] = true;
+    if (!fk.rewarded) db.exec('ALTER TABLE shiguang_npc_favor ADD COLUMN rewarded INTEGER NOT NULL DEFAULT 0');
+  } catch (e) {}
+})();
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_story_read (user_id TEXT NOT NULL, chapter TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, chapter))');
 
 // v4.8 相遇簿：见过的每一个人都留档。交友不是系统给你配的，是你们在岛上撞见的。
@@ -3017,7 +3025,20 @@ router.post('/npc/gift', requireAuth, function (req, res) {
   var p = online.get(userId);
   if (p) { p.shards = Math.max(0, (p.shards || 0) - shards); online.set(userId, p); }
   var level = favor >= 15 ? '知己' : (favor >= 5 ? '熟识' : '陌生');
-  res.json({ code: 200, data: { npc: nid, favor: favor, level: level, shards: row.shards - shards } });
+  // 好感兑现：第一次达到「知己」→ 5 赠送学元（TA 把你当真正的朋友了）
+  var rewardedNow = false;
+  try {
+    var favRow2 = db.prepare('SELECT rewarded FROM shiguang_npc_favor WHERE user_id = ? AND npc_id = ?').get(userId, nid);
+    if (favor >= 15 && favRow2 && !favRow2.rewarded) {
+      db.prepare('UPDATE shiguang_npc_favor SET rewarded = 1 WHERE user_id = ? AND npc_id = ?').run(userId, nid);
+      try {
+        hostLedger.giftGrant('shiguang', userId, userId, 500, { ref: 'favor:' + nid, memo: '与' + n.def.name + '成为知己' });
+        rewardedNow = true;
+        broadcast('shiguang.you.gift_xy', { from: userId, fromName: n.def.name, to: userId, toName: userName(userId), amount: 5 }, [userId]);
+      } catch (e6) {}
+    }
+  } catch (e5) {}
+  res.json({ code: 200, data: { npc: nid, favor: favor, level: level, rewarded: rewardedNow, shards: row.shards - shards } });
 });
 
 // ---------- v4.7 剧情接口：《灯火纪》 ----------

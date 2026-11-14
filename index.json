@@ -1,6 +1,6 @@
 {
-  "version": 114,
-  "updated_at": "2026-11-14T14:04:01.572Z",
+  "version": 115,
+  "updated_at": "2026-11-14T14:05:06.661Z",
   "apps": [
     {
       "name": "chess",
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "3e741c5f564b1b2d6333e6879364f2eb1e92a72145c38785849da7c7b677fce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "2be401b456b64d70ec169c3eff2e24f1b624c4ccfaa71f4b03d5a6d12b0a8bb8",
+        "backend/routes.js": "cf93a9f1433cef9f146f597411c9b436a0889b8ae4713c4bca316974882116c2",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
         "CHANGELOG.md": "8c4ed39c15c20bc64b910ccbede1b0c1650e6bd4ca67e38ab41d08c3f5951182",
-        "frontend/entry.js": "c8bb67d8e3d4674dd6f10524f6e879fc6925c989c32540669ed30763752c45aa",
+        "frontend/entry.js": "870d372c9e98550930aecdc7b2ff1f50d6ae11c9a3a2c57996d842199d7ceb80",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",

@@ -9249,7 +9249,12 @@
         talkFavorFill.style.width = Math.min(100, Math.round(((d.favor || 0) / 15) * 100)) + '%';
         talkFavorLabel.textContent = '好感 · ' + (d.level || '陌生');
         sfx.award();
-        toast('TA 收下了　好感 +2', 'warm');
+        if (d.rewarded) {
+          toast('「知己」达成　TA 送了你 5 学元（已入学元钱包）', 'award');
+          refreshWallet();
+        } else {
+          toast('TA 收下了　好感 +2', 'warm');
+        }
         updateHud();
       }).catch(function() { toast('送礼失败'); });
     });
