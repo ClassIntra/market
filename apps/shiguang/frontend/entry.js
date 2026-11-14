@@ -1849,6 +1849,11 @@
     }
 
     // ---------- 地面碎笔（草叶 / 砂点） ----------
+    // 风。草簇每帧重画，所以只要把「尖端」按时间偏移一点，
+    // 整片草地就会慢慢起伏 —— 这是让静态地图「活起来」最便宜的一招：
+    // 不加任何物件，只让已有的线动起来。
+    var groundNow = 0;
+
     function collectGround(x, y, sx, sy, t, pGrassA, pGrassB, pSandA, pSandB, pRipple) {
       if (!state.explored || !state.explored[y * state.size + x]) return;
       var code = state.cells.charCodeAt(y * state.size + x) - 48;
@@ -1861,7 +1866,10 @@
           var hgt = t * (0.065 + hash2(x, y, 23) * 0.125);
           var sp1 = t * (0.020 + hash2(x, y, 43) * 0.030);
           var sp2 = t * (0.040 + hash2(x, y, 47) * 0.032);
-          var lean = t * (hash2(x, y, 53) - 0.5) * 0.05;
+          // 每格一个相位：风不是整片一起摆，而是像麦浪一样从一边推过去。
+          // 相位系数取 0.55 / 0.33（互质感），避免出现规整的斜条纹。
+          var sway = Math.sin(groundNow * 0.0013 + x * 0.55 + y * 0.33) * t * 0.020;
+          var lean = t * (hash2(x, y, 53) - 0.5) * 0.05 + sway;
           pGrassA.moveTo(cxp, cyp); pGrassA.lineTo(cxp - sp1 + lean, cyp - hgt);
           pGrassA.moveTo(cxp + sp2, cyp + t * 0.02); pGrassA.lineTo(cxp + sp2 + lean, cyp - hgt * 0.74);
           pGrassA.moveTo(cxp - sp2, cyp + t * 0.03); pGrassA.lineTo(cxp - sp2 - sp1 + lean, cyp - hgt * 0.56);
@@ -1870,8 +1878,9 @@
           var cxp2 = sx + t * (0.18 + hash2(x, y, 31) * 0.64);
           var cyp2 = sy + t * (0.30 + hash2(x, y, 37) * 0.46);
           var hgt2 = t * (0.06 + hash2(x, y, 41) * 0.09);
-          pGrassB.moveTo(cxp2, cyp2); pGrassB.lineTo(cxp2 + t * 0.026, cyp2 - hgt2);
-          pGrassB.moveTo(cxp2 + t * 0.048, cyp2 + t * 0.02); pGrassB.lineTo(cxp2 + t * 0.070, cyp2 - hgt2 * 0.62);
+          var sway2 = Math.sin(groundNow * 0.0011 + x * 0.61 + y * 0.29) * t * 0.024;
+          pGrassB.moveTo(cxp2, cyp2); pGrassB.lineTo(cxp2 + t * 0.026 + sway2, cyp2 - hgt2);
+          pGrassB.moveTo(cxp2 + t * 0.048, cyp2 + t * 0.02); pGrassB.lineTo(cxp2 + t * 0.070 + sway2, cyp2 - hgt2 * 0.62);
         }
       } else if (code === T_SAND) {
         var s1 = hash2(x, y, 161);
@@ -2637,7 +2646,9 @@
       }
 
       // 零散小物（各岛性格不同）。同样是矢量 —— 见 drawStoneV 的注释。
-      if (n > 0.962) {
+      // 3.8% 的时候，平均 26 格才有一簇草/一块石子 —— 走在草地上什么都没有。
+      // 提到 8% 之后同样的视野里多了一倍细节，成本是每格多一次 hash 判断。
+      if (n > 0.920) {
         var ux = sx + t * (0.30 + hash2(x, y, 151) * 0.40);
         var uy = sy + t * (0.30 + hash2(x, y, 153) * 0.36);
         var ur = t * (0.070 + hash2(x, y, 157) * 0.055);
@@ -4304,7 +4315,7 @@
     // 点灯：光不是从地上长出来的，是从灯里炸开然后往上升。
     // 负重力 —— 火是往上走的，这一条比任何粒子形状都重要。
     function bombBuild(gx, gy) {
-      for (var i = 0; i < 26; i++) {
+      for (var i = 0; i < 18; i++) {
         var a = Math.random() * 6.2832;
         var d = Math.random() * 0.42;
         parts.push({
@@ -4552,6 +4563,55 @@
       }
     }
 
+    // ---------- 萤火虫 ----------
+    // 「世界太空」不是靠加地标解决的：地标是「值得去一次」的点，
+    // 空是「走在路上什么都没有」。所以补的是**路上的东西** ——
+    // 二十几只贴着草面飘的光点，跟着玩家走，走到哪儿哪儿是活的。
+    // 纯客户端、零同步、几乎零成本（每只一个 arc）。
+    var motes = [];
+    function ensureMotes() {
+      if (motes.length) return;
+      for (var i = 0; i < 26; i++) {
+        motes.push({
+          ox: (Math.random() - 0.5) * 22,
+          oy: (Math.random() - 0.5) * 16,
+          ph: Math.random() * 6.2832,
+          sp: 0.10 + Math.random() * 0.16,
+          rr: 0.55 + Math.random() * 0.75
+        });
+      }
+    }
+
+    function drawMotes(ox, oy, t, now) {
+      ensureMotes();
+      var cxp = state.me.x + 0.5;
+      var cyp = state.me.y + 0.5;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < motes.length; i++) {
+        var m = motes[i];
+        // 在玩家周围缓慢绕圈；超出 20 格就绕回来（永不消失，也不会扎堆在一处）
+        var a = m.ph + now * 0.00013 * m.sp * 60;
+        var mx = cxp + m.ox + Math.cos(a) * 2.2;
+        var my = cyp + m.oy + Math.sin(a * 0.8) * 1.6;
+        // 只在灯火能照到的范围里飘：飘到纯黑处会变成「黑暗里不该有光点」
+        if (Math.abs(mx - cxp) > 11 || Math.abs(my - cyp) > 8) {
+          m.ox = (Math.random() - 0.5) * 20;
+          m.oy = (Math.random() - 0.5) * 14;
+        }
+        var sx = ox + mx * t;
+        var sy = oy + my * t;
+        if (sx < -t || sx > view.w + t || sy < -t || sy > view.h + t) continue;
+        var blink = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now * 0.0011 * m.rr + m.ph));
+        // 偏暖、比星点大一点：要读成「虫子」，不是「星星」
+        ctx.fillStyle = 'rgba(255, 208, 116, ' + (0.40 * blink).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(sx, sy, t * 0.048 * m.rr, 0, 6.2832);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     // ---------- 黑暗层：把「剩下多少火」直接画成「还能看多远」 ----------
     //
     // 半分辨率离屏 + destination-out 挖洞。
@@ -4780,6 +4840,7 @@
       // 鲸影贴着云海游（陆地之下、雾之上）
       drawWhale(ox, oy, t, now);
 
+      groundNow = now;
       var pGrassA = new Path2D();
       var pGrassB = new Path2D();
       var pSandA = new Path2D();
@@ -5061,6 +5122,7 @@
       // ⚠️ 雾灵和火量环必须画在黑暗层**之后**。
       // 这两个东西都是「发光的信使」，压在黑暗底下等于自己把自己关掉 ——
       // 我第一次就是这么写的，低火截图里雾灵只剩两团看不清的蓝灰斑。
+      drawMotes(ox, oy, t, now);
       drawWraiths(ox, oy, t, now);
       drawLightRing(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t, now);
       drawVeil(now);
@@ -5577,6 +5639,13 @@
     // ---------- §9 输入与玩法动作 ----------
 
     var lastMoveAt = 0;
+    // 8 连击后的短暂提速窗口（毫秒时间戳）。只影响本地节奏，
+    // 服务端 MOVE_MIN_GAP_MS=80 仍然兜底，不会被当成加速外挂。
+    var comboRushUntil = 0;
+
+    function moveGapNow() {
+      return Date.now() < comboRushUntil ? Math.max(MOVE_GAP * 0.62, 82) : MOVE_GAP;
+    }
 
     // ---------- 点击移动（BFS 寻路 + 沿路自动行走） ----------
     // 点地面任意可走格 → 客户端 BFS（CLOUD 与 LAKE 都是墙）→ ticker 每 180ms
@@ -5705,7 +5774,7 @@
         return;
       }
       var now = Date.now();
-      if (now - lastMoveAt < MOVE_GAP) return;
+      if (now - lastMoveAt < moveGapNow()) return;
       lastMoveAt = now;
 
       state.me.x = nx;
@@ -5731,6 +5800,9 @@
         }
         if (data.reveal) revealCells(data.reveal);
         updateHud();
+        // 走到光点上就顺手捡走。手动「采集」按钮仍然保留（站着不动时用），
+        // 但走路本身就是产出 —— 探索不再需要停下来按十次按钮。
+        if (!walkPath.length && (nodeUnderMe() || meteorNodeUnderMe())) doGather(true);
       }).catch(function() {
         state.me.x = nx - dx;
         state.me.y = ny - dy;
@@ -6062,9 +6134,11 @@
 
     // ---------- 动作 ----------
 
-    function doGather() {
+    // quiet = true 时不弹 toast、不打断自动寻路 —— 供「走过去自动捡」调用。
+    // 一个走路游戏里，让玩家为每一颗星屑按一次按钮，是把探索变成行政工作。
+    function doGather(quiet) {
       if (!state.ready) return;
-      if (walkPath.length) stopWalk();
+      if (!quiet && walkPath.length) stopWalk();
       var x = state.me.x;
       var y = state.me.y;
 
@@ -6102,18 +6176,21 @@
       http('post', '/shiguang/gather', { x: x, y: y }).then(function(data) {
         if (!data) return;
         if (data.rejected) {
-          if (data.rejected === 'cooldown') toast('这颗刚刚被采走了');
-          else toast('脚下没有可采的星屑');
+          // 自动捡的时候不要说这些：走过一片采空的区域会连弹十条提示
+          if (!quiet) {
+            if (data.rejected === 'cooldown') toast('这颗刚刚被采走了');
+            else toast('脚下没有可采的星屑');
+          }
           return;
         }
         // 增量要在覆盖 state.me.shards 之前算出来，浮字上写的必须是这一次真的捡到几枚
         var gain = Math.max(1, (data.shards | 0) - (state.me.shards | 0));
-        state.me.shards = data.shards;
+        if (typeof data.shards === 'number') state.me.shards = data.shards;
         // 采集是唯一的「主动补火」：连击加成也回一点火 —— 快节奏本身就有奖励
         lightState.v = Math.min(LIGHT_MAX, lightState.v + (data.meteor ? 22 : 14) + (data.comboBonus ? data.comboBonus * 3 : 0));
         if (data.meteor) {
           delete state.meteorNodes[x + ',' + y];
-          toast('拾到一颗星陨　共 ' + data.shards + ' 枚星屑', 'warm');
+          if (!quiet) toast('拾到一颗星陨　共 ' + data.shards + ' 枚星屑', 'warm');
         } else {
           state.gathered[x + ',' + y] = Date.now();
           // 连击反馈：×2 起浮字，×4 起变调，×8 起金字加码 —— 节奏感全靠递进
@@ -6122,7 +6199,11 @@
             audio.blip(520 + Math.min(10, data.combo) * 55, 0.18, 'sine', 0.12, 0);
           }
           spawnFloat(x + 0.5, y - 0.05, '+' + (data.gain || 1), [255, 236, 170], 0.26);
-          toast('+' + (data.gain || 1) + ' 星屑　共 ' + data.shards + ' 枚' + (data.combo >= 4 ? '　连击 ×' + data.combo : ''));
+          if (!quiet) {
+            toast('+' + (data.gain || 1) + ' 星屑　共 ' + data.shards + ' 枚' + (data.combo >= 4 ? '　连击 ×' + data.combo : ''));
+          }
+          // 8 连击：短暂提速。手感上「越捡越快」比任何数字都更能让人停不下来。
+          if (data.combo >= 8) comboRushUntil = Date.now() + 4000;
         }
         if (data.reveal) revealCells(data.reveal);
         bombGather(x + 0.5, y + 0.5, !!data.meteor, gain);
