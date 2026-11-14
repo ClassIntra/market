@@ -902,6 +902,7 @@
 
     pills.appendChild(pillShard);
     pills.appendChild(pillLamp);
+    pills.appendChild(pillDay);
     hud.appendChild(pills);
 
     var stage = el('div', 'sg-stage');
