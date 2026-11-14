@@ -511,6 +511,24 @@ ok(r.json.data.chapters[0].read === true, '已读状态回读');
 teleport(U.b, 0, 0);
 await call('POST', '/api/shiguang/enter', U.b, {});
 
+// ---------- v4.14 《先行者的信》 ----------
+section('五点五七、先行者的信（v4.14）');
+r = await call('GET', '/api/shiguang/letters', U.a);
+ok(r.json && r.json.data && r.json.data.letters && r.json.data.letters.length === 10,
+  '十封信目录齐（已拾 ' + (r.json.data ? r.json.data.foundCount : 0) + '）');
+const letL2 = (r.json.data.letters || []).find((l) => l.id === 'L2');
+ok(letL2 && letL2.found === false && letL2.paras === null, '未拾的信正文保密');
+teleport(U.a, letL2 ? (letL2.x || 117) : 117, letL2 ? (letL2.y || 135) : 135);
+// L2 的 x/y 未拾时是 null —— 用服务端坐标直接给（e2e 特权：走 DB 定位）
+// 先用 L10（出生点旁，坐标公开于内容中）来测拾取：teleport 到 L10 (120,136)
+teleport(U.a, 120, 136);
+r = await call('POST', '/api/shiguang/letters/find', U.a, { id: 'L10' });
+ok(r.json && r.json.data && r.json.data.title === '给后来的人（续）', '拾起 L10「给后来的人（续）」', r.json && r.json.data);
+r = await call('POST', '/api/shiguang/letters/find', U.a, { id: 'L10' });
+ok(r.json && r.json.data && r.json.data.rejected === 'already', '重复拾取被拒（already）');
+r = await call('POST', '/api/shiguang/letters/find', U.a, { id: 'L1' });
+ok(r.json && r.json.data && r.json.data.rejected === 'far', '隔空拾信被拒（far）');
+
 // ---------- v4.2 星露谷的一天 ----------
 section('五点五、星露谷的一天（v4.2）');
 r = await call('POST', '/api/shiguang/enter', U.a, {});

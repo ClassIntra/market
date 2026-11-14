@@ -1,6 +1,6 @@
 {
-  "version": 120,
-  "updated_at": "2026-11-14T14:32:10.688Z",
+  "version": 123,
+  "updated_at": "2026-11-14T14:50:12.493Z",
   "apps": [
     {
       "name": "chess",
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "3e741c5f564b1b2d6333e6879364f2eb1e92a72145c38785849da7c7b677fce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "a1ee621f51cba28b450b8ffe8726a61d450bf1a6b0808684a4e6a7140cbd3032",
+        "backend/routes.js": "4a7c94fabff12f079357a353a83f1163698d3d71715d05e92da6cb1075cb129b",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
         "CHANGELOG.md": "8c4ed39c15c20bc64b910ccbede1b0c1650e6bd4ca67e38ab41d08c3f5951182",
-        "frontend/entry.js": "0cbfcce2e9ba8d43475c34b508f25604b45535634e3a95c96a6d64a56fa66bd8",
+        "frontend/entry.js": "ceef406924572ad1eeb64e504ece8c3196267f4b1144d45db9326a434e632edd",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -490,7 +490,7 @@
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
         "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",
         "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
-        "test/e2e.mjs": "dedef4fca32004d7862b1558310f7f94a93ceb2ff5fc230c32e610cf0382905b"
+        "test/e2e.mjs": "e5fce57b26e23b85e27a2a545ad9ffce81e60120872efc37e3be9ac7dd173a98"
       },
       "icon": "./icon.svg",
       "screenshots": [

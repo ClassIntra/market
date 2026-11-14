@@ -182,6 +182,89 @@ var NPC_TALKS = {
   ]
 };
 
+// ---------------- v4.14 深层台词：好感解锁的第二人生 ----------------
+// 熟识（favor≥5）解锁 DEEP 层——TA 开始跟你讲「不会对陌生人讲的事」；
+// 知己（favor≥15）解锁 CONFIDE 层——TA 只对你一个人说的心里话。
+// 台词即奖励：好感系统不只是数字，是「这个人对你打开了多少」。
+var NPC_DEEP = {
+  npc_li: {
+    deep: [
+      ['我给你讲个没跟别人讲过的。', '灯塔点亮的第一夜，我在灯室里发现一行字——是上一个守灯人刻的：', '「灯油终会烧完。你要守的不是灯，是点灯的人。」', '我守了二十年才读懂这句话。'],
+      ['你跟同学们处得怎么样？', '他们不需要你守。', '但你需要他们——「有人在」这件事，从来都是相互的。']
+    ],
+    confide: [
+      ['其实我有一年差点走了。', '行李都收拾好了，站在码头上。那天雾特别大，什么都看不见。', '然后灯塔的光扫过来，在雾里转了一圈。', '我站到天亮，把行李又搬了回去。', '不是雾散了。是我发现，我走了它就真的灭了。'],
+      ['等你老了，可能也会守着什么东西。', '别怕。守着守着你就明白了——', '不是你离不开它，是它因为你才「在」。']
+    ]
+  },
+  npc_yao: {
+    deep: [
+      ['我数星星的时候发现一件事。', '长夜之后，天上少了一颗星。不多不少，正好一颗。', '我查了三年的记录——它消失的那晚，就是先行者「走散」的那晚。', '那颗星去哪了？我有个猜想，但不说。猜错了会难过。'],
+      ['你见过萤火泽的萤环吗？', '那些光点不是虫——我看过它们停下来。', '停下来的时候，每一只里面都有一个小小的、人形的影子。']
+    ],
+    confide: [
+      ['我跟你讲我真的想法。', '我不怕长夜。我怕的是天亮。', '天一亮，「大家一起点灯」就结束了——各回各家，各点各的。', '可我喜欢的是所有人挤在灯塔下看光扫过来的样子。', '……这话别跟别人讲。说了显得我不盼着天亮似的。'],
+      ['给你看样东西。', '（她翻开星图，指向两颗星之间）这里。少掉的那颗星应该在的位置。', '我给它留了空。万一它回来了呢。']
+    ]
+  },
+  npc_lu: {
+    deep: [
+      ['钓鱼的人分两种。', '一种钓「吃」，一种钓「等」。我是第二种。', '海教我的：你越急，它越不给。你坐得住，它什么都给。', '这个道理用在哪儿都行。我劝过很多人，听进去的不多。'],
+      ['泽畔的芦苇，秋天会全白。', '白成一片的时候，像海把头发染了。', '我年轻的时候想离开群岛去看真正的海。后来发现——这儿的每滴水都是从真正的海来的。']
+    ],
+    confide: [
+      ['讲一件我谁都没讲过的。', '我有一次钓上来的不是鱼——是一只漂流瓶，里面的信写给「第一个读到的人」。', '我读了。读完把它扔回海里了。', '因为信的最后写：「读完请放回，让下一个人也疼一下。」', '疼一下，才记得住。'],
+      ['你等过什么吗？', '等过一件很久很久的事，等到忘了自己在等的那种？', '我等了二十年，等大鱼。也可能是在等别的。等忘了就好受了。']
+    ]
+  },
+  npc_lang: {
+    deep: [
+      ['花认识每一个种它的人。', '这不是比喻。你天天浇的那株，花开的那天会朝着你的方向偏一点。', '我观察了十年。偏一点点，不多。但确实偏。'],
+      ['光花跟别的花不一样。', '别的花开完就谢。光花是「记住」开的——你走夜路它给你留一盏。', '所以别催它。它记你记多久，你就陪它多久。']
+    ],
+    confide: [
+      ['我的真名不叫榔。', '榔是花匠的代号——守花的人都用木字旁的名字。这是先行者的规矩。', '栗、遥、芦，都不是真名。我们把自己的名字种进花里了。', '你要是想记我们，就记花名。花名是真的。'],
+      ['替我种一株。', '随便哪儿。别告诉我。', '等它开了我自己会看见——这岛上开的花，没有我不认识的。']
+    ]
+  },
+  npc_seed: {
+    deep: [
+      ['做种子生意的人不赌，但讲缘分。', '有个孩子用最后一枚星屑买了颗星苔，第二天收了四枚。', '我免了他后半辈子的种子钱。他自己不知道——我每次「算错」都多给他。'],
+      ['你问种子为什么这么贵？', '不是种子贵。是「可以种」这件事贵。', '整个群岛能下种的土地，都是先行者一锄头一锄头开出来的。']
+    ],
+    confide: [
+      ['钱庄的算问我：攒这么多种子卖不完怎么办？', '我说：不卖。', '总有一年，会有人需要很多很多种子。那时候柜台里有多少，就得有多少。', '我等那天。等了十二年。'],
+      ['跟你说句掏心窝的。', '你的田种得好。比我见过的绝大多数人都好。', '……好了，别挡着我做生意。']
+    ]
+  },
+  npc_attire: {
+    deep: [
+      ['裁缝看人先看袖口。', '袖口磨亮的，是干活的人。袖口沾泥的，是种地的人。袖口烧焦的——', '是守灯的。守灯人的袖口总有火星烫的小洞。', '栗的袖口我补了二十年。'],
+      ['你戴的帽子是你自己挣的。', '这最难得。买来的帽子谁都能戴——挣来的，戴上才知道沉。']
+    ],
+    confide: [
+      ['帛不是我的本名。', '「帛」是布料的意思。老裁缝说：好裁缝要把自己活成一块布——', '别人需要什么形状，你就得是什么形状。', '我做到了。就是有时候，不知道自己原本是什么形状了。', '……好了，这句话你听过就忘。'],
+      ['这件斗篷我压箱底十年。', '给「下一个守灯人」做的。一直没等到那个人。', '你肩宽差不多。收着吧——等你用得上的时候，它自己会合身。']
+    ]
+  },
+  npc_bank: {
+    deep: [
+      ['账房先生的学问不在算盘上。', '在「知道别人为什么花钱」。', '种地的花钱买种子——买的是明年。钓鱼的花钱买耐心——买的是不急。', '看懂了这个，账本就是一本小说。'],
+      ['学元这种东西，规定它的用途不难。', '难的是让人心甘情愿。', '赠送学元的规定很好：能送人，不能买东西。', '「能送出去的才是自己的」——这是学元体系里我最喜欢的一条。']
+    ],
+    confide: [
+      ['算盘每天晚上都归零。', '数字清了，人就散了。我留在柜台后面，总觉得空。', '直到你们班的第一个孩子来查账——问的问题都不在账本上。', '「海的那边是什么？」「先行者还回来吗？」', '这些问题没人答得了。但柜台后面有人问，我就不空了。'],
+      ['我抽屉里有一页旧账。', '是先行者的。最后一笔记着：「支出一百盏灯的收入，结余：零。」', '结余零。他们把一切都留给了后来的人。', '我管账一辈子，最敬这一笔。']
+    ]
+  }
+};
+
+function npcFavorOf(userId, nid) {
+  var favRow = null;
+  try { favRow = db.prepare('SELECT favor FROM shiguang_npc_favor WHERE user_id = ? AND npc_id = ?').get(userId, nid); } catch (e) {}
+  return (favRow && favRow.favor) || 0;
+}
+
 // 动态台词：轮流播报六种「世界的真实状态」。
 // phase 是「固定剧情之后聊到第几轮」，从 0 开始 —— 所以第一次进入动态模式
 // 说的就是灯数（玩家最需要知道的那个数字），而不是随机某一条。
@@ -310,6 +393,23 @@ function npcTalkFor(nid, userId) {
   }
   if (said < script.length) {
     return { lines: script[said], said: said + 1, fixed: true, step: said };
+  }
+  // v4.14 深层台词：固定剧本讲完 → 好感解锁的 DEEP / CONFIDE 层 → 才进动态轮换
+  var deep = NPC_DEEP[nid];
+  if (deep) {
+    var favor = npcFavorOf(userId, nid);
+    var dynDone = said - script.length;
+    if (favor >= 15 && deep.confide) {
+      var ci = dynDone - (deep.deep ? deep.deep.length * 2 : 0) - 3;
+      if (ci >= 0 && ci < deep.confide.length) {
+        return { lines: deep.confide[ci], said: said + 1, fixed: true, step: said };
+      }
+    } else if (favor >= 5 && deep.deep) {
+      var di = dynDone - 3;
+      if (di >= 0 && di < deep.deep.length) {
+        return { lines: deep.deep[di], said: said + 1, fixed: true, step: said };
+      }
+    }
   }
   return { lines: npcDynamicLine(nid, said - script.length, userId), said: said + 1, fixed: false, step: said };
 }
@@ -531,6 +631,85 @@ function currentGoal(userId) {
   // 目标链走完 → 交给《灯火纪》：当前最靠前的未读章节就是新目标
   return null;
 }
+
+// ---------------- v4.14 《先行者的信》 ----------------
+// 十封信 = 一部拆开的史诗。信的内容互相呼应《灯火纪》正文，
+// 但每封都只给一个碎片 —— 「拼图」比「答案」更能让人到处走。
+var LETTERS = [
+  { id: 'L1', x: 121, y: 121, title: '灯油在石头下面', isle: '启明岛',
+    paras: ['给后来的人：', '灯油在灯塔基座第二块石头下面。别问为什么藏起来——', '有光的地方，就会有人想来吹灭它。', '——先行者 敬上'] },
+  { id: 'L2', x: 117, y: 135, title: '第一年', isle: '启明岛',
+    paras: ['第一年结束的时候，我们点了一百盏灯。', '那天夜里所有的光连成了一片，鲸群跳出来，一共跳了七次。', '我们数了。数到第七次的时候所有人都哭了，谁也没说为什么。'] },
+  { id: 'L3', x: 51, y: 48, title: '名字', isle: '雾隐岛',
+    paras: ['巨树记得每一个在树下说话的人。', '所以我们把名字刻在石碑上——刻上去，就不是告别了。', '雾散的时候你去看：碑上的字会发光。那不是魔法，是「被记得」。'] },
+  { id: 'L4', x: 195, y: 183, title: '海的那边', isle: '望潮岛',
+    paras: ['有人在望潮池里看见过更大的城——灯火比我们全部加起来还亮。', '我没见过。我只见过退潮之后留在池子里的光屑。', '但我知道海的那边也需要灯。哪里都有走夜路的人。'] },
+  { id: 'L5', x: 186, y: 45, title: '星星的种子', isle: '星坠岛',
+    paras: ['星屑是什么？是星星落下来摔碎的部分。', '碎掉的星星不会死——它们落在草里，学会了自己发光。', '你捡起一颗的时候轻一点。它可能做了很久的梦才落到这里。'] },
+  { id: 'L6', x: 75, y: 60, title: '走散', isle: '云桥·西北',
+    paras: ['第七个人走了。没有告别，没有留信。', '他的灯还挂在桥柱上，我们谁也不敢摘。', '走散不一定是坏事——他可能只是先一步，去了需要灯的地方。'] },
+  { id: 'L7', x: 117, y: 21, title: '最冷的那年', isle: '霜屿',
+    paras: ['霜屿那年冬天，云海冻住了一半。', '我们把所有的灯聚在一间屋里，轮流讲笑话——灯油省着烧，笑声不用省。', '后来灯都烧完了，但那年冬天是我们最暖的一年。'] },
+  { id: 'L8', x: 168, y: 102, title: '她种的第一株花', isle: '织花谷',
+    paras: ['她种的第一株花在谷口，月见花，种歪了。', '歪的那株开得最好。谁都解释不了。', '如果你路过，替我看看它还在不在。'] },
+  { id: 'L9', x: 87, y: 198, title: '守夜日志·最后一页', isle: '萤火泽',
+    paras: ['守夜日志最后一页只写了一句话：', '「今晚萤火特别多，像是它们也知道，明天就要换人守了。」', '换我守的时候，萤火一只都没少。它们认的不是人，是「守着」这件事。'] },
+  { id: 'L10', x: 120, y: 136, title: '给后来的人（续）', isle: '启明岛·南岸',
+    paras: ['如果你读到了这一封——十封都找到了——', '请把灯点亮。不是为了我们，', '是为了下一个走夜路的人。', '他们和你一样，需要看见「有人在」。', '——先行者，全体敬上'] }
+];
+
+function lettersFound(userId) {
+  var out = {};
+  try {
+    var rows = db.prepare('SELECT letter_id FROM shiguang_letters WHERE user_id = ?').all(userId);
+    for (var i = 0; i < rows.length; i++) out[rows[i].letter_id] = true;
+  } catch (e) {}
+  return out;
+}
+
+router.get('/letters', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var found = lettersFound(userId);
+  var list = [];
+  for (var i = 0; i < LETTERS.length; i++) {
+    var L = LETTERS[i];
+    list.push({
+      id: L.id, title: found[L.id] ? L.title : '？？？',
+      isle: L.isle, found: !!found[L.id],
+      paras: found[L.id] ? L.paras : null,
+      x: found[L.id] ? L.x : null, y: found[L.id] ? L.y : null
+    });
+  }
+  res.json({ code: 200, data: { letters: list, foundCount: Object.keys(found).length, total: LETTERS.length } });
+});
+
+router.post('/letters/find', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var lid = String((req.body && req.body.id) || '');
+  var L = null;
+  for (var i = 0; i < LETTERS.length; i++) if (LETTERS[i].id === lid) L = LETTERS[i];
+  if (!L) return res.json({ code: 200, data: { rejected: 'unknown' } });
+  // 走近才能拾起（切比雪夫 2 格内；信的格子不必可走——它在石头下/树洞里）
+  if (Math.abs(row.x - L.x) > 2 || Math.abs(row.y - L.y) > 2) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  var found = lettersFound(userId);
+  if (found[lid]) return res.json({ code: 200, data: { rejected: 'already' } });
+  try {
+    db.prepare('INSERT OR IGNORE INTO shiguang_letters (user_id, letter_id, found_at) VALUES (?, ?, ?)').run(userId, lid, Date.now());
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '没能拾起这封信' });
+  }
+  bumpQuest(userId, 'letters', 1);
+  var cnt = Object.keys(lettersFound(userId)).length;
+  // 全收集 = 全班播报
+  if (cnt === LETTERS.length) {
+    broadcast('shiguang.world.legend', { title: '十信俱全', desc: userName(userId) + ' 找齐了《先行者的信》—— 长夜之前的全部故事' });
+  }
+  res.json({ code: 200, data: { id: lid, title: L.title, paras: L.paras, foundCount: cnt, total: LETTERS.length } });
+});
 
 function storyUnlocked(ch, ctx) {
   var c = ch.cond || null;
@@ -788,6 +967,11 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_favor (user_id TEXT NOT NULL, n
   } catch (e) {}
 })();
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_story_read (user_id TEXT NOT NULL, chapter TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, chapter))');
+
+// v4.14 《先行者的信》：十封信散落八岛，走近才能拾起。
+// 收集齐十封，就能拼出「长夜之前到底发生了什么」——
+// 这是世界内容的载体，也是剧情的第二条读法（拾光志里收录）。
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_letters (user_id TEXT NOT NULL, letter_id TEXT NOT NULL, found_at INTEGER NOT NULL, PRIMARY KEY (user_id, letter_id))');
 
 // v4.8 相遇簿：见过的每一个人都留档。交友不是系统给你配的，是你们在岛上撞见的。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_meets (user_a TEXT NOT NULL, user_b TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY (user_a, user_b))');

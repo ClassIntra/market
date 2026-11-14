@@ -325,6 +325,8 @@
       goal: null,               // v4.10 当前目标 { id, title, at }（开场后的「下一步」）
       season: '春',             // 今天的季节
       storyChapters: [],        // 《灯火纪》章节缓存
+      letters: [],              // 《先行者的信》收集状态
+      letterNear: null,         // 脚边可拾的信 { id, title }
       house: null,              // 我的宅基地 { x, y, gate }
       houses: [],               // 全班已认领的宅基地 [{ user_id, name, x, y }]
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
@@ -1072,12 +1074,17 @@
     var btnStele = actBtn('sg-act-stele', 'rune', '触碑', false);
     var btnUpgrade = actBtn('sg-act-upgrade', 'lamp', '升级', false);
     // v4.5 星露谷：夜里（时钟 22:00 后）出现「睡觉」—— 一天的句号
+    // 星露谷的夜里：22:00 后催你睡觉
     var btnSleep = actBtn('sg-act-sleep', 'zzz', '睡觉', false);
     btnSleep.style.display = 'none';
+    // v4.14 拾信按钮：脚边有信时出现
+    var btnPickLetter = actBtn('sg-act-pick', 'book', '拾信', false);
+    btnPickLetter.style.display = 'none';
     acts.appendChild(btnEmote);
     acts.appendChild(btnBottle);
     acts.appendChild(btnUpgrade);
     acts.appendChild(btnSleep);
+    acts.appendChild(btnPickLetter);
     acts.appendChild(btnFly);
     acts.appendChild(btnPlant);
     acts.appendChild(btnBuild);
@@ -5095,6 +5102,8 @@
 
       // v4.7 采集节点呼吸标记（树 / 矿）
       drawGatherNodes(ox, oy, t, now, x0, x1, y0, y1, size);
+      // v4.14 《先行者的信》信点
+      drawLetters(ox, oy, t, now);
 
       drawFogLayer(ox, oy, t);
 
@@ -5769,6 +5778,7 @@
       else if (meteorNodeUnderMe()) key = 'meteor';
       else if (nodeUnderMe()) key = 'node';
       else if (steleNearMe()) key = 'stele';
+      else if (letterNearMe()) key = 'letter';
       else if (nearWorldEdge()) key = 'edge';
       else if (tileUnderMe() === T_DOCK) key = 'dock';
       else if (tileUnderMe() === T_PATH) key = 'path';
@@ -5785,6 +5795,7 @@
       else if (key === 'path') text = '顺着石板路走，就不会迷路';
       else if (key === 'meadow') text = '草地上可以「种花」，它会一直开在这里';
       else if (key === 'meteorFar') text = '流星雨正落在' + (state.meteor.island || '远处') + '……';
+      else if (key === 'letter') text = '脚下有一封信 —— 按「拾信」收进拾光志';
       else if (key === 'edge') text = '这里是世界的边缘 —— 云海之外，什么都没有';
       if (key !== lastHintKey) {
         lastHintKey = key;
@@ -6178,7 +6189,10 @@
       var upLamp = upgradableLampNearMe();
       btnUpgrade.style.display = upLamp && !flying ? '' : 'none';
       // 星露谷的夜里：22:00 后催你睡觉
-      btnSleep.style.display = clockProgress() > 0.80 && !sleepPending ? '' : 'none';
+    // 星露谷的夜里：22:00 后催你睡觉；脚边有信时优先拾信
+      var hasLetter = letterNearMe();
+      btnSleep.style.display = clockProgress() > 0.80 && !sleepPending && !hasLetter ? '' : 'none';
+      btnPickLetter.style.display = hasLetter ? '' : 'none';
 
       // v4.2 星露谷的一天：顶栏常驻日历
       if (dayVal) dayVal.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
@@ -7249,6 +7263,10 @@
     btnStele.addEventListener('click', doStele);
     btnUpgrade.addEventListener('click', doUpgrade);
     btnSleep.addEventListener('click', doSleep);
+    btnPickLetter.addEventListener('click', function() {
+      var lt = letterNearMe();
+      if (lt) pickLetter(lt.id);
+    });
     onDestroy(function() {
       btnGather.removeEventListener('click', doGather);
       btnBuild.removeEventListener('click', doBuild);
@@ -7257,6 +7275,7 @@
       btnFly.removeEventListener('click', doFly);
       btnUpgrade.removeEventListener('click', doUpgrade);
       btnSleep.removeEventListener('click', doSleep);
+      btnPickLetter.removeEventListener('click', function() {});
       btnStele.removeEventListener('click', doStele);
     });
 
@@ -8145,6 +8164,128 @@
       }).catch(function() {});
     }
 
+    // ---------- v4.14 《先行者的信》 ----------
+    // 十封信散落八岛。走近信点（2 格内）出现「拾起」提示，按 F 或点击拾起；
+    // 演出是一封信在屏幕上展开。收集齐十封，长夜之前的故事就拼完了。
+    var LETTER_IDS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'L10'];
+    var LETTER_POS = { L1: [121, 121], L2: [117, 135], L3: [51, 48], L4: [195, 183], L5: [186, 45],
+                       L6: [75, 60], L7: [117, 21], L8: [168, 102], L9: [87, 198], L10: [120, 136] };
+    var LETTER_ISLES = { L1: '启明岛', L2: '启明岛', L3: '雾隐岛', L4: '望潮岛', L5: '星坠岛',
+                         L6: '云桥·西北', L7: '霜屿', L8: '织花谷', L9: '萤火泽', L10: '启明岛·南岸' };
+
+    function letterById(lid) {
+      for (var i = 0; i < state.letters.length; i++) {
+        if (state.letters[i].id === lid) return state.letters[i];
+      }
+      return null;
+    }
+
+    function letterNearMe() {
+      // 脚边有没有未拾的信（世界数据在客户端按 LETTER_POS 本地判定）
+      for (var i = 0; i < LETTER_IDS.length; i++) {
+        var lid = LETTER_IDS[i];
+        var rec = letterById(lid);
+        if (rec && rec.found) continue;
+        var pos = LETTER_POS[lid];
+        if (!pos) continue;
+        if (Math.abs(state.me.x - pos[0]) <= 1 && Math.abs(state.me.y - pos[1]) <= 1) {
+          return { id: lid, title: '一封信（' + (LETTER_ISLES[lid] || '') + '）' };
+        }
+      }
+      return null;
+    }
+
+    function refreshLetters() {
+      http('get', '/shiguang/letters').then(function(d) {
+        if (d && !d.rejected) state.letters = d.letters || [];
+      }).catch(function() {});
+    }
+
+    function pickLetter(lid) {
+      http('post', '/shiguang/letters/find', { id: lid }).then(function(d) {
+        if (!d) return;
+        if (d.rejected) {
+          if (d.rejected === 'far') toast('再走近一点才能拾起来');
+          else if (d.rejected === 'already') toast('这封信你已经收好了');
+          else toast('这里没有信');
+          return;
+        }
+        refreshLetters();
+        // 拾信演出：信纸展开（复用章节卡骨架，加信纸底色）
+        var card = el('div', 'sg-chapter sg-letter');
+        card.appendChild(el('div', 'sg-chapter-eyebrow', '拾到一封信 · ' + (d.title || '')));
+        var paras = d.paras || [];
+        for (var pi = 0; pi < paras.length; pi++) {
+          card.appendChild(el('div', 'sg-story-para', paras[pi]));
+        }
+        card.appendChild(el('div', 'sg-cf-note', '收录进度：' + (d.foundCount || 1) + ' / ' + (d.total || 10) + ' 封 —— 拾光志可随时重读'));
+        root.appendChild(card);
+        requestAnimationFrame(function() { card.className = 'sg-chapter sg-letter is-show'; });
+        sfx.dawn();
+        setTimeout(function() {
+          card.className = 'sg-chapter sg-letter';
+          setTimeout(function() {
+            if (card.parentNode) card.parentNode.removeChild(card);
+          }, 900);
+        }, 5200);
+        updateHud();
+      }).catch(function() { toast('拾信失败'); });
+    }
+
+    // 信点渲染：未拾的信画「发光信封」，已拾的画淡痕
+    function drawLetters(ox, oy, t, now) {
+      for (var i = 0; i < LETTER_IDS.length; i++) {
+        var lid = LETTER_IDS[i];
+        var pos = LETTER_POS[lid];
+        if (!pos) continue;
+        var rec = letterById(lid);
+        var sx = ox + (pos[0] + 0.5) * t;
+        var sy = oy + (pos[1] + 0.5) * t;
+        if (sx < -t || sx > view.w + t || sy < -t || sy > view.h + t) continue;
+        if (rec && rec.found) {
+          // 已拾：淡淡的书页痕
+          ctx.strokeStyle = 'rgba(214, 228, 255, 0.16)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(sx, sy, t * 0.14, 0, 6.2832);
+          ctx.stroke();
+          continue;
+        }
+        // 未拾：信封呼吸光 + 轻微上下浮动
+        var pk = 0.5 + 0.5 * Math.sin(now * 0.003 + i * 1.9);
+        var bob = Math.sin(now * 0.0016 + i) * t * 0.05;
+        var cx2 = sx;
+        var cy2 = sy - t * 0.12 + bob;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        var lg = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, t * 0.8);
+        lg.addColorStop(0, 'rgba(255, 236, 190, ' + (0.22 + 0.16 * pk).toFixed(3) + ')');
+        lg.addColorStop(1, 'rgba(255, 236, 190, 0)');
+        ctx.fillStyle = lg;
+        ctx.beginPath();
+        ctx.arc(cx2, cy2, t * 0.8, 0, 6.2832);
+        ctx.fill();
+        ctx.restore();
+        // 信封形
+        var ew = t * 0.34;
+        var eh = t * 0.22;
+        ctx.fillStyle = 'rgba(244, 234, 208, 0.94)';
+        ctx.strokeStyle = 'rgba(120, 90, 50, 0.9)';
+        ctx.lineWidth = Math.max(1, t * 0.025);
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(cx2 - ew / 2, cy2 - eh / 2, ew, eh, t * 0.03);
+        else ctx.rect(cx2 - ew / 2, cy2 - eh / 2, ew, eh);
+        ctx.fill();
+        ctx.stroke();
+        // 封口折线
+        ctx.beginPath();
+        ctx.moveTo(cx2 - ew / 2, cy2 - eh / 2);
+        ctx.lineTo(cx2, cy2 + eh * 0.12);
+        ctx.lineTo(cx2 + ew / 2, cy2 - eh / 2);
+        ctx.stroke();
+      }
+    }
+
     // ---------- v4.7 剧情《灯火纪》 ----------
     function refreshStory() {
       http('get', '/shiguang/story').then(function(d) {
@@ -8188,6 +8329,33 @@
       }
       if (!meets.length) meetCard.appendChild(el('div', 'sg-cf-note', '在岛上遇见一位同学，这本簿子就会多一行字。'));
       body.appendChild(meetCard);
+
+      // v4.14 《先行者的信》收录
+      var letters = state.letters || [];
+      var foundCount = 0;
+      for (var li2 = 0; li2 < letters.length; li2++) if (letters[li2].found) foundCount++;
+      var letCard = el('div', 'sg-qcard');
+      letCard.style.marginBottom = '12px';
+      var letHead = el('div', 'sg-bottle-head');
+      letHead.appendChild(el('span', 'sg-bottle-name', '《先行者的信》'));
+      letHead.appendChild(el('span', 'sg-bottle-pos', '收集 ' + foundCount + ' / ' + letters.length + ' 封'));
+      letCard.appendChild(letHead);
+      for (var li3 = 0; li3 < letters.length; li3++) {
+        var L3r = letters[li3];
+        var L3row = el('div', 'sg-sum-row');
+        L3row.appendChild(el('b', 'sg-sum-key', L3r.found ? L3r.title : '？？？'));
+        L3row.appendChild(el('span', 'sg-sum-val', L3r.found ? (L3r.isle || '') : '藏于' + (L3r.isle || '某座岛')));
+        letCard.appendChild(L3row);
+        if (L3r.found && L3r.paras) {
+          for (var lp = 0; lp < L3r.paras.length; lp++) {
+            letCard.appendChild(el('div', 'sg-story-para', L3r.paras[lp]));
+          }
+        }
+      }
+      if (letters.length && foundCount < letters.length) {
+        letCard.appendChild(el('div', 'sg-tip', '信散落在八岛的角落 —— 走到信封的位置就能拾起。'));
+      }
+      body.appendChild(letCard);
 
       var chs = state.storyChapters || [];
       if (!chs.length) {
@@ -9541,6 +9709,7 @@
       refreshStory();
       refreshMeets();
       refreshGoal();
+      refreshLetters();
       applyMeteor(data.meteor);
 
       state.ready = true;
