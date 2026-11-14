@@ -46,6 +46,17 @@ var FLOWER_COOLDOWN_MS = 8 * 1000;
 var FLOWER_WORLD_CAP = 600;     // 全世界同时存在的光花上限（160×160 的大世界）
 var FLOWER_PLAYER_CAP = 40;     // 每人同时拥有的光花上限
 var FLOWER_GROW_MS = 90 * 1000; // 从破土到盛开（客户端按 planted_at 推算生长阶段）
+// ---- 作物（2026-11-14）：光花从「纯装饰」升级成「有产出的作物」 ----
+// 原来的花种下就永远开着，除了好看没有任何作用 —— 于是「种花」是一次性动作，
+// 玩家点一次就再也不会点第二次。改成作物之后，它接上了整个经济：
+//   种（2 星屑）→ 浇水（要回来，最多 3 次，每次让成熟提早）→ 收成（8 星屑）
+// 于是星屑第一次有了「生产」而不只是「捡」，点灯的钱也有了来源。
+var CROP_GROW_MS = 180 * 1000;   // 种下到成熟，3 分钟（一个课间）
+var CROP_WATER_CUT_MS = 40 * 1000; // 每次浇水让成熟提早 40 秒
+var CROP_WATER_MAX = 3;          // 最多浇 3 次 → 最快 60 秒
+var CROP_WATER_GAP_MS = 20 * 1000; // 同一株的浇水中途冷却
+var CROP_YIELD = 8;              // 收成
+var CROP_HELPER_BONUS = 1;       // 帮别人浇过水的人，收成时也拿 1
 
 // 钓星
 var FISH_COOLDOWN_MS = 25 * 1000;
@@ -451,6 +462,21 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_steles (x INTEGER NOT NULL, y INTEG
 // v3.1 —— NPC 对话进度：每人跟每个 NPC 聊到第几句。
 // 必须落库：一次会话里聊完就忘，等于「这个世界不记得你」。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, said INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, PRIMARY KEY (user_id, npc_id))');
+
+// 光花的作物字段：water 浇过几次、ready_at 何时可收、last_water_by 谁浇的最后一瓢。
+// ALTER 没有幂等语法，先查 PRAGMA 再补（和 players 表同一套写法）。
+(function ensureFlowerColumns() {
+  try {
+    var cols = {};
+    var rows = db.prepare('PRAGMA table_info(shiguang_flowers)').all();
+    for (var i = 0; i < rows.length; i++) cols[rows[i].name] = true;
+    if (!cols.water) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN water INTEGER NOT NULL DEFAULT 0');
+    if (!cols.ready_at) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN ready_at INTEGER NOT NULL DEFAULT 0');
+    if (!cols.last_water_by) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN last_water_by TEXT NOT NULL DEFAULT \'\'');
+    if (!cols.water_at) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN water_at INTEGER NOT NULL DEFAULT 0');
+    if (!cols.harvested) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN harvested INTEGER NOT NULL DEFAULT 0');
+  } catch (e) { /* 表还没建出来：下一个请求会再走一遍 */ }
+})();
 
 // v1 → v2 迁移：更新重装时数据保留，players 表需要补新列。
 // ALTER TABLE 没有幂等语法，只能先查 PRAGMA 再逐个补。
@@ -1142,7 +1168,7 @@ router.post('/enter', requireAuth, function (req, res) {
 
   var flowers = [];
   try {
-    flowers = db.prepare('SELECT x, y, species, user_id, created_at FROM shiguang_flowers').all();
+    flowers = db.prepare('SELECT x, y, species, user_id, created_at, water, ready_at, last_water_by FROM shiguang_flowers').all();
   } catch (e) {}
 
   var bits = [];
@@ -1589,8 +1615,8 @@ router.post('/plant', requireAuth, function (req, res) {
   var species = Math.floor(Math.random() * FLOWER_SPECIES.length) % FLOWER_SPECIES.length;
   try {
     var tx2 = db.transaction(function () {
-      db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(x, y, species, userId, now);
+      db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, ready_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(x, y, species, userId, now, now + CROP_GROW_MS);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, planted = planted + 1, last_seen = ?, last_plant_at = ? WHERE user_id = ?')
         .run(FLOWER_COST, now, now, userId);
     });
@@ -1613,7 +1639,104 @@ router.post('/plant', requireAuth, function (req, res) {
       shards: updated ? updated.shards : 0,
       planted: updated ? updated.planted : 0,
       species: species,
-      speciesName: FLOWER_SPECIES[species]
+      speciesName: FLOWER_SPECIES[species],
+      readyAt: now + CROP_GROW_MS
+    }
+  });
+});
+
+// ---------- 作物：浇水 ----------
+// 为什么浇水值得单独一个接口：它是这套循环里唯一「需要你回来」的动作。
+// 不浇水 3 分钟也会熟，浇满 3 次 1 分钟就熟 —— 想快点就得回来。
+// 别人也能浇：浇的人最后分 1 星屑，于是「顺手帮个忙」第一次有了回报。
+router.post('/flower/water', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+
+  var f = null;
+  try { f = db.prepare('SELECT * FROM shiguang_flowers WHERE x = ? AND y = ?').get(row.x, row.y); } catch (e) {}
+  if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
+
+  var now = Date.now();
+  var readyAt = f.ready_at || (f.created_at + CROP_GROW_MS);
+  if (now >= readyAt) return res.json({ code: 200, data: { rejected: 'ripe' } });
+  if ((f.water || 0) >= CROP_WATER_MAX) return res.json({ code: 200, data: { rejected: 'full' } });
+  if (f.water_at && now - f.water_at < CROP_WATER_GAP_MS) {
+    return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((CROP_WATER_GAP_MS - (now - f.water_at)) / 1000) } });
+  }
+
+  var nextReady = Math.max(now + 5000, readyAt - CROP_WATER_CUT_MS);
+  var water = (f.water || 0) + 1;
+  try {
+    db.prepare('UPDATE shiguang_flowers SET water = ?, ready_at = ?, water_at = ?, last_water_by = ? WHERE x = ? AND y = ?')
+      .run(water, nextReady, now, userId, row.x, row.y);
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '浇水失败' });
+  }
+
+  bumpQuest(userId, 'water', 1);
+  res.json({
+    code: 200,
+    data: {
+      water: water,
+      readyAt: nextReady,
+      byMe: String(f.user_id) === userId,
+      owner: String(f.user_id)
+    }
+  });
+});
+
+// ---------- 作物：收成 ----------
+router.post('/flower/harvest', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+
+  var f = null;
+  try { f = db.prepare('SELECT * FROM shiguang_flowers WHERE x = ? AND y = ?').get(row.x, row.y); } catch (e) {}
+  if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
+
+  var now = Date.now();
+  var readyAt = f.ready_at || (f.created_at + CROP_GROW_MS);
+  if (now < readyAt) {
+    return res.json({ code: 200, data: { rejected: 'growing', left: Math.ceil((readyAt - now) / 1000) } });
+  }
+  // 只有主人能收：别人的田不能拔，这是多人底线
+  if (String(f.user_id) !== userId) return res.json({ code: 200, data: { rejected: 'notMine' } });
+
+  var got = CROP_YIELD;
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('DELETE FROM shiguang_flowers WHERE x = ? AND y = ?').run(row.x, row.y);
+      db.prepare('UPDATE shiguang_players SET shards = shards + ?, last_seen = ? WHERE user_id = ?')
+        .run(got, now, userId);
+      // 帮过忙的人分一点：这是他「顺手浇过一瓢」的回报
+      var helper = String(f.last_water_by || '');
+      if (helper && helper !== userId) {
+        db.prepare('UPDATE shiguang_players SET shards = shards + ? WHERE user_id = ?')
+          .run(CROP_HELPER_BONUS, helper);
+      }
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '收成失败' });
+  }
+
+  var p = online.get(userId);
+  if (p) { p.shards = (p.shards || 0) + got; online.set(userId, p); }
+  pendingPlants.push([row.x, row.y, -1, userId]);
+  bumpQuest(userId, 'harvest', 1);
+  evaluateAchievements(userId);
+
+  var updated = playerRow(userId);
+  res.json({
+    code: 200,
+    data: {
+      shards: updated ? updated.shards : 0,
+      got: got,
+      species: f.species,
+      helped: String(f.last_water_by || '') !== '' && String(f.last_water_by) !== userId
     }
   });
 });

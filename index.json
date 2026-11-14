@@ -1,6 +1,6 @@
 {
   "version": 65,
-  "updated_at": "2026-11-14T05:44:45.104Z",
+  "updated_at": "2026-11-14T06:13:08.521Z",
   "apps": [
     {
       "name": "chess",
@@ -440,28 +440,28 @@
       "name": "shiguang",
       "label": "拾光群岛",
       "version": "4.1.0",
-      "description": "全班同处一片云海群岛的多人小世界。v4.1「灯火 · 开放世界」：你手里的火就是命 —— 走路会烧、站着也会暗，火弱了视野缩成一圈、雾灵从黑暗里围上来；点亮灯柱要烧掉自己的火，但那盏灯整片云海都看得见，也替别人挡雾，还能花 5 星屑升级得更亮。连着采集有连击加成，点一下同学就能跟随 TA 或送一枚星屑，屏幕边缘的灯色光点指向屏外的同学，世界的四角立着界标灯桩。全班把灯点到 10/30/60/100 根，天光就往前推一档：长夜 → 晨光初现 → 云开见月 → 群星归位 → 拾光之海。",
+      "description": "全班同处一片云海群岛的多人小世界。v4.1「作物」：光花从装饰变成真正的作物 —— 2 星屑种下，3 分钟成熟（浇一次水提早 40 秒，最多三次），收成 8 星屑；帮别人浇过水的人也能分到一点。星屑第一次有了「生产」而不只是「捡」，点灯的钱终于有了来源。",
       "author": "ClassIntra",
       "files": [
-        "apps/shiguang/CHANGELOG.md",
-        "apps/shiguang/README.md",
-        "apps/shiguang/backend/README.md",
         "apps/shiguang/backend/cleanup.js",
+        "apps/shiguang/backend/README.md",
         "apps/shiguang/backend/routes.js",
         "apps/shiguang/backend/schema.sql",
         "apps/shiguang/backend/world.js",
+        "apps/shiguang/CHANGELOG.md",
         "apps/shiguang/frontend/entry.js",
         "apps/shiguang/frontend/fonts/unifont-ex.woff2",
-        "apps/shiguang/frontend/img/LICENSE-kenney.txt",
         "apps/shiguang/frontend/img/battle.png",
         "apps/shiguang/frontend/img/city.png",
         "apps/shiguang/frontend/img/dungeon.png",
         "apps/shiguang/frontend/img/farm.png",
+        "apps/shiguang/frontend/img/LICENSE-kenney.txt",
         "apps/shiguang/frontend/img/town.png",
         "apps/shiguang/frontend/style.css",
         "apps/shiguang/icon.svg",
         "apps/shiguang/manifest.json",
         "apps/shiguang/preview.png",
+        "apps/shiguang/README.md",
         "apps/shiguang/screenshots/01-world.png",
         "apps/shiguang/screenshots/02-lowlight.png",
         "apps/shiguang/screenshots/03-talk.png",
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "2638e68d8899c1eb49c6279ce77c613b69139e5f96c6c5e3fd38447d85a6cce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "e80f4f1e19df6f42b9fd8980c899cb13e2f5453e26527a7cf6b8456d2928da57",
+        "backend/routes.js": "e2fa0397340368d0f8bcc3bb728ee47c295b2070d321b7c306b52518794e4ad2",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "cbdea965889d5f259ef0c7354aca32d12e9bedbd4e50a91166eac3be26704de1",
-        "CHANGELOG.md": "d2c44aec9727a2ea60ae2b44b46fc359cbf7073cc1b20b1318daf19ffc8f87b7",
-        "frontend/entry.js": "8be37c6ea003004d92bd83e53dfd63adce1dacbe9a9dee310d0d517dbe976336",
+        "CHANGELOG.md": "2e21aa13eed083d9e72f85033cd275038bc5360e7f3a7dd1c05c86efcc4f24c7",
+        "frontend/entry.js": "3b74ea7d5796f3494c08b7cde77d836b481059e77aff0906704f11cd24ac1743",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -484,15 +484,15 @@
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
         "frontend/style.css": "22dab795c8d1c473cda9b69dbdc99d2c4c9634725c5991066f8f5c36753394e8",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "a3841907adc60b4f5d42724b6e7368329e608b6aded08e68536fcf7b4642ebe4",
-        "preview.png": "12983346e942d1936a1eaa2b35be5de88c3091767469d63182fdb2fde6b77deb",
+        "manifest.json": "34da4cb6212dfa990e01c2f7a0a8c4a75207194a26fc13011c0a4bae45e6aab0",
+        "preview.png": "cd2669b0d92fa8bdc51ec4811b7b308824342f64e4120a01b3db35ae78e1ecba",
         "README.md": "ed5e537b49adb4df2bed562605570cf34264d1273473b826a4341ee73f46687e",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
         "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",
         "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
         "test/e2e.mjs": "611d3f19e2f18b0207e9088e1719617b1c7274ab1d8d7af0e0ad08c49fbaa3a8"
       },
-      "icon": "./icon.svg",
+      "icon": "apps/shiguang/icon.svg",
       "screenshots": [
         "apps/shiguang/screenshots/01-world.png",
         "apps/shiguang/screenshots/02-lowlight.png",
@@ -523,6 +523,11 @@
           "version": "1.0.0",
           "notes": "首个版本。五座漂浮群岛（启明/雾隐/星坠/拾贝/望潮）+ 四条云桥；走动探索，揭开的迷雾全班永久可见；采集星屑（90 秒重生）、点灯柱（3 星屑，照亮半径 6）；全班共建天光，灯柱 5/15/30/60 根各推进一阶天象；漂流瓶留言、群岛志三榜（星屑/灯柱/探索格数）。服务端权威移动 + 200ms 合并广播，双人同屏实测正常。"
         }
+      ],
+      "capabilities": [
+        "data.http",
+        "data.realtime",
+        "data.storage"
       ]
     },
     {

@@ -5341,8 +5341,24 @@
       state.lamps[x + ',' + y] = { x: x, y: y, c: c || '0', level: level || 1 };
     }
 
-    function addFlower(x, y, species, at, uid) {
-      state.flowers[x + ',' + y] = { x: x, y: y, species: species, at: at, uid: uid || '' };
+    // 光花现在是作物：除了「种下时间」，还要知道「何时能收」和「浇过几次」。
+    // readyAt 缺省按 3 分钟推算 —— 老数据（没有这一列）也能正常显示成熟度。
+    function addFlower(x, y, species, at, uid, readyAt, water) {
+      state.flowers[x + ',' + y] = {
+        x: x, y: y, species: species, at: at, uid: uid || '',
+        readyAt: readyAt || (at + 180 * 1000),
+        water: water | 0
+      };
+    }
+
+    // 脚下这株作物（没有则 null）。收成和浇水都以它为判定。
+    function flowerUnderMe() {
+      return state.flowers[state.me.x + ',' + state.me.y] || null;
+    }
+
+    function cropRipe(f, now) {
+      if (!f) return false;
+      return (now || Date.now()) >= (f.readyAt || 0);
     }
 
     function upsertPlayer(id, name, x, y, dir, now, hat, lantern, title) {
@@ -5486,10 +5502,15 @@
       if (lastShards >= 0 && lastShards !== shards) bumpPill(pillShard);
       lastShards = shards;
 
+      // 脚下有没有作物，三个按钮的语义都依赖它 —— 必须在最前面算出来
+      var fl = flowerUnderMe();
       var canBuild = shards >= (state.lampCost || 3) && tileUnderMe() !== T_DOCK;
-      var canPlant = shards >= (state.flowerCost || 2) && (tileUnderMe() === T_MEADOW || tileUnderMe() === T_PATH);
+      // 站在作物上时，「种花」键的实际语义是浇水/收成提示，与星屑够不够无关
+      var canPlant = fl
+        ? !cropRipe(fl)
+        : (shards >= (state.flowerCost || 2) && (tileUnderMe() === T_MEADOW || tileUnderMe() === T_PATH));
       var canFish = tileUnderMe() === T_DOCK;
-      var canGather = nodeUnderMe() || meteorNodeUnderMe();
+      var canGather = nodeUnderMe() || meteorNodeUnderMe() || (fl && cropRipe(fl));
 
       badgeBuild.textContent = String(state.lampCost || 3);
       badgePlant.textContent = String(state.flowerCost || 2);
@@ -6033,6 +6054,33 @@
       if (walkPath.length) stopWalk();
       var x = state.me.x;
       var y = state.me.y;
+
+      // 脚下是自己种成熟的作物 → 收成。这是「种田」这条线的出口，
+      // 也是星屑的第一个「生产过程」：2 星屑种下，收回 8。
+      var fc = flowerUnderMe();
+      if (fc && cropRipe(fc)) {
+        http('post', '/shiguang/flower/harvest', {}).then(function(d) {
+          if (!d) return;
+          if (d.rejected) {
+            if (d.rejected === 'growing') toast('还要等 ' + d.left + ' 秒');
+            else if (d.rejected === 'notMine') toast('这是别人种的，只能帮他浇水');
+            else toast('这里没有可收的作物');
+            return;
+          }
+          delete state.flowers[x + ',' + y];
+          state.me.shards = d.shards;
+          bombGather(x + 0.5, y + 0.5, false, d.got || 1);
+          toast('收成了 ' + (d.got || 0) + ' 枚星屑' + (d.helped ? '　帮你浇水的人也分到了一点' : ''), 'warm');
+          sfx.gather();
+          updateHud();
+        }).catch(function() { toast('收成失败，稍后再试'); });
+        return;
+      }
+      if (fc) {
+        toast('还没熟，先给它浇点水（按「种花」）');
+        return;
+      }
+
       if (!nodeUnderMe() && !meteorNodeUnderMe()) {
         toast('这里没有星屑，沿着光点再找找');
         return;
@@ -6122,6 +6170,31 @@
     function doPlant() {
       if (!state.ready) return;
       if (walkPath.length) stopWalk();
+
+      // 站在一株还没熟的作物上 → 这个按钮就是「浇水」。
+      // 不新开按钮：动作簇只有 6 格，加一个就得挤掉别的；
+      // 而「站空地上是种、站苗上是浇」本身就是星露谷的手感。
+      var fc = flowerUnderMe();
+      if (fc && !cropRipe(fc)) {
+        http('post', '/shiguang/flower/water', {}).then(function(d) {
+          if (!d) return;
+          if (d.rejected) {
+            if (d.rejected === 'cooldown') toast('歇 ' + d.wait + ' 秒再浇');
+            else if (d.rejected === 'full') toast('这株已经浇透了');
+            else if (d.rejected === 'ripe') toast('已经熟了，直接收吧');
+            else toast('这里没有要浇的作物');
+            return;
+          }
+          fc.water = d.water;
+          fc.readyAt = d.readyAt;
+          toast(d.byMe ? '浇水 +1　成熟提早了一点' : '帮 ' + '别人' + ' 浇了一瓢水', 'warm');
+          sfx.gather();
+          updateHud();
+        }).catch(function() { toast('浇水失败，稍后再试'); });
+        return;
+      }
+      if (fc) { toast('已经熟了，按「采集」收下来'); return; }
+
       var tl = tileUnderMe();
       if (tl !== T_MEADOW && tl !== T_PATH) {
         toast('光花只肯在草地和路边扎根');
@@ -7504,6 +7577,9 @@
         if (payload.plants) {
           for (var pl = 0; pl < payload.plants.length; pl++) {
             var pr = payload.plants[pl];
+            // species < 0 是「这一株被收走了」——服务端删了行，客户端也得摘掉，
+            // 否则收完还留在画面上，玩家会以为没收到。
+            if (pr[2] < 0) { delete state.flowers[pr[0] + ',' + pr[1]]; continue; }
             addFlower(pr[0], pr[1], pr[2], now, pr[3]);
           }
         }
@@ -7682,7 +7758,7 @@
         if (data.flowers) {
           for (var fl = 0; fl < data.flowers.length; fl++) {
             var f = data.flowers[fl];
-            addFlower(f.x, f.y, f.species, f.created_at, f.user_id);
+            addFlower(f.x, f.y, f.species, f.created_at, f.user_id, f.ready_at, f.water);
           }
         }
         updateHud();
@@ -7907,7 +7983,7 @@
       if (data.flowers) {
         for (var fl = 0; fl < data.flowers.length; fl++) {
           var f = data.flowers[fl];
-          addFlower(f.x, f.y, f.species, f.created_at, f.user_id);
+          addFlower(f.x, f.y, f.species, f.created_at, f.user_id, f.ready_at, f.water);
         }
       }
       state.players = {};
