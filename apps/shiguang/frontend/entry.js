@@ -1353,8 +1353,8 @@
       // 只弹一张卡片，读起来是系统通知；加了这三层，才像世界变了。
       camPunch(0.955, 1500);
       camShake(9.0);
-      var gx = state.me.x + 0.5;
-      var gy = state.me.y + 0.5;
+      var gx = (meFx > 0 ? meFx : state.me.x + 0.5);
+      var gy = (meFy > 0 ? meFy : state.me.y + 0.5);
       for (var i = 0; i < 40; i++) {
         var a = Math.random() * 6.2832;
         var d = 1.4 + Math.random() * 3.6;
@@ -4520,8 +4520,8 @@
       var a = Math.random() * 6.2832;
       var r = 5.5 + Math.random() * 3.0;
       wraiths.push({
-        x: state.me.x + 0.5 + Math.cos(a) * r,
-        y: state.me.y + 0.5 + Math.sin(a) * r,
+        x: (meFx > 0 ? meFx : state.me.x + 0.5) + Math.cos(a) * r,
+        y: (meFy > 0 ? meFy : state.me.y + 0.5) + Math.sin(a) * r,
         ph: Math.random() * 6.2832,
         jit: Math.random()
       });
@@ -4541,7 +4541,7 @@
       var moving = (Date.now() - lastMoveAt) < 300;
       var drain = (moving ? lightState.drainMove : lightState.drainIdle) * (state.surge && state.surge.active ? 1.35 : 1);
 
-      var near = lightNearLamp(state.me.x + 0.5, state.me.y + 0.5);
+      var near = lightNearLamp((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5));
       var refill = 0;
       if (near.lamp && near.dist < lightState.safeR) {
         var k = 1 - near.dist / lightState.safeR;
@@ -4551,7 +4551,7 @@
       }
       // 荷灯：湖边的第二个安全区。它比灯柱弱一档 —— 湖是浪漫，灯塔是命。
       if (refill < lightState.refill * 0.8 && lotusList.length) {
-        var ld = lightNearLotus(state.me.x + 0.5, state.me.y + 0.5);
+        var ld = lightNearLotus((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5));
         if (ld < lightState.safeR) {
           var lk2 = 1 - ld / lightState.safeR;
           refill = Math.max(refill, lightState.refill * 0.62 * (0.30 + lk2 * 0.70));
@@ -4567,8 +4567,8 @@
       if (lhKey) {
         var lhx = lhKey.x + 0.5;
         var lhy = lhKey.y + 0.5;
-        var pdx = state.me.x + 0.5 - lhx;
-        var pdy = state.me.y + 0.5 - lhy;
+        var pdx = (meFx > 0 ? meFx : state.me.x + 0.5) - lhx;
+        var pdy = (meFy > 0 ? meFy : state.me.y + 0.5) - lhy;
         var pdist = Math.sqrt(pdx * pdx + pdy * pdy);
         if (pdist < 22) {
           var pAng = Math.atan2(pdy, pdx);
@@ -4579,7 +4579,7 @@
             refill += 2.2;
             if (!lightState.beamHit || now - lightState.beamHit > 3000) {
               lightState.beamHit = now;
-              spawnParts(state.me.x + 0.5, state.me.y + 0.35, 8, 0.9, 1.3, [255, 226, 158], false);
+              spawnParts((meFx > 0 ? meFx : state.me.x + 0.5), state.me.y + 0.35, 8, 0.9, 1.3, [255, 226, 158], false);
             }
           }
         }
@@ -4618,8 +4618,8 @@
 
       for (var wi = 0; wi < wraiths.length; wi++) {
         var wr = wraiths[wi];
-        var tx = (state.me.x + 0.5) - wr.x;
-        var ty = (state.me.y + 0.5) - wr.y;
+        var tx = ((meFx > 0 ? meFx : state.me.x + 0.5)) - wr.x;
+        var ty = ((meFy > 0 ? meFy : state.me.y + 0.5)) - wr.y;
         var dd = Math.sqrt(tx * tx + ty * ty) || 1;
         // 1.15~1.5 格/秒：玩家一步 0.26 秒走 1 格（约 3.8 格/秒），
         // 所以永远跑得掉。它逼你走，不该逼死你。
@@ -4714,8 +4714,8 @@
 
     function drawMotes(ox, oy, t, now) {
       ensureMotes();
-      var cxp = state.me.x + 0.5;
-      var cyp = state.me.y + 0.5;
+      var cxp = (meFx > 0 ? meFx : state.me.x + 0.5);
+      var cyp = (meFy > 0 ? meFy : state.me.y + 0.5);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       for (var i = 0; i < motes.length; i++) {
@@ -4782,8 +4782,8 @@
       // 玩家只会觉得「卡了/糊了」。现在 0.78，并且把「全亮的中心区」从
       // 0.34R 抬到 0.58R —— 要让中心一片真的干净，人才有「站在光里」的感觉。
       var edge = 0.78 - lv * 0.50;
-      var px = (ox + (state.me.x + 0.5) * t) / 3;
-      var py = (oy + (state.me.y + 0.5) * t) / 3;
+      var px = (ox + ((meFx > 0 ? meFx : state.me.x + 0.5)) * t) / 3;
+      var py = (oy + ((meFy > 0 ? meFy : state.me.y + 0.5)) * t) / 3;
       // 视野：满火 10.2 格，半火 7.4，将尽 4.2
       var R = (4.2 + lv * 6.0) * t / 3;
 
@@ -4910,8 +4910,9 @@
       // 不这么做的话，站在你南边的 NPC 一定被底部对话框压住 ——
       // 台词在屏幕上、人在框后面，这是最廉价的一种「不专业」。
       // 抬的是 camY（相机往南看），世界整体上移，人就从框里露出来了。
-      var focusX = state.me.x + 0.5;
-      var focusY = state.me.y + 0.5;
+      // v4.9 丝滑移动：相机直接跟随浮点位置（每帧连续，不再跳格）
+      var focusX = (meFx > 0 ? meFx : state.me.x + 0.5);
+      var focusY = (meFy > 0 ? meFy : state.me.y + 0.5);
       var talking = talkBox.hidden === false && talk.npc && state.players[talk.npc];
       if (talking) {
         var tp = state.players[talk.npc];
@@ -5076,8 +5077,8 @@
 
       if (fishing) {
         var fk = clamp((now - fishing.at) / 2200, 0, 1);
-        var sxx = ox + (state.me.x + 0.5) * t;
-        var syy = oy + (state.me.y + 0.5) * t;
+        var sxx = ox + ((meFx > 0 ? meFx : state.me.x + 0.5)) * t;
+        var syy = oy + ((meFy > 0 ? meFy : state.me.y + 0.5)) * t;
         var fxv = state.me.dir === 1 ? -1 : (state.me.dir === 2 ? 1 : 0);
         var fyv = state.me.dir === 0 ? 1 : (state.me.dir === 3 ? -1 : 0);
         if (!fxv && !fyv) fyv = 1;
@@ -5115,7 +5116,7 @@
         ctx.strokeStyle = 'rgba(255, 226, 150, 0.38)';
         ctx.lineWidth = Math.max(1, t * 0.028);
         ctx.beginPath();
-        ctx.moveTo(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t);
+        ctx.moveTo(ox + ((meFx > 0 ? meFx : state.me.x + 0.5)) * t, oy + ((meFy > 0 ? meFy : state.me.y + 0.5)) * t);
         var trailN = Math.min(walkPath.length, 8);
         for (var wi3 = 0; wi3 < trailN; wi3++) {
           ctx.lineTo(ox + (walkPath[wi3].x + 0.5) * t, oy + (walkPath[wi3].y + 0.5) * t);
@@ -5162,10 +5163,11 @@
       var selfWalk = clamp(1 - (Date.now() - lastMoveAt) / 450, 0, 1);
       if (selfWalk > 0.5 && Date.now() - (state.me.lastPuff || 0) > 340) {
         state.me.lastPuff = Date.now();
-        spawnParts(state.me.x + 0.5, state.me.y + 0.62, 2, 0.16, 0.06, [142, 130, 110], false);
+        spawnParts((meFx > 0 ? meFx : state.me.x + 0.5), state.me.y + 0.62, 2, 0.16, 0.06, [142, 130, 110], false);
       }
       var selfSit = clamp((Date.now() - lastMoveAt - 12000) / 2000, 0, 1);
-      drawAvatar(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t * AVATAR_SCALE,
+      drawAvatar(ox + (meFx > 0 ? meFx : state.me.x + 0.5) * t,
+                 oy + (meFy > 0 ? meFy : state.me.y + 0.5) * t, t * AVATAR_SCALE,
         playerColor(myId || 'me'), state.me.dir, true, state.me.name, now, state.me.hat, state.me.lantern, null, selfWalk, selfSit, state.me.title);
 
       // 气泡（表情图形 + NPC 台词）
@@ -5257,7 +5259,8 @@
       // 我第一次就是这么写的，低火截图里雾灵只剩两团看不清的蓝灰斑。
       drawMotes(ox, oy, t, now);
       drawWraiths(ox, oy, t, now);
-      drawLightRing(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t, now);
+      drawLightRing(ox + (meFx > 0 ? meFx : state.me.x + 0.5) * t,
+                    oy + (meFy > 0 ? meFy : state.me.y + 0.5) * t, t, now);
       drawVeil(now);
 
       // v4.6 宅基地牌子：每个走进群岛的人都有自己的农舍
@@ -5443,6 +5446,7 @@
       if (!(dt > 0)) dt = 0.016;
       if (dt > 0.05) dt = 0.05;
       lastFrame = now;
+      tickMove(dt);
       updateLight(dt, now);
       draw(now, dt);
       view.raf = window.requestAnimationFrame(loop);
@@ -5821,7 +5825,7 @@
         }
         lightState.v = Math.max(1, lightState.v - 4);
         addFlower(state.me.x, state.me.y, -1, Date.now(), myId, 0, 0);
-        spawnParts(state.me.x + 0.5, state.me.y + 0.5, 4, 8, 0.5, [142, 116, 84]);
+        spawnParts((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5), 4, 8, 0.5, [142, 116, 84]);
         audio.blip(180, 0.14, 'triangle', 0.10, 0);
         toast('翻好了　按种子袋播种', 'warm');
         updateHud();
@@ -5894,7 +5898,7 @@
         }
         lightState.v = Math.max(1, lightState.v - 5);
         state.bag = d.bag || state.bag;
-        spawnParts(state.me.x + 0.5, state.me.y + 0.5, 5, 9, 0.6, kind === 'tree' ? [110, 160, 96] : [150, 160, 180]);
+        spawnParts((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5), 5, 9, 0.6, kind === 'tree' ? [110, 160, 96] : [150, 160, 180]);
         audio.blip(kind === 'tree' ? 220 : 320, 0.14, 'square', 0.08, 0);
         toast((kind === 'tree' ? '砍到云杉木' : '挖到星岩矿') + ' ×' + d.got + '　放进背包了', 'warm');
         updateHud();
@@ -5963,7 +5967,7 @@
           lightState.v = Math.max(1, lightState.v - 2);
           var fc = flowerUnderMe();
           if (fc) fc.wateredDay = d.day;
-          spawnRing(state.me.x + 0.5, state.me.y + 0.5, [150, 200, 255]);
+          spawnRing((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5), [150, 200, 255]);
           sfx.gather();
           toast('浇过了　明天它会长高一节', 'warm');
           updateHud();
@@ -6176,7 +6180,6 @@
       if (path.length > 90) { toast('太远了，先走近一点再点'); return; }
       walkPath = path;
       walkDest = { x: walkPath[walkPath.length - 1].x, y: walkPath[walkPath.length - 1].y };
-      if (!walkTimer) walkTimer = setInterval(walkTick, 180);
       updateHint();
     }
 
@@ -6186,25 +6189,198 @@
       walkDest = null;
     }
 
-    function walkTick() {
-      if (!walkPath.length) { stopWalk(); return; }
-      if (!state.ready || flying) return;
-      var next = walkPath[0];
-      var dx = next.x - state.me.x;
-      var dy = next.y - state.me.y;
-      if (dx === 0 && dy === 0) {
-        walkPath.shift();
-        if (!walkPath.length) stopWalk();
-        return;
-      }
-      if (Math.abs(dx) + Math.abs(dy) !== 1) {
-        var np = walkDest ? findPath(state.me.x, state.me.y, walkDest.x, walkDest.y, 100) : null;
-        if (!np || !np.length) { stopWalk(); return; }
-        walkPath = np;
-        return;
-      }
-      attemptMove(dx, dy);
+    // v4.9 walkTick 退役：路径由 tickMove 每帧驱动（连续走向下一格心）。
+    // 位置被服务端校正时 reportMove 的校正逻辑已覆盖。
+    function walkTick() { if (walkTimer) { clearInterval(walkTimer); walkTimer = 0; } }
+
+    // ---------- v4.9 丝滑移动引擎 ----------
+    // 走格子退役。现在：摇杆/键盘给「模拟量向量」，rAF 每帧连续位移，
+    // 分轴滑墙（撞墙时另一轴照走，手感是贴着墙滑过去而不是卡死），
+    // 每 240ms 把浮点位置上报给服务端（服务端只做钳速校验与广播）。
+    // me.x/y 每帧同步为脚下格（floor），种田/采集/点灯的格子语义不变。
+    var MOVE_SPEED = 4.6;          // 格 / 秒（原格子制约 5.5，连续移动略慢更稳）
+    var REPORT_MS = 240;           // 位置上报周期
+    var BODY_RADIUS = 0.30;        // 身体碰撞半径（格）
+
+    var meFx = 0;
+    var meFy = 0;
+    var moveVec = { x: 0, y: 0 };  // 本帧输入向量（摇杆优先，键盘次之）
+    var keyHeld = {};              // 键盘按住集合
+    var lastReportAt = 0;
+    var walkCross = 0;             // 上次上报以来跨过的格数（quest walk 计数）
+    var walkAccum = 0;             // 步声/扬尘的距离累计
+
+    function walkableAt(x, y) {
+      var gx = Math.floor(x);
+      var gy = Math.floor(y);
+      if (gx < 0 || gy < 0 || gx >= state.size || gy >= state.size) return false;
+      var cc = state.cells.charCodeAt(gy * state.size + gx) - 48;
+      return cc !== 0 && cc !== 6;
     }
+
+    // 圆形身体四角采样：任何一角踩进不可走格都算撞
+    function canStand(x, y) {
+      var r = BODY_RADIUS;
+      return walkableAt(x - r, y - r) && walkableAt(x + r, y - r) &&
+             walkableAt(x - r, y + r) && walkableAt(x + r, y + r);
+    }
+
+    function speedNow() {
+      var base = MOVE_SPEED;
+      // 连击提速（4.3 手感层）：最近 4 秒内连击 ≥8 → +60%
+      var since = Date.now() - (comboBuffAt || 0);
+      if (since < 4000 && comboLevel >= 8) base *= 1.6;
+      return base;
+    }
+
+    // 输入向量合成：摇杆（模拟量）优先，键盘（单位量）次之
+    function inputVector() {
+      if (stickVecActive) return { x: stickVec.x, y: stickVec.y };
+      var kx = 0;
+      var ky = 0;
+      if (keyHeld[87] || keyHeld[38]) ky -= 1;   // W / ↑
+      if (keyHeld[83] || keyHeld[40]) ky += 1;   // S / ↓
+      if (keyHeld[65] || keyHeld[37]) kx -= 1;   // A / ←
+      if (keyHeld[68] || keyHeld[39]) kx += 1;   // D / →
+      var len = Math.sqrt(kx * kx + ky * ky);
+      if (len > 0) return { x: kx / len, y: ky / len };
+      return null;
+    }
+
+    // waypoint（点击移动 / 跟随共用的「走向一个点」）
+    var autoPoint = null;          // { x, y } 浮点目标；到达即清
+    function stepToward(pt, sp, dt) {
+      var dx = pt.x - meFx;
+      var dy = pt.y - meFy;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 0.12) return true;
+      var vx = dx / len * sp * dt;
+      var vy = dy / len * sp * dt;
+      moveBody(vx, vy);
+      return false;
+    }
+
+    function moveBody(vx, vy) {
+      var ox = meFx;
+      var oy = meFy;
+      // 分轴滑墙
+      var nx = meFx + vx;
+      if (canStand(nx, meFy)) meFx = nx;
+      var ny = meFy + vy;
+      if (canStand(meFx, ny)) meFy = ny;
+      var moved = Math.sqrt((meFx - ox) * (meFx - ox) + (meFy - oy) * (meFy - oy));
+      walkAccum += moved;
+      // 跨格计数（quest walk）——按格心穿越
+      var cellNow = Math.floor(meFx) + ',' + Math.floor(meFy);
+      if (cellNow !== lastCellKey) {
+        lastCellKey = cellNow;
+        walkCross += 1;
+        // 路过采集：走到光点上顺手捡（点击移动路径上也生效）
+        if (nodeUnderMe() || meteorNodeUnderMe()) doGather(true);
+      }
+      // 走路扬尘：每 0.8 格一步
+      if (walkAccum > 0.8) {
+        walkAccum = 0;
+        spawnParts(meFx, meFy + 0.32, 1, 5, 0.4, [142, 130, 110]);
+      }
+      // 朝向：主轴
+      if (Math.abs(vx) > Math.abs(vy) * 1.05) state.me.dir = vx > 0 ? 2 : 1;
+      else if (Math.abs(vy) > 0.0001) state.me.dir = vy > 0 ? 0 : 3;
+    }
+
+    function tickMove(dt) {
+      if (!state.ready || flying) return;
+      if (talkBox.hidden === false) talkClose();
+      if (fishing) {
+        fishing = null;
+        updateHint();
+      }
+      var sp = speedNow();
+      var used = false;
+      // 手动输入优先
+      var iv = inputVector();
+      if (iv && (Math.abs(iv.x) > 0.01 || Math.abs(iv.y) > 0.01)) {
+        used = true;
+        if (walkPath.length) stopWalk();
+        if (followTarget) stopFollow();
+        moveBody(iv.x * sp * dt, iv.y * sp * dt);
+      } else if (walkPath.length) {
+        // 点击移动：沿 BFS 路径的格心连续走
+        var wp = walkPath[0];
+        var target = { x: wp.x + 0.5, y: wp.y + 0.5 };
+        var arrived = stepToward(target, sp, dt);
+        if (arrived) {
+          walkPath.shift();
+          if (!walkPath.length) stopWalk();
+        }
+        used = true;
+      } else if (followTarget) {
+        var fp = state.players[followTarget];
+        if (fp) {
+          var d2 = (fp.x - meFx) * (fp.x - meFx) + (fp.y - meFy) * (fp.y - meFy);
+          if (d2 > 1.1 * 1.1) {
+            stepToward({ x: fp.x, y: fp.y }, sp, dt);
+            used = true;
+          } else {
+            stopFollow();
+            toast('跟上了');
+          }
+        } else {
+          stopFollow();
+        }
+      }
+
+      // 同步脚下格（全部格子语义的单一真相来源）
+      var ncx = Math.floor(meFx);
+      var ncy = Math.floor(meFy);
+      if (ncx !== state.me.x || ncy !== state.me.y) {
+        state.me.x = ncx;
+        state.me.y = ncy;
+      }
+
+      // 位置上报（节流）
+      var nowT = Date.now();
+      if (used && nowT - lastReportAt > REPORT_MS) {
+        lastReportAt = nowT;
+        reportMove();
+      }
+    }
+
+    function reportMove() {
+      var steps = walkCross;
+      walkCross = 0;
+      http('post', '/shiguang/move', { x: meFx, y: meFy, dir: state.me.dir, steps: steps }).then(function(data) {
+        if (!data) return;
+        if (data.rejected) {
+          if (data.me && typeof data.me.x === 'number') {
+            meFx = Number(data.me.x) + 0.5;
+            meFy = Number(data.me.y) + 0.5;
+            state.me.x = Number(data.me.x);
+            state.me.y = Number(data.me.y);
+          }
+          if (data.rejected !== 'fast') {
+            if (walkPath.length) stopWalk();
+            if (followTarget) stopFollow();
+          }
+          return;
+        }
+        if (data.me && typeof data.me.x === 'number') {
+          // 服务端权威微校正：直接信任（服务端是钳速过的）
+          meFx = Number(data.me.x);
+          meFy = Number(data.me.y);
+          state.me.x = Math.floor(meFx);
+          state.me.y = Math.floor(meFy);
+        }
+        if (data.reveal) revealCells(data.reveal);
+        updateHud();
+      }).catch(function() {
+        if (walkPath.length) stopWalk();
+      });
+    }
+
+    var lastCellKey = '';
+    var comboLevel = 0;
+    var comboBuffAt = 0;
 
     function attemptMove(dx, dy) {
       if (!state.ready || flying) return;
@@ -6298,44 +6474,8 @@
       followTarget = null;
     }
 
-    function followTick() {
-      if (!followTarget || !state.ready || flying) { stopFollow(); return; }
-      var p = state.players[followTarget];
-      if (!p) { stopFollow(); return; }
-      if (Date.now() - followStartedAt > 30000) { stopFollow(); return; }
-      if (walkPath.length) stopWalk();
-      var dx = p.x - state.me.x;
-      var dy = p.y - state.me.y;
-      var man = Math.abs(dx) + Math.abs(dy);
-      if (man <= 1) { stopFollow(); toast('跟上了'); return; }
-      if (state.me.x === followLast.x && state.me.y === followLast.y) {
-        followStuck++;
-        if (followStuck > 5) { stopFollow(); toast('被墙挡住了'); return; }
-      } else {
-        followStuck = 0;
-        followLast = { x: state.me.x, y: state.me.y };
-      }
-      var dirs = [];
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        if (dx) dirs.push([dx > 0 ? 1 : -1, 0]);
-        if (dy) dirs.push([0, dy > 0 ? 1 : -1]);
-        if (dx) dirs.push([dx > 0 ? -1 : 1, 0]);
-      } else {
-        if (dy) dirs.push([0, dy > 0 ? 1 : -1]);
-        if (dx) dirs.push([dx > 0 ? 1 : -1, 0]);
-        if (dy) dirs.push([0, dy > 0 ? -1 : 1]);
-      }
-      for (var d = 0; d < dirs.length; d++) {
-        var nx = state.me.x + dirs[d][0];
-        var ny = state.me.y + dirs[d][1];
-        if (nx < 0 || ny < 0 || nx >= state.size || ny >= state.size) continue;
-        var cc = state.cells.charCodeAt(ny * state.size + nx) - 48;
-        if (cc === 0 || cc === 6) continue;
-        attemptMove(dirs[d][0], dirs[d][1]);
-        return;
-      }
-    }
-
+    // v4.9 跟随退役：tickMove 每帧朝目标连续走（>1.1 格追，≤1.1 格到站）。
+    function followTick() { if (followTimer) { clearInterval(followTimer); followTimer = 0; } }
     var bumpTimer = 0;
     function bump(dx, dy) {
       if (bumpTimer) return;
@@ -6372,6 +6512,7 @@
       var dir = KEY_DIR[e.keyCode];
       if (!dir) return;
       e.preventDefault();
+      keyHeld[e.keyCode] = true;
       if (walkPath.length) stopWalk();
       if (followTarget) stopFollow();
       if (heldKey === e.keyCode) return;
@@ -6385,6 +6526,7 @@
     }
 
     function onKeyUp(e) {
+      delete keyHeld[e.keyCode];
       if (heldKey !== e.keyCode) return;
       heldKey = 0;
       if (holdTimer) {
@@ -6423,6 +6565,9 @@
       stickBox.r = rect.width / 2;
     }
 
+    var stickVec = { x: 0, y: 0 };
+    var stickVecActive = false;
+
     function stickTickStop() {
       if (stickTimer) {
         clearInterval(stickTimer);
@@ -6460,9 +6605,7 @@
         stickTickStop();
         return;
       }
-      var v = DIR_VEC[String(dir)];
-      attemptMove(v[0], v[1]);
-      stickTickStart();
+      // v4.9 摇杆改走模拟量向量（tickMove 驱动），不再按格步进
     }
 
     function stickDrag(clientX, clientY) {
@@ -6488,6 +6631,16 @@
 
       var deadPx = Math.max(11, maxR * STICK_DEAD);
       if (deadPx > maxR * 0.72) deadPx = maxR * 0.72;
+      // v4.9 模拟量向量：摇杆的实时方向与力度直接喂给移动引擎
+      if (len >= deadPx) {
+        stickVecActive = true;
+        stickVec.x = ox / (maxR || 1);
+        stickVec.y = oy / (maxR || 1);
+      } else {
+        stickVecActive = false;
+        stickVec.x = 0;
+        stickVec.y = 0;
+      }
       setStickDir(len >= deadPx ? pickDir(ox, oy) : -1);
     }
 
@@ -6518,6 +6671,9 @@
       stick.classList.remove('is-active');
       stickKnob.style.transform = 'translate3d(0,0,0)';
       stickRay.style.opacity = '0';
+      stickVecActive = false;
+      stickVec.x = 0;
+      stickVec.y = 0;
       setStickDir(-1);
       lastStickDir = -1;
     }
@@ -9058,6 +9214,9 @@
       state.me.x = data.me.x;
       state.me.y = data.me.y;
       state.me.dir = data.me.dir || 0;
+      meFx = data.me.x + 0.5;      // 出生在格心
+      meFy = data.me.y + 0.5;
+      lastCellKey = data.me.x + ',' + data.me.y;
       state.me.shards = data.me.shards || 0;
       state.me.built = data.me.built || 0;
       state.me.name = data.me.name || '';
@@ -9070,8 +9229,8 @@
       state.stageInfo = data.stageInfo || state.stageInfo;
       state.onlineCount = data.onlineCount || 1;
       state.achCount = data.achCount || 0;
-      view.camX = state.me.x + 0.5;
-      view.camY = state.me.y + 0.5;
+      view.camX = (meFx > 0 ? meFx : state.me.x + 0.5);
+      view.camY = (meFy > 0 ? meFy : state.me.y + 0.5);
 
       applyExplored(data.explored);
 

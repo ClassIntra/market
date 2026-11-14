@@ -1660,44 +1660,51 @@ router.post('/move', requireAuth, function (req, res) {
     });
   }
 
-  // 同上：万一是在「进入之后」才变成不可走（地图热更），这里也自愈一次，
-  // 并把修正后的坐标随拒绝一起回给客户端（客户端收到 me 会直接校正）。
-  if (!world.walkable(row.x, row.y)) {
-    var heal = world.nearestWalkable(row.x, row.y);
+  // 自愈：位置本体不可走（地图热更/旧版脏数据）→ 挪到最近可走格
+  var homeX = Math.floor(row.x + 0.0001);
+  var homeY = Math.floor(row.y + 0.0001);
+  if (!world.walkable(homeX, homeY)) {
+    var heal = world.nearestWalkable(homeX, homeY);
     try {
       db.prepare('UPDATE shiguang_players SET x = ?, y = ? WHERE user_id = ?')
-        .run(heal.x, heal.y, userId);
+        .run(heal.x + 0.5, heal.y + 0.5, userId);
     } catch (e) {}
     console.log('[shiguang] 自愈：%s 卡在 %d,%d（不可走），挪到 %d,%d',
-      userId, row.x, row.y, heal.x, heal.y);
-    row.x = heal.x;
-    row.y = heal.y;
+      userId, homeX, homeY, heal.x, heal.y);
+    row.x = heal.x + 0.5;
+    row.y = heal.y + 0.5;
     return rejectMove('healed');
   }
 
+  // v4.9 丝滑移动：客户端连续位移，这里只收「位置上报」——
+  // 浮点坐标 + 速度钳制。动作路由的格子语义不受影响（floor 后一致）。
   var body = req.body || {};
-  var tx = body.x;
-  var ty = body.y;
+  var tx = Number(body.x);
+  var ty = Number(body.y);
   var dir = typeof body.dir === 'number' ? body.dir : row.dir;
-  if (!Number.isInteger(tx) || !Number.isInteger(ty)) {
+  if (!Number.isFinite(tx) || !Number.isFinite(ty)) {
     return rejectMove('coords');
   }
   if (tx < 0 || ty < 0 || tx >= world.SIZE || ty >= world.SIZE) {
     return rejectMove('bounds');
   }
-  // 只允许走一格：曼哈顿距离 1。防瞬移脚本。
-  if (world.stepDistance(row.x, row.y, tx, ty) !== 1) {
+  // 速度钳制：客户端 4.6 格/秒 + 240ms 上报周期 + 抖动余量 ⇒ 单次上报最多 ~3.2 格
+  var distSq = (tx - row.x) * (tx - row.x) + (ty - row.y) * (ty - row.y);
+  if (distSq > 3.4 * 3.4) {
     return rejectMove('step');
   }
-  if (!world.walkable(tx, ty)) {
+  var cellX = Math.floor(tx + 0.0001);
+  var cellY = Math.floor(ty + 0.0001);
+  if (!world.walkable(cellX, cellY)) {
     return rejectMove('cloud');
   }
   var now = Date.now();
-  if (now - (row.last_move_at || 0) < MOVE_MIN_GAP_MS) {
+  if (now - (row.last_move_at || 0) < 120) {
     return rejectMove('fast');
   }
 
   try {
+    // 存浮点位置（SQLite INTEGER 列对不能无损取整的值自动按 REAL 存）
     db.prepare('UPDATE shiguang_players SET x = ?, y = ?, dir = ?, last_seen = ?, last_move_at = ? WHERE user_id = ?')
       .run(tx, ty, dir, now, now, userId);
   } catch (e) {
@@ -1711,11 +1718,14 @@ router.post('/move', requireAuth, function (req, res) {
   online.set(userId, p);
   dirty.add(userId);
 
-  var fresh = reveal(tx, ty, REVEAL_ON_MOVE, userId);
+  var fresh = reveal(cellX, cellY, REVEAL_ON_MOVE, userId);
   if (fresh.length) pendingReveals = pendingReveals.concat(fresh);
 
-  // 引导链第 1 步 / 每日散步：只对真正走成的步数计数
-  bumpQuest(userId, 'walk', 1);
+  // 引导链第 1 步 / 每日散步：客户端按「跨过格心」计数上报；
+  // 未带 steps 的调用（e2e / 旧客户端）按移动距离取整兜底 —— 从 A 到 B 至少算 1 步
+  var dist = Math.sqrt((tx - row.x) * (tx - row.x) + (ty - row.y) * (ty - row.y));
+  var steps = Math.max(1, Math.min(6, Number(body.steps) | 0 || Math.round(dist)));
+  if (steps > 0) bumpQuest(userId, 'walk', steps);
 
   res.json({
     code: 200,
