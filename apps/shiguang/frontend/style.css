@@ -187,14 +187,20 @@
 .sg-hud-pills {
   position: absolute;
   left: 20px;
-  top: 74px;
+  top: 70px;
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  padding: 5px 8px;
+  border-radius: var(--radius-xl);
+  background: rgba(14, 22, 40, 0.72);
+  border: 1px solid rgba(255, 226, 158, 0.14);
   pointer-events: auto;
 }
 
 .sg-pill {
   display: flex;
+  padding: 2px 6px;
+  margin-left: 4px;
   align-items: center;
   height: auto;
   padding: 0;
@@ -1265,6 +1271,7 @@
   background: rgba(255, 255, 255, 0.10);
   overflow: hidden;
   margin-top: 10px;
+  margin: 10px 0 4px;
 }
 
 .sg-prog-fill {
@@ -1418,7 +1425,8 @@
 }
 
 .sg-q-desc {
-  margin-top: 3px;
+  margin-top: 4px;
+  margin-bottom: 10px;
   font-size: 12px;
   color: var(--sg-ink-2);
   line-height: 1.5;
@@ -1427,7 +1435,9 @@
 .sg-q-foot {
   display: flex;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--sg-line-soft);
 }
 
 .sg-q-progress {
@@ -1448,7 +1458,9 @@
 
 .sg-q-claim {
   margin-left: auto;
-  padding: 6px 16px;
+  min-width: 96px;
+  text-align: center;
+  padding: 7px 18px;
   border-radius: var(--radius-pill);
   background: linear-gradient(160deg, #ffd98a, #ffbe62);
   color: #43320e;
@@ -1575,16 +1587,21 @@
 /* ---------------- 群岛志 ---------------- */
 
 .sg-overview {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 4px 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 12px;
+  margin: 6px 0 14px;
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--sg-line-soft);
 }
 
 .sg-ov {
-  width: 33.33%;
-  box-sizing: border-box;
-  padding: 8px 4px;
+  margin: 3px 0;
+  padding: 6px 4px;
   text-align: center;
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .sg-ov-val {
@@ -1631,9 +1648,14 @@
 .sg-rank-row {
   display: flex;
   align-items: center;
-  padding: 9px 6px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--sg-line-soft);
   font-size: 13px;
+  border-radius: var(--radius-md);
+}
+
+.sg-rank-row:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .sg-rank-row:last-child {
@@ -1897,7 +1919,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 10px;
   color: var(--sg-ink-3);
 }
@@ -2038,11 +2062,12 @@
   right: 16px;
   bottom: 110px;
   z-index: 24;
-  width: 18px;
-  height: 92px;
+  width: 20px;
+  height: 96px;
   border-radius: var(--radius-pill);
-  background: rgba(10, 16, 30, 0.82);
-  border: 1px solid rgba(255, 232, 180, 0.30);
+  background: rgba(10, 16, 30, 0.85);
+  border: 1px solid rgba(255, 232, 180, 0.34);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 

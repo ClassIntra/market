@@ -1143,7 +1143,7 @@
     clockMoney.appendChild(clockMoneyVal);
     clockMoney.appendChild(el('span', 'sg-clock-g', 'g'));
     var clockXy = el('div', 'sg-clock-xy-row');
-    clockXy.appendChild(el('span', 'sg-clock-xy-label', '学元'));
+    clockXy.appendChild(el('span', 'sg-clock-xy-label', '钱包'));
     clockXy.appendChild(el('span', 'sg-clock-xy', '0.00 学元'));
     clockPanel.appendChild(clockFace);
     clockPanel.appendChild(clockDate);
