@@ -19,6 +19,13 @@
   'use strict';
   var NAME = 'pet';
   var SIZE = (Number(window.innerWidth) || 1280) >= 1500 ? 80 : 64;
+  // 宿主容器（market-overlay-host 提供，position:fixed + pointer-events:none）。
+  // ⚠️ 挂载必须挂进它，不能直接 document.body：宿主靠显示/隐藏这个容器来落地
+  //    「登录页 / 封禁页不显示悬浮层」，挂到 body 上就完全绕过门禁（实测）。
+  var hostRoot = null;
+  function mountEl(node) {
+    (hostRoot || document.body).appendChild(node);
+  }
   var WALK_SPEED = 26;
   var DASH_SPEED = 320;
   var GRAVITY = 2400;
@@ -35,6 +42,7 @@
   var canvas = null;
   var palette = [];
   var state = null;
+  var heartInfo = null;      // 情感陪伴摘要（v0.37.0，服务端下发；桌面这只也能抱抱/说晚安）
   var ctx = null;
   var storage = null;
   var realtime = null;
@@ -211,16 +219,6 @@
     }
   }
 
-  function trail(x, y) {
-    if (!el) return;
-    var t = document.createElement('span');
-    t.className = 'ci-pet-trail';
-    t.style.left = x + 'px';
-    t.style.top = y + 'px';
-    el.appendChild(t);
-    later(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 520);
-  }
-
   // ---- 连击：连续戳会升级，到了档位给彩蛋 ----
   var combo = 0;
   var comboResetTimer = null;
@@ -386,6 +384,11 @@
     later(function() { if (bubble) bubble.classList.remove('ci-pet-bubble--show'); }, ms || 1600);
   }
   function say(scene, ms) {
+    // v0.37.0：打招呼优先用它今天真正想说的话（会记得昨天聊过什么）。
+    if (scene === 'greet' && heartInfo && heartInfo.greeting) {
+      bubbleSay(heartInfo.greeting, ms || 2400);
+      return;
+    }
     var pool;
     if (scene === 'poke' && bondTier() >= 3) pool = LINES.poke.concat(LINES.pokeHigh);
     else if (scene === 'greet') pool = isNight() ? LINES.greet.night : (LINES.greet[period()] || LINES.greet.morning);
@@ -404,14 +407,21 @@
     var g = canvas.getContext('2d');
     g.clearRect(0, 0, canvas.width, canvas.height);
     var cell = SIZE * dpr / design.w;
+    // 取整边界：桌宠尺寸 64/80 对 48/64 格都不是整数倍，
+    // 直接 fillRect(cell+0.5) 会出现粗细不均与互相压边（像素画最容易露馅的地方）。
+    var xs = [], ys = [];
+    for (var xi = 0; xi <= design.w; xi++) xs.push(Math.round(xi * cell));
+    for (var yi = 0; yi <= design.h; yi++) ys.push(Math.round(yi * cell));
     for (var y = 0; y < design.h; y++) {
       for (var x = 0; x < design.w; x++) {
         var ch = design.data.charAt(y * design.w + x);
         if (ch === '.') continue;
         var idx = parseInt(ch, 16);
         if (isNaN(idx) || !palette[idx]) continue;
+        var w = xs[x + 1] - xs[x], hh = ys[y + 1] - ys[y];
+        if (w <= 0 || hh <= 0) continue;
         g.fillStyle = palette[idx];
-        g.fillRect(x * cell, y * cell, cell + 0.5, cell + 0.5);
+        g.fillRect(xs[x], ys[y], w, hh);
       }
     }
   }
@@ -497,6 +507,15 @@
       minY: 4
     };
   }
+  // 边界缓存：ballistic 每帧都调 bounds() 会触发强制重排（平板上一扔就掉帧）。
+  // 起飞/拖拽开始时算一次，窗口尺寸变化或恢复可见时失效。
+  var boundsCache = null;
+  function invalidateBounds() { boundsCache = null; }
+  function boundsFast() {
+    if (!boundsCache) boundsCache = bounds();
+    return boundsCache;
+  }
+
   function applyPos() {
     if (!el) return;
     if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return; // 坏坐标拒绝上屏
@@ -559,6 +578,8 @@
     var tick = function() {
       idleTimer = null;
       if (!el) return;
+      // 页面不可见 / 在宠物屋页面 / 桌面要求让位时不表演：省电也不在后台堆积定时器
+      if (document.hidden || routeHidden || isSuppressed()) { scheduleIdle(); return; }
       // 专注期间不做任何随机动作。
       // 这是「陪伴」和「打扰」的分界线：一只每 20 秒跳一下的宠物，
       // 在你要专心写作业时是噪音，不是陪伴。只保留待机呼吸。
@@ -674,13 +695,15 @@
   function ballistic(vx, vy) {
     setMode('fly');
     var last = Date.now();
+    // 一次算好边界，全程复用（飞行路径只受重力影响，板面不会自己动）
+    var b = boundsFast();
     function step() {
       if (mode !== 'fly' || !el) return;
+      if (document.hidden) return;   // 后台不再空转 rAF
       var now = Date.now();
       var dt = Math.min(40, now - last) / 1000;
       last = now;
       vy += GRAVITY * dt;
-      var b = bounds();
       pos.x += vx * dt;
       pos.y += vy * dt;
       if (pos.x <= b.minX) { pos.x = b.minX; vx = -vx * 0.5; }
@@ -701,6 +724,8 @@
     setMode('idle');
     if (isVideo) { playVideo('原地重力下蹲压缩'); }
     else anim('ci-pet-squash', 450);
+    puff(5);   // 落地扬尘（之前这个函数写好了却从没被调用，白瞎）
+    invalidateBounds();
     if (Math.random() < 0.5) say('land', 1300);
     savePos();
     lastInteract = Date.now();
@@ -719,7 +744,7 @@
     var twinFlip = twin.querySelector('.ci-pet-flip');
     if (twinFlip) twinFlip.style.transform = 'scaleX(' + (-dir) + ')';
     twin.style.transform = 'translate3d(' + (dir === 1 ? -SIZE : window.innerWidth) + 'px,' + pos.y + 'px,0)';
-    document.body.appendChild(twin);
+    mountEl(twin);
     later(function() {
       twin.style.transform = 'translate3d(' + (dir === 1 ? window.innerWidth + SIZE : -SIZE * 2) + 'px,' + pos.y + 'px,0)';
       twin.style.opacity = '0';
@@ -778,27 +803,59 @@
     { label: '⚽ 拍球', fn: function() { propAction(PROPS[1]); } },
     { label: '🍚 吃豆子', fn: function() { propAction(PROPS[2]); } },
     { label: '📖 看书', fn: function() { propAction(PROPS[3]); } },
+    // 「陪玩」和「陪伴」分两组：混在一起点击容易误触（抱一抱和玩魔方的动机完全不同）
+    { sep: true },
+    // v0.37.0：桌面这只也能参与情感陪伴 —— 抱一抱、到点说晚安。
+    // 数据走服务端同一套接口，所以和宠物屋里的次数/羁绊是共用的。
+    { label: '🤗 抱一抱', fn: function() { heartAct('hug'); } },
+    { label: '🌙 说晚安', fn: function() { heartAct('goodnight'); }, nightOnly: true },
     { label: '🌙 小憩', fn: napAction },
     { label: '🚶 散步', fn: startWalk }
   ];
-  function showMenu(x, y) {
+  function canGoodnight() {
+    var h = new Date().getHours();
+    return h >= 18 || h < 4;
+  }
+  // 长按弹出时：菜单要落在手指**上方**，并且 400ms 内忽略点击。
+  // 否则抬手那一下会被浏览器合成为 click，正好打在刚弹出的第一项上 ——
+  // 「菜单一闪就没了，还顺手执行了一个动作」（实测，这就是触摸下像没有菜单的原因）。
+  var menuGuardUntil = 0;
+  function showMenu(x, y, fromTouch) {
     hideMenu();
+    try { if (storage) storage.set('menuHintShown', true); } catch (e) {}
     menuEl = document.createElement('div');
     menuEl.className = 'ci-pet-menu';
-    MENU_ITEMS.forEach(function(item) {
+    // 开菜单时把气泡收掉：两块浮层叠在一起很脏
+    if (bubble) bubble.classList.remove('ci-pet-bubble--show');
+    var items = MENU_ITEMS.filter(function(item) {
+      return !item.nightOnly || canGoodnight();
+    });
+    items.forEach(function(item) {
+      if (item.sep) {
+        var sep = document.createElement('div');
+        sep.className = 'ci-pet-menu-sep';
+        menuEl.appendChild(sep);
+        return;
+      }
       var b = document.createElement('button');
       b.type = 'button';
       b.textContent = item.label;
       b.addEventListener('click', function() {
+        if (Date.now() < menuGuardUntil) return;   // 吃掉长按抬手的幽灵点击
         hideMenu();
         try { item.fn(); } catch (e) {}
       });
       menuEl.appendChild(b);
     });
-    document.body.appendChild(menuEl);
-    var mw = 150, mh = MENU_ITEMS.length * 38 + 12;
-    menuEl.style.left = Math.max(8, Math.min(x, (window.innerWidth || 1280) - mw - 8)) + 'px';
-    menuEl.style.top = Math.max(8, Math.min(y, (window.innerHeight || 787) - mh - 8)) + 'px';
+    mountEl(menuEl);
+    // 用实测尺寸而不是「项数 × 40」估算：有分隔线/换行时估算会偏，菜单会压到屏幕外
+    var mw = menuEl.offsetWidth || 150;
+    var mh = menuEl.offsetHeight || 200;
+    var vw2 = window.innerWidth || 1280, vh2 = window.innerHeight || 787;
+    var topY = fromTouch ? (y - mh - 14) : y;   // 触摸：避开手指
+    menuEl.style.left = Math.max(8, Math.min(x - (fromTouch ? mw / 2 : 0), vw2 - mw - 8)) + 'px';
+    menuEl.style.top = Math.max(8, Math.min(topY, vh2 - mh - 8)) + 'px';
+    menuGuardUntil = Date.now() + (fromTouch ? 400 : 0);
     later(function() {
       document.addEventListener('pointerdown', onMenuOutside, true);
     }, 0);
@@ -807,39 +864,40 @@
     if (menuEl && !menuEl.contains(e.target)) hideMenu();
   }
   function hideMenu() {
-    if (menuEl) { document.removeEventListener('pointerdown', onMenuOutside, true); menuEl.parentNode.removeChild(menuEl); menuEl = null; }
+    if (!menuEl) return;
+    document.removeEventListener('pointerdown', onMenuOutside, true);
+    if (menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
+    menuEl = null;
   }
 
-  // ---- 交互 ----
-  // extra.food：'feast' 时带豪华大餐（只对 feed 有意义），其余交互不传。
-  function reportInteract(type, extra) {
+  // 桌面上的情感互动：抱一抱 / 说晚安。
+  // 不与 reportInteract 合并 —— 那条链路是「摸/喂/玩」的羁绊，走的是 /interact；
+  // 这里是情感动作，走 /pet/heart/*，两者次数与日上限各自独立。
+  function heartAct(id) {
     var api = ctx && ctx.data && ctx.data.api;
-    if (!api) return;
-    var payload = { type: type };
-    if (extra && extra.food) payload.food = extra.food;
-    api.post('/pet/interact', payload).then(function(res) {
+    if (!api) { bubbleSay('它现在连不上你', 1800); return; }
+    if (id === 'goodnight') {
+      api.post('/pet/heart/goodnight', {}).then(function(res) {
+        var d = (res.data && res.data.data) || {};
+        if (d.state) state = d.state;
+        if (d.line) bubbleSay(d.line, 2600);
+        heart(3);
+        try { if (window.__ciPetSfx) window.__ciPetSfx.play('focus-end'); } catch (e) {}
+      }, function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '它还没准备好睡';
+        bubbleSay(msg, 2200);
+      });
+      return;
+    }
+    api.post('/pet/heart/act', { action: id }).then(function(res) {
       var d = (res.data && res.data.data) || {};
       if (d.state) state = d.state;
-      if (d.tierUp) later(function() { say('tierup', 2200); confetti(); if (window.__ciPetSfx) window.__ciPetSfx.play('tierup'); }, 900);
-      // 回报给宠物屋页面：让它刷新状态条，且自己别再发一次请求（否则撞冷却）
-      try {
-        window.dispatchEvent(new CustomEvent('ci-pet-fed', {
-          detail: { type: type, state: d.state, gained: d.gained || 0, capped: !!d.capped,
-                    tierUp: !!d.tierUp,
-                    // v0.15.0：把「大成功」和「新心情」一并回报。
-                    // 不传的话，页面上的 +10 和 +2 长得一模一样，性格与心情永远只在后端。
-                    crit: !!d.crit, mood: d.mood, personality: d.personality }
-        }));
-      } catch (e) {}
+      if (d.line) bubbleSay(d.line, 2400);
+      heart(2);
+      try { if (window.__ciPetSfx) window.__ciPetSfx.play('poke'); } catch (e) {}
     }, function(err) {
-      // 冷却/上限被拒：把服务端给的原因原样回报，别静默吞掉（用户看到的就是"点了没反应"）
-      var msg = (err && err.response && err.response.data && err.response.data.message) || '互动失败';
-      try {
-        window.dispatchEvent(new CustomEvent('ci-pet-fed', {
-          detail: { type: type, gained: 0, capped: true, message: msg }
-        }));
-      } catch (e) {}
-      say('sad', 1800);
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '它现在有点害羞';
+      bubbleSay(msg, 2000);
     });
   }
 
@@ -943,21 +1001,33 @@
     var springActive = false;
     var springTx = 0, springTy = 0;
     // 弹簧跟手（阻尼跟随，参考 dsh-pet 手感）：目标与当前位置插值逼近
-    function springLoop() {
+    var springLast = 0;
+    function springLoop(ts) {
       if (!springActive || !el) return;
-      pos.x += (springTx - pos.x) * 0.3;
-      pos.y += (springTy - pos.y) * 0.3;
+      // 固定 0.3/帧在不同帧率下跟手程度完全不同（30fps 的设备会觉得「拖不动」）。
+      // 按真实 dt 折算成等效系数：k = 1-(1-0.3)^(dt/16.7)
+      var now = (typeof ts === 'number' && ts > 0) ? ts : Date.now();
+      var dt = springLast ? Math.min(48, now - springLast) : 16.7;
+      springLast = now;
+      var k = 1 - Math.pow(1 - 0.3, dt / 16.7);
+      pos.x += (springTx - pos.x) * k;
+      pos.y += (springTy - pos.y) * k;
       applyPos();
       requestAnimationFrame(springLoop);
     }
+    var longPressed = false;
     function startLongPress() {
       later(function() {
-        if (dragging && moved < 8) showMenu(sx, sy);
+        if (dragging && moved < 8) {
+          longPressed = true;
+          try { showMenu(sx, sy, true); } catch (e) {}
+        }
       }, 550);
     }
     el.addEventListener('pointerdown', function(e) {
       wake();
       dragging = true;
+      longPressed = false;
       moved = 0;
       samples = [{ t: Date.now(), x: e.clientX, y: e.clientY }];
       sx = e.clientX; sy = e.clientY;
@@ -977,6 +1047,7 @@
       if (moved > 8) {
         if (!springActive) {
           springActive = true;
+          springLast = 0;
           requestAnimationFrame(springLoop);
         }
         if (isVideo && videoEl.paused) { playVideo('被鼠标拖拽悬空反馈', true); }
@@ -1019,11 +1090,13 @@
           later(function() {
             if (el) el.style.transition = '';
             anim('ci-pet-squash', 450);
+            puff(4);
             if (Math.random() < 0.5) say('land', 1200);
             savePos();
           }, 430);
         }
-      } else {
+      } else if (!longPressed) {
+        // 长按已经开了菜单：抬手不再摸摸，否则菜单前会先跳一下
         poke(e);
       }
     }
@@ -1032,6 +1105,7 @@
     // 右键点播
     el.addEventListener('contextmenu', function(e) {
       e.preventDefault();
+      if (menuEl) return;   // 长按已经开过了，别重开
       showMenu(e.clientX, e.clientY);
     });
   }
@@ -1058,12 +1132,21 @@
     if (hide === routeHidden) return;
     routeHidden = hide;
     if (el) el.style.display = hide ? 'none' : '';
+    // 藏起来时视频也停：宠物屋页面上它还开着播，纯粹白烧解码
+    if (isVideo) {
+      try {
+        if (hide && videoEl2 && !videoEl2.paused) videoEl2.pause();
+        if (hide && videoEl && !videoEl.paused) videoEl.pause();
+        if (!hide && videoEl && videoEl.paused) playVideo('回到桌面', false);
+      } catch (e) {}
+    }
     // 快捷菜单/分身是挂在 body 上的独立节点，主元素藏了它们也要收
     if (hide) {
       // 快捷菜单是挂在 body 上的独立节点，主元素藏了它也要收
       // （分身 twin 是 cloneRun 里的局部变量，1.6s 后自己会移除，不用管）
       if (menuEl && menuEl.parentNode) menuEl.parentNode.removeChild(menuEl);
     }
+    invalidateBounds();
     if (!hide && typeof clamp === 'function') clamp();
   }
   function hookRouteWatch() {
@@ -1445,7 +1528,7 @@
     el.className = 'ci-pet';
     el.style.width = SIZE + 'px';
     el.style.height = SIZE + 'px';
-    document.body.appendChild(el); // 挂载必须先于任何分支 return（视频形态曾因此从未上屏）
+    mountEl(el); // 挂载必须先于任何分支 return（视频形态曾因此从未上屏）
     var shadow = document.createElement('div');
     shadow.className = 'ci-pet-shadow';
     el.appendChild(shadow);
@@ -1591,6 +1674,15 @@
     }).catch(function() {});
   }
 
+  // 情感摘要：打招呼、抱抱、晚安都用它。失败保持 null，走原来的本地台词。
+  function loadHeart() {
+    var api = ctx && ctx.data && ctx.data.api;
+    if (!api) return;
+    api.get('/pet/heart').then(function(res) {
+      heartInfo = (res.data && res.data.data) || null;
+    }).catch(function() {});
+  }
+
   function reportVisitOnce() {
     var api = ctx && ctx.data && ctx.data.api;
     if (!api || (state && state.visited_date === todayKeyStr())) return;
@@ -1608,6 +1700,7 @@
       else draw(s.design);
       reportVisitOnce();
       loadLevel();
+      loadHeart();
     } else if (el) {
       destroy();
     }
@@ -1637,8 +1730,21 @@
 
   function onPetChanged() { if (ctx) loadState(ctx); }
 
+  // 触屏没有右键，长按是唯一入口 —— 首次进来自我介绍一句，只提示一次
+  function maybeMenuHint() {
+    try {
+      if (storage && storage.get('menuHintShown', false)) return;
+    } catch (e) {}
+    later(function() {
+      if (!el || routeHidden) return;
+      try { if (storage) storage.set('menuHintShown', true); } catch (e) {}
+      bubbleSay('长按我可以打开菜单～', 2800);
+    }, 5200);
+  }
+
   function onVisibility() {
     if (!el) return;
+    invalidateBounds();
     if (document.hidden) {
       // 专注中不睡：它正在「陪你」，切个后台就趴下睡觉，回来看到会很出戏。
       if (!focusOn && mode !== 'sleep') setMode('sleep');
@@ -1647,7 +1753,9 @@
     }
   }
 
+  var resizeHandler = null;
   function mount(container, context) {
+    hostRoot = container || null;
     ctx = context;
     storage = context && context.data && context.data.storage;
     realtime = context && context.data && context.data.realtime;
@@ -1676,6 +1784,9 @@
       say('poke', 1600);
       if (window.__ciPetSfx) window.__ciPetSfx.play('poke');
     };
+    // 页面里做了心意动作（谈心/抱抱/晚安）后，桌面这只同步刷新情绪与问候。
+    var onHeartEvent = function() { loadHeart(); };
+    window.addEventListener('ci-pet-heart', onHeartEvent);
     window.addEventListener('ci-pet-state-changed', onPetChanged);
     window.addEventListener('ci-pet-feed', onFeedEvent);
     window.addEventListener('ci-pet-poke', onPokeEvent);
@@ -1685,7 +1796,8 @@
     window.addEventListener('ci-pet-wish', onWishEvent);
     window.addEventListener('ci-pet-focus-start', onFocusStart);
     window.addEventListener('ci-pet-focus-end', onFocusEnd);
-    window.addEventListener('resize', clamp);
+    resizeHandler = function() { invalidateBounds(); clamp(); };
+    window.addEventListener('resize', resizeHandler);
     document.addEventListener('visibilitychange', onVisibility);
     if (realtime && typeof realtime.on === 'function') {
       var prevLevel = levelInfo && levelInfo.level;
@@ -1699,8 +1811,10 @@
       });
     }
     loadState(context);
+    maybeMenuHint();
     if (context && context.app && typeof context.app.onDestroy === 'function') {
       context.app.onDestroy(function() {
+        window.removeEventListener('ci-pet-heart', onHeartEvent);
         window.removeEventListener('ci-pet-state-changed', onPetChanged);
         window.removeEventListener('ci-pet-feed', onFeedEvent);
         window.removeEventListener('ci-pet-poke', onPokeEvent);
@@ -1710,14 +1824,17 @@
         window.removeEventListener('ci-pet-wish', onWishEvent);
         window.removeEventListener('ci-pet-focus-start', onFocusStart);
         window.removeEventListener('ci-pet-focus-end', onFocusEnd);
-        window.removeEventListener('resize', clamp);
+        window.removeEventListener('resize', resizeHandler);
         document.removeEventListener('visibilitychange', onVisibility);
         destroy();
       });
     }
   }
 
-  function unmount() { destroy(); }
+  function unmount() {
+    destroy();
+    hostRoot = null;
+  }
 
   // 自诊断（宠物屋读取）
   window.__ciPetDebug = function() {

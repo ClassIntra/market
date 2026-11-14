@@ -22,9 +22,9 @@
 //    展开范围始终排除管理员与班管。
 
 var axios = require('axios');
-var db = require('../../../server/src/utils/db');
-var constants = require('../../../server/src/utils/constants');
-var jwtUtil = require('../../../server/src/utils/jwt');
+var db = require('_sdk/backend/host').db;
+var constants = require('_sdk/backend/host').constants;
+var jwtUtil = require('_sdk/backend/host').jwt;
 
 var CI_PORT = parseInt(process.env.PORT, 10) || 3000;
 var BOT_USER_ID = process.env.BOT_USER_ID || 'linxi_ai';

@@ -7,7 +7,7 @@
 //   - 图片白名单限定网易云 CDN（*.music.126.net），携带 Referer 防盗链
 // 导出签名与旧版保持兼容（ncm/api.js、gateway.js、routes.js 引用点无需改动）。
 
-var sdk = require('../../_sdk/backend/stream-relay');
+var sdk = require('_sdk/backend/stream-relay');
 var store = require('./store');
 
 // 图片中转白名单（网易云 CDN 域）

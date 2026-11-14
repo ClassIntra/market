@@ -301,6 +301,7 @@ for (let i = 0; i < 25600 && !nodeCell; i++) {
 teleport(U.a, nodeCell.x, nodeCell.y);
 r = await call('POST', '/api/shiguang/gather', U.a, { x: nodeCell.x, y: nodeCell.y });
 ok(r.status === 200 && r.json.data && r.json.data.shards === 1, '踩到星屑格采集成功，shards=1', r.json && r.json.data);
+ok(r.json.data.combo === 1 && r.json.data.gain === 1, '首采 combo=1 gain=1（v4.1 连击字段）', r.json.data);
 
 r = await call('POST', '/api/shiguang/gather', U.a, { x: nodeCell.x, y: nodeCell.y });
 ok(r.json && r.json.data && r.json.data.rejected === 'cooldown', '同一格立刻再采被拒（cooldown）');
@@ -317,6 +318,57 @@ ok(Number(q('SELECT COUNT(*) c FROM shiguang_lamps')[0].c) === 1, '灯柱落库 
 
 r = await call('POST', '/api/shiguang/build', U.b, { x: nodeCell.x, y: nodeCell.y });
 ok(r.json && r.json.data && r.json.data.rejected === 'far', 'B 不能在别人的位置建塔（far）', r.json && r.json.data);
+
+// ---------- 6.4 v4.1：连击 / 灯柱升级 / 送火 ----------
+section('四点五、玩法深度（v4.1）');
+// 连击：10 秒内连采不同星屑，服务端权威累计 combo
+const comboCells = [];
+for (let i = 0; i < 25600 && comboCells.length < 3; i++) {
+  const cx = i % 160, cy = Math.floor(i / 160);
+  if (T.nodes.charCodeAt(i) === 49 && !(cx === nodeCell.x && cy === nodeCell.y)) {
+    comboCells.push({ x: cx, y: cy });
+  }
+}
+let comboResp = null;
+for (let ci = 0; ci < comboCells.length; ci++) {
+  teleport(U.a, comboCells[ci].x, comboCells[ci].y);
+  r = await call('POST', '/api/shiguang/gather', U.a, { x: comboCells[ci].x, y: comboCells[ci].y });
+  comboResp = r.json && r.json.data;
+}
+ok(comboResp && comboResp.combo === 4, '10 秒内连采 4 颗 → combo=4', comboResp);
+ok(comboResp && comboResp.comboBonus === 1 && comboResp.gain === 2, 'combo=4 → 加成 +1、gain=2', comboResp);
+
+// 灯柱升级：5 星屑，level 1→2；太远被拒 → 成功 → 二级再升 max
+teleport(U.a, nodeCell.x + 3, nodeCell.y);
+r = await call('POST', '/api/shiguang/upgrade', U.a, { x: nodeCell.x, y: nodeCell.y });
+ok(r.json && r.json.data && r.json.data.rejected === 'far', '离灯柱 3 格升级被拒（far）', r.json && r.json.data);
+teleport(U.a, nodeCell.x, nodeCell.y);
+dbRun('UPDATE shiguang_players SET shards = 5 WHERE user_id = ?', U.a);
+r = await call('POST', '/api/shiguang/upgrade', U.a, { x: nodeCell.x, y: nodeCell.y });
+ok(r.status === 200 && r.json.data && r.json.data.level === 2 && r.json.data.shards === 0, '升级成功（5 星屑 → level 2）', r.json && r.json.data);
+ok(Number(q('SELECT level FROM shiguang_lamps WHERE x = ? AND y = ?', nodeCell.x, nodeCell.y)[0].level) === 2, 'lamps.level 落库 2');
+r = await call('POST', '/api/shiguang/upgrade', U.a, { x: nodeCell.x, y: nodeCell.y });
+ok(r.json && r.json.data && r.json.data.rejected === 'max', '二级再升被拒（max）');
+
+// 送火：6 格内一次一枚；离线/太远/余额不足各有明确拒绝
+r = await call('POST', '/api/shiguang/give', U.a, { to: 'npc_ghost' });
+ok(r.json && r.json.data && r.json.data.rejected === 'who', '送给 NPC / 非法目标被拒（who）');
+r = await call('POST', '/api/shiguang/give', U.a, { to: '99999999' });
+ok(r.json && r.json.data && r.json.data.rejected === 'offline', '送给不在线的人被拒（offline）');
+teleport(U.b, nodeCell.x + 1, nodeCell.y);
+await call('POST', '/api/shiguang/enter', U.b, {});   // B 重新 enter：online 内存位置同步到 DB
+const beforeB = Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.b)[0].shards || 0);
+dbRun('UPDATE shiguang_players SET shards = 1 WHERE user_id = ?', U.a);
+r = await call('POST', '/api/shiguang/give', U.a, { to: U.b });
+ok(r.status === 200 && r.json.data && r.json.data.shards === 0, '送火成功（A 1→0）', r.json && r.json.data);
+ok(Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.b)[0].shards) === beforeB + 1, 'B 星屑 +1');
+r = await call('POST', '/api/shiguang/give', U.a, { to: U.b });
+ok(r.json && r.json.data && r.json.data.rejected === 'shards', '余额不足被拒（shards）');
+teleport(U.b, 0, 0);
+await call('POST', '/api/shiguang/enter', U.b, {});
+r = await call('POST', '/api/shiguang/give', U.a, { to: U.b });
+ok(r.json && r.json.data && (r.json.data.rejected === 'far' || r.json.data.rejected === 'shards'), '太远或没星屑，送不出去', r.json && r.json.data);
+dbRun('UPDATE shiguang_players SET shards = 7 WHERE user_id = ?', U.a);   // 衔接种花段（7→5）的既有断言
 
 // ---------- 6. v2：种光花 ----------
 section('五、种光花');

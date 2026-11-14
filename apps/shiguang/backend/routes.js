@@ -54,6 +54,19 @@ var FISH_SPECIAL_CHANCE = 0.4;  // 命中「本岛特产」的概率（只从特
 // 纸鸢快线（码头跨岛飞行）
 var FLY_COST = 2;
 
+// 灯柱升级：二级灯柱半径 4→6，外观更亮更高
+var UPGRADE_COST = 5;
+var LAMP_RADIUS_L2 = 6;
+
+// 送火：把一枚星屑送给身边的同学
+var GIVE_COST = 1;
+var GIVE_RADIUS = 6;
+
+// 暗涌：全图灯柱周期性变暗 + 雾灵压境 —— 全班必须回到光边
+var SURGE_MIN_GAP_MS = 10 * 60 * 1000;
+var SURGE_MAX_GAP_MS = 16 * 60 * 1000;
+var SURGE_DURATION_MS = 45 * 1000;
+
 // 石碑
 var STELE_REWARD = 5;           // 首次唤醒一座石碑的星屑奖励
 var STELE_MAX_DIST_SQ = 2.5 * 2.5;  // 触碰距离
@@ -414,7 +427,13 @@ db.exec([
   ')'
 ].join('\n'));
 
-db.exec('CREATE TABLE IF NOT EXISTS shiguang_lamps (id INTEGER PRIMARY KEY AUTOINCREMENT, x INTEGER NOT NULL, y INTEGER NOT NULL, user_id TEXT NOT NULL, created_at INTEGER NOT NULL)');
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_lamps (id INTEGER PRIMARY KEY AUTOINCREMENT, x INTEGER NOT NULL, y INTEGER NOT NULL, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, level INTEGER NOT NULL DEFAULT 1)');
+// v4 迁移：老灯柱补 level 列（升级玩法）
+try {
+  db.prepare("SELECT level FROM shiguang_lamps LIMIT 1").get();
+} catch (e) {
+  db.exec('ALTER TABLE shiguang_lamps ADD COLUMN level INTEGER NOT NULL DEFAULT 1');
+}
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shiguang_lamp_pos ON shiguang_lamps(x, y)');
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_bottles (id INTEGER PRIMARY KEY AUTOINCREMENT, x INTEGER NOT NULL, y INTEGER NOT NULL, user_id TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_shiguang_bottle_pos ON shiguang_bottles(x, y)');
@@ -446,7 +465,9 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, np
     tutorial: 'INTEGER NOT NULL DEFAULT 0',
     last_fish_at: 'INTEGER NOT NULL DEFAULT 0',
     last_emote_at: 'INTEGER NOT NULL DEFAULT 0',
-    last_plant_at: 'INTEGER NOT NULL DEFAULT 0'
+    last_plant_at: 'INTEGER NOT NULL DEFAULT 0',
+    combo: 'INTEGER NOT NULL DEFAULT 0',
+    combo_at: 'INTEGER NOT NULL DEFAULT 0'
   };
   try {
     var cols = {};
@@ -500,6 +521,9 @@ var npcDirty = new Set();
 // 重启丢一场也就丢一场，不值得为它建表。
 var meteor = { active: false, x: 0, y: 0, island: '', endsAt: 0, nodes: {}, startedAt: 0 };
 var meteorNextAt = Date.now() + (5 + Math.floor(Math.random() * 6)) * 60 * 1000;
+
+// 暗涌：灯柱集体变暗的生存事件。纯内存状态，重启即清。
+var surge = { active: false, endsAt: 0, nextAt: Date.now() + SURGE_MIN_GAP_MS + Math.floor(Math.random() * (SURGE_MAX_GAP_MS - SURGE_MIN_GAP_MS)) };
 
 function key(x, y) { return x + ',' + y; }
 
@@ -968,6 +992,16 @@ var sweepTimer = setInterval(function () {
       // 没人在世界里就不开 —— 流星雨下给空岛看没有意义，白白消耗全服广播
       startMeteor();
     }
+    // 暗涌：开/收。与流星雨错峰（同屏两个全服事件太吵）。
+    if (surge.active) {
+      if (now >= surge.endsAt) {
+        surge = { active: false, endsAt: 0, nextAt: now + SURGE_MIN_GAP_MS + Math.floor(Math.random() * (SURGE_MAX_GAP_MS - SURGE_MIN_GAP_MS)) };
+        broadcast('shiguang.world.surge', { active: false });
+      }
+    } else if (now >= surge.nextAt && online.size > 0 && !meteor.active) {
+      surge = { active: true, endsAt: now + SURGE_DURATION_MS };
+      broadcast('shiguang.world.surge', { active: true, until: surge.endsAt, now: now });
+    }
   } catch (e) {
     if (/no such table/i.test(String(e && e.message))) disabled = true;
   }
@@ -1088,13 +1122,20 @@ router.post('/enter', requireAuth, function (req, res) {
 
   var fresh = reveal(row.x, row.y, ENTER_REVEAL, userId);
   markOnline(row);
+
+  // 开放世界的门铃声：有人进岛，全班都该知道 —— 多人感不靠巧合，靠广播。
+  (function () {
+    var others = [];
+    online.forEach(function (p, uid) { if (uid !== userId) others.push(uid); });
+    if (others.length) broadcast('shiguang.world.enter', { id: userId, name: row.name, x: row.x, y: row.y }, others);
+  })();
   // 进入时推进一次探索落盘，避免刚揭开的格子因进程重启丢失
   flushExplored();
 
   var lamps = [];
   // 灯柱带建造者的灯色：全班各自的灯色在夜里汇成一片星座（LEFT JOIN 兼容旧数据）
   try {
-    lamps = db.prepare("SELECT l.x, l.y, COALESCE(p.lantern, '0') AS c FROM shiguang_lamps l LEFT JOIN shiguang_players p ON p.user_id = l.user_id").all();
+    lamps = db.prepare("SELECT l.x, l.y, COALESCE(p.lantern, '0') AS c, COALESCE(l.level, 1) AS level FROM shiguang_lamps l LEFT JOIN shiguang_players p ON p.user_id = l.user_id").all();
   } catch (e) {}
   var count = lampCount();
   var stage = stageFor(count);
@@ -1190,6 +1231,7 @@ router.post('/enter', requireAuth, function (req, res) {
       flowerCount: flowers.length,
       onlineCount: online.size,
       meteor: meteorPublic(),
+      surge: surge.active ? { active: true, until: surge.endsAt } : null,
       quests: quests,
       wardrobe: wardrobe,
       collection: collection,
@@ -1203,8 +1245,11 @@ router.post('/enter', requireAuth, function (req, res) {
 
 router.post('/leave', requireAuth, function (req, res) {
   var userId = String(req.user.user_id);
+  var leaving = online.get(userId);
   online.delete(userId);
   pendingLeaves.push(userId);
+  // 离岛也广播：同学能看见「谁还在、谁走了」，世界才有在场感
+  if (leaving) broadcast('shiguang.world.leave', { id: userId, name: leaving.name });
   try { db.prepare('UPDATE shiguang_players SET last_seen = 0 WHERE user_id = ?').run(userId); } catch (e) {}
   res.json({ code: 200, message: 'ok' });
 });
@@ -1233,6 +1278,7 @@ router.post('/heartbeat', requireAuth, function (req, res) {
       stage: stageFor(count),
       serverNow: now,
       meteor: meteorPublic(),
+      surge: surge.active ? { active: true, until: surge.endsAt } : null,
       claimable: claimable
     }
   });
@@ -1380,17 +1426,26 @@ router.post('/gather', requireAuth, function (req, res) {
   if (!nodeReady(x, y)) return res.json({ code: 200, data: { rejected: 'cooldown' } });
 
   var now = Date.now();
+  // 连击采集：10 秒内连续采集叠连击，断档清零。
+  // 「保持节奏」比「走到就按」多了技巧与规划 —— 连击越高单次收益越高。
+  var combo = 1;
+  if (now - (row.combo_at || 0) < 10000) combo = (row.combo || 0) + 1;
+  var comboBonus = combo >= 8 ? 2 : (combo >= 4 ? 1 : 0);
+  var gain = 1 + comboBonus;
   try {
-    db.prepare('INSERT INTO shiguang_nodes (x, y, ready_at) VALUES (?, ?, ?) ON CONFLICT(x, y) DO UPDATE SET ready_at = excluded.ready_at')
-      .run(x, y, now + NODE_RESPAWN_MS);
-    db.prepare('UPDATE shiguang_players SET shards = shards + 1, gathered = gathered + 1, last_seen = ? WHERE user_id = ?')
-      .run(now, userId);
+    var tx = db.transaction(function () {
+      db.prepare('INSERT INTO shiguang_nodes (x, y, ready_at) VALUES (?, ?, ?) ON CONFLICT(x, y) DO UPDATE SET ready_at = excluded.ready_at')
+        .run(x, y, now + NODE_RESPAWN_MS);
+      db.prepare('UPDATE shiguang_players SET shards = shards + ?, gathered = gathered + 1, combo = ?, combo_at = ?, last_seen = ? WHERE user_id = ?')
+        .run(gain, combo, now, now, userId);
+    });
+    tx();
   } catch (e) {
     return res.status(500).json({ code: 500, message: '采集失败' });
   }
 
   var p = online.get(userId);
-  if (p) { p.shards = (p.shards || 0) + 1; online.set(userId, p); }
+  if (p) { p.shards = (p.shards || 0) + gain; online.set(userId, p); }
   pendingGathers.push([x, y]);
 
   var fresh = reveal(x, y, 1, userId);
@@ -1405,6 +1460,9 @@ router.post('/gather', requireAuth, function (req, res) {
     data: {
       shards: updated ? updated.shards : 0,
       gathered: updated ? updated.gathered : 0,
+      combo: combo,
+      comboBonus: comboBonus,
+      gain: gain,
       respawnIn: Math.round(NODE_RESPAWN_MS / 1000),
       reveal: fresh
     }
@@ -1439,7 +1497,7 @@ router.post('/build', requireAuth, function (req, res) {
   var now = Date.now();
   try {
     var tx = db.transaction(function () {
-      db.prepare('INSERT INTO shiguang_lamps (x, y, user_id, created_at) VALUES (?, ?, ?, ?)').run(x, y, userId, now);
+      db.prepare('INSERT INTO shiguang_lamps (x, y, user_id, created_at, level) VALUES (?, ?, ?, ?, 1)').run(x, y, userId, now);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, built = built + 1, last_seen = ? WHERE user_id = ?')
         .run(LAMP_COST, now, userId);
     });
@@ -1454,7 +1512,7 @@ router.post('/build', requireAuth, function (req, res) {
   var p = online.get(userId);
   if (p) { p.shards = Math.max(0, (p.shards || 0) - LAMP_COST); online.set(userId, p); }
   // 灯柱带上建造者的灯色 —— 夜里远远看去，灯柱是全班每个人的颜色
-  pendingLamps.push([x, y, row.lantern || '0']);
+  pendingLamps.push([x, y, row.lantern || '0', 1]);
 
   var fresh = reveal(x, y, REVEAL_ON_LAMP, userId);
   if (fresh.length) pendingReveals = pendingReveals.concat(fresh);
@@ -2047,6 +2105,101 @@ router.post('/fly', requireAuth, function (req, res) {
   });
 });
 
+// ---------------- 路由：灯柱升级与送火 ----------------
+
+// 灯柱升级：站在灯柱格或相邻格，5 星屑，半径 4→6。
+// 点灯从一次性变成空间规划谜题 —— 「这两根二级灯柱的圈能不能接上」。
+router.post('/upgrade', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+
+  var body = req.body || {};
+  var x = Number.isInteger(body.x) ? body.x : row.x;
+  var y = Number.isInteger(body.y) ? body.y : row.y;
+  var lamp = null;
+  try { lamp = db.prepare('SELECT x, y, user_id, level FROM shiguang_lamps WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
+  if (!lamp) return res.json({ code: 200, data: { rejected: 'no_lamp' } });
+  if (lamp.level >= 2) return res.json({ code: 200, data: { rejected: 'max' } });
+  // 必须站在灯柱格或相邻格
+  if (Math.abs(row.x - x) > 1 || Math.abs(row.y - y) > 1) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  if (row.shards < UPGRADE_COST) return res.json({ code: 200, data: { rejected: 'shards', need: UPGRADE_COST, have: row.shards } });
+
+  var now = Date.now();
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('UPDATE shiguang_lamps SET level = 2 WHERE x = ? AND y = ?').run(x, y);
+      db.prepare('UPDATE shiguang_players SET shards = shards - ?, last_seen = ? WHERE user_id = ?').run(UPGRADE_COST, now, userId);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '升级失败' });
+  }
+
+  var p = online.get(userId);
+  if (p) { p.shards = Math.max(0, (p.shards || 0) - UPGRADE_COST); online.set(userId, p); }
+  broadcast('shiguang.world.lamp_up', { x: x, y: y, by: userName(userId), level: 2 });
+
+  var updated = playerRow(userId);
+  res.json({
+    code: 200,
+    data: { shards: updated ? updated.shards : 0, x: x, y: y, level: 2, cost: UPGRADE_COST }
+  });
+});
+
+// 送火：把一枚星屑送给 6 格内的在线同学。星屑不可转账（防刷），
+// 「送火」是唯一的赠予通道 —— 一次一枚，亲手点过去。
+router.post('/give', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+
+  var body = req.body || {};
+  var to = String(body.to || '');
+  if (!to || to === userId || to.indexOf('npc_') === 0) {
+    return res.json({ code: 200, data: { rejected: 'who' } });
+  }
+  var target = null;
+  online.forEach(function (p, uid) {
+    if (uid === to) target = p;
+  });
+  if (!target) return res.json({ code: 200, data: { rejected: 'offline' } });
+  if (Math.abs(target.x - row.x) > GIVE_RADIUS || Math.abs(target.y - row.y) > GIVE_RADIUS) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  if (row.shards < GIVE_COST) return res.json({ code: 200, data: { rejected: 'shards', need: GIVE_COST, have: row.shards } });
+
+  var now = Date.now();
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('UPDATE shiguang_players SET shards = shards - ?, last_seen = ? WHERE user_id = ?').run(GIVE_COST, now, userId);
+      db.prepare('UPDATE shiguang_players SET shards = shards + ?, last_seen = ? WHERE user_id = ?').run(GIVE_COST, now, to);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '星屑没能送出去' });
+  }
+
+  var p = online.get(userId);
+  if (p) { p.shards = Math.max(0, (p.shards || 0) - GIVE_COST); online.set(userId, p); }
+  var tp = online.get(to);
+  if (tp) { tp.shards = (tp.shards || 0) + GIVE_COST; online.set(to, tp); }
+
+  // 双端定向通知：送礼人「送出」、收礼人「收到」
+  broadcast('shiguang.you.gave', { from: userId, fromName: userName(userId), to: to, toName: userName(to) }, [userId, to]);
+
+  var updated = playerRow(userId);
+  res.json({
+    code: 200,
+    data: {
+      shards: updated ? updated.shards : 0,
+      to: to, toName: userName(to)
+    }
+  });
+});
+
 // ---------------- 路由：排行与世界总览 ----------------
 
 router.get('/rank', requireAuth, function (req, res) {
@@ -2103,7 +2256,7 @@ router.get('/nearby', requireAuth, function (req, res) {
   });
   var lamps = [];
   try {
-    lamps = db.prepare("SELECT l.x, l.y, COALESCE(p.lantern, '0') AS c FROM shiguang_lamps l LEFT JOIN shiguang_players p ON p.user_id = l.user_id WHERE l.x BETWEEN ? AND ? AND l.y BETWEEN ? AND ?")
+    lamps = db.prepare("SELECT l.x, l.y, COALESCE(p.lantern, '0') AS c, COALESCE(l.level, 1) AS level FROM shiguang_lamps l LEFT JOIN shiguang_players p ON p.user_id = l.user_id WHERE l.x BETWEEN ? AND ? AND l.y BETWEEN ? AND ?")
       .all(row.x - radius, row.x + radius, row.y - radius, row.y + radius);
   } catch (e) {}
   var flowers = [];

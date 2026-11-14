@@ -84,9 +84,9 @@ function setAccess(input) {
 function isPrivileged(uid) {
   if (!uid) return false;
   try {
-    var constants = require('../../../server/src/utils/constants');
+    var constants = require('_sdk/backend/host').constants;
     if (constants.isClassAdmin(uid)) return true;
-    var db = require('../../../server/src/utils/db');
+    var db = require('_sdk/backend/host').db;
     var row = db.prepare('SELECT is_admin, role FROM users WHERE user_id = ?').get(uid);
     return !!(row && (row.is_admin === 1 || row.role === 'officer'));
   } catch (e) {

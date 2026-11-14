@@ -16,13 +16,41 @@
   // 预算 = 容器宽 − root 左右 padding(32) − 画布容器 padding(16) − 安全余量(8)
   function availWidth() {
     var w = (root && root.clientWidth) ? root.clientWidth : Math.min(window.innerWidth || 360, 720);
-    return w - 56;
+    return w - 40;
   }
+  // 画板尺寸（v0.38.0）：按**画板卡自己的真实宽高**算，不再猜窗口宽度。
+  //   旧版封顶 30px/格 + 固定留 250px 给页头，平板横屏 16×16 只有 480px，
+  //   右边一半屏幕空着 —— 用户原话「可拼的地方太小了」。
+  //   现在：宽度取画板卡内容宽（宽屏时工具列已占走一列），高度取画板卡顶到视口底，
+  //   上限放到 56；平板 1024×768 下 16×16 ≈ 576px，32×32 ≈ 576px。
+  var CELL_MAX = 56;
   function computeCell() {
-    var raw = Math.floor(availWidth() / DIM / 2) * 2; // 取偶数，避免半像素发丝缝
-    return Math.max(16, Math.min(30, raw));
+    var n = (edit && edit.w) || DIM;
+    var avail = availWidth();
+    if (canvasWrapEl && canvasWrapEl.clientWidth > 60) avail = canvasWrapEl.clientWidth - 20;
+    var byW = Math.floor(avail / n);
+    var byH = Math.floor(((window.innerHeight || 768) - 250) / n);
+    // 横屏（编辑区已定高）：直接用画板卡的可用高度，比猜视口稳。
+    // 扣掉卡片内边距 16 + 坐标行 24，剩下全是画板。
+    if (canvasWrapEl && canvasWrapEl.style.height && canvasWrapEl.clientHeight > 160) {
+      byH = Math.floor((canvasWrapEl.clientHeight - 44) / n);
+    } else if (canvasWrapEl && canvasWrapEl.getBoundingClientRect) {
+      var top = canvasWrapEl.getBoundingClientRect().top;
+      if (top > 0 && top < window.innerHeight - 120) {
+        byH = Math.floor((window.innerHeight - top - 44) / n);
+      }
+    }
+    var cell = Math.min(CELL_MAX, byW, byH);
+    // 不强制偶数：64 格时 9.75 → 9 能多出 64px；发丝缝由 drawImage 的 +0.5 兜住
+    return Math.max(6, Math.floor(cell));
   }
   var CELL = computeCell();
+  // 拼豆画板档位（后端单边上限同步为 64）。
+  // 48/64 在平板上单格只有 9~12px，靠「缩放 + 抓手」才能真正点得准。
+  var SIZES = [16, 24, 32, 48, 64];
+  var ZOOMS = [1, 1.5, 2, 3];
+  // 色号与中文名：和「实体拼豆备料」对齐，A1–A16 按后端 PALETTE.p16 顺序
+  var BEAD_NAMES = ['墨黑', '石灰', '瓷白', '云灰', '朱红', '樱花粉', '蜜橙', '阳光黄', '焦糖棕', '青草绿', '森林绿', '冰蓝', '晴空蓝', '葡萄紫', '奶油杏', '玫瑰红'];
   var palette = [];
   var templates = [];
   var state = null;      // 服务端状态
@@ -30,6 +58,10 @@
   var api = null;
   var storage = null;    // SDK 本地存档（手作稿，供「换回拼豆」时复原）
   var uiTab = 'home';    // 当前页：home / battle / dex / rank（v0.8.0 分区）
+  // 编辑器是否开着。开着的时候，任何「后台自动重绘首页」都必须作废：
+  //   许愿气泡每 15s 检查一次、剧情/战斗数据回包、昼夜换景……都会调 renderHome()，
+  //   而编辑器挂在 home 这个 tab 上 —— 一重建就把正在拼豆的人弹回宠物屋（实测「拼一半跳出去」）。
+  var editorOpen = false;
   var tabAnim = true;    // 首次进入也播一次入场；之后只认「切页」那一次（普通刷新零动画）
   var elements = [];     // 属性表（服务端 /pet/state 下发，失败时用兜底）
   var wildCatalog = [];  // 野生精灵图鉴（服务端下发）
@@ -37,6 +69,7 @@
   var evolutionInfo = null; // 当前进化阶段
   var weatherInfo = null;   // 今日天气（v0.10.0，按日期哈希，全班一致）
   var shopInfo = null;      // 小卖部货架（v0.25.0，随 /state 下发）
+  var heartInfo = null;     // 情感陪伴摘要（v0.37.0，随 /state 与 /pet/heart 下发）
   var petWish = null;
   var storyInfo = null;
   var petWishTimer = null;
@@ -490,6 +523,112 @@
       '..aa....aa..',
       '............',
       '............'
+    ] },
+    // ---- v0.37.1 心意面板：情感相关图标（12×12，显示 24px = 每格 2px 整数缩放）----
+    // 抱一抱：一颗带高光的心
+    hug: { pal: { a: '#8a2436', b: '#e8566f', c: '#ffc2cc' }, rows: [
+      '............',
+      '...aa..aa...',
+      '..abbaabba..',
+      '.abbccbbbba.',
+      '.abbcbbbbba.',
+      '..abbbbbba..',
+      '...abbbba...',
+      '....abba....',
+      '.....aa.....',
+      '............',
+      '............',
+      '............'
+    ] },
+    // 顺顺毛：一把木梳（梳背 + 两排梳齿）
+    groom: { pal: { a: '#5a3c1c', b: '#c9a06a', c: '#f2e3c8' }, rows: [
+      '............',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '..aaaaaaaa..',
+      '..acacacac..',
+      '..acacacac..',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '..aaaaaaaa..',
+      '............',
+      '............'
+    ] },
+    // 一起发呆：一朵软云
+    cloud: { pal: { a: '#6b7a8f', b: '#dfe8f5', c: '#ffffff' }, rows: [
+      '............',
+      '............',
+      '....aaaa....',
+      '..aabbbbaa..',
+      '.abbbbbbbba.',
+      '.abbcbbbbba.',
+      '.abbbbbbbba.',
+      '.abbbbbbbba.',
+      '..abbbbbba..',
+      '...aaaaaa...',
+      '............',
+      '............'
+    ] },
+    // 累：下着小雨的云
+    rain: { pal: { a: '#5a6a80', b: '#a8b6c8', c: '#64d2ff' }, rows: [
+      '............',
+      '....aaaa....',
+      '..aabbbbaa..',
+      '.abbbbbbbba.',
+      '.abbbbbbbba.',
+      '.abbbbbbbba.',
+      '..aaaaaaaa..',
+      '...c..c..c..',
+      '..c..c..c...',
+      '............',
+      '............',
+      '............'
+    ] },
+    // 难过：一滴蓝眼泪
+    drop: { pal: { a: '#1c4f8a', b: '#4aa3e0', c: '#cfeaff' }, rows: [
+      '............',
+      '.....aa.....',
+      '.....aa.....',
+      '....abba....',
+      '....abba....',
+      '...abbbba...',
+      '..abbbbbba..',
+      '..abbcbbba..',
+      '..abbbbbba..',
+      '...abbbba...',
+      '....aaaa....',
+      '............'
+    ] },
+    // 期待：四角闪光
+    sparkle: { pal: { a: '#8a5a00', b: '#e6b02a', c: '#fff0b8' }, rows: [
+      '............',
+      '.....aa.....',
+      '....abba....',
+      '...abccba...',
+      '..abccccba..',
+      '.abccccccba.',
+      '..abccccba..',
+      '...abccba...',
+      '....abba....',
+      '.....aa.....',
+      '............',
+      '............'
+    ] },
+    // 回忆未解锁：一把灰锁
+    lock: { pal: { a: '#3a3a44', b: '#7a7a88', c: '#a8a8b8' }, rows: [
+      '............',
+      '....aaaa....',
+      '...a....a...',
+      '...a....a...',
+      '..aaaaaaaa..',
+      '..abbbbbba..',
+      '..abbccbba..',
+      '..abbbbbba..',
+      '..abbbbbba..',
+      '..aaaaaaaa..',
+      '............',
+      '............'
     ] }
   };
 
@@ -843,6 +982,9 @@
     // v0.25.0：小卖部货架与助战位，都是服务端算好下发的只读视图。
     if (d.shop !== undefined) shopInfo = d.shop;
     if (d.assistant !== undefined && battle) battle.assistant = d.assistant;
+    // v0.37.0：情感陪伴摘要。首页气泡与心意面板都读它；完整数据由 /pet/heart 补。
+    if (d.heart !== undefined) heartInfo = d.heart;
+    if (d.memoriesNew && d.memoriesNew.length) heartMemoryToast(d.memoriesNew);
   }
 
   // 对战 / 爬塔 / 野怪三种响应都带 weather + quests：打完一场顺手更新，
@@ -854,10 +996,29 @@
   }
 
   // ---- 编辑器状态 ----
-  var edit = null;       // { data: '256字符', color: idx, tool: 'pen|eraser|fill', mirror: bool }
+  // edit 里带 w/h：16/24/32 三档画板共用同一套绘制逻辑，data 长度恒为 w*h。
+  var edit = null;       // { w, h, data, color, tool, mirrorX, mirrorY, bead, painting, ... }
   var undoStack = [];
+  var redoStack = [];
   var editCanvas = null;
-  var eg = null;
+  var editPreviewEl = null;      // 右侧实时预览
+  var editStatsLineEl = null;    // 「总计 N 颗 · M 色」
+  var editStatsWrapEl = null;    // 色号 chips
+  var editColorLabelEl = null;   // 「当前 A5 · 樱花粉」
+  var editGalleryEl = null;      // 作品库列表
+  var editGalleryHeadEl = null;  // 「作品库 · n / 24」
+  var editNameInput = null;
+  var editPosEl = null;          // 画板下方的光标坐标「列 x · 行 y」
+  var editDesigns = [];          // 服务端作品库
+  var editDesignsLoaded = false;
+  var editDesignsError = false;
+  var draftTimer = null;
+  var DRAFT_KEY = 'pixelDraft';
+  // 「上次是在编辑器里被中断的」标记：只在进入编辑器时写、在明确离开时清。
+  // 用途：宿主重挂 / 刷新 / 切后台被回收后，回来直接续上那张草稿，
+  //       而不是把用户丢回宠物屋（用户反馈「拼一半自动跳出去」的另一半保险）。
+  var EDIT_SESSION_KEY = 'editSession';
+  var MAX_DESIGNS = 24;          // 与后端 routes.js 的 MAX_DESIGNS 保持一致
 
   // ---- 像素渲染（dpr 真实像素绘制：任何屏幕都锐利，不依赖 image-rendering）----
   // cellPx：每个豆子的 CSS 尺寸；canvas 物理分辨率 = cellPx × dpr
@@ -873,6 +1034,12 @@
     var g = canvasEl.getContext('2d');
     g.clearRect(0, 0, canvasEl.width, canvasEl.height);
     var cell = cellPx * dpr;
+    // 像素边界取整：非整数缩放下（比如 64 格画到 176px = 2.75px/格）
+    // 直接用 fillRect(x*cell, cell+0.5) 会出现「有的格 2px、有的格 3px，还叠边」；
+    // 先取整边界再填充，每格宽度最多差 1px，但没有缝隙也不会互相压边。
+    var xs = [], ys = [];
+    for (var xi = 0; xi <= design.w; xi++) xs.push(Math.round(xi * cell));
+    for (var yi = 0; yi <= design.h; yi++) ys.push(Math.round(yi * cell));
     for (var y = 0; y < design.h; y++) {
       for (var x = 0; x < design.w; x++) {
         var ch = design.data.charAt(y * design.w + x);
@@ -880,10 +1047,223 @@
         var c = palette[parseInt(ch, 16)];
         if (!c) continue;
         g.fillStyle = c;
-        // +0.5 防相邻格间发丝缝
-        g.fillRect(x * cell, y * cell, cell + 0.5, cell + 0.5);
+        var w = xs[x + 1] - xs[x], hh = ys[y + 1] - ys[y];
+        if (w <= 0 || hh <= 0) continue;
+        g.fillRect(xs[x], ys[y], w, hh);
       }
     }
+  }
+
+  // ---- 拼豆质感渲染（v0.35.0）----
+  // 实体拼豆是「带中心孔的圆柱」，一颗颗排进底板后会有空隙和高低光。
+  // 这里做两件事：
+  //   1. 每颗豆子按「颜色 + 格宽」只光栅化一次成小精灵图，之后每格 drawImage ——
+  //      32×32 画板拖拽时每帧最多 1024 次 drawImage，不会像纯矢量那样卡手；
+  //   2. 底板（米色板 + 插钉 + 网格线）也缓存成一张底图，避免每帧重画上千个钉点。
+  // 缓存都是按 key 懒生成的，尺寸切换时旧图自然不再命中，不会无限增长。
+  var beadSpriteCache = {};
+  var beadSpriteKeys = [];   // 只保留最近 10 组（格宽/dpr/质感组合），防止切尺寸时缓存无限长
+  var boardLayerCache = {};
+  var boardLayerKeys = [];
+
+  function beadCode(idx) { return 'A' + (idx + 1); }
+  function beadName(idx) { return BEAD_NAMES[idx] || ('色' + (idx + 1)); }
+
+  function beadSprite(idx, cellPx, dpr, bg, texture) {
+    var key = cellPx + '|' + dpr + '|' + bg + '|' + (texture ? 1 : 0);
+    var set = beadSpriteCache[key];
+    if (!set) {
+      set = beadSpriteCache[key] = {};
+      beadSpriteKeys.push(key);
+      if (beadSpriteKeys.length > 10) delete beadSpriteCache[beadSpriteKeys.shift()];
+    }
+    if (set[idx]) return set[idx];
+    var size = Math.max(4, Math.round(cellPx * dpr));
+    var c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    var g = c.getContext('2d');
+    var color = palette[idx] || '#888888';
+    if (!texture) {
+      g.fillStyle = color;
+      g.fillRect(0, 0, size, size);
+      set[idx] = c;
+      return c;
+    }
+    var cx = size / 2;
+    var cy = size / 2;
+    var r = size * 0.47;
+    // 小格宽（48/64 档，或缩放 100%）时实体豆的「中心孔 + 底部压暗」只有 1~2px，
+    // 放大后就是一片脏点。这里换扁平豆：纯色圆 + 一道高光，远看更干净。
+    var simple = size < 16;
+    // 豆身
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(cx, cy, r, 0, Math.PI * 2);
+    g.fill();
+    if (simple) {
+      g.strokeStyle = 'rgba(255,255,255,0.30)';
+      g.lineWidth = Math.max(1, size * 0.10);
+      g.beginPath();
+      g.arc(cx, cy, r * 0.72, Math.PI * 1.10, Math.PI * 1.55);
+      g.stroke();
+      set[idx] = c;
+      return c;
+    }
+    // 顶部高光（左上斜向的一道弧）
+    g.strokeStyle = 'rgba(255,255,255,0.34)';
+    g.lineWidth = Math.max(1, size * 0.13);
+    g.beginPath();
+    g.arc(cx, cy, r * 0.76, Math.PI * 1.08, Math.PI * 1.62);
+    g.stroke();
+    // 底部压暗
+    g.strokeStyle = 'rgba(0,0,0,0.18)';
+    g.lineWidth = Math.max(1, size * 0.1);
+    g.beginPath();
+    g.arc(cx, cy, r * 0.88, Math.PI * 0.16, Math.PI * 0.72);
+    g.stroke();
+    // 中心豆孔（露出底板色，才是拼豆的样子）
+    var hole = Math.max(1.5, size * 0.17);
+    g.fillStyle = bg;
+    g.beginPath();
+    g.arc(cx, cy, hole, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.2)';
+    g.lineWidth = Math.max(1, size * 0.06);
+    g.beginPath();
+    g.arc(cx, cy, hole, 0, Math.PI * 2);
+    g.stroke();
+    set[idx] = c;
+    return c;
+  }
+
+  function boardLayer(w, h, cell, dpr, bg, opts) {
+    var key = w + '|' + h + '|' + Math.round(cell) + '|' + dpr + '|' + bg + '|' + (opts.pegs ? 1 : 0) + '|' + (opts.grid ? 1 : 0);
+    if (boardLayerCache[key]) return boardLayerCache[key];
+    var c = document.createElement('canvas');
+    c.width = Math.round(w * cell);
+    c.height = Math.round(h * cell);
+    var g = c.getContext('2d');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, c.width, c.height);
+    // 小格宽时（64 档 ≈9px/格）插钉与网格会挤成一片灰噪点：
+    // 按格宽分三档收敛 —— 大格保留实体底板质感，小格退成一张淡网格纸。
+    var dense = cell < 12 * dpr;
+    var mid = cell < 22 * dpr;
+    // 空豆位的小插钉，让底板看起来是真实拼豆板
+    if (opts.pegs && !dense) {
+      var pr = Math.max(1, cell * (mid ? 0.075 : 0.1));
+      g.fillStyle = mid ? 'rgba(150,120,64,0.13)' : 'rgba(150,120,64,0.22)';
+      for (var py = 0; py < h; py++) {
+        for (var px = 0; px < w; px++) {
+          g.beginPath();
+          g.arc(px * cell + cell / 2, py * cell + cell / 2, pr, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+    }
+    // 网格线画在豆子下层：豆子会把线盖住，空位则能看清格子
+    if (opts.grid) {
+      g.strokeStyle = dense ? 'rgba(120,96,52,0.10)' : (mid ? 'rgba(120,96,52,0.16)' : 'rgba(120,96,52,0.22)');
+      g.lineWidth = Math.max(1, dpr * 0.6);
+      for (var i = 1; i < w; i++) {
+        g.beginPath();
+        g.moveTo(i * cell, 0);
+        g.lineTo(i * cell, c.height);
+        g.stroke();
+      }
+      for (var j = 1; j < h; j++) {
+        g.beginPath();
+        g.moveTo(0, j * cell);
+        g.lineTo(c.width, j * cell);
+        g.stroke();
+      }
+      // 中线加重点，方便数格子；太密就不画了（64 格时它是噪音）
+      if (!dense) {
+        g.strokeStyle = mid ? 'rgba(10,132,255,0.20)' : 'rgba(10,132,255,0.28)';
+        g.lineWidth = Math.max(1, dpr);
+        g.beginPath(); g.moveTo(w * cell / 2, 0); g.lineTo(w * cell / 2, c.height); g.stroke();
+        g.beginPath(); g.moveTo(0, h * cell / 2); g.lineTo(c.width, h * cell / 2); g.stroke();
+      }
+    }
+    boardLayerCache[key] = c;
+    boardLayerKeys.push(key);
+    // v0.38.0：画板放大后单张底板最坏 2048²（16MB），缓存只留 3 张。
+    // 低端平板（Android 9 / Chrome 80）内存一紧就是整页白屏，宁可多画一次底板。
+    if (boardLayerKeys.length > 3) {
+      var old = boardLayerKeys.shift();
+      delete boardLayerCache[old];
+    }
+    return c;
+  }
+
+  // 统一画板：清空 → 底板 → 逐颗豆子。cellPx 是 CSS 像素格宽。
+  // opts: { bg, pegs, grid, bead }
+  function drawBoard(canvasEl, design, cellPx, opts) {
+    if (!canvasEl || !design || !design.data || !cellPx) return;
+    opts = opts || {};
+    var bg = opts.bg || '#FBF6E8';
+    var w = design.w || DIM;
+    var h = design.h || DIM;
+    var dpr = window.devicePixelRatio || 1;
+    var cell = cellPx * dpr;
+    canvasEl.width = Math.round(w * cell);
+    canvasEl.height = Math.round(h * cell);
+    canvasEl.style.width = (w * cellPx) + 'px';
+    canvasEl.style.height = (h * cellPx) + 'px';
+    var g = canvasEl.getContext('2d');
+    g.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    g.drawImage(boardLayer(w, h, cell, dpr, bg, opts), 0, 0);
+    var texture = opts.bead !== false && cellPx >= 7;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = design.data.charAt(y * w + x);
+        if (ch === '.') continue;
+        var idx = parseInt(ch, 16);
+        if (!(idx >= 0 && idx < 16)) continue;
+        // 多画 0.5px 让相邻豆子接边，避免缩放时出现发丝缝
+        g.drawImage(beadSprite(idx, cellPx, dpr, bg, texture), x * cell, y * cell, cell + 0.5, cell + 0.5);
+      }
+    }
+  }
+
+  // 统计每个色号用了多少颗（做实体拼豆时要照着这个数字备料）
+  function beadStats(data) {
+    var counts = [];
+    var i;
+    for (i = 0; i < 16; i++) counts.push(0);
+    var total = 0;
+    for (i = 0; i < data.length; i++) {
+      var ch = data.charAt(i);
+      if (ch === '.') continue;
+      var idx = parseInt(ch, 16);
+      if (idx >= 0 && idx < 16) { counts[idx]++; total++; }
+    }
+    var used = [];
+    for (i = 0; i < 16; i++) {
+      if (counts[i]) used.push({ idx: i, count: counts[i] });
+    }
+    used.sort(function(a, b) { return b.count - a.count; });
+    return { total: total, used: used, counts: counts };
+  }
+
+  function blankGrid(w, h) {
+    var s = '';
+    for (var i = 0; i < w * h; i++) s += '.';
+    return s;
+  }
+
+  // 换画板尺寸时用最近邻重采样：16→32 会放大成 2×2 豆块，32→16 会按比例抽点，
+  // 图案轮廓不会像「清空重来」那样丢。
+  function resampleGrid(oldW, oldH, data, w, h) {
+    var out = [];
+    for (var y = 0; y < h; y++) {
+      var sy = Math.min(oldH - 1, Math.floor(y * oldH / h));
+      for (var x = 0; x < w; x++) {
+        var sx = Math.min(oldW - 1, Math.floor(x * oldW / w));
+        out.push(data.charAt(sy * oldW + sx));
+      }
+    }
+    return out.join('');
   }
 
   // ---- 基础 DOM ----
@@ -895,6 +1275,7 @@
   }
 
   function clearRoot() {
+    editorOpen = false;   // 任何页面重建都会清掉「编辑器打开」状态
     // 气泡轮播的定时器必须在清空 DOM 之前停掉：
     // 它每 9 秒去 root 里找 .ci-pet-hero-mood，节点没了会自己退出，
     // 但那要等 9 秒 —— 期间切页的话，定时器还活着，而且它的闭包里握着旧节点。
@@ -956,8 +1337,11 @@
     if (key === dayNight.last) return;
     dayNight.last = key;
     fillDayToggle();
-    // 窗户是 JS 决定的美术，换景要重绘；auto 跨界时别打断正在进行的散步
-    if (redraw && uiTab === 'home') renderHomeWhenIdle();
+    // 窗户是 JS 决定的美术，换景要重绘；auto 跨界时别打断正在进行的散步。
+    // ⚠️ 编辑器里绝不能重绘：它挂在 home 这个 tab 上，18:30/6:30 自动换景会把
+    //    正在拼豆的人直接弹回宠物屋（实测）。主题 class 已经换了，编辑器自己会跟着换色。
+    var inEditor = !!(root && root.classList && root.classList.contains('is-editor'));
+    if (redraw && uiTab === 'home' && !inEditor) renderHomeWhenIdle();
   }
   function fillDayToggle() {
     if (!root) return;
@@ -1065,9 +1449,16 @@
     });
   } catch (e) {}
 
+  // 领养/编辑器/起名都不是首页，进去先摘掉横屏双栏用的 is-hometab。
+  // 否则首页那套 flex 行会把编辑器撑成 max-content 宽度，工具列被顶出视口。
+  function leaveHomeLayout() {
+    if (root && root.classList) root.classList.remove('is-hometab');
+  }
+
   // ================= 首屏：未领养 =================
   function renderAdopt() {
     clearRoot();
+    leaveHomeLayout();
     root.appendChild(h('h2', null, '领养一只小家伙'));
     root.appendChild(h('p', 'ci-pethome-sub',
       '推荐直接领养大肥鱼（会跳舞、吃火锅、玩魔方的像素鲸鱼）；手作党可以从模板或空白画布开始拼。'));
@@ -1079,180 +1470,2726 @@
     whale.appendChild(h('div', 'ci-pet-tpl-desc', '100 多种动作：吃火锅、玩魔方、拆礼物…推荐！'));
     whale.addEventListener('click', function() { renderNaming('video'); });
     grid.appendChild(whale);
+    // 续作卡：上次没拼完的草稿还在本地，一键接上（放在模板前面，别让人从头再拼）
+    var draft = readDraft();
+    if (draft) {
+      var dc = h('div', 'ci-pet-tpl ci-pet-tpl--draft');
+      var dv = document.createElement('canvas');
+      paint(dv, { w: draft.w, h: draft.h, data: draft.data }, 72 / draft.w);
+      dc.appendChild(dv);
+      dc.appendChild(h('div', 'ci-pet-tpl-name', '继续上次'));
+      dc.appendChild(h('div', 'ci-pet-tpl-desc', draft.w + '×' + draft.h + ' · 上次没拼完的稿子'));
+      // 把草稿里记着的 workId 一起接上：续作后再保存仍然覆盖原来那件
+      dc.addEventListener('click', function() {
+        startEditor(draft.data, draft.w, draft.h, {
+          workId: draft.workId, workName: draft.workName
+        });
+      });
+      grid.appendChild(dc);
+    }
     templates.forEach(function(t) {
       var card = h('div', 'ci-pet-tpl');
+      var tw = t.w || DIM;
+      var th = t.h || DIM;
       var cv = document.createElement('canvas');
-      paint(cv, { w: DIM, h: DIM, data: t.art.join('') }, 4.5);
+      paint(cv, { w: tw, h: th, data: t.art.join('') }, 72 / tw);
       card.appendChild(cv);
       card.appendChild(h('div', 'ci-pet-tpl-name', t.name));
       card.appendChild(h('div', 'ci-pet-tpl-desc', t.desc));
       card.addEventListener('click', function() {
-        startEditor(t.art.join(''));
+        startEditor(t.art.join(''), tw, th);
       });
       grid.appendChild(card);
     });
     // 空白开始
     var blank = h('div', 'ci-pet-tpl');
     var cvb = document.createElement('canvas');
-    paint(cvb, { w: DIM, h: DIM, data: new Array(DIM * DIM + 1).join('.') }, 4.5);
+    paint(cvb, { w: DIM, h: DIM, data: new Array(DIM * DIM + 1).join('.') }, 72 / DIM);
     blank.appendChild(cvb);
     blank.appendChild(h('div', 'ci-pet-tpl-name', '从空白开始'));
     blank.appendChild(h('div', 'ci-pet-tpl-desc', '一块干净的拼豆板'));
-    blank.addEventListener('click', function() { startEditor(''); });
+    blank.addEventListener('click', function() { startEditor('', 16, 16); });
     grid.appendChild(blank);
     root.appendChild(grid);
   }
 
   // ================= 编辑器 =================
   function setCell(idx, ch) {
+    if (idx < 0 || idx >= edit.data.length) return;
     edit.data = edit.data.substring(0, idx) + ch + edit.data.substring(idx + 1);
   }
 
-  function applyAt(col, row, ch) {
-    setCell(row * DIM + col, ch);
-    if (edit.mirror) setCell(row * DIM + (DIM - 1 - col), ch);
-  }
-
-  function redrawEditor() {
-    paint(editCanvas, { w: DIM, h: DIM, data: edit.data }, CELL);
-    // 网格线：dpr 物理像素画，1px 锐利；中线（第 8 列/行）加深辅助对称
-    var dpr = window.devicePixelRatio || 1;
-    var g = editCanvas.getContext('2d');
-    var cell = CELL * dpr;
-    for (var i = 1; i < DIM; i++) {
-      g.strokeStyle = (i === DIM / 2) ? 'rgba(10,132,255,0.45)' : 'rgba(128,128,128,0.35)';
-      g.lineWidth = 1 * dpr;
-      g.beginPath(); g.moveTo(i * cell, 0); g.lineTo(i * cell, editCanvas.height); g.stroke();
-      g.beginPath(); g.moveTo(0, i * cell); g.lineTo(editCanvas.width, i * cell); g.stroke();
+  // 落一格 + 镜像落点（左右 / 上下 / 双向四个点都算）
+  // 单格写入 + 镜像。笔尖粗细在 applyAt 里按块铺开（每个格子各走一遍这里）。
+  // ⚠️ 每个落点都必须标脏。v0.38.0 重写增量渲染时漏了标脏，
+  //    结果数据变了、备料统计也变了，画布却一格都不重画 ——「点了画不显示」。
+  function stampCell(col, row, ch) {
+    var w = edit.w;
+    var h = edit.h;
+    if (col < 0 || row < 0 || col >= w || row >= h) return;
+    setCell(row * w + col, ch);
+    markCell(col, row);
+    if (edit.mirrorX && (w - 1 - col) !== col) {
+      setCell(row * w + (w - 1 - col), ch);
+      markCell(w - 1 - col, row);
+    }
+    if (edit.mirrorY && (h - 1 - row) !== row) {
+      setCell((h - 1 - row) * w + col, ch);
+      markCell(col, h - 1 - row);
+    }
+    if (edit.mirrorX && edit.mirrorY) {
+      var mcx = w - 1 - col, mcy = h - 1 - row;
+      setCell(mcy * w + mcx, ch);
+      markCell(mcx, mcy);
     }
   }
 
+  // 笔尖：1×1 / 2×2 / 3×3（64 格单格只有 9px，粗笔尖是刚需）
+  function applyAt(col, row, ch) {
+    var bs = Math.max(1, Math.min(3, edit.brush || 1));
+    if (bs === 1) { stampCell(col, row, ch); return; }
+    var off = Math.floor((bs - 1) / 2);
+    for (var dy = 0; dy < bs; dy++) {
+      for (var dx = 0; dx < bs; dx++) {
+        stampCell(col + dx - off, row + dy - off, ch);
+      }
+    }
+  }
+
+  // 指针快速划过时两次采样之间会跳格，用 Bresenham 补线，笔迹不断
+  function strokeLine(x0, y0, x1, y1, ch) {
+    var dx = Math.abs(x1 - x0);
+    var dy = Math.abs(y1 - y0);
+    var sx = x0 < x1 ? 1 : -1;
+    var sy = y0 < y1 ? 1 : -1;
+    var err = dx - dy;
+    var e2;
+    while (true) {
+      applyAt(x0, y0, ch);
+      if (x0 === x1 && y0 === y1) break;
+      e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x0 += sx; }
+      if (e2 < dx) { err += dx; y0 += sy; }
+    }
+  }
+
+  // 直线 / 矩形边框的点集（拖拽时先预览，抬手才真正落豆）
+  function geomPoints(tool, x0, y0, x1, y1) {
+    var pts = [];
+    var x, y;
+    if (tool === 'line') {
+      var dx = Math.abs(x1 - x0);
+      var dy = Math.abs(y1 - y0);
+      var sx = x0 < x1 ? 1 : -1;
+      var sy = y0 < y1 ? 1 : -1;
+      var err = dx - dy;
+      var e2;
+      x = x0;
+      y = y0;
+      while (true) {
+        pts.push([x, y]);
+        if (x === x1 && y === y1) break;
+        e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+      }
+      return pts;
+    }
+    // 矩形只画边框；要填满用油漆桶更快
+    for (x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+      pts.push([x, y0]);
+      pts.push([x, y1]);
+    }
+    for (y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+      pts.push([x0, y]);
+      pts.push([x1, y]);
+    }
+    return pts;
+  }
+
+  // 直线/矩形预览：只算点集，画在**预览层**上（不动数据、不重画底板）
+  function previewGeom(tool, x0, y0, x1, y1, colorIdx) {
+    var pts = geomPoints(tool, x0, y0, x1, y1);
+    var bs = Math.max(1, Math.min(3, edit.brush || 1));
+    var off = Math.floor((bs - 1) / 2);
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < pts.length; i++) {
+      for (var by = 0; by < bs; by++) {
+        for (var bx = 0; bx < bs; bx++) {
+          var x = pts[i][0] + bx - off, y = pts[i][1] + by - off;
+          var key = x + ',' + y;
+          if (seen[key]) continue;
+          seen[key] = 1;
+          out.push([x, y]);
+          if (edit.mirrorX) out.push([edit.w - 1 - x, y]);
+          if (edit.mirrorY) out.push([x, edit.h - 1 - y]);
+          if (edit.mirrorX && edit.mirrorY) out.push([edit.w - 1 - x, edit.h - 1 - y]);
+        }
+      }
+    }
+    edit.drag = {
+      tool: tool, x: x0, y: y0, x2: x1, y2: y1, ch: colorIdx >= 0 ? colorIdx.toString(16) : '.',
+      colorIdx: colorIdx >= 0 ? colorIdx : 0
+    };
+    edit.previewPts = out;
+    if (!fxRAF) paintFx();
+  }
+
+  // 抬手时把预览点集真正写进数据，并只重画这些格子
+  function commitGeom() {
+    if (!edit || !edit.drag) return;
+    var pts = edit.previewPts || [];
+    var ch = edit.drag.ch;
+    for (var i = 0; i < pts.length; i++) {
+      var x = pts[i][0], y = pts[i][1];
+      if (x < 0 || y < 0 || x >= edit.w || y >= edit.h) continue;
+      setCell(y * edit.w + x, ch);
+      markCell(x, y);
+    }
+    edit.previewPts = null;
+    edit.drag = null;
+    paintFx();
+  }
+
+  // ---- 渲染层（v0.38.0）----
+  // 两层画布：
+  //   底层 .ci-pet-editcanvas —— 底板 + 已落定的豆子，只重画变化的那几格；
+  //   上层 .ci-pet-editfx     —— 直线/矩形预览、落点提示、落豆涟漪，每帧整层清空。
+  // 旧版每来一个 pointermove 就把 32×32 整块重画（最坏 1024 次 drawImage + 整张底板），
+  // 大画板在平板上每划一下都掉帧 —— 这是「手感差」的根因，不是工具不够多。
+  var editFx = null;
+  var editStage = null;
+  var canvasWrapEl = null;   // computeCell 要量它
+  var editView = null;       // { cell, cellCss, dpr, w, h, board, ctx, fxCtx }
+  var ED_BG = '#FBF6E8';
+  var dirtyCells = [];
+  var dirtyFull = false;
+  var paintRAF = 0;
+  var rippleList = [];
+  var fxRAF = 0;
+  var hoverCell = null;
+  var lastPointerType = 'mouse';   // paintFx（模块级）要读，不能只声明在 renderEditor 里
+  var statsTimer = 0;
+  var undoBtnEl = null;
+  var redoBtnEl = null;
+  var editorGestureCleanup = null;   // 全局 pointerup 清理函数（重建编辑器前要解绑）
+  // 性能埋点（v0.40）：绘制耗时 / 输入到可见的延迟。探针读 __ciBeadState().perf。
+  var perf = { paintMs: 0, paintMax: 0, paintN: 0, inputAt: 0, latencyMax: 0 };
+  var fxBounds = null;   // 上一帧 fx 层画过的区域（只清这一块，别整面清）
+
+  function editDpr(cellCss, n) {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 背板总量上限 2048²：32×32 在 56px 格 + dpr2 下原始像素 3584²（48MB），
+    // 低端平板（Android 9 / Chrome 80）再叠一块预览层会直接 OOM 白屏。
+    var maxSide = 2048;
+    if (n * cellCss * dpr > maxSide) dpr = Math.max(1, maxSide / (n * cellCss));
+    return dpr;
+  }
+
+  function viewCellCss() {
+    return Math.max(4, Math.round(CELL * (edit && edit.zoom ? edit.zoom : 1)));
+  }
+
+  function mountEditView() {
+    if (!edit || !editCanvas || !edit.w) return;
+    var n = edit.w, m = edit.h;
+    var cellCss = viewCellCss();
+    var dpr = editDpr(cellCss, Math.max(n, m));
+    var cell = cellCss * dpr;
+    var cw = Math.round(n * cell), ch = Math.round(m * cell);
+    editCanvas.width = cw;
+    editCanvas.height = ch;
+    editCanvas.style.width = (n * cellCss) + 'px';
+    editCanvas.style.height = (m * cellCss) + 'px';
+    if (editFx) {
+      editFx.width = cw;
+      editFx.height = ch;
+      editFx.style.width = (n * cellCss) + 'px';
+      editFx.style.height = (m * cellCss) + 'px';
+    }
+    if (editStage) {
+      editStage.style.width = (n * cellCss) + 'px';
+      editStage.style.height = (m * cellCss) + 'px';
+    }
+    editView = {
+      w: n, h: m, cell: cell, cellCss: cellCss, dpr: dpr,
+      texture: edit.bead !== false,
+      board: boardLayer(n, m, cell, dpr, ED_BG, { pegs: true, grid: edit.grid !== false }),
+      ctx: editCanvas.getContext('2d'),
+      fxCtx: editFx ? editFx.getContext('2d') : null
+    };
+    dirtyFull = true;
+    flushPaint();
+    paintFx();
+  }
+
+  // 只重画一个矩形格子区（含端点）
+  function paintRect(x0, y0, x1, y1) {
+    if (!editView || !edit) return;
+    var v = editView;
+    x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+    x1 = Math.min(v.w - 1, x1); y1 = Math.min(v.h - 1, y1);
+    if (x1 < x0 || y1 < y0) return;
+    var c = v.cell;
+    var px = Math.floor(x0 * c), py = Math.floor(y0 * c);
+    var pw = Math.ceil((x1 + 1) * c) - px, ph = Math.ceil((y1 + 1) * c) - py;
+    var g = v.ctx;
+    g.clearRect(px, py, pw, ph);
+    g.drawImage(v.board, px, py, pw, ph, px, py, pw, ph);
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        var ch = edit.data.charAt(y * v.w + x);
+        if (ch === '.' || !ch) continue;
+        var idx = parseInt(ch, 16);
+        if (!(idx >= 0 && idx < 16)) continue;
+        g.drawImage(beadSprite(idx, v.cellCss, v.dpr, ED_BG, v.texture), x * c, y * c, c + 0.5, c + 0.5);
+      }
+    }
+  }
+
+  function markCell(x, y) {
+    if (!perf.inputAt) perf.inputAt = (window.performance || Date).now();
+    dirtyCells.push([x, y, x, y]);
+    schedulePaint();
+  }
+
+  function markAll() {
+    dirtyFull = true;
+    schedulePaint();
+  }
+
+  function flushPaint() {
+    paintRAF = 0;
+    if (!editView) return;
+    var t0 = (window.performance || Date).now();
+    var isFullRepaint = dirtyFull;
+    if (dirtyFull) {
+      dirtyFull = false;
+      dirtyCells = [];
+      paintRect(0, 0, editView.w - 1, editView.h - 1);
+    } else {
+      var list = dirtyCells;
+      dirtyCells = [];
+      for (var i = 0; i < list.length; i++) paintRect(list[i][0], list[i][1], list[i][2], list[i][3]);
+    }
+    var dt = (window.performance || Date).now() - t0;
+    // 只统计「落豆级」的增量重绘：整板重绘（首绘/撤销/切尺寸）是结构性成本，
+    // 混进平均会把交互手感的数据完全带偏。
+    if (!isFullRepaint) {
+      perf.paintMs += dt;
+      perf.paintN++;
+      if (dt > perf.paintMax) perf.paintMax = dt;
+      if (perf.inputAt) {
+        var lat = t0 - perf.inputAt;
+        if (lat > perf.latencyMax) perf.latencyMax = lat;
+        perf.inputAt = 0;
+      }
+    }
+    if (dt > perf.paintMax) perf.paintMax = dt;
+    if (perf.inputAt) {
+      var lat = t0 - perf.inputAt;
+      if (lat > perf.latencyMax) perf.latencyMax = lat;
+      perf.inputAt = 0;
+    }
+  }
+
+  function schedulePaint() {
+    if (paintRAF) return;
+    paintRAF = requestAnimationFrame(flushPaint);
+  }
+
+  // 预览层：拖动中的直线/矩形、指针所在格、刚落下的豆子涟漪
+  function paintFx() {
+    if (!editView || !editView.fxCtx || !edit) return;
+    var v = editView, g = v.fxCtx, c = v.cell;
+    // ⚠️ 只清上一帧画过的那块：整面 1216² clearRect 在 Android WebView 上
+    //    会触发整张纹理重传，涟漪动画 12 帧连清 → 手指一慢就掉帧。
+    if (fxBounds) g.clearRect(fxBounds[0], fxBounds[1], fxBounds[2], fxBounds[3]);
+    fxBounds = null;
+    var bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    function grow(x, y, w, h) {
+      if (x < bx0) bx0 = x;
+      if (y < by0) by0 = y;
+      if (x + w > bx1) bx1 = x + w;
+      if (y + h > by1) by1 = y + h;
+    }
+    if (edit.drag && edit.previewPts && edit.previewPts.length) {
+      g.globalAlpha = 0.58;
+      var pts = edit.previewPts;
+      for (var i = 0; i < pts.length; i++) {
+        var px = pts[i][0], py = pts[i][1];
+        if (px < 0 || py < 0 || px >= v.w || py >= v.h) continue;
+        if (edit.drag.colorIdx < 0) {
+          // 橡皮预览：挖空处压一块半透明暗格，比画一颗灰豆子更像「要擦掉」
+          g.fillStyle = 'rgba(58,42,28,0.28)';
+          g.fillRect(px * c + 1, py * c + 1, c - 2, c - 2);
+        } else {
+          g.drawImage(beadSprite(edit.drag.colorIdx, v.cellCss, v.dpr, ED_BG, v.texture),
+            px * c, py * c, c + 0.5, c + 0.5);
+        }
+        grow(px * c, py * c, c + 1, c + 1);
+      }
+      g.globalAlpha = 1;
+    }
+    if (hoverCell && !edit.painting && lastPointerType === 'mouse') {
+      var hx = hoverCell.col, hy = hoverCell.row;
+      g.strokeStyle = 'rgba(58,42,28,0.55)';
+      g.lineWidth = Math.max(2, c * 0.09);
+      g.strokeRect(hx * c + 1, hy * c + 1, c - 2, c - 2);
+      grow(hx * c, hy * c, c, c);
+    }
+    if (rippleList.length) {
+      var now = Date.now();
+      for (var r = 0; r < rippleList.length; r++) {
+        var rp = rippleList[r];
+        var age = now - rp.t;
+        if (age > 200) continue;
+        var k = age / 200;
+        g.strokeStyle = 'rgba(255,255,255,' + (0.75 * (1 - k)).toFixed(3) + ')';
+        g.lineWidth = Math.max(1.5, c * 0.1 * (1 - k * 0.5));
+        g.beginPath();
+        g.arc(rp.x * c + c / 2, rp.y * c + c / 2, c * (0.28 + 0.35 * k), 0, Math.PI * 2);
+        g.stroke();
+        g.strokeStyle = 'rgba(255,214,110,' + (0.5 * (1 - k)).toFixed(3) + ')';
+        g.beginPath();
+        g.arc(rp.x * c + c / 2, rp.y * c + c / 2, c * (0.18 + 0.22 * k), 0, Math.PI * 2);
+        g.stroke();
+        grow(rp.x * c, rp.y * c, c, c);
+      }
+    }
+    if (bx1 > bx0) fxBounds = [bx0, by0, bx1 - bx0, by1 - by0];
+  }
+
+  function fxLoop() {
+    fxRAF = 0;
+    var now = Date.now();
+    rippleList = rippleList.filter(function(r) { return now - r.t < 200; });
+    paintFx();
+    if (rippleList.length) fxRAF = requestAnimationFrame(fxLoop);
+  }
+
+  function addRipple(x, y) {
+    rippleList.push({ x: x, y: y, t: Date.now() });
+    if (rippleList.length > 16) rippleList.shift();
+    if (!fxRAF) fxRAF = requestAnimationFrame(fxLoop);
+  }
+
+  function redrawEditor() {
+    if (!edit || !editCanvas) return;
+    if (!editView || editView.w !== edit.w || editView.h !== edit.h ||
+        Math.abs(editView.cellCss - viewCellCss()) > 0.5 ||
+        editView.texture !== (edit.bead !== false)) {
+      mountEditView();
+      return;
+    }
+    markAll();
+    paintFx();
+  }
+
+  // 统计/预览面板节流：拖拽时每 120ms 至多刷一次，抬手再强制刷一次。
+  // 旧版每个 pointermove 都重建备料 chip DOM + 重画预览画布（1024 颗豆），
+  // 真正拖起来时一卡一卡的就是它。
+  function scheduleStats(force) {
+    if (force) {
+      if (statsTimer) { clearTimeout(statsTimer); statsTimer = 0; }
+      updateEditorStats();
+      return;
+    }
+    if (statsTimer) return;
+    statsTimer = setTimeout(function() {
+      statsTimer = 0;
+      updateEditorStats();
+    }, 120);
+  }
+
+  // 撤销栈存 {w,h,data}：换尺寸也能整个回退，不会出现「尺寸回退了、图案没回」
   function snapshot() {
-    undoStack.push(edit.data);
-    if (undoStack.length > 30) undoStack.shift();
+    undoStack.push({ w: edit.w, h: edit.h, data: edit.data });
+    if (undoStack.length > 40) undoStack.shift();
+    redoStack = [];
+    syncUndoBtns();
+  }
+
+  // 撤销/重做按钮的可用态：按钮是渲染时建的，状态必须跟着栈实时变，
+  // 否则「拼了一笔后撤销仍是灰的」—— 用户会以为撤销坏了。
+  // 空板提示：只在「一粒豆都没有」时出现（第一次落豆即消失）
+  function syncEmptyHint() {
+    var el = root && root.querySelector('.ci-pet-emptyhint');
+    if (!el || !edit) return;
+    var empty = beadStats(edit.data).total === 0;
+    if (empty) el.classList.add('is-on');
+    else el.classList.remove('is-on');
+  }
+
+  function syncUndoBtns() {
+    if (undoBtnEl) undoBtnEl.disabled = !undoStack.length;
+    if (redoBtnEl) redoBtnEl.disabled = !redoStack.length;
+  }
+
+  function applySnapshot(s) {
+    var sameSize = edit.w === s.w && edit.h === s.h;
+    edit.w = s.w;
+    edit.h = s.h;
+    edit.data = s.data;
+    edit.drag = null;
+    edit.previewPts = null;
+    edit.painting = false;
+    // 同尺寸的撤销/重做只重画画板：旧版一律 renderEditor()，整棵 DOM 重建，
+    // 连按两下 Ctrl+Z 页面就闪两下，滚动位置还会跳回顶部。
+    if (sameSize && editCanvas && editView) {
+      markAll();
+      paintFx();
+      scheduleStats(true);
+    } else {
+      CELL = computeCell();
+      renderEditor();
+    }
+    scheduleDraftSave();
+  }
+
+  function undoEdit() {
+    if (!edit || !undoStack.length) return;
+    redoStack.push({ w: edit.w, h: edit.h, data: edit.data });
+    applySnapshot(undoStack.pop());
+    syncUndoBtns();
+  }
+
+  function redoEdit() {
+    if (!edit || !redoStack.length) return;
+    undoStack.push({ w: edit.w, h: edit.h, data: edit.data });
+    applySnapshot(redoStack.pop());
+    syncUndoBtns();
   }
 
   function floodFill(col, row, ch) {
-    var target = edit.data.charAt(row * DIM + col);
+    var w = edit.w;
+    var h = edit.h;
+    var target = edit.data.charAt(row * w + col);
     if (target === ch) return;
     var stack = [[col, row]];
     var seen = {};
     while (stack.length) {
       var p = stack.pop();
-      var x = p[0], y = p[1];
-      if (x < 0 || y < 0 || x >= DIM || y >= DIM) continue;
+      var x = p[0];
+      var y = p[1];
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
       var k = x + ',' + y;
       if (seen[k]) continue;
       seen[k] = 1;
-      if (edit.data.charAt(y * DIM + x) !== target) continue;
-      setCell(y * DIM + x, ch);
+      if (edit.data.charAt(y * w + x) !== target) continue;
+      setCell(y * w + x, ch);
       stack.push([x + 1, y]); stack.push([x - 1, y]);
       stack.push([x, y + 1]); stack.push([x, y - 1]);
     }
   }
 
-  function cellFromEvent(e) {
-    var r = editCanvas.getBoundingClientRect();
-    var col = Math.floor((e.clientX - r.left) / (r.width / DIM));
-    var row = Math.floor((e.clientY - r.top) / (r.height / DIM));
-    if (col < 0 || row < 0 || col >= DIM || row >= DIM) return null;
-    return { col: col, row: row };
+  // 拼豆作品的统一数据形态（和后端 validDesign / 悬浮桌宠共用）
+  function editDesign() {
+    return { v: 1, w: edit.w, h: edit.h, pal: 'p16', data: edit.data };
   }
 
-  function startEditor(initialData) {
-    edit = {
-      data: initialData && initialData.length === DIM * DIM ? initialData : new Array(DIM * DIM + 1).join('.'),
+  // 豆子质感偏好：默认开，关掉后回到纯像素块
+  function readBeadPref() {
+    try {
+      if (storage && storage.get('beadStyle', null) === false) return false;
+    } catch (e) {}
+    return true;
+  }
+
+  // meta：{ workId, workName } —— 从作品库 / 草稿接上时带上，
+  // 这样保存时会原地覆盖那件作品，而不是每改一次就往库里灌一件新的。
+  function makeEditState(data, w, h, meta) {
+    var dw = (w >= 16 && w <= 64 && w % 8 === 0) ? w : 16;
+    var d = (data && data.length === dw * dw) ? data : blankGrid(dw, dw);
+    return {
+      w: dw,
+      h: dw,
+      data: d,
       color: 2,
       tool: 'pen',
-      mirror: false
+      mirrorX: false,
+      mirrorY: false,
+      bead: readBeadPref(),
+      painting: false,
+      last: null,
+      drag: null,
+      workId: (meta && meta.workId) || null,
+      workName: (meta && meta.workName) || null,
+      // 输入框里正在打的名字：切工具/镜像会重建整页，靠它把「小鲸鱼」接住
+      draftName: (meta && meta.workName) || null,
+      // 最近用过的颜色（最多 6 个，跟着设备走）：换色时不用满盘找
+      recent: readRecentColors(),
+      zoom: 1,
+      brush: readBrushSize(),
+      grid: readGridPref()
     };
+  }
+
+  function readBrushSize() {
+    try {
+      var v = storage && storage.get('brushSize', 1);
+      v = parseInt(v, 10);
+      return (v >= 1 && v <= 3) ? v : 1;
+    } catch (e) { return 1; }
+  }
+  function readGridPref() {
+    try {
+      if (storage && storage.get('gridOn', null) === false) return false;
+    } catch (e) {}
+    return true;
+  }
+
+  var RECENT_KEY = 'recentColors';
+  function readRecentColors() {
+    var list = [];
+    try { list = (storage && storage.get(RECENT_KEY, [])) || []; } catch (e) { list = []; }
+    if (Object.prototype.toString.call(list) !== '[object Array]') return [];
+    return list.filter(function(i) {
+      return typeof i === 'number' && i >= 0 && i < 16;
+    }).slice(0, 6);
+  }
+  function pushRecentColor(idx) {
+    if (!edit || typeof idx !== 'number') return;
+    var list = (edit.recent || []).filter(function(i) { return i !== idx; });
+    list.unshift(idx);
+    edit.recent = list.slice(0, 6);
+    try { if (storage) storage.set(RECENT_KEY, edit.recent); } catch (e) {}
+  }
+
+  function readDraft() {
+    try {
+      var d = storage && storage.get(DRAFT_KEY, null);
+      if (!d || typeof d.data !== 'string' || !d.data) return null;
+      var w = (d.w >= 16 && d.w <= 64 && d.w % 8 === 0) ? d.w : 16;
+      if (d.data.length !== w * w) return null;
+      return {
+        w: w, h: w, data: d.data,
+        workId: typeof d.workId === 'string' ? d.workId : null,
+        workName: typeof d.workName === 'string' ? d.workName : null
+      };
+    } catch (e) {}
+    return null;
+  }
+
+  // 草稿自动存（900ms 防抖）：误触返回 / 切页后还能从「继续上次」接上
+  // 连 workId / workName 一起落盘：接上草稿再保存，仍然覆盖原来那件作品。
+  function scheduleDraftSave() {
+    if (!edit) return;
+    if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+    draftTimer = setTimeout(function() {
+      draftTimer = null;
+      try {
+        if (storage) storage.set(DRAFT_KEY, {
+          w: edit.w, h: edit.h, data: edit.data, ts: Date.now(),
+          workId: edit.workId || null, workName: edit.workName || null
+        });
+      } catch (e) {}
+    }, 900);
+  }
+
+  function startEditor(initialData, w, h, meta) {
+    edit = makeEditState(initialData, w, h, meta);
     undoStack = [];
+    redoStack = [];
+    editDesigns = [];
+    editDesignsLoaded = false;
+    editDesignsError = false;
     renderEditor();
+    loadDesigns();
+  }
+
+  // ---- 作品库（服务端 state.designs，最多 24 件）----
+  function loadDesigns() {
+    if (!api) return;
+    api.get('/pet/designs').then(function(res) {
+      var d = (res && res.data && res.data.data) || {};
+      editDesigns = d.designs || [];
+      editDesignsLoaded = true;
+      editDesignsError = false;
+      renderGallery();
+    }).catch(function() {
+      editDesignsLoaded = true;
+      editDesignsError = true;
+      renderGallery();
+    });
+  }
+
+  function shortDate(s) {
+    if (!s) return '';
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    var mm = d.getMonth() + 1;
+    var dd = d.getDate();
+    return (mm < 10 ? '0' + mm : mm) + '-' + (dd < 10 ? '0' + dd : dd);
+  }
+
+  function renderGallery() {
+    if (!editGalleryEl) return;
+    if (editGalleryHeadEl) {
+      // 把「还剩几格」摆到标题上：库里满了以后新作品会挤掉最旧的一件，
+      // 不写出来，用户是不知道的。
+      editGalleryHeadEl.textContent = '作品库 · ' + editDesigns.length + ' / ' + MAX_DESIGNS;
+    }
+    while (editGalleryEl.firstChild) editGalleryEl.removeChild(editGalleryEl.firstChild);
+    if (!editDesignsLoaded && !editDesignsError) {
+      editGalleryEl.appendChild(h('div', 'ci-pet-work-empty', '正在翻作品库…'));
+      return;
+    }
+    if (editDesignsError) {
+      var retry = h('div', 'ci-pet-work-empty', '作品库没翻开，点这里重试');
+      retry.style.cursor = 'pointer';
+      retry.addEventListener('click', function() {
+        editDesignsLoaded = false;
+        editDesignsError = false;
+        renderGallery();
+        loadDesigns();
+      });
+      editGalleryEl.appendChild(retry);
+      return;
+    }
+    if (!editDesigns.length) {
+      editGalleryEl.appendChild(h('div', 'ci-pet-work-empty', '还没有作品。点「保存当前」，把这一幅收进作品库。'));
+      return;
+    }
+    editDesigns.forEach(function(item) {
+      if (!item || !item.design || !item.design.data) return;
+      var editing = !!(edit && edit.workId === item.id);
+      var card = h('div', 'ci-pet-work' + (editing ? ' is-editing' : ''));
+      var cv = document.createElement('canvas');
+      var d = item.design;
+      var dw = d.w || DIM;
+      var dh = d.h || DIM;
+      var cell = Math.max(2, Math.floor(56 / Math.max(dw, dh)));
+      paint(cv, { w: dw, h: dh, data: d.data }, cell);
+      cv.className = 'ci-pet-work-cv';
+      card.appendChild(cv);
+
+      var info = h('div', 'ci-pet-work-info');
+      info.appendChild(h('div', 'ci-pet-work-name', item.name || '未命名作品'));
+      info.appendChild(h('div', 'ci-pet-work-time',
+        dw + '×' + dh + ' · ' + shortDate(item.saved_at) + (editing ? ' · 编辑中' : '')));
+      card.appendChild(info);
+
+      var del = h('button', 'ci-pet-work-del', '×');
+      del.title = '删除这件作品';
+      var armed = false;
+      var timer = null;
+      del.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        if (!armed) {
+          armed = true;
+          del.textContent = '确认删';
+          timer = setTimeout(function() {
+            armed = false;
+            del.textContent = '×';
+          }, 2200);
+          return;
+        }
+        if (timer) { clearTimeout(timer); timer = null; }
+        api.delete('/pet/designs/' + encodeURIComponent(item.id)).then(function(res) {
+          var dd = (res && res.data && res.data.data) || {};
+          editDesigns = dd.designs || [];
+          // 删掉的正是手上这件：断开 id，否则再点保存会带着一个不存在的 id 去覆盖
+          if (edit && edit.workId === item.id) {
+            edit.workId = null;
+            edit.workName = null;
+          }
+          renderGallery();
+          sysToast('已删除作品', 'success');
+        }).catch(function() {
+          sysToast('删除失败，稍后再试', 'info');
+        });
+      });
+      card.appendChild(del);
+
+      card.addEventListener('click', function() { loadWork(item); });
+      editGalleryEl.appendChild(card);
+    });
+  }
+
+  function loadWork(item) {
+    if (!edit || !item || !item.design) return;
+    var d = item.design;
+    snapshot();
+    edit.w = (d.w === 24 || d.w === 32) ? d.w : 16;
+    edit.h = edit.w;
+    edit.data = (d.data && d.data.length === edit.w * edit.h) ? d.data : blankGrid(edit.w, edit.h);
+    edit.drag = null;
+    edit.painting = false;
+    // 记住「手上是哪一件」：名字回填输入框，再保存时原地覆盖而不是新建一份
+    edit.workId = item.id || null;
+    edit.workName = item.name || null;
+    edit.draftName = item.name || null;
+    CELL = computeCell();
+    renderEditor();
+    scheduleDraftSave();
+    sysToast('已载入「' + (item.name || '未命名') + '」', 'success');
+  }
+
+  // opts.then(ok)：保存完成后的回调（「就它了」要先落库再进起名页）
+  function saveCurrentWork(opts) {
+    if (!edit || !api) { if (opts && opts.then) opts.then(false); return; }
+    opts = opts || {};
+    var st = beadStats(edit.data);
+    if (!st.total) {
+      sysToast('画板还是空的，先拼几颗豆子再存吧', 'info');
+      if (opts.then) opts.then(false);
+      return;
+    }
+    var name = (editNameInput && editNameInput.value || '').trim().slice(0, 16) || '未命名作品';
+    var btn = root && root.querySelector('.ci-pet-savebtn');
+    // 保存前先看清两件事：库里是不是已经满了、这次是覆盖还是新建
+    var wasFull = editDesigns.length >= MAX_DESIGNS;
+    var hadThis = false;
+    if (edit.workId) {
+      for (var i = 0; i < editDesigns.length; i++) {
+        if (editDesigns[i] && editDesigns[i].id === edit.workId) { hadThis = true; break; }
+      }
+    }
+    var label = edit.workId ? '保存修改' : '保存当前';
+    if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+    var payload = { name: name, design: editDesign() };
+    if (edit.workId) payload.id = edit.workId; // 带 id = 覆盖，不灌重复件
+    api.post('/pet/designs', payload).then(function(res) {
+      var d = (res && res.data && res.data.data) || {};
+      editDesigns = d.designs || editDesigns;
+      editDesignsLoaded = true;
+      editDesignsError = false;
+      if (d.id) { edit.workId = d.id; edit.workName = name; edit.draftName = name; }
+      label = edit.workId ? '保存修改' : '保存当前';
+      // 按钮文案和 title 一起换：存完这一件就已经「有主」了，再点就是覆盖
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = label;
+        btn.title = edit.workId ? '覆盖作品库里的这一件' : '存成作品库里新的一件';
+      }
+      renderGallery();
+      if (wasFull && !hadThis) {
+        // 后端满 24 件时会丢掉最旧的一件，这件事必须说出来
+        sysToast('作品库已满 24 件，「' + name + '」已存入，最早的一件被替换', 'info');
+      } else {
+        sysToast(hadThis ? '「' + name + '」已更新' : '「' + name + '」已收进作品库', 'success');
+      }
+      scheduleDraftSave();
+      if (opts.then) opts.then(true);
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+      var msg = (err && err.response && err.response.data && err.response.data.message) || '保存失败，稍后再试';
+      sysToast(msg, 'info');
+      if (opts.then) opts.then(false);
+    });
+  }
+
+  // 备料清单纯文本：色号 + 中文名 + 颗数，直接粘给店家按号配豆
+  function beadClipText(design, st) {
+    var lines = ['拼豆备料清单 · ' + design.w + '×' + design.h + ' · 共 ' + st.total + ' 颗'];
+    for (var i = 0; i < st.used.length; i++) {
+      var u = st.used[i];
+      lines.push(beadCode(u.idx) + ' ' + beadName(u.idx) + ' × ' + u.count);
+    }
+    return lines.join('\n');
+  }
+
+  function copyBeadList() {
+    if (!edit) return;
+    var design = editDesign();
+    var st = beadStats(design.data);
+    if (!st.total) { sysToast('画板还是空的，没有备料可复制', 'info'); return; }
+    var text = beadClipText(design, st);
+    // 老内核 / 非安全上下文没有 clipboard API，退回 execCommand
+    function fallback() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        sysToast(ok ? '备料清单已复制' : '复制失败，请手动抄一下', ok ? 'success' : 'info');
+      } catch (e) {
+        sysToast('复制失败，请手动抄一下', 'info');
+      }
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+          sysToast('备料清单已复制', 'success');
+        }, fallback);
+        return;
+      }
+    } catch (e) {}
+    fallback();
+  }
+
+  // 导出 PNG 图纸：24px 一格 + 网格线，下面接一整条备料清单。
+  // 只导图不导清单，打印出来还得回头数色号 —— 手作党真正要的是「这张纸能照着摆」。
+  // 导出到云盘（v0.38.0 用户要求：图纸不再只落在本机 Downloads，要进云盘）
+  // 走 /api/cloud/upload（资源应用的云盘后端）。文件名带作品名 + 尺寸。
+  // 失败不留死胡同：自动回退到本机下载，并说明原因。
+  function exportDesignCloud() {
+    if (!edit) return;
+    var design = editDesign();
+    if (!beadStats(design.data).total) {
+      sysToast('画板还是空的，先拼几颗豆子再导出', 'info');
+      return;
+    }
+    var fname = designFileName(design);
+    sysToast('正在把图纸送进云盘…', 'info');
+    buildDesignBlob(design, function(blob) {
+      if (!blob) { sysToast('导出失败：这个环境生成不了图片', 'error'); return; }
+      if (!api || typeof FormData === 'undefined') {
+        sysToast('云盘不可用，已改为下载到本机', 'info');
+        downloadBlob(blob, fname);
+        return;
+      }
+      var fd = new FormData();
+      fd.append('file', blob, fname);
+      api.post('/cloud/upload', fd).then(function(res) {
+        var d = (res && res.data && res.data.data) || {};
+        sysToast('已存入云盘：' + (d.name || fname), 'success');
+        showCloudToastAction();
+      }).catch(function(err) {
+        var msg = (err && err.response && err.response.data && err.response.data.message) || '云盘没连上';
+        sysToast(msg + '，已改为下载到本机', 'info');
+        downloadBlob(blob, fname);
+      });
+    });
+  }
+
+  // 成功后给一条「去云盘看看」的快捷入口（不打断编辑，点不点随你）
+  function showCloudToastAction() {
+    var el = h('button', 'ci-pet-cloudjump', '去云盘看看');
+    el.addEventListener('click', function() {
+      try {
+        var sys = context && context.system;
+        if (sys && sys.router && typeof sys.router.push === 'function') {
+          sys.router.push('/resource/cloud');
+          return;
+        }
+        if (sys && typeof sys.openApp === 'function') { sys.openApp('resource'); return; }
+      } catch (e) {}
+      sysToast('云盘入口在「资源」应用里', 'info');
+    });
+    if (root) root.appendChild(el);
+    setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 6000);
+  }
+
+  function designFileName(design) {
+    var base = (edit.workName || (editNameInput && editNameInput.value) || '').trim();
+    base = base.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+    return (base || '拼豆') + '-' + design.w + 'x' + design.h + '.png';
+  }
+
+  // 图纸合成：画板 + 备料清单。导出（云盘/下载）与预览共用同一份。
+  function buildDesignBlob(design, cb) {
+    var cellPx = 24;
+    var board = document.createElement('canvas');
+    drawBoard(board, design, cellPx, { bg: '#FFFDF8', pegs: false, grid: true, bead: edit.bead });
+
+    var logicalW = design.w * cellPx;
+    var logicalH = design.h * cellPx;
+    var k = board.width / logicalW;
+    var pad = 16;
+    var st = beadStats(design.data);
+    var cols = Math.max(2, Math.min(6, Math.floor(logicalW / 120)));
+    var rows = Math.ceil(st.used.length / cols);
+    var legendH = pad + 22 + rows * 22 + pad;
+    var out = document.createElement('canvas');
+    out.width = board.width;
+    out.height = board.height + Math.round(legendH * k);
+    var g = out.getContext('2d');
+    g.fillStyle = '#FFFDF8';
+    g.fillRect(0, 0, out.width, out.height);
+    g.drawImage(board, 0, 0);
+    g.save();
+    g.scale(k, k);
+    var top = logicalH;
+    g.fillStyle = '#2C3E50';
+    g.font = '600 13px "PingFang SC", "Microsoft YaHei", Arial, sans-serif';
+    g.fillText('备料清单 · 共 ' + st.total + ' 颗 · ' + st.used.length + ' 个色号', pad, top + pad + 10);
+    var colW = (logicalW - pad * 2) / cols;
+    for (var i = 0; i < st.used.length; i++) {
+      var u = st.used[i];
+      var cx = pad + (i % cols) * colW;
+      var cy = top + pad + 24 + Math.floor(i / cols) * 22;
+      g.fillStyle = palette[u.idx] || '#8E8E93';
+      g.beginPath();
+      g.arc(cx + 6, cy + 4, 5, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#2C3E50';
+      g.font = '500 12px "PingFang SC", "Microsoft YaHei", Arial, sans-serif';
+      g.fillText(beadCode(u.idx) + ' ' + beadName(u.idx) + ' × ' + u.count, cx + 18, cy + 9);
+    }
+    g.restore();
+    try {
+      if (out.toBlob) out.toBlob(function(blob) { cb(blob || null); }, 'image/png');
+      else cb(dataUrlToBlob(out.toDataURL('image/png')));
+    } catch (e) {
+      cb(null);
+    }
+  }
+
+  function dataUrlToBlob(url) {
+    try {
+      var parts = String(url).split(',');
+      var mime = /data:([^;]+)/.exec(parts[0]);
+      var bin = atob(parts[1]);
+      var arr = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: (mime && mime[1]) || 'image/png' });
+    } catch (e) { return null; }
+  }
+
+  function downloadBlob(blob, fname) {
+    try {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = fname;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1200);
+      sysToast('图纸已下载（含备料清单）', 'success');
+    } catch (e) {
+      sysToast('当前环境不支持下载，可长按画板截图保存', 'info');
+    }
+  }
+
+  function exportDesignPng() {
+    if (!edit) return;
+    var design = editDesign();
+    var st = beadStats(design.data);
+    if (!st.total) { sysToast('画板还是空的，先拼几颗豆子再导出', 'info'); return; }
+    var fname = designFileName(design);
+    buildDesignBlob(design, function(blob) {
+      if (!blob) { sysToast('导出失败：这个环境生成不了图片', 'error'); return; }
+      downloadBlob(blob, fname);
+    });
+  }
+
+
+  function resizeEditor(n) {
+    if (!edit || edit.w === n) return;
+    snapshot();
+    edit.zoom = 1;   // 换档位一律回到适配大小（旧行为会保留放大倍数 → 大画板巨大到要滚）
+    edit.data = resampleGrid(edit.w, edit.h, edit.data, n, n);
+    edit.w = n;
+    edit.h = n;
+    edit.drag = null;
+    edit.painting = false;
+    CELL = computeCell();
+    renderEditor();
+    if (zoomSyncFn) zoomSyncFn();
+    scheduleDraftSave();
+  }
+
+  // 键盘快捷键：只在编辑器页面生效；输入框里让浏览器自己处理
+  // 单键直选工具：平板外接键盘 / 台式机比来回点按钮快得多
+  var TOOL_KEYS = { b: 'pen', e: 'eraser', g: 'fill', i: 'eyedropper', l: 'line', r: 'rect' };
+
+  function onEditorKey(e) {
+    if (!edit || !root) return;
+    if (!root.querySelector('.ci-pet-editcanvas')) return;
+    var t = e.target;
+    if (t && t.tagName && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    var k = String(e.key || '').toLowerCase();
+    if (e.ctrlKey || e.metaKey) {
+      if (k === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redoEdit();
+        else undoEdit();
+      } else if (k === 'y') {
+        e.preventDefault();
+        redoEdit();
+      } else if (k === 's') {
+        // Ctrl+S 在这里是「存进作品库」，不是浏览器保存网页
+        e.preventDefault();
+        saveCurrentWork();
+      }
+      return;
+    }
+    if (e.altKey) return;
+    if (TOOL_KEYS[k]) {
+      e.preventDefault();
+      if (edit.tool !== TOOL_KEYS[k]) {
+        edit.tool = TOOL_KEYS[k];
+        renderEditor();
+      }
+      return;
+    }
+    if (k === 'm') {
+      // M 左右镜像、Shift+M 上下镜像：两轴各自开关，不用点两次按钮
+      e.preventDefault();
+      if (e.shiftKey) edit.mirrorY = !edit.mirrorY;
+      else edit.mirrorX = !edit.mirrorX;
+      renderEditor();
+      sysToast((e.shiftKey ? '上下镜像' : '左右镜像') +
+        (e.shiftKey ? (edit.mirrorY ? ' 已开' : ' 已关') : (edit.mirrorX ? ' 已开' : ' 已关')), 'info');
+    }
+  }
+
+  function updateEditorStats() {
+    if (!edit) return;
+    var data = edit.data;
+    var st = beadStats(data);
+    if (editColorLabelEl) {
+      // ⚠️ 不能整块 textContent 覆盖：v0.44 起这个标签里还有一个「当前色块」节点，
+      //    覆盖会把方块连带删掉（实测方块消失）。只改文字节点。
+      var curTxtEl = editColorLabelEl.querySelector('.ci-pet-curtxt');
+      if (curTxtEl) curTxtEl.textContent = '当前色 ' + beadCode(edit.color) + ' · ' + beadName(edit.color);
+      else editColorLabelEl.textContent = '当前色 ' + beadCode(edit.color) + ' · ' + beadName(edit.color);
+    }
+    if (editStatsLineEl) {
+      editStatsLineEl.textContent = st.total
+        ? ('共 ' + st.total + ' 颗豆 · ' + st.used.length + ' 个色号')
+        : '还没有落豆';
+    }
+    if (editStatsWrapEl) {
+      while (editStatsWrapEl.firstChild) editStatsWrapEl.removeChild(editStatsWrapEl.firstChild);
+      if (!st.used.length) {
+        editStatsWrapEl.appendChild(h('span', 'ci-pet-stat-empty', '点一下画板开始拼'));
+      } else {
+        st.used.forEach(function(u) {
+          var chip = h('span', 'ci-pet-stat');
+          chip.title = beadCode(u.idx) + ' · ' + beadName(u.idx) + '：' + u.count + ' 颗';
+          var dot = h('i', 'ci-pet-stat-dot');
+          dot.style.background = palette[u.idx] || '#888888';
+          chip.appendChild(dot);
+          chip.appendChild(h('b', 'ci-pet-stat-code', beadCode(u.idx)));
+          chip.appendChild(h('span', 'ci-pet-stat-num', '×' + u.count));
+          editStatsWrapEl.appendChild(chip);
+        });
+      }
+    }
+    syncEmptyHint();
+    if (editPreviewEl) {
+      // 拖拽中不重画预览：它要逐颗画满 16×16~32×32，比主画板还贵，
+      // 而人正盯着手指落点，根本不会看右下角这一小块。
+      if (!edit.painting) {
+        var cell = Math.max(3, Math.floor(144 / edit.w));
+        drawBoard(editPreviewEl, { w: edit.w, h: edit.h, data: data }, cell, {
+          bg: '#FBF6E8',
+          pegs: false,
+          grid: false,
+          bead: edit.bead
+        });
+      }
+    }
+  }
+
+  // 画板下方的光标坐标：32×32 数格子时不用再眯着眼数
+  function showEditPos(c) {
+    if (!editPosEl) return;
+    var txt = c ? ('列 ' + (c.col + 1) + ' · 行 ' + (c.row + 1)) : '';
+    if (editPosEl.textContent !== txt) editPosEl.textContent = txt;
+  }
+
+  // 编辑器的整图操作（都走 snapshot，可 Ctrl+Z 回退）
+  function editorFillAll() {
+    if (!edit) return;
+    snapshot();
+    var ch = edit.color.toString(16);
+    var n = edit.w * edit.h;
+    var arr = new Array(n);
+    for (var i = 0; i < n; i++) arr[i] = ch;
+    edit.data = arr.join('');
+    markAll();
+    scheduleStats(true);
+    scheduleDraftSave();
+    addRipple(Math.floor(edit.w / 2), Math.floor(edit.h / 2));
+  }
+
+  function editorFlip(axis) {
+    if (!edit) return;
+    snapshot();
+    var w = edit.w, h = edit.h;
+    var out = new Array(w * h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var sx = axis === 'h' ? w - 1 - x : x;
+        var sy = axis === 'v' ? h - 1 - y : y;
+        out[y * w + x] = edit.data.charAt(sy * w + sx);
+      }
+    }
+    edit.data = out.join('');
+    markAll();
+    scheduleStats(true);
+    scheduleDraftSave();
+  }
+
+  // 整图平移一格（越界部分从另一边绕回来：拼豆摆到板边时最常用的挪法）
+  function editorShift(dx, dy) {
+    if (!edit) return;
+    snapshot();
+    var w = edit.w, h = edit.h;
+    var out = new Array(w * h);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var sx = ((x - dx) % w + w) % w;
+        var sy = ((y - dy) % h + h) % h;
+        out[y * w + x] = edit.data.charAt(sy * w + sx);
+      }
+    }
+    edit.data = out.join('');
+    markAll();
+    scheduleStats(true);
+    scheduleDraftSave();
+  }
+
+  // ==================== 导入图片 → 拼豆（v0.41）====================
+  // 手作党真正的用法：从云盘里挑一张图，转成 N×N 草稿再手改。
+  //
+  // 转换质量四件事（旧版只做了第 3 条）：
+  //   1. 多步降采样：一次 drawImage 大幅缩小会走最近邻，细节全糊成噪点；
+  //      逐次减半再取目标尺寸，边缘才干净。
+  //   2. Lab 空间配色：RGB 欧氏距离会把深蓝配成黑、肤色配成灰；
+  //      转 CIELAB 后按人眼感知距离选色，肤色/绿色/蓝色明显更准。
+  //   3. 纯色背景自动留空：边框取中位色，够一致就整片判为背景，
+  //      否则照片的白底会变成一整板白豆（备料直接翻倍）。
+  //   4. 色号上限：实体拼豆买不到 16 色时，把用得最少的色并入最接近的保留色。
+  // 抖动默认关：拼豆是「一颗颗摆」的，误差扩散会把天空打成噪点，反而更不像原图；
+  // 想要渐变可手动开「轻/强」。
+  var importOpts = { dropBg: true, maxColors: 16, enhance: true, dither: 'off' };
+  var zoomSyncFn = null;   // renderEditor 里注册，导入/切尺寸后同步「100%」标签
+
+  // ---- sRGB → CIELAB（D65）----
+  var SRGB_LUT = null;
+  function srgbToLinear(v) {
+    if (!SRGB_LUT) {
+      SRGB_LUT = new Float32Array(256);
+      for (var i = 0; i < 256; i++) {
+        var c = i / 255;
+        SRGB_LUT[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      }
+    }
+    return SRGB_LUT[v & 255];
+  }
+  function rgb2lab(r, g, b) {
+    var R = srgbToLinear(r), G = srgbToLinear(g), B = srgbToLinear(b);
+    // sRGB → XYZ（D65）
+    var x = (R * 0.4124564 + G * 0.3575761 + B * 0.1804375) / 0.95047;
+    var y = (R * 0.2126729 + G * 0.7151522 + B * 0.0721750);
+    var z = (R * 0.0193339 + G * 0.1191920 + B * 0.9503041) / 1.08883;
+    function f(t) { return t > 0.008856 ? Math.pow(t, 1 / 3) : (7.787 * t + 16 / 116); }
+    var fx = f(x), fy = f(y), fz = f(z);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
+  function hex2rgb(hex) {
+    return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+  }
+  function labDist(a, b) {
+    var dl = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
+    return Math.sqrt(dl * dl + da * da + db * db);
+  }
+  var paletteLabCache = null;
+  function paletteLabList() {
+    if (!paletteLabCache || paletteLabCache.length !== palette.length) {
+      paletteLabCache = palette.map(function(h) {
+        var c = hex2rgb(h);
+        return rgb2lab(c[0], c[1], c[2]);
+      });
+    }
+    return paletteLabCache;
+  }
+
+  // ---- 采样：线性光盒式平均 ----
+  // drawImage 的缩放是在 sRGB 空间做平均的（伽马不对），高饱和细节会偏暗、偏灰；
+  // 这里缩到中间尺寸后再按格做**线性光**盒式平均，颜色更准。
+  function lin2srgb(v) {
+    if (v <= 0.0031308) return v * 12.92;
+    return 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+  }
+  function sampleSquare(img, sx, sy, side, n) {
+    var t = Math.min(768, Math.max(n * 2, Math.round(side || n)));
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = t;
+    var g = cv.getContext('2d');
+    g.imageSmoothingEnabled = true;
+    if ('imageSmoothingQuality' in g) g.imageSmoothingQuality = 'high';
+    g.drawImage(img, sx, sy, side, side, 0, 0, t, t);
+    var src = g.getImageData(0, 0, t, t).data;
+    var out = new Uint8ClampedArray(n * n * 4);
+    var scale = t / n;
+    for (var cy = 0; cy < n; cy++) {
+      var y0 = Math.floor(cy * scale);
+      var y1 = Math.max(y0 + 1, Math.floor((cy + 1) * scale));
+      for (var cx = 0; cx < n; cx++) {
+        var x0 = Math.floor(cx * scale);
+        var x1 = Math.max(x0 + 1, Math.floor((cx + 1) * scale));
+        var rs = 0, gs = 0, bs = 0, as = 0, cnt = 0;
+        for (var yy = y0; yy < y1 && yy < t; yy++) {
+          var rowOff = yy * t * 4;
+          for (var xx = x0; xx < x1 && xx < t; xx++) {
+            var o = rowOff + xx * 4;
+            var a = src[o + 3];
+            rs += srgbToLinear(src[o]) * a;
+            gs += srgbToLinear(src[o + 1]) * a;
+            bs += srgbToLinear(src[o + 2]) * a;
+            as += a;
+            cnt++;
+          }
+        }
+        var oo = (cy * n + cx) * 4;
+        if (!cnt || !as) { out[oo + 3] = 0; continue; }
+        // 用 alpha 加权（抠图/半透明边缘不会被黑边污染）
+        out[oo] = Math.round(lin2srgb(rs / as) * 255);
+        out[oo + 1] = Math.round(lin2srgb(gs / as) * 255);
+        out[oo + 2] = Math.round(lin2srgb(bs / as) * 255);
+        out[oo + 3] = Math.round(as / cnt);
+      }
+    }
+    return out;
+  }
+
+  function labsFromPixels(px, n) {
+    var total = n * n;
+    var pl = new Array(total);
+    var alpha = new Uint8Array(total);
+    for (var i = 0; i < total; i++) {
+      pl[i] = rgb2lab(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+      alpha[i] = px[i * 4 + 3];
+    }
+    return { pl: pl, alpha: alpha };
+  }
+
+  // 纯色背景：边框 2 圈取中位色，≥55% 相符才算
+  function detectBgLab(pl, n) {
+    var x, y, samples = [];
+    for (var ring = 0; ring < 2; ring++) {
+      for (x = ring; x < n - ring; x++) {
+        samples.push(pl[ring * n + x], pl[(n - 1 - ring) * n + x]);
+      }
+      for (y = ring; y < n - ring; y++) {
+        samples.push(pl[y * n + ring], pl[y * n + (n - 1 - ring)]);
+      }
+    }
+    if (!samples.length) return null;
+    var ls = samples.map(function(c) { return c[0]; }).sort(function(a, b) { return a - b; });
+    var as = samples.map(function(c) { return c[1]; }).sort(function(a, b) { return a - b; });
+    var bs = samples.map(function(c) { return c[2]; }).sort(function(a, b) { return a - b; });
+    var mid = Math.floor(samples.length / 2);
+    var cand = [ls[mid], as[mid], bs[mid]];
+    var near = 0;
+    for (var i = 0; i < samples.length; i++) if (labDist(samples[i], cand) < 12) near++;
+    return (near / samples.length >= 0.55) ? cand : null;
+  }
+
+  // 主体包围盒（格坐标）——用来把照片里的主体放大到整块板
+  function contentBox(pl, n, bgLab) {
+    var x0 = n, y0 = n, x1 = -1, y1 = -1;
+    for (var y = 0; y < n; y++) {
+      for (var x = 0; x < n; x++) {
+        if (labDist(pl[y * n + x], bgLab) < 16) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return null;
+    return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+
+  // ---- CIEDE2000：比 CIE76 更贴合人眼（深蓝/肤色差别明显）----
+  function de2000(a, b) {
+    var L1 = a[0], a1 = a[1], b1 = a[2];
+    var L2 = b[0], a2 = b[1], b2 = b[2];
+    var C1 = Math.sqrt(a1 * a1 + b1 * b1);
+    var C2 = Math.sqrt(a2 * a2 + b2 * b2);
+    var Cb = (C1 + C2) / 2;
+    var Cb7 = Math.pow(Cb, 7);
+    var G = 0.5 * (1 - Math.sqrt(Cb7 / (Cb7 + 6103515625)));   // 25^7
+    var a1p = (1 + G) * a1, a2p = (1 + G) * a2;
+    var C1p = Math.sqrt(a1p * a1p + b1 * b1);
+    var C2p = Math.sqrt(a2p * a2p + b2 * b2);
+    var h1p = (C1p === 0) ? 0 : Math.atan2(b1, a1p) * 180 / Math.PI;
+    if (h1p < 0) h1p += 360;
+    var h2p = (C2p === 0) ? 0 : Math.atan2(b2, a2p) * 180 / Math.PI;
+    if (h2p < 0) h2p += 360;
+    var dLp = L2 - L1;
+    var dCp = C2p - C1p;
+    var dhp;
+    if (C1p * C2p === 0) dhp = 0;
+    else {
+      dhp = h2p - h1p;
+      if (dhp > 180) dhp -= 360;
+      else if (dhp < -180) dhp += 360;
+    }
+    var dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360);
+    var Lb = (L1 + L2) / 2;
+    var Cbp = (C1p + C2p) / 2;
+    var hbp;
+    if (C1p * C2p === 0) hbp = h1p + h2p;
+    else if (Math.abs(h1p - h2p) <= 180) hbp = (h1p + h2p) / 2;
+    else if (h1p + h2p < 360) hbp = (h1p + h2p + 360) / 2;
+    else hbp = (h1p + h2p - 360) / 2;
+    var T = 1 - 0.17 * Math.cos((hbp - 30) * Math.PI / 180)
+              + 0.24 * Math.cos(2 * hbp * Math.PI / 180)
+              + 0.32 * Math.cos((3 * hbp + 6) * Math.PI / 180)
+              - 0.20 * Math.cos((4 * hbp - 63) * Math.PI / 180);
+    var dTheta = 30 * Math.exp(-Math.pow((hbp - 275) / 25, 2));
+    var Cbp7 = Math.pow(Cbp, 7);
+    var Rc = 2 * Math.sqrt(Cbp7 / (Cbp7 + 6103515625));
+    var Sl = 1 + (0.015 * Math.pow(Lb - 50, 2)) / Math.sqrt(20 + Math.pow(Lb - 50, 2));
+    var Sc = 1 + 0.045 * Cbp;
+    var Sh = 1 + 0.015 * Cbp * T;
+    var Rt = -Math.sin(2 * dTheta * Math.PI / 180) * Rc;
+    var dl = dLp / Sl, dc = dCp / Sc, dh = dHp / Sh;
+    return Math.sqrt(dl * dl + dc * dc + dh * dh + Rt * dc * dh);
+  }
+
+  // 抖动强度：关 / 轻 / 强（误差扩散）
+  var DITHER_LEVEL = { off: 0, light: 0.55, strong: 0.85 };
+  function ditherStrength(v) {
+    if (v === true) return 0.55;
+    if (typeof v === 'number') return Math.max(0, Math.min(1, v));
+    return DITHER_LEVEL[v] || 0;
+  }
+
+  // 把像素转成 16 色拼豆：返回 { data, colors, beads, dropped, bg, reframed }
+  function pixelsToBeads(px, n, opts) {
+    opts = opts || {};
+    var labs = paletteLabList();
+    var total = n * n;
+    var got = labsFromPixels(px, n);
+    var pl = got.pl, alpha = got.alpha;
+    var i, x, y, k, idx;
+
+    var bgLab = (opts.dropBg !== false) ? detectBgLab(pl, n) : null;
+
+    // 护栏：覆盖 85% 以上的「背景色」其实是主色（纯色贴纸不该被清空）
+    if (bgLab) {
+      var opaque = 0, match = 0;
+      for (i = 0; i < total; i++) {
+        if (alpha[i] < 40) continue;
+        opaque++;
+        if (labDist(pl[i], bgLab) < 14) match++;
+      }
+      if (!opaque || match / opaque > 0.85) bgLab = null;
+    }
+
+    // 自动对比 + 轻微饱和 + 轻微锐化：照片直转 16 色容易发灰、边缘糊。
+    // ⚠️ 对比不能用「2% 分位裁剪」：图里暗部只占 2% 时（头发、深色衣服），
+    //    分位点会落在中亮区，深色直接被压成纯黑（实测蓝衣服变黑）。
+    //    改成以均值为中心、增益有上限的对比拉伸 —— 再暗的细节也不会被裁掉。
+    if (opts.enhance !== false) {
+      var sum = 0, sum2 = 0, cnt = 0;
+      for (i = 0; i < total; i++) {
+        if (alpha[i] < 40) continue;
+        if (bgLab && labDist(pl[i], bgLab) < 14) continue;
+        var Lv = pl[i][0];
+        sum += Lv;
+        sum2 += Lv * Lv;
+        cnt++;
+      }
+      if (cnt > 8) {
+        var mean = sum / cnt;
+        var sd = Math.sqrt(Math.max(0, sum2 / cnt - mean * mean));
+        var gain = Math.min(1.22, Math.max(0.95, 30 / Math.max(8, sd)));
+        for (i = 0; i < total; i++) {
+          pl[i][0] = Math.max(0, Math.min(100, mean + (pl[i][0] - mean) * gain));
+          pl[i][1] = Math.max(-80, Math.min(80, pl[i][1] * 1.10));
+          pl[i][2] = Math.max(-80, Math.min(80, pl[i][2] * 1.10));
+        }
+      }
+      // USM：3×3 盒式模糊后的高频回加 35%。48~64 格下这一段决定「还认不认得出是谁」。
+      var blur = new Float32Array(total);
+      for (y = 0; y < n; y++) {
+        for (x = 0; x < n; x++) {
+          var s3 = 0, c3 = 0;
+          for (var dy = -1; dy <= 1; dy++) {
+            for (var dx = -1; dx <= 1; dx++) {
+              var xx = x + dx, yy = y + dy;
+              if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+              s3 += pl[yy * n + xx][0];
+              c3++;
+            }
+          }
+          blur[y * n + x] = s3 / c3;
+        }
+      }
+      for (i = 0; i < total; i++) {
+        pl[i][0] = Math.max(0, Math.min(100, pl[i][0] + (pl[i][0] - blur[i]) * 0.35));
+      }
+    }
+
+    // 配色：先 CIE76 取前 4 个候选，再用 CIEDE2000 定夺（全量 CIEDE2000 太慢）。
+    // 抖动用 Floyd–Steinberg 误差扩散：把这一格的取色误差按 7/3/5/1 分给邻居，
+    // 渐变色带被打散成细微颗粒 —— 比 4×4 有序抖动的「十字纹」自然得多。
+    var strength = opts.dither === true ? 0.55 : (opts.ditherStrength !== undefined
+      ? Math.max(0, Math.min(1, opts.ditherStrength)) : ditherStrength(opts.dither));
+    var cells = new Int8Array(total);
+    var counts = new Array(16).fill(0);
+    var colors = 0;
+    var cand = [0, 0, 0, 0];
+    var err = (strength > 0) ? new Float32Array(total * 3) : null;
+
+    function pickFor(L, A, B) {
+      var bestD = [Infinity, Infinity, Infinity, Infinity];
+      for (var kk = 0; kk < 16; kk++) {
+        var dl = labs[kk][0] - L, da = labs[kk][1] - A, db = labs[kk][2] - B;
+        var d2 = dl * dl + da * da + db * db;
+        if (d2 < bestD[3]) {
+          bestD[3] = d2; cand[3] = kk;
+          for (var j = 3; j > 0 && bestD[j] < bestD[j - 1]; j--) {
+            var tb = bestD[j]; bestD[j] = bestD[j - 1]; bestD[j - 1] = tb;
+            var tc = cand[j]; cand[j] = cand[j - 1]; cand[j - 1] = tc;
+          }
+        }
+      }
+      var tgt = [L, A, B];
+      var pick = cand[0], pd = de2000(tgt, labs[pick]);
+      for (var c2 = 1; c2 < 4; c2++) {
+        var dd = de2000(tgt, labs[cand[c2]]);
+        if (dd < pd) { pd = dd; pick = cand[c2]; }
+      }
+      return pick;
+    }
+
+    for (y = 0; y < n; y++) {
+      var rev = (y & 1) === 1;
+      for (var xi = 0; xi < n; xi++) {
+        x = rev ? (n - 1 - xi) : xi;
+        i = y * n + x;
+        if (alpha[i] < 40) { cells[i] = -1; continue; }
+        var L0 = pl[i][0], A0 = pl[i][1], B0 = pl[i][2];
+        if (bgLab && labDist([L0, A0, B0], bgLab) < 14) { cells[i] = -1; continue; }
+        if (err) {
+          L0 += err[i * 3];
+          A0 += err[i * 3 + 1];
+          B0 += err[i * 3 + 2];
+        }
+        var pickIdx = pickFor(L0, A0, B0);
+        cells[i] = pickIdx;
+        if (counts[pickIdx] === 0) colors++;
+        counts[pickIdx]++;
+        if (err) {
+          var pl2 = labs[pickIdx];
+          var eL = (L0 - pl2[0]) * strength;
+          var eA = (A0 - pl2[1]) * strength;
+          var eB = (B0 - pl2[2]) * strength;
+          var nx = x + (rev ? -1 : 1);
+          var ox = x - (rev ? -1 : 1);
+          // 不用内层函数：热点循环里每次建闭包既慢又容易在旧引擎上踩块级函数声明的坑
+          if (nx >= 0 && nx < n) {
+            var q1 = (y * n + nx) * 3;
+            err[q1] += eL * 0.4375; err[q1 + 1] += eA * 0.4375; err[q1 + 2] += eB * 0.4375;
+          }
+          if (y + 1 < n) {
+            if (ox >= 0 && ox < n) {
+              var q2 = ((y + 1) * n + ox) * 3;
+              err[q2] += eL * 0.1875; err[q2 + 1] += eA * 0.1875; err[q2 + 2] += eB * 0.1875;
+            }
+            var q3 = ((y + 1) * n + x) * 3;
+            err[q3] += eL * 0.3125; err[q3 + 1] += eA * 0.3125; err[q3 + 2] += eB * 0.3125;
+            if (nx >= 0 && nx < n) {
+              var q4 = ((y + 1) * n + nx) * 3;
+              err[q4] += eL * 0.0625; err[q4 + 1] += eA * 0.0625; err[q4 + 2] += eB * 0.0625;
+            }
+          }
+        }
+      }
+    }
+
+    // 色号上限：最少的色并入 Lab 最近的保留色
+    var cap = Math.max(2, Math.min(16, opts.maxColors || 16));
+    var remap = {};
+    while (colors > cap) {
+      var victim = -1, vc = Infinity;
+      for (k = 0; k < 16; k++) {
+        if (counts[k] > 0 && counts[k] < vc) { vc = counts[k]; victim = k; }
+      }
+      if (victim < 0) break;
+      var target = -1, td = Infinity;
+      for (k = 0; k < 16; k++) {
+        if (k === victim || counts[k] === 0) continue;
+        var dd2 = de2000(labs[victim], labs[k]);
+        if (dd2 < td) { td = dd2; target = k; }
+      }
+      if (target < 0) break;
+      counts[target] += counts[victim];
+      counts[victim] = 0;
+      colors--;
+      remap[victim] = target;
+    }
+
+    var arr = new Array(total);
+    var beads = 0;
+    for (i = 0; i < total; i++) {
+      idx = cells[i];
+      if (idx < 0) { arr[i] = '.'; continue; }
+      while (remap[idx] !== undefined) idx = remap[idx];
+      arr[i] = idx.toString(16);
+      beads++;
+    }
+    return { data: arr.join(''), colors: colors, beads: beads, bg: !!bgLab };
+  }
+
+  // 导入前处理：先在粗网格上探背景与主体，主体太小就重新取景，再做正式采样
+  function prepareAndConvert(img, n, opts) {
+    var side = Math.min(img.width || n, img.height || n);
+    var sx = ((img.width || side) - side) / 2;
+    var sy = ((img.height || side) - side) / 2;
+    var reframed = false;
+    if (opts.dropBg !== false && side > 64) {
+      try {
+        var coarseN = 40;
+        var cpx = sampleSquare(img, sx, sy, side, coarseN);
+        var cg = labsFromPixels(cpx, coarseN);
+        var cbg = detectBgLab(cg.pl, coarseN);
+        if (cbg) {
+          var box = contentBox(cg.pl, coarseN, cbg);
+          if (box && (box.w * box.h) / (coarseN * coarseN) < 0.55 && box.w >= 3 && box.h >= 3) {
+            // 主体扩裁：以包围盒中心取一个正方形，四周留 6% 呼吸位
+            var bw = box.w / coarseN, bh = box.h / coarseN;
+            var need = Math.min(1, Math.max(bw, bh) * 1.12);
+            if (need < 0.95) {
+              var cx = sx + side * ((box.x + box.w / 2) / coarseN);
+              var cy = sy + side * ((box.y + box.h / 2) / coarseN);
+              var ns = side * need;
+              var nsx = Math.max(0, Math.min((img.width || side) - ns, cx - ns / 2));
+              var nsy = Math.max(0, Math.min((img.height || side) - ns, cy - ns / 2));
+              sx = nsx; sy = nsy; side = ns;
+              reframed = true;
+            }
+          }
+        }
+      } catch (e) { /* 扩裁失败就按原图取景 */ }
+    }
+    var res = pixelsToBeads(sampleSquare(img, sx, sy, side, n), n, opts);
+    res.reframed = reframed;
+    return res;
+  }
+
+  // 应用一次导入：整步可撤销
+  function applyImportedBeads(res, sourceName) {
+    if (!edit || !res) return;
+    snapshot();
+    edit.data = res.data;
+    edit.drag = null;
+    edit.previewPts = null;
+    edit.tool = 'pen';
+    edit.zoom = 1;
+    CELL = computeCell();
+    mountEditView();
+    if (zoomSyncFn) zoomSyncFn();
+    scheduleStats(true);
+    scheduleDraftSave();
+    sysToast(
+      '已转成 ' + edit.w + '×' + edit.h + '：' + res.beads + ' 颗 · ' + res.colors + ' 个色号' +
+      (res.dropped ? ' · 去掉 ' + res.dropped + ' 格背景' : ''),
+      'success'
+    );
+  }
+
+  function importImageDataUrl(url, opts, done) {
+    if (typeof opts === 'function') { done = opts; opts = null; }
+    var o = opts || importOpts;
+    if (!edit || !url) { if (done) done(false); return; }
+    var img = new Image();
+    img.onload = function() {
+      try {
+        var res = prepareAndConvert(img, edit.w, o);
+        if (!res.beads) { sysToast('这张图几乎是纯色/透明的，先换一张试试', 'info'); if (done) done(false); return; }
+        applyImportedBeads(res);
+        if (done) done(true);
+      } catch (e) {
+        try { window.__ciBeadImportErr = String((e && e.stack) || e); } catch (e2) {}
+        sysToast('这张图读不出来，换一张试试', 'error');
+        if (done) done(false);
+      }
+    };
+    img.onerror = function() {
+      sysToast('图片解码失败，换一张试试', 'error');
+      if (done) done(false);
+    };
+    img.src = url;
+  }
+
+  // ---- 云盘选择器（v0.43：全量列表 + 选中预览调参）----
+  // 列表不再截断 30 张（用户云盘里 400+ 张，只看到几张以为丢了）；
+  // 缩略图用 IntersectionObserver 懒加载 + 并发 4，滚到哪拉到哪。
+  function openCloudImport() {
+    if (!api) { sysToast('云盘不可用', 'error'); return; }
+
+    var overlay = h('div', 'ci-pet-cloudpick');
+    var panel = h('div', 'ci-pet-cloudpick-panel');
+    var head = h('div', 'ci-pet-cloudpick-head');
+    head.appendChild(h('span', 'ci-pet-cloudpick-title', '从云盘导入'));
+    var close = h('button', 'ci-pet-cloudpick-x', '✕');
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    var listView = h('div', 'ci-pet-pickview is-list');
+    var previewView = h('div', 'ci-pet-pickview');
+    previewView.style.display = 'none';
+    panel.appendChild(listView);
+    panel.appendChild(previewView);
+    overlay.appendChild(panel);
+    if (root) root.appendChild(overlay);
+
+    var urls = [];
+    var pick = { img: null, name: '', size: edit.w, res: null, busy: false };
+
+    function revokeAll() {
+      urls.forEach(function(u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+      urls = [];
+    }
+    function closeAll() {
+      revokeAll();
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    close.addEventListener('click', closeAll);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) closeAll(); });
+
+    // ---------- 列表 ----------
+    var listHint = h('div', 'ci-pet-cloudpick-sub', '点一张图 → 预览转换效果 → 满意再用。');
+    listView.appendChild(listHint);
+    var grid = h('div', 'ci-pet-cloudpick-grid');
+    grid.appendChild(h('div', 'ci-pet-cloudpick-hint', '正在翻云盘…'));
+    listView.appendChild(grid);
+    var foot = h('div', 'ci-pet-cloudpick-foot');
+    var local = h('button', 'ci-pet-minibtn', '从本机选择图片');
+    foot.appendChild(local);
+    listView.appendChild(foot);
+
+    local.addEventListener('click', function() {
+      closeAll();
+      pickLocalImage();
+    });
+
+    // 缩略图并发队列：一次最多 4 个请求
+    var queue = [], inflight = 0;
+    function pump() {
+      while (inflight < 4 && queue.length) {
+        var job = queue.shift();
+        inflight++;
+        job().then(function() { inflight--; pump(); }, function() { inflight--; pump(); });
+      }
+    }
+    function enqueue(fn) { queue.push(fn); pump(); }
+
+    var io = null;
+    if (window.IntersectionObserver) {
+      io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(en) {
+          if (!en.isIntersecting) return;
+          var tile = en.target;
+          io.unobserve(tile);
+          if (tile.__load) { var f = tile.__load; tile.__load = null; enqueue(f); }
+        });
+      }, { root: grid, rootMargin: '240px' });
+    }
+
+    api.get('/cloud/files').then(function(res) {
+      var files = ((res && res.data && res.data.data && res.data.data.files) || []).filter(function(f) {
+        return f && /^image\//i.test(String(f.mime_type || ''));
+      });
+      grid.innerHTML = '';
+      if (!files.length) {
+        grid.appendChild(h('div', 'ci-pet-cloudpick-hint',
+          '云盘里还没有图片。先到「资源 → 云盘」上传一张，再回来导入。'));
+        return;
+      }
+      listHint.textContent = '共 ' + files.length + ' 张图片 · 点一张预览转换效果';
+
+      files.forEach(function(f, idx) {
+        var tile = h('button', 'ci-pet-cloudtile');
+        var img = document.createElement('img');
+        img.alt = f.name || '';
+        tile.appendChild(img);
+        tile.appendChild(h('span', 'ci-pet-cloudtile-name', f.name || '图片'));
+        tile.title = f.name || '';
+        tile.addEventListener('click', function() { openPreview(f, tile); });
+        grid.appendChild(tile);
+
+        function loadThumb() {
+          return api.get('/cloud/files/' + encodeURIComponent(f.hash) + '?w=160', { responseType: 'blob' })
+            .then(function(r2) {
+              var b = r2 && r2.data;
+              if (!b) return;
+              var u = URL.createObjectURL(b);
+              urls.push(u);
+              img.src = u;
+            }).catch(function() { tile.classList.add('is-broken'); });
+        }
+        if (io && idx > 11) {
+          tile.__load = loadThumb;   // 首屏之后一律懒加载
+          io.observe(tile);
+        } else {
+          enqueue(loadThumb);
+        }
+      });
+    }).catch(function() {
+      grid.innerHTML = '';
+      grid.appendChild(h('div', 'ci-pet-cloudpick-hint', '云盘没连上，稍后再试。'));
+    });
+
+    // ---------- 预览 / 调参 ----------
+    var pairWrap = h('div', 'ci-pet-pickpair');
+    var cellA = h('div', 'ci-pet-pickcell');
+    var originImg = document.createElement('img');
+    originImg.className = 'ci-pet-pickimg';
+    cellA.appendChild(originImg);
+    cellA.appendChild(h('span', 'ci-pet-pickcap', '原图'));
+    var cellB = h('div', 'ci-pet-pickcell');
+    var previewCv = document.createElement('canvas');
+    previewCv.className = 'ci-pet-pickcv';
+    previewCv.title = '点一下放大看';
+    cellB.appendChild(previewCv);
+    cellB.appendChild(h('span', 'ci-pet-pickcap', '拼豆预览'));
+    pairWrap.appendChild(cellA);
+    pairWrap.appendChild(cellB);
+    previewView.appendChild(pairWrap);
+
+    // 点预览放大：小图看不清豆子排布，放大到 360px 覆盖层（不打断参数调整）
+    previewCv.addEventListener('click', function() {
+      if (!pick.res) return;
+      var big = h('div', 'ci-pet-cloudpick');
+      var box = h('div', 'ci-pet-pickzoom');
+      var cv = document.createElement('canvas');
+      drawBoard(cv, { w: pick.size, h: pick.size, data: pick.res.data }, Math.max(3, Math.floor(360 / pick.size)), {
+        bg: '#FBF6E8', pegs: true, grid: true, bead: true
+      });
+      box.appendChild(cv);
+      box.appendChild(h('div', 'ci-pet-pickcap',
+        pick.size + '×' + pick.size + ' · ' + pick.res.beads + ' 颗 · ' + pick.res.colors + ' 色'));
+      big.appendChild(box);
+      big.addEventListener('click', function() { if (big.parentNode) big.parentNode.removeChild(big); });
+      if (root) root.appendChild(big);
+    });
+
+    var optRow = h('div', 'ci-pet-cloudpick-opts');
+    previewView.appendChild(optRow);
+    var previewFoot = h('div', 'ci-pet-cloudpick-foot');
+    var backBtn = h('button', 'ci-pet-minibtn', '← 换一张');
+    var applyBtn = h('button', 'ci-pet-btn ci-pet-pinsmall', '用它');
+    applyBtn.disabled = true;   // 首次预览出来之前不能点（否则点到空的 res）
+    previewFoot.appendChild(backBtn);
+    previewFoot.appendChild(applyBtn);
+    previewView.appendChild(previewFoot);
+
+    function chipGroup(label, values, get, set) {
+      var g = h('div', 'ci-pet-opts');
+      g.appendChild(h('span', 'ci-pet-opts-label', label));
+      var btns = [];
+      values.forEach(function(v) {
+        var b = h('button', 'ci-pet-chip' + (get() === v.value ? ' is-on' : ''), v.label);
+        b.addEventListener('click', function() {
+          set(v.value);
+          btns.forEach(function(x) { x.classList.remove('is-on'); });
+          b.classList.add('is-on');
+          schedulePreview();
+        });
+        btns.push(b);
+        g.appendChild(b);
+      });
+      return g;
+    }
+    optRow.appendChild(chipGroup('尺寸', [
+      { label: '16', value: 16 }, { label: '24', value: 24 }, { label: '32', value: 32 },
+      { label: '48', value: 48 }, { label: '64', value: 64 }
+    ], function() { return pick.size; }, function(v) { pick.size = v; }));
+    optRow.appendChild(chipGroup('色号', [
+      { label: '6', value: 6 }, { label: '10', value: 10 }, { label: '16', value: 16 }
+    ], function() { return importOpts.maxColors; }, function(v) { importOpts.maxColors = v; }));
+    optRow.appendChild(chipGroup('增强', [
+      { label: '开', value: true }, { label: '关', value: false }
+    ], function() { return importOpts.enhance; }, function(v) { importOpts.enhance = v; }));
+    optRow.appendChild(chipGroup('抖动', [
+      { label: '关', value: 'off' }, { label: '轻', value: 'light' }, { label: '强', value: 'strong' }
+    ], function() { return importOpts.dither; }, function(v) { importOpts.dither = v; }));
+    optRow.appendChild(chipGroup('背景', [
+      { label: '留空', value: true }, { label: '保留', value: false }
+    ], function() { return importOpts.dropBg; }, function(v) { importOpts.dropBg = v; }));
+
+    var previewTimer = 0;
+    function schedulePreview() {
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(runPreview, 120);
+    }
+
+    function runPreview() {
+      previewTimer = 0;
+      if (!pick.img) return;
+      pick.busy = true;
+      // 转换没完成前不许点「用它」：否则点到的是上一张/空的 res
+      applyBtn.disabled = true;
+      cellB.classList.add('is-busy');
+      // 让出一帧再算，避免连点选项时把主线程堵住
+      setTimeout(function() {
+        try {
+          var res = prepareAndConvert(pick.img, pick.size, importOpts);
+          pick.res = res;
+          var cv = previewCv;
+          var cell = Math.max(2, Math.ceil(190 / pick.size));
+          drawBoard(cv, { w: pick.size, h: pick.size, data: res.data }, cell, {
+            bg: '#FBF6E8', pegs: false, grid: false, bead: true
+          });
+          var capB = cellB.querySelector('.ci-pet-pickcap');
+          if (capB) capB.textContent = pick.size + '×' + pick.size + ' · ' + res.beads + ' 颗 · ' + res.colors + ' 色';
+          applyBtn.textContent = '用它（' + pick.size + '×' + pick.size + '）';
+          applyBtn.disabled = false;
+        } catch (e) {
+          try { window.__ciPickErr = String((e && e.stack) || e); } catch (e2) {}
+          sysToast('这张图转不出来，换一张试试', 'error');
+        }
+        pick.busy = false;
+        cellB.classList.remove('is-busy');
+      }, 16);
+    }
+
+    function openPreview(f, tile) {
+      if (tile) tile.classList.add('is-busy');
+      api.get('/cloud/files/' + encodeURIComponent(f.hash), { responseType: 'blob' }).then(function(res) {
+        var blob = res && res.data;
+        if (!blob) { sysToast('这张图读不出来', 'error'); return; }
+        var url = URL.createObjectURL(blob);
+        urls.push(url);
+        var img = new Image();
+        img.onload = function() {
+          pick.img = img;
+          pick.name = f.name || '';
+          originImg.src = url;
+          listView.style.display = 'none';
+          previewView.style.display = '';
+          schedulePreview();
+        };
+        img.onerror = function() { sysToast('图片解码失败', 'error'); };
+        img.src = url;
+      }).catch(function() {
+        if (tile) tile.classList.remove('is-busy');
+        sysToast('云盘图片读取失败', 'error');
+      });
+    }
+
+    backBtn.addEventListener('click', function() {
+      pick.img = null;
+      pick.res = null;
+      previewView.style.display = 'none';
+      listView.style.display = '';
+    });
+
+    applyBtn.addEventListener('click', function() {
+      if (!pick.res) { sysToast('还在转换，稍等一下', 'info'); return; }
+      var n = pick.size;
+      // 尺寸可能和当前画板不同：先整页重建到目标尺寸（这样头部档位高亮也跟着变），
+      // 再落图。手动 mountEditView 只换画布、不换页头，会出现「板是 64、高亮还是 16」。
+      if (n !== edit.w) {
+        edit.w = n;
+        edit.h = n;
+        edit.zoom = 1;
+        CELL = computeCell();
+        renderEditor();
+      }
+      applyImportedBeads(pick.res);
+      closeAll();
+    });
+  }
+
+  function pickLocalImage() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.style.display = 'none';
+    input.addEventListener('change', function() {
+      var f = input.files && input.files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function() { importImageDataUrl(String(reader.result || ''), importOpts); };
+      reader.onerror = function() { sysToast('这张图读不出来，换一张试试', 'error'); };
+      reader.readAsDataURL(f);
+      setTimeout(function() { if (input.parentNode) input.parentNode.removeChild(input); }, 0);
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  function clearEditSession() {
+    try { if (storage) storage.set(EDIT_SESSION_KEY, null); } catch (e) {}
+  }
+
+  function exitEditorToHome() {
+    clearEditSession();
+    editorOpen = false;
+    renderHome();
   }
 
   function renderEditor() {
     clearRoot();
-    CELL = computeCell();   // 每次进编辑器按当期容器宽度重算（旋转/分屏后也准）
-    root.appendChild(h('h2', null, '拼豆工作台'));
-    root.appendChild(h('p', 'ci-pethome-sub', '一格一格拼出它。对称模式适合画脸，画完点「就它了」。'));
+    editorOpen = true;
+    try { if (storage) storage.set(EDIT_SESSION_KEY, { at: Date.now() }); } catch (e) {}
+    leaveHomeLayout();
+    if (root && root.classList) root.classList.add('is-editor');
+
+    // 页头收紧（v0.38.0）：旧的「大标题 + 说明 + 快捷键」整整吃掉 217px，
+    // 画板是正方形，被这 217px 直接压掉一大截。现在并成一行，快捷键行在触屏隐藏。
+    var head = h('div', 'ci-pet-edhead');
+    head.appendChild(h('h2', 'ci-pet-edtitle', '拼豆工作台'));
+    head.appendChild(h('span', 'ci-pet-edhint', '拖拽连续落豆 · 拼完点「就它了」就是宠物形象'));
+
+    // 画板工具条（尺寸档位 + 豆子质感）并进页头：它原来独自占 50px 高，
+    // 而画板是正方形 —— 这 50px 直接等于画板少一格。
+    var bar = h('div', 'ci-pet-boardbar ci-pet-edbar');
+    var seg = h('div', 'ci-pet-seg');
+    SIZES.forEach(function(n) {
+      var sb = h('button', 'ci-pet-seg-btn' + (edit.w === n ? ' is-on' : ''), n + '×' + n);
+      sb.title = n === 16 ? '小作品，几分钟就能拼完' : (n === 24 ? '中等画板，适合画小动物' : '大画板，适合画完整场景');
+      sb.addEventListener('click', function() { resizeEditor(n); });
+      seg.appendChild(sb);
+    });
+    bar.appendChild(seg);
+    var zoomBox = h('div', 'ci-pet-zoombox');
+    var zoomOut = h('button', 'ci-pet-zoombtn', '−');
+    var zoomLabel = h('button', 'ci-pet-zoomlabel', '100%');
+    var zoomIn = h('button', 'ci-pet-zoombtn', '+');
+    zoomOut.title = '缩小画板';
+    zoomIn.title = '放大画板（放大后用「抓手」拖动）';
+    zoomLabel.title = '点一下回到适配大小';
+    zoomBox.appendChild(zoomOut);
+    zoomBox.appendChild(zoomLabel);
+    zoomBox.appendChild(zoomIn);
+    bar.appendChild(zoomBox);
+
+    function syncZoomUI() {
+      var z = (edit && edit.zoom) || 1;
+      zoomLabel.textContent = Math.round(z * 100) + '%';
+      zoomOut.disabled = z <= ZOOMS[0];
+      zoomIn.disabled = z >= ZOOMS[ZOOMS.length - 1];
+    }
+    function setZoom(z) {
+      if (!edit) return;
+      var v = editCanvas && editCanvas.parentNode && editCanvas.parentNode.parentNode;
+      var cellOld = viewCellCss();
+      var cx = 0, cy = 0;
+      if (v) {
+        cx = (v.scrollLeft + v.clientWidth / 2) / cellOld;
+        cy = (v.scrollTop + v.clientHeight / 2) / cellOld;
+      }
+      edit.zoom = z;
+      CELL = computeCell();
+      mountEditView();
+      syncZoomUI();
+      // 缩放后把视口中心留在原来那一格上，不至于跳到角落
+      if (v) {
+        var cellNew = viewCellCss();
+        v.scrollLeft = Math.max(0, cx * cellNew - v.clientWidth / 2);
+        v.scrollTop = Math.max(0, cy * cellNew - v.clientHeight / 2);
+      }
+    }
+    zoomOut.addEventListener('click', function() {
+      var i = ZOOMS.indexOf(edit.zoom || 1);
+      if (i > 0) setZoom(ZOOMS[i - 1]);
+    });
+    zoomIn.addEventListener('click', function() {
+      var i = ZOOMS.indexOf(edit.zoom || 1);
+      if (i < ZOOMS.length - 1) setZoom(ZOOMS[i + 1]);
+    });
+    zoomLabel.addEventListener('click', function() { setZoom(1); });
+    zoomSyncFn = syncZoomUI;
+    head.appendChild(bar);
+
+    if (state && state.adopted) {
+      var backTop = h('button', 'ci-pet-edback', '先不换了');
+      backTop.addEventListener('click', function() { exitEditorToHome(); });
+      head.appendChild(backTop);
+    }
+    root.appendChild(head);
+    root.appendChild(h('p', 'ci-pet-kbdhint',
+      '快捷键：B 画笔 · E 橡皮 · G 油漆桶 · I 吸管 · L 直线 · R 矩形 · M 左右镜像 · Shift+M 上下镜像 · Ctrl+Z 撤销 / Ctrl+S 存作品'));
 
     var wrap = h('div', 'ci-pet-editor');
-    var canvasWrap = h('div', 'ci-pet-canvaswrap');
+    canvasWrapEl = h('div', 'ci-pet-canvaswrap');
+
+    var texBtn = h('button', 'ci-pet-chip' + (edit.bead ? ' is-on' : ''), edit.bead ? '质感' : '像素');
+    texBtn.title = '豆子质感：开着像实体拼豆；关掉是纯像素块（导出图纸也会跟着变）';
+    texBtn.addEventListener('click', function() {
+      edit.bead = !edit.bead;
+      try { if (storage) storage.set('beadStyle', edit.bead); } catch (e) {}
+      // 质感变了要重建底板与精灵；结构性变化，重挂一次视图即可
+      mountEditView();
+      scheduleStats(true);
+      texBtn.textContent = edit.bead ? '质感' : '像素';
+      if (edit.bead) texBtn.classList.add('is-on');
+      else texBtn.classList.remove('is-on');
+    });
+    bar.appendChild(texBtn);
+
+    var gridBtn = h('button', 'ci-pet-chip' + (edit.grid !== false ? ' is-on' : ''), '网格');
+    gridBtn.title = '显示 / 隐藏底板网格（导出图纸不受影响）';
+    gridBtn.addEventListener('click', function() {
+      edit.grid = edit.grid === false;
+      try { if (storage) storage.set('gridOn', edit.grid); } catch (e) {}
+      mountEditView();
+      paintFx();
+      if (edit.grid) gridBtn.classList.add('is-on');
+      else gridBtn.classList.remove('is-on');
+    });
+    bar.appendChild(gridBtn);
+
+    // 两层画布：底层豆子（增量重画），上层预览/落点/涟漪
+    editStage = h('div', 'ci-pet-boardstage');
     editCanvas = document.createElement('canvas');
     editCanvas.className = 'ci-pet-editcanvas';
-    canvasWrap.appendChild(editCanvas);
-    wrap.appendChild(canvasWrap);
+    editFx = document.createElement('canvas');
+    editFx.className = 'ci-pet-editfx';
+    editStage.appendChild(editCanvas);
+    editStage.appendChild(editFx);
+    var emptyHint = h('div', 'ci-pet-emptyhint');
+    emptyHint.appendChild(h('span', 'ci-pet-emptyhint-icon', '✏️'));
+    emptyHint.appendChild(h('span', null, '点一下开始拼 · 也可以从云盘导入图片'));
+    editStage.appendChild(emptyHint);
+    // 视口：放大后画板超出卡片时，靠原生滚动平移（比自绘平移稳，也不和落豆抢手势）
+    var boardView = h('div', 'ci-pet-boardview');
+    boardView.appendChild(editStage);
+    canvasWrapEl.appendChild(boardView);
+
+    var cap = h('div', 'ci-pet-boardcap');
+    cap.appendChild(h('span', 'ci-pet-boardcap-tip', '米色小点 = 空豆位 · 拖拽连续落豆'));
+    editPosEl = h('span', 'ci-pet-boardpos', '');
+    cap.appendChild(editPosEl);
+    canvasWrapEl.appendChild(cap);
+    wrap.appendChild(canvasWrapEl);
 
     var tools = h('div', 'ci-pet-tools');
-    // 调色板
+    var toolScroll = h('div', 'ci-pet-toolscroll');
+
+    // 调色盘（整块面板）：宽屏挂在右侧工具列顶部；窄屏（竖屏平板 / 手机）
+    // 工具列会落到画板下面，调色盘就跑到首屏之外了 —— 而调色是最高频操作。
+    // 这块面板会按断点整体搬一次（见 placePalettePanel），DOM 与监听器都保留。
+    var palPanel = h('div', 'ci-pet-palpanel');
+    palPanel.appendChild(h('div', 'ci-pet-subhead', '调色盘'));
+    editColorLabelEl = h('div', 'ci-pet-curcolor');
+    var curDot = h('i', 'ci-pet-curdot');
+    editColorLabelEl.appendChild(curDot);
+    var curTxt = h('span', 'ci-pet-curtxt', '当前色 ' + beadCode(edit.color) + ' · ' + beadName(edit.color));
+    editColorLabelEl.appendChild(curTxt);
+    palPanel.appendChild(editColorLabelEl);
+
+    // 最近用过的颜色（换色时不用满盘找）
+    var recentRow = h('div', 'ci-pet-recent');
+    palPanel.appendChild(recentRow);
+
     var palBox = h('div', 'ci-pet-palette');
+    var swatchEls = [];
     palette.forEach(function(color, idx) {
-      var sw = h('div', 'ci-pet-swatch' + (idx === edit.color ? ' ci-pet-swatch--active' : ''));
+      var box = h('button', 'ci-pet-swatchbox');
+      box.title = beadCode(idx) + ' · ' + beadName(idx);
+      var sw = h('span', 'ci-pet-swatch');
       sw.style.background = color;
-      sw.addEventListener('click', function() {
-        edit.color = idx;
-        edit.tool = 'pen';
-        renderEditor();
-      });
-      palBox.appendChild(sw);
+      box.appendChild(sw);
+      box.appendChild(h('span', 'ci-pet-swatch-code', beadCode(idx)));
+      box.style.background = 'none';
+      box.style.border = 'none';
+      box.style.padding = '0';
+      box.addEventListener('click', function() { pickColor(idx); });
+      box.__idx = idx;
+      swatchEls.push(box);
+      palBox.appendChild(box);
     });
-    tools.appendChild(palBox);
+    palPanel.appendChild(palBox);
+    toolScroll.appendChild(palPanel);
+
+    // 横屏平板：编辑区高度钉成「视口高 - 编辑区顶部」，页面不再整页滚；
+    // 工具列自己滚（palbar 吸底所以「就它了」永远在手边）。
+    function fitEditorHeight() {
+      var wide = (window.innerWidth || 1024) >= 900;
+      if (!wide) {
+        wrap.style.height = '';
+        wrap.style.overflow = '';
+        tools.style.height = '';
+        tools.style.overflow = '';
+        return;
+      }
+      var top = wrap.getBoundingClientRect().top;
+      var h = Math.max(320, Math.floor((window.innerHeight || 768) - top - 22));
+      wrap.style.height = h + 'px';
+      wrap.style.overflow = 'hidden';
+      tools.style.height = h + 'px';
+      // 滚动只发生在内容区；操作条是兄弟节点，永远不被遮住
+      tools.style.overflow = 'hidden';
+    }
+    window.__ciFitEditor = fitEditorHeight;
+
+    function placePalettePanel() {
+      if (!palPanel) return;
+      var wide = (window.innerWidth || 1024) >= 900;
+      var target = wide ? toolScroll : canvasWrapEl;
+      if (palPanel.parentNode !== target) {
+        if (wide) target.insertBefore(palPanel, target.firstChild);
+        else target.appendChild(palPanel);
+      }
+      if (wide) palPanel.classList.remove('is-inline');
+      else palPanel.classList.add('is-inline');
+    }
+    window.__ciPlacePalette = placePalettePanel;   // onResize 用
+    placePalettePanel();
 
     // 工具行
-    var row = h('div', 'ci-pet-btnrow');
-    function btn(text, ghost, fn) {
-      var b = h('button', 'ci-pet-btn' + (ghost ? ' ci-pet-btn--ghost' : ''), text);
+    var toolBtnEls = {};
+    function toolBtn(parent, text, active, fn, key) {
+      var b = h('button', 'ci-pet-btn' + (active ? '' : ' ci-pet-btn--ghost'), text);
       b.addEventListener('click', fn);
-      row.appendChild(b);
+      if (key) { b.setAttribute('data-tool', key); toolBtnEls[key] = b; }
+      parent.appendChild(b);
       return b;
     }
-    btn('画笔', edit.tool !== 'pen', function() { edit.tool = 'pen'; renderEditor(); });
-    btn('橡皮', edit.tool !== 'eraser', function() { edit.tool = 'eraser'; renderEditor(); });
-    btn('油漆桶', edit.tool !== 'fill', function() { edit.tool = 'fill'; renderEditor(); });
-    btn(edit.mirror ? '对称：开' : '对称：关', true, function() { edit.mirror = !edit.mirror; renderEditor(); });
-    btn('撤销', true, function() {
-      if (undoStack.length) { edit.data = undoStack.pop(); redrawEditor(); }
+
+    function pickColor(idx) {
+      if (!edit) return;
+      if (edit.tool === 'recolor') {
+        // 换色模式第二下：调色盘选的是「目标色」→ 全局替换
+        var from = edit.recolorFrom;
+        edit.recolorFrom = null;
+        edit.tool = 'pen';
+        if (from != null && from !== idx) {
+          var src = from.toString(16), dst = idx.toString(16);
+          snapshot();
+          var n = 0, arr = edit.data.split('');
+          for (var i = 0; i < arr.length; i++) {
+            if (arr[i] === src) { arr[i] = dst; n++; }
+          }
+          edit.data = arr.join('');
+          markAll();
+          scheduleStats(true);
+          scheduleDraftSave();
+          sysToast('已把 ' + beadCode(from) + ' 全换成 ' + beadCode(idx) + '（' + n + ' 颗）', 'success');
+        }
+        edit.color = idx;
+        pushRecentColor(idx);
+        syncEditorUI();
+        return;
+      }
+      edit.color = idx;
+      pushRecentColor(idx);
+      if (edit.tool === 'eraser' || edit.tool === 'eyedropper') edit.tool = 'pen';
+      syncEditorUI();
+      paintFx();
+    }
+
+    function setTool(tool) {
+      if (!edit) return;
+      edit.tool = tool;
+      edit.recolorFrom = null;
+      syncEditorUI();
+      paintFx();
+    }
+
+    // 笔尖粗细：64 格时单格 9px，3×3 才点得动。
+    // 和「画笔工具」标题放同一行 —— 单独占一行会把撤销挤到折叠线以下。
+    var brushRow = h('div', 'ci-pet-opts ci-pet-brushrow');
+    brushRow.appendChild(h('span', 'ci-pet-opts-label', '笔尖'));
+    [1, 2, 3].forEach(function(n) {
+      var b = h('button', 'ci-pet-chip' + ((edit.brush || 1) === n ? ' is-on' : ''), n + '×' + n);
+      b.title = n === 1 ? '单格（画细节）' : (n === 2 ? '2×2' : '3×3（大面积上色）');
+      b.addEventListener('click', function() {
+        edit.brush = n;
+        try { if (storage) storage.set('brushSize', n); } catch (e) {}
+        Array.prototype.forEach.call(brushRow.querySelectorAll('.ci-pet-chip'), function(x) {
+          x.classList.remove('is-on');
+        });
+        b.classList.add('is-on');
+      });
+      brushRow.appendChild(b);
     });
-    btn('清空', true, function() { snapshot(); edit.data = new Array(DIM * DIM + 1).join('.'); redrawEditor(); });
-    tools.appendChild(row);
+    var toolHead = h('div', 'ci-pet-toolhead');
+    toolHead.appendChild(h('div', 'ci-pet-sechead', '画笔工具'));
+    toolHead.appendChild(brushRow);
+    toolScroll.appendChild(toolHead);
+
+    // 3 列等宽网格：以前是「一行挤 4 个、放不下就掉一个」，看着像排版坏了。
+    var toolGrid = h('div', 'ci-pet-toolgrid');
+    toolBtn(toolGrid, '画笔', edit.tool === 'pen', function() { setTool('pen'); }, 'pen');
+    toolBtn(toolGrid, '橡皮', edit.tool === 'eraser', function() { setTool('eraser'); }, 'eraser');
+    toolBtn(toolGrid, '油漆桶', edit.tool === 'fill', function() { setTool('fill'); }, 'fill');
+    toolBtn(toolGrid, '吸管', edit.tool === 'eyedropper', function() { setTool('eyedropper'); }, 'eyedropper');
+    toolBtn(toolGrid, '直线', edit.tool === 'line', function() { setTool('line'); }, 'line');
+    toolBtn(toolGrid, '矩形框', edit.tool === 'rect', function() { setTool('rect'); }, 'rect');
+    toolBtn(toolGrid, '抓手', edit.tool === 'pan', function() { setTool('pan'); }, 'pan');
+    toolBtn(toolGrid, '左右对称', edit.mirrorX, function() { edit.mirrorX = !edit.mirrorX; syncEditorUI(); }, 'mirrorX');
+    toolBtn(toolGrid, '上下对称', edit.mirrorY, function() { edit.mirrorY = !edit.mirrorY; syncEditorUI(); }, 'mirrorY');
+    toolScroll.appendChild(toolGrid);
+
+    // 整图操作：翻转 / 平移 / 铺满（拼豆摆到板边时的真实需求）
+    toolScroll.appendChild(h('div', 'ci-pet-sechead', '整图'));
+    var moveRow = h('div', 'ci-pet-mover');
+    function moveBtn(label, title, fn) {
+      var b = h('button', 'ci-pet-movebtn', label);
+      b.title = title;
+      b.addEventListener('click', fn);
+      moveRow.appendChild(b);
+      return b;
+    }
+    moveBtn('↔ 翻转', '整幅左右翻转', function() { editorFlip('h'); });
+    moveBtn('↕ 翻转', '整幅上下翻转', function() { editorFlip('v'); });
+    moveBtn('←', '整幅左移一格（绕回）', function() { editorShift(-1, 0); });
+    moveBtn('→', '整幅右移一格（绕回）', function() { editorShift(1, 0); });
+    moveBtn('↑', '整幅上移一格（绕回）', function() { editorShift(0, -1); });
+    moveBtn('↓', '整幅下移一格（绕回）', function() { editorShift(0, 1); });
+    var recolorBtn = h('button', 'ci-pet-movebtn', '换色');
+    recolorBtn.title = '点画板取要换掉的色，再点调色盘选新色';
+    recolorBtn.addEventListener('click', function() {
+      if (!edit) return;
+      if (edit.tool === 'recolor') { edit.tool = 'pen'; edit.recolorFrom = null; }
+      else { edit.tool = 'recolor'; edit.recolorFrom = null; sysToast('点画板取要换掉的色，再点调色盘选新色', 'info'); }
+      syncEditorUI();
+      paintFx();
+    });
+    moveRow.appendChild(recolorBtn);
+    var importBtn = h('button', 'ci-pet-movebtn ci-pet-importbtn', '导入图片');
+    importBtn.title = '把一张图片转成当前画板的拼豆草稿（居中裁成方形，最接近的 16 色）';
+    importBtn.addEventListener('click', openCloudImport);
+    moveRow.appendChild(importBtn);
+    toolScroll.appendChild(moveRow);
+
+    var row3 = h('div', 'ci-pet-btnrow');
+    undoBtnEl = toolBtn(row3, '撤销', false, undoEdit, 'undo');
+    redoBtnEl = toolBtn(row3, '重做', false, redoEdit, 'redo');
+    toolBtn(row3, '铺满', false, function() {
+      if (!edit) return;
+      editorFillAll();
+      sysToast('整块铺满 ' + beadCode(edit.color) + '（Ctrl+Z 可撤）', 'success');
+    }, 'fillall');
+    toolBtn(row3, '清空', false, function() {
+      if (!edit) return;
+      snapshot();
+      edit.data = blankGrid(edit.w, edit.h);
+      markAll();
+      scheduleStats(true);
+      scheduleDraftSave();
+    }, 'clear');
+    toolScroll.appendChild(row3);
+
+    // 预览 + 备料清单
+    toolScroll.appendChild(h('div', 'ci-pet-sechead', '预览 & 备料'));
+    var meta = h('div', 'ci-pet-meta');
+    var pvBox = h('div', 'ci-pet-previewbox');
+    editPreviewEl = document.createElement('canvas');
+    editPreviewEl.className = 'ci-pet-previewcv';
+    pvBox.appendChild(editPreviewEl);
+    pvBox.appendChild(h('div', 'ci-pet-previewcap', '桌面预览'));
+    meta.appendChild(pvBox);
+
+    var statBox = h('div', 'ci-pet-statbox');
+    var statHead = h('div', 'ci-pet-stathead');
+    editStatsLineEl = h('div', 'ci-pet-statline', '');
+    statHead.appendChild(editStatsLineEl);
+    var copyBtn = h('button', 'ci-pet-minibtn', '复制清单');
+    copyBtn.title = '复制「色号 + 名称 + 颗数」，买豆子时直接发给店家';
+    copyBtn.addEventListener('click', copyBeadList);
+    statHead.appendChild(copyBtn);
+    statBox.appendChild(statHead);
+    editStatsWrapEl = h('div', 'ci-pet-statwrap');
+    statBox.appendChild(editStatsWrapEl);
+    meta.appendChild(statBox);
+    toolScroll.appendChild(meta);
 
     // 完成行
-    var row2 = h('div', 'ci-pet-btnrow');
-    var doneBtn = btn('就它了 →', false, function() { renderNaming('pixel'); });
-    row2.appendChild(doneBtn);
-    if (state && state.adopted) {
-      var backBtn = btn('先不换了', true, function() { renderHome(); });
-      row2.appendChild(backBtn);
-    }
-    tools.appendChild(row2);
+    var pinbar = h('div', 'ci-pet-pinbar');
+    var doneRow = h('div', 'ci-pet-btnrow');
+    // 定稿前先把作品落库：手作党拼了半小时，不该因为「忘了点保存」在定稿后消失
+    var doneBtn = toolBtn(doneRow, '就它了 →', true, function() {
+      if (doneBtn.disabled) return;
+      if (!edit) { renderNaming('pixel'); return; }
+      if (!beadStats(edit.data).total) {
+        sysToast('画板还是空的，先拼几颗豆子再定稿吧', 'info');
+        return;
+      }
+      doneBtn.disabled = true;
+      doneBtn.textContent = '保存中…';
+      saveCurrentWork({
+        then: function(ok) {
+          if (!ok) sysToast('作品没能存进作品库，定稿后它仍会成为宠物形象', 'info');
+          renderNaming('pixel');
+        }
+      });
+    }, 'done');
+    doneBtn.title = '先存进作品库，再用这一幅当宠物形象';
+    doneBtn.classList.add('ci-pet-pinprimary');
+    var cloudBtn = toolBtn(doneRow, '☁ 云盘', false, exportDesignCloud, 'exportCloud');
+    cloudBtn.title = '把图纸（含备料清单）存进云盘';
+    var dlBtn = toolBtn(doneRow, '↓ 下载', false, exportDesignPng, 'exportPng');
+    dlBtn.title = '下载到本机';
+    pinbar.appendChild(doneRow);
+    // ⚠️ 这一条必须贴在工具列底部（position: sticky; bottom: 0）：
+    //    「就它了」是拼完必点的动作，之前排在 1200px 长列的最末，平板横屏要滑两屏才够得到。
+    tools.appendChild(pinbar);
+
+    // 作品库
+    var galSec = h('div', 'ci-pet-gallerysec');
+    editGalleryHeadEl = h('div', 'ci-pet-sechead', '作品库 · 0 / ' + MAX_DESIGNS);
+    galSec.appendChild(editGalleryHeadEl);
+    var saveRow = h('div', 'ci-pet-saverow');
+    editNameInput = document.createElement('input');
+    editNameInput.className = 'ci-pet-input';
+    editNameInput.type = 'text';
+    editNameInput.maxLength = 16;
+    // 载入作品后回填它自己的名字，保存时才知道该覆盖谁
+    editNameInput.value = (edit.draftName ||
+      (state && state.name ? state.name + '·手作' : '未命名作品')).slice(0, 16);
+    editNameInput.addEventListener('input', function() {
+      if (edit) edit.draftName = editNameInput.value;
+    });
+    saveRow.appendChild(editNameInput);
+    var saveBtn = h('button', 'ci-pet-btn ci-pet-savebtn', edit.workId ? '保存修改' : '保存当前');
+    saveBtn.title = edit.workId ? '覆盖作品库里的这一件' : '存成作品库里新的一件';
+    saveBtn.addEventListener('click', function() { saveCurrentWork(); });
+    saveRow.appendChild(saveBtn);
+    galSec.appendChild(saveRow);
+    editGalleryEl = h('div', 'ci-pet-gallery');
+    galSec.appendChild(editGalleryEl);
+    toolScroll.appendChild(galSec);
+
+    // 顺序必须是「内容区在上、操作条在下」——appendChild 会把 pinbar 顶到最上面
+    tools.insertBefore(toolScroll, pinbar);
     wrap.appendChild(tools);
     root.appendChild(wrap);
 
-    // 交互
-    var painting = false;
-    function applyEvent(e) {
-      var c = cellFromEvent(e);
-      if (!c) return;
-      snapshot();
-      if (edit.tool === 'fill') floodFill(c.col, c.row, edit.color.toString(16));
-      else applyAt(c.col, c.row, edit.tool === 'eraser' ? '.' : edit.color.toString(16));
-      redrawEditor();
+    // ---- 界面原地同步（不整页重绘）----
+    // 旧版切工具/切色都调用 renderEditor()：整棵 DOM 重建、画布重新挂载、滚动位置归零，
+    // 平板上一碰调色盘就是一白闪。现在只改 class 和文案。
+    function syncEditorUI() {
+      if (!edit) return;
+      if (editColorLabelEl) {
+        var dot = editColorLabelEl.querySelector('.ci-pet-curdot');
+        var txt = editColorLabelEl.querySelector('.ci-pet-curtxt');
+        if (dot) {
+          dot.style.background = palette[edit.color] || '#888';
+          dot.style.display = (edit.tool === 'recolor' && edit.recolorFrom != null) ? 'none' : '';
+        }
+        if (txt) {
+          txt.textContent = edit.tool === 'recolor' && edit.recolorFrom != null
+            ? ('换色：' + beadCode(edit.recolorFrom) + ' → 点调色盘选新色')
+            : ('当前色 ' + beadCode(edit.color) + ' · ' + beadName(edit.color));
+        }
+      }
+      for (var i = 0; i < swatchEls.length; i++) {
+        var sw = swatchEls[i].querySelector('.ci-pet-swatch');
+        if (sw) {
+          if (swatchEls[i].__idx === edit.color) sw.classList.add('ci-pet-swatch--active');
+          else sw.classList.remove('ci-pet-swatch--active');
+        }
+      }
+      var active = {};
+      active[edit.tool] = true;
+      if (editStage) editStage.classList.toggle('is-pan', edit.tool === 'pan');
+      if (edit.mirrorX) active.mirrorX = true;
+      if (edit.mirrorY) active.mirrorY = true;
+      for (var k in toolBtnEls) {
+        if (!Object.prototype.hasOwnProperty.call(toolBtnEls, k)) continue;
+        var b = toolBtnEls[k];
+        var on = !!active[k];
+        if (on) b.classList.remove('ci-pet-btn--ghost');
+        else b.classList.add('ci-pet-btn--ghost');
+        if (k === 'mirrorX') b.textContent = '左右对称';
+        else if (k === 'mirrorY') b.textContent = '上下对称';
+        else if (k === 'recolor') b.textContent = edit.tool === 'recolor' ? '选源色…' : '换色';
+      }
+      syncUndoBtns();
+      renderRecentColors();
     }
-    editCanvas.addEventListener('pointerdown', function(e) {
-      painting = true;
-      try { editCanvas.setPointerCapture(e.pointerId); } catch (err) {}
-      applyEvent(e);
-      e.preventDefault();
-    });
-    editCanvas.addEventListener('pointermove', function(e) {
-      if (!painting || edit.tool === 'fill') return;
-      applyEvent(e);
-    });
-    function stop() { painting = false; }
-    editCanvas.addEventListener('pointerup', stop);
-    editCanvas.addEventListener('pointercancel', stop);
 
-    redrawEditor();
+    function renderRecentColors() {
+      while (recentRow.firstChild) recentRow.removeChild(recentRow.firstChild);
+      if (!edit.recent.length) { recentRow.style.display = 'none'; return; }
+      recentRow.style.display = '';
+      recentRow.appendChild(h('span', 'ci-pet-recent-label', '常用'));
+      edit.recent.forEach(function(idx) {
+        var b = h('button', 'ci-pet-recent-dot');
+        b.style.background = palette[idx] || '#888';
+        b.title = beadCode(idx) + ' · ' + beadName(idx);
+        b.addEventListener('click', function() { pickColor(idx); });
+        recentRow.appendChild(b);
+      });
+    }
+
+    // ---- 指针交互（v0.38.0）----
+    // 1) 坐标换算只在按下去时量一次 rect（旧版每个 move 都 getBoundingClientRect）
+    // 2) pointermove 用 getCoalescedEvents 拿全两帧之间的采样点，快速划线不断豆
+    // 3) rAF 合帧重画；统计面板 120ms 节流
+    var padRect = null;
+    var activePointer = null;
+    var panState = null;
+    // 双指手势（平板刚需）：单指画，两指缩放/平移。
+    // ⚠️ 第二根手指落下时必须立刻停笔：否则两指移动会被当成拖动笔迹，画出一串乱豆。
+    var pointers = {};
+    var gesture = null;
+    var suppressDraw = false;
+    var strokeStartAt = 0;   // 这一笔的起笔时刻（双指介入时要撤销它）
+    function refreshRect() {
+      padRect = editCanvas ? editCanvas.getBoundingClientRect() : null;
+    }
+    function cellAt(x, y) {
+      if (!edit || !padRect || !padRect.width) return null;
+      var col = Math.floor((x - padRect.left) / (padRect.width / edit.w));
+      var row = Math.floor((y - padRect.top) / (padRect.height / edit.h));
+      if (col < 0 || row < 0 || col >= edit.w || row >= edit.h) return null;
+      return { col: col, row: row };
+    }
+
+    function onDown(e) {
+      if (!edit) return;
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (Object.keys(pointers).length >= 2) {
+        startGesture();
+        return;
+      }
+      if (suppressDraw) return;
+      if (activePointer !== null && e.pointerId !== activePointer) return;
+      refreshRect();
+      var c = cellAt(e.clientX, e.clientY);
+      if (!c) return;
+      e.preventDefault();
+      try { editStage.setPointerCapture(e.pointerId); } catch (err) {}
+      activePointer = e.pointerId;
+      lastPointerType = e.pointerType || 'mouse';
+      showEditPos(c);
+      hoverCell = c;
+      if (edit.tool === 'eyedropper') {
+        var cur = edit.data.charAt(c.row * edit.w + c.col);
+        if (cur && cur !== '.') {
+          edit.color = parseInt(cur, 16);
+          edit.tool = 'pen';
+          pushRecentColor(edit.color);
+          syncEditorUI();
+          addRipple(c.col, c.row);
+          sysToast('已取色 ' + beadCode(edit.color) + ' · ' + beadName(edit.color), 'success');
+        } else {
+          sysToast('这里是空位，没有可吸的色号', 'info');
+        }
+        activePointer = null;
+        return;
+      }
+      if (edit.tool === 'recolor') {
+        var s = edit.data.charAt(c.row * edit.w + c.col);
+        if (!s || s === '.') { sysToast('这里是空位，先点一颗有颜色的豆子', 'info'); activePointer = null; return; }
+        edit.recolorFrom = parseInt(s, 16);
+        edit.color = edit.recolorFrom;
+        syncEditorUI();
+        addRipple(c.col, c.row);
+        return;
+      }
+      if (edit.tool === 'pan') {
+        var vp = editCanvas.parentNode && editCanvas.parentNode.parentNode;
+        panState = vp ? { x: e.clientX, y: e.clientY, sl: vp.scrollLeft, st: vp.scrollTop, el: vp } : null;
+        return;
+      }
+      var ch = edit.tool === 'eraser' ? '.' : edit.color.toString(16);
+      if (edit.tool === 'fill') {
+        snapshot();
+        floodFill(c.col, c.row, ch);
+        markAll();
+        scheduleStats(true);
+        scheduleDraftSave();
+        activePointer = null;
+        return;
+      }
+      snapshot();
+      strokeStartAt = Date.now();
+      edit.painting = true;
+      edit.last = c;
+      if (edit.tool === 'line' || edit.tool === 'rect') {
+        previewGeom(edit.tool, c.col, c.row, c.col, c.row, edit.tool === 'eraser' ? -1 : edit.color);
+        return;
+      }
+      applyAt(c.col, c.row, ch);
+      addRipple(c.col, c.row);
+      scheduleStats();
+    }
+
+    function onMove(e) {
+      if (!edit) return;
+      if (pointers[e.pointerId]) {
+        pointers[e.pointerId].x = e.clientX;
+        pointers[e.pointerId].y = e.clientY;
+      }
+      if (gesture) { handleGesture(); return; }
+      if (suppressDraw) return;
+      if (panState) {
+        panState.el.scrollLeft = panState.sl - (e.clientX - panState.x);
+        panState.el.scrollTop = panState.st - (e.clientY - panState.y);
+        return;
+      }
+      if (!padRect) refreshRect();
+      var list = (e.getCoalescedEvents && e.getCoalescedEvents().length) ? e.getCoalescedEvents() : [e];
+      var last = null;
+      for (var i = 0; i < list.length; i++) {
+        var c = cellAt(list[i].clientX, list[i].clientY);
+        if (c) last = c;
+      }
+      if (!last) return;
+      showEditPos(last);
+      if (hoverCell !== last) { hoverCell = last; if (!edit.painting) paintFx(); }
+      if (!edit.painting || e.pointerId !== activePointer) return;
+      if (edit.drag) {
+        if (edit.drag.x2 !== last.col || edit.drag.y2 !== last.row) {
+          previewGeom(edit.drag.tool, edit.drag.x, edit.drag.y, last.col, last.row, edit.drag.colorIdx >= 0 ? edit.drag.colorIdx : -1);
+        }
+        return;
+      }
+      if (edit.tool !== 'pen' && edit.tool !== 'eraser') return;
+      var ch = edit.tool === 'eraser' ? '.' : edit.color.toString(16);
+      var prev = edit.last || last;
+      if (prev.col === last.col && prev.row === last.row) return;
+      strokeLine(prev.col, prev.row, last.col, last.row, ch);
+      edit.last = last;
+      scheduleStats();
+    }
+
+    function onUp(e) {
+      if (!edit) return;
+      if (e && pointers[e.pointerId]) delete pointers[e.pointerId];
+      if (gesture) {
+        if (Object.keys(pointers).length < 2) {
+          gesture = null;
+          // 手指全部离开前不再落豆：否则松手时残留的那根手指会画一笔
+          if (!Object.keys(pointers).length) suppressDraw = false;
+        }
+        return;
+      }
+      if (panState) { panState = null; activePointer = null; suppressDraw = false; return; }
+      if (edit.drag) {
+        commitGeom();
+        scheduleStats(true);
+        scheduleDraftSave();
+        edit.painting = false;
+        edit.last = null;
+        activePointer = null;
+        return;
+      }
+      if (edit.painting) {
+        scheduleStats(true);
+        scheduleDraftSave();
+      }
+      edit.painting = false;
+      edit.last = null;
+      activePointer = null;
+    }
+
+    // 调试/探针钩子：编辑器内部状态（落豆为什么没发生，靠它一眼看出来）
+    window.__ciBeadState = function() {
+      return {
+        painting: !!(edit && edit.painting),
+        tool: edit && edit.tool,
+        color: edit && edit.color,
+        pointer: activePointer,
+        last: edit && edit.last,
+        hover: hoverCell,
+        suppress: suppressDraw,
+        pointers: Object.keys(pointers || {}).length,
+        view: !!editView,
+        rect: padRect ? { l: Math.round(padRect.left), t: Math.round(padRect.top), w: Math.round(padRect.width), h: Math.round(padRect.height) } : null,
+        data: edit ? edit.data : null,
+        perf: { paintAvg: perf.paintN ? +(perf.paintMs / perf.paintN).toFixed(2) : 0,
+                paintMax: +perf.paintMax.toFixed(2), paintN: perf.paintN,
+                latencyMax: +perf.latencyMax.toFixed(1) },
+        probe: function(x, y) { return cellAt(x, y); }
+      };
+    };
+    // ---- 双指：距离比触发换档，中点位移做平移 ----
+    function gestureState() {
+      var ids = Object.keys(pointers);
+      var a = pointers[ids[0]], b = pointers[ids[1]];
+      var dx = a.x - b.x, dy = a.y - b.y;
+      return {
+        dist: Math.sqrt(dx * dx + dy * dy) || 1,
+        cx: (a.x + b.x) / 2,
+        cy: (a.y + b.y) / 2
+      };
+    }
+    function viewEl() {
+      return (editCanvas && editCanvas.parentNode && editCanvas.parentNode.parentNode) || null;
+    }
+    function startGesture() {
+      var st = gestureState();
+      // 双指的第一根手指会先落一颗豆（手指不可能同时到）。这不是用户想要的，
+      // 所以：如果这一笔刚起手（<500ms），把这次落笔整个撤掉，再进入手势。
+      if (edit.painting && strokeStartAt && Date.now() - strokeStartAt < 500 && undoStack.length) {
+        var s0 = undoStack.pop();
+        applySnapshot(s0);
+        redoStack = [];    // 误点的豆子不该还能「重做」回来
+        scheduleDraftSave();
+      }
+      strokeStartAt = 0;
+      // 停笔：已经落下的豆保留（撤销可回退），但不再继续画
+      edit.painting = false;
+      edit.last = null;
+      edit.drag = null;
+      edit.previewPts = null;
+      panState = null;
+      activePointer = null;
+      suppressDraw = true;
+      gesture = { dist: st.dist, cx: st.cx, cy: st.cy };
+      paintFx();
+    }
+    function handleGesture() {
+      if (!gesture) return;
+      var st = gestureState();
+      var v = viewEl();
+      if (v) {
+        v.scrollLeft -= (st.cx - gesture.cx);
+        v.scrollTop -= (st.cy - gesture.cy);
+      }
+      var ratio = st.dist / gesture.dist;
+      var z = edit.zoom || 1;
+      var idx = ZOOMS.indexOf(z);
+      if (idx < 0) idx = 0;
+      if (ratio > 1.7 && idx < ZOOMS.length - 1) {
+        setZoom(ZOOMS[idx + 1]);
+        gesture.dist = st.dist;
+        gesture.cx = st.cx;
+        gesture.cy = st.cy;
+      } else if (ratio < 0.6 && idx > 0) {
+        setZoom(ZOOMS[idx - 1]);
+        gesture.dist = st.dist;
+        gesture.cx = st.cx;
+        gesture.cy = st.cy;
+      } else {
+        gesture.cx = st.cx;
+        gesture.cy = st.cy;
+      }
+    }
+
+    editStage.addEventListener('pointerdown', onDown);
+    editStage.addEventListener('pointermove', onMove);
+    editStage.addEventListener('pointerup', onUp);
+    editStage.addEventListener('pointercancel', onUp);
+    // 手指全离开时清空：否则残留坐标会让下一次单指操作被判成双指
+    function clearPointers() {
+      pointers = {};
+      gesture = null;
+      suppressDraw = false;
+    }
+    if (editorGestureCleanup) {
+      window.removeEventListener('pointerup', editorGestureCleanup);
+      window.removeEventListener('pointercancel', editorGestureCleanup);
+    }
+    editorGestureCleanup = clearPointers;
+    window.addEventListener('pointerup', clearPointers);
+    window.addEventListener('pointercancel', clearPointers);
+    editStage.addEventListener('pointerleave', function() {
+      hoverCell = null;
+      showEditPos(null);
+      if (!edit || !edit.painting) paintFx();
+    });
+    // 长按不弹系统菜单；双指缩放交给浏览器但不动画板
+    editStage.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+    // 挂上 DOM 之后才量得到真实可用面积：宽屏时工具列已经把宽度分走了
+    fitEditorHeight();
+    CELL = computeCell();
+    mountEditView();
+    syncZoomUI();
+    syncEditorUI();
+    scheduleStats(true);
+    renderGallery();
   }
 
   // ================= 起名 / 定形象 =================
@@ -1260,15 +4197,16 @@
   // ⚠️ 必须显式传：模块级 edit 是跨页面常驻的，靠它"猜"会让「改名字」把上次
   //    编辑器里的草稿当成 design 提交（真实现象：改个名字，宠物形象被换掉）。
   function renderNaming(kind) {
+    clearEditSession();
     clearRoot();
+    leaveHomeLayout();
     var isPixelNaming = kind === 'pixel' ? true : (kind === 'video' ? false : !!(edit && edit.data));
     var existingName = (state && state.name) || '';
     root.appendChild(h('h2', null, existingName ? '改个名字' : '给它起个名字'));
     var preview = document.createElement('canvas');
     if (isPixelNaming) {
-      paint(preview, { w: DIM, h: DIM, data: edit.data }, 6);
-      preview.style.width = '96px';
-      preview.style.height = '96px';
+      // 预览按当前画板尺寸自适应：16/24/32 都固定 96px 见方，不写死 16 格
+      paint(preview, editDesign(), 96 / edit.w);
     } else {
       var whaleCard = h('div', 'ci-pet-tpl-emoji', '🐳');
       whaleCard.style.cssText = 'font-size:64px;width:96px;height:96px;display:flex;align-items:center;justify-content:center;';
@@ -1301,11 +4239,12 @@
       save.disabled = true;
       save.textContent = '保存中…';
       var payload = { adopt: true, name: name };
-      if (isPixelNaming) payload.design = { v: 1, w: DIM, h: DIM, pal: 'p16', data: edit.data };
+      if (isPixelNaming) payload.design = editDesign();   // 尺寸跟随当前画板，不再写死 16×16
       else payload.design = { type: 'video', character: 'dsh-whale' }; // 显式覆盖：从手作切回大肥鱼
       api.put('/pet/state', payload).then(function(res) {
         state = (res.data && res.data.data && res.data.data.state) || state;
         edit = null;  // 草稿用完即弃，别让它在后续「改名字」里复活
+        try { if (storage) storage.set(DRAFT_KEY, null); } catch (e) {}   // 已定稿，草稿可以清了
         notifyChanged();
         renderHome();
       }).catch(function(err) {
@@ -1824,6 +4763,8 @@
     root.appendChild(rankSection());
   }
   function renderHome() {
+    // ⚠️ 编辑器开着时一律不许重建首页。要真的回家请走 exitEditorToHome()。
+    if (editorOpen) return;
     clearRoot();
     markCardTone();   // 先定卡片内文字用深还是亮，再画内容（否则首帧会闪一下白字）
     // 横屏分栏的开关：CSS 用它区分「首页双栏」与「内页单列加宽」。
@@ -2750,18 +5691,25 @@ var SCENE_ART = {
     '...bb..bb...',
     '............'
   ] },
-  frame: { w: 14, h: 11, pal: { a: '#8a6d16', b: '#c9a227', c: '#7a5a34', d: '#e8d8b0', f: '#f0a8a0', g: '#333340' }, rows: [
-    'aaaaaaaaaaaaaa',
-    'abbbbbbbbbbbba',
-    'abccccccccccba',
-    'abcddddddddcba',
-    'abcddffffddcba',
-    'abcddfgfgfddcba',
-    'abcddffffddcba',
-    'abcddffffddcba',
-    'abcddddddddcba',
-    'abccccccccccba',
-    'aaaaaaaaaaaaaa'
+  // v0.37.0：墙上的小相框改成「心意」入口 —— 相框里放一颗心，
+  // 它比一件纯装饰更值得点：这面墙承载回忆，也承载今天想说的话。
+  // 15 行里 8 行留给心形：两瓣 + 尖底，左瓣点一块高光，远看也读得出是心，不是一团粉。
+  frame: { w: 16, h: 15, pal: { a: '#5a3c1c', b: '#c9a227', c: '#f2e8d4', d: '#e86a86', e: '#ff9ebb' }, rows: [
+    '................',
+    '.aaaaaaaaaaaaaa.',
+    '.abbbbbbbbbbbba.',
+    '.abccccccccccba.',
+    '.ab..ee..dd..ba.',
+    '.ab.eedddddd.ba.',
+    '.abddddddddddba.',
+    '.abddddddddddba.',
+    '.ab.dddddddd.ba.',
+    '.ab..dddddd..ba.',
+    '.ab...dddd...ba.',
+    '.ab....dd....ba.',
+    '.abccccccccccba.',
+    '.abbbbbbbbbbbba.',
+    '.aaaaaaaaaaaaaa.'
   ] },
   lamp: { w: 8, h: 11, pal: { a: '#8a5f38', b: '#ffe9a8', c: '#fff7d8' }, rows: [
     '..aaaa..',
@@ -2882,7 +5830,8 @@ var SCENE_OBJECTS = [
   { id: 'window',   name: '窗外', act: 'window', x: 46, hang: true, topY: 8, walkX: 46 },
   { id: 'poster',   name: null, act: null,      x: 19, hang: true, topY: 8,  deco: true },
   { id: 'wallshelf', name: null, act: null,     x: 18, hang: true, topY: 24, deco: true },
-  { id: 'frame',    name: null, act: null,      x: 79, hang: true, topY: 16, deco: true },
+  // v0.37.0：相框从纯装饰变成「心意」入口（情绪 / 谈心 / 陪伴 / 回忆）。
+  { id: 'frame',    name: '心意', act: 'heart',  x: 79, hang: true, topY: 16, walkX: 79 },
   { id: 'lamp',     name: null, act: null,      x: 6,  hang: true, topY: 22, deco: true }
 ];
 
@@ -2977,7 +5926,7 @@ function nestSheetBody(body) {
   rename.addEventListener('click', function() {
     worldSheetClose();
     if (!(state.design && state.design.type === 'video') && state.design) {
-      edit = { data: state.design.data, color: 2, tool: 'pen', mirror: false };
+      edit = makeEditState(state.design.data, state.design.w, state.design.h);
     }
     renderNaming(state.design && state.design.type === 'video' ? 'video' : 'pixel');
   });
@@ -3032,7 +5981,8 @@ function easelSheetBody(body) {
     var rb = h('button', 'ci-pet-stylecard-btn', '再改改');
     rb.addEventListener('click', function() {
       worldSheetClose();
-      startEditor(state.design && state.design.data);
+      var cur = state.design;
+      startEditor(cur && cur.data, cur && cur.w, cur && cur.h);
     });
     cPixel.appendChild(rb);
   } else {
@@ -3041,7 +5991,7 @@ function easelSheetBody(body) {
       worldSheetClose();
       var sv = null;
       try { sv = storage && storage.get('lastPixel', null); } catch (e) {}
-      startEditor(sv && sv.data ? sv.data : '');
+      startEditor(sv && sv.data ? sv.data : '', sv && sv.w, sv && sv.h);
     });
     cPixel.appendChild(up);
   }
@@ -3107,6 +6057,613 @@ function giftSheetBody(body) {
     pushed = true;
   }
   if (!pushed) body.appendChild(h('div', 'world-gift-empty', '今天暂时没有惊喜，明天再来。'));
+}
+
+// ==================== 情感陪伴 · 心意（v0.37.0）====================
+// 全程静态台词 + 服务端状态机，不接任何模型。
+// 页面负责把「情绪 / 心情 / 陪伴动作 / 谈心 / 晚安 / 回忆」排成一张像素手账；
+// 台词、奖励、能不能做，全部由 /pet/heart 系列接口判定，前端只渲染结果。
+var heartBodyEl = null;
+var heartEcho = null;          // 最近一次陪伴动作的回话
+var heartTalkState = null;     // 谈心流程（null = 还在选题）
+
+// 断网/桩环境下的选题兜底：id 与后端一致，点了仍然会发请求；
+// 请求失败就停在“它现在有点害羞”，不会白屏。
+var TALK_TOPIC_FALLBACK = [
+  { id: 'happy', icon: '🌞', name: '有件开心的事', userLine: '今天有件开心的事，想跟你讲。' },
+  { id: 'tired', icon: '🌧️', name: '今天有点累', userLine: '今天有点累，想在你旁边待一会儿。' },
+  { id: 'sad', icon: '🫧', name: '心里有点难过', userLine: '心里有点难过，不太想说话。' },
+  { id: 'angry', icon: '🔥', name: '有件让我生气的事', userLine: '有件事让我很生气，越想越气。' },
+  { id: 'lonely', icon: '🌙', name: '有点想找人说话', userLine: '有点想找人说话，就来找你了。' },
+  { id: 'excited', icon: '✨', name: '有件期待的事', userLine: '有件很期待的事，想想就开心。' }
+];
+
+function heartClear(el) {
+  while (el && el.firstChild) el.removeChild(el.firstChild);
+}
+
+function heartNum(v) {
+  v = Number(v);
+  return isFinite(v) ? v : 0;
+}
+
+// 十段像素心情条：段与段之间留 2px，填充段按序点亮（延迟由内联 style 给）
+function heartMoodBar(value) {
+  var bar = h('div', 'world-feel-moodbar');
+  var n = Math.round(Math.max(0, Math.min(100, heartNum(value)) / 10));
+  for (var i = 0; i < 10; i++) {
+    var seg = h('i', 'world-feel-seg' + (i < n ? ' is-fill' : ''));
+    seg.style.animationDelay = (i * 22) + 'ms';
+    bar.appendChild(seg);
+  }
+  return bar;
+}
+
+// 区块标题：金方块 + 标题 + 虚线延展 + 右侧计数。
+// 虚线是「手账分隔线」的像素说法，比一整条实线更轻，不会和卡片硬投影抢重量。
+function heartSection(title, countText) {
+  var row = h('div', 'world-feel-section');
+  row.appendChild(h('span', 'world-feel-secbullet'));
+  row.appendChild(h('span', 'world-feel-sectitle', title));
+  row.appendChild(h('i', 'world-feel-rule'));
+  if (countText) row.appendChild(h('span', 'world-feel-count', countText));
+  return row;
+}
+
+// 入场：只在第一次打开面板时逐块上浮，后续交互重绘不播（否则每抱一下整页都在闪）
+function heartBlock(el, index, animate) {
+  if (animate === false) return el;
+  el.classList.add('world-feel-block');
+  el.style.animationDelay = Math.min(index, 8) * 46 + 'ms';
+  return el;
+}
+
+function heartLocalDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+// 情感图标：一律走项目自带的像素图标流水线（12×12 → 内联 SVG）。
+// 深色底上 emoji 会退化成单色小字，配色也不受控 —— 这正是内页图标当年被换掉的原因。
+var HEART_ICON_MAP = {
+  // 陪伴动作
+  hug: 'hug', groom: 'groom', daze: 'cloud',
+  // 谈心话题
+  happy: 'sun', tired: 'rain', sad: 'drop', angry: 'fire', lonely: 'moon', excited: 'sparkle',
+  // 情绪（头像框里那张「脸」也走像素图标，比 emoji 更贴屋子）
+  miss: 'hug', sleepy: 'moon', down: 'rain', hungry: 'fish',
+  bliss: 'sparkle', wait: 'sun', calm: 'cloud'
+};
+function heartIcon(id, cls, fallback) {
+  var key = HEART_ICON_MAP[id];
+  if (key) {
+    var ic = pixIcon(key, cls);
+    if (ic) { ic.classList.add('world-feel-pix'); return ic; }
+  }
+  return h('span', cls || null, fallback || '');
+}
+
+// 回忆册图标：同样用像素图标（各平台 emoji 渲染差异太大，剪贴簿会花掉）
+var HEART_MEM_ICON = {
+  first_meet: 'grass', first_feed: 'fish', first_focus: 'sun',
+  first_talk: 'sparkle', talk_5: 'sparkle', talk_20: 'hug',
+  night_3: 'moon', late_talk: 'moon', streak_7: 'sun',
+  bond_60: 'hug', days_30: 'home', wonder_7: 'fish'
+};
+function heartMemoryIcon(id, unlocked) {
+  var box = h('span', 'world-feel-memoryicon');
+  if (!unlocked) {
+    var lk = pixIcon('lock', 'world-feel-memory-pix');
+    if (lk) { box.appendChild(lk); return box; }
+    box.appendChild(document.createTextNode('🔒'));
+    return box;
+  }
+  var ic = pixIcon(HEART_MEM_ICON[id] || 'sparkle', 'world-feel-memory-pix');
+  if (ic) box.appendChild(ic);
+  else box.appendChild(document.createTextNode('💗'));
+  return box;
+}
+
+function heartMemoryToast(list) {
+  if (!list || !list.length) return;
+  for (var i = 0; i < list.length && i < 2; i++) {
+    (function(m, idx) {
+      setTimeout(function() {
+        sysToast('它记住了 · ' + (m.title || '一件小事'), 'success');
+      }, idx * 420);
+    })(list[i], i);
+  }
+}
+
+function heartDispatch() {
+  try { window.dispatchEvent(new CustomEvent('ci-pet-heart')); } catch (e) {}
+}
+
+function heartRefresh() {
+  if (!heartBodyEl || !heartBodyEl.isConnected) return;
+  var sc = heartBodyEl.scrollTop;
+  renderHeartSheet(heartBodyEl, false);
+  heartBodyEl.scrollTop = sc;
+}
+
+// 骨架：比一行「加载中」更像一个正在翻开的本子
+function heartSkeleton() {
+  var wrap = h('div', 'world-feel-skel');
+  wrap.appendChild(h('div', 'world-feel-skelhero'));
+  for (var i = 0; i < 3; i++) {
+    wrap.appendChild(h('div', 'world-feel-skelrow' + (i === 0 ? ' is-short' : '')));
+  }
+  return wrap;
+}
+
+function openHeartSheet() {
+  heartEcho = null;
+  heartTalkState = null;
+  heartBodyEl = null;
+  worldSheet('心意 · 它记得的事', function(body) {
+    heartBodyEl = body;
+    body.appendChild(heartSkeleton());
+    if (!api) { renderHeartSheet(body, true); return; }
+    // seen=1：告诉服务端「我真的看到它了」，回来时的「很想你」到此为止。
+    api.get('/pet/heart?seen=1').then(function(res) {
+      if (!body.isConnected) return;
+      var d = (res.data && res.data.data) || {};
+      if (d.state) state = d.state;
+      heartInfo = d;
+      heartMemoryToast(d.memoriesNew);
+      renderHeartSheet(body, true);
+    }, function() {
+      if (!body.isConnected) return;
+      renderHeartSheet(body, true);
+      sysToast('它现在有点害羞，先用旧的记忆给你看', 'info');
+    });
+  });
+}
+
+function renderHeartSheet(body, animate) {
+  var d = heartInfo || {};
+  var em = d.emotion || { id: 'calm', name: '平静', icon: '🌙', tone: 'mid', text: '在桌上待着，听你敲键盘。' };
+  var mood = d.mood || { value: 60, label: '心情不错', tone: 'mid' };
+  var persona = d.personality || personalityInfo || { name: '好奇', icon: '🔍', desc: '' };
+  var stats = d.stats || {};
+  var tone = em.tone || mood.tone || 'mid';
+
+  heartClear(body);
+
+  // ---- 情绪卡：头像框 + 名字/解释 + 心情条 + 一排小标签 ----
+  var hero = h('div', 'world-feel-hero is-' + tone);
+  var mainRow = h('div', 'world-feel-hero-main');
+  var portrait = h('div', 'world-feel-portrait');
+  portrait.appendChild(heartIcon(em.id, 'world-feel-face-pix', em.icon || '💗'));
+  portrait.appendChild(h('i', 'world-feel-live'));
+  mainRow.appendChild(portrait);
+
+  var info = h('div', 'world-feel-info');
+  var nameRow = h('div', 'world-feel-namerow');
+  nameRow.appendChild(h('b', 'world-feel-name', em.name || '平静'));
+  // 性格只用文字：emoji 在深色底上会是单色小点，和右边的心情数字抢不到注意力
+  nameRow.appendChild(h('span', 'world-feel-persona', '· ' + (persona.name || '好奇')));
+  info.appendChild(nameRow);
+  info.appendChild(h('div', 'world-feel-reason', em.text || ''));
+  var meter = h('div', 'world-feel-meter');
+  meter.appendChild(h('span', 'world-feel-meterlabel', '心情'));
+  meter.appendChild(heartMoodBar(mood.value));
+  meter.appendChild(h('b', 'world-feel-meterval', String(heartNum(mood.value))));
+  info.appendChild(meter);
+  mainRow.appendChild(info);
+  hero.appendChild(mainRow);
+
+  var tags = h('div', 'world-feel-tags');
+  tags.appendChild(h('span', 'world-feel-tag', '陪伴 ' + (stats.days || d.anniversaryDays || 1) + ' 天'));
+  tags.appendChild(h('span', 'world-feel-tag is-gold',
+    '羁绊 ' + (stats.bond || 0) + (stats.tierName ? ' · ' + stats.tierName : '')));
+  hero.appendChild(tags);
+  body.appendChild(heartBlock(hero, 0, animate));
+
+  // ---- 它想对你说：奶白纸便签，左侧金条 + 引号 ----
+  if (d.greeting) {
+    var greet = h('div', 'world-feel-greet');
+    greet.appendChild(h('span', 'world-feel-quote', '\u201C'));
+    var gbody = h('div', 'world-feel-greetbody');
+    gbody.appendChild(h('span', 'world-feel-greettag', '它想对你说'));
+    gbody.appendChild(h('span', 'world-feel-greettext', d.greeting));
+    greet.appendChild(gbody);
+    body.appendChild(heartBlock(greet, 1, animate));
+  }
+
+  // ---- 最近一次互动的回话 ----
+  if (heartEcho) {
+    var echo = h('div', 'world-feel-echo');
+    echo.appendChild(h('span', 'world-feel-echoicon', heartEcho.icon || '💬'));
+    var et = h('div', 'world-feel-echotext');
+    et.appendChild(h('span', 'world-feel-echoline', heartEcho.text || ''));
+    if (heartEcho.rewardText) et.appendChild(h('span', 'world-feel-echoreward', heartEcho.rewardText));
+    echo.appendChild(et);
+    body.appendChild(heartBlock(echo, 2, animate));
+  }
+
+  // ---- 陪陪它 ----
+  var acts = d.actions || [];
+  var leftTotal = 0;
+  var hasLeft = false;
+  for (var ai = 0; ai < acts.length; ai++) {
+    if (acts[ai] && acts[ai].left != null) { hasLeft = true; leftTotal += acts[ai].left; }
+  }
+  body.appendChild(heartBlock(heartSection('陪陪它',
+    hasLeft ? ('还能陪 ' + leftTotal + ' 次') : ''), 3, animate));
+  body.appendChild(heartBlock(heartActionsBox(d), 4, animate));
+
+  // ---- 说心里话 ----
+  var talk = d.talk || {};
+  var talkCount = talk.left === 0 ? '今天聊够啦' : ('还能聊 ' + (talk.left === undefined ? 2 : talk.left) + ' 次');
+  body.appendChild(heartBlock(heartSection('说心里话', talkCount), 5, animate));
+  body.appendChild(heartBlock(heartTalkBox(d), 6, animate));
+
+  // ---- 晚安 ----
+  body.appendChild(heartBlock(heartNightBox(d), 7, animate));
+
+  // ---- 回忆册 ----
+  body.appendChild(heartBlock(heartMemoriesBox(d), 8, animate));
+
+  body.appendChild(heartBlock(h('div', 'world-feel-foot',
+    '它是' + (persona.name || '小家伙') + (persona.desc ? '：' + persona.desc : '') +
+    '。你说过的话，它都记在小本子里。'), 9, animate));
+}
+
+function heartActionsBox(d) {
+  var list = (d.actions && d.actions.length) ? d.actions : [
+    { id: 'hug', name: '抱一抱', icon: '🤗', desc: '把它抱起来，让它听一会儿心跳', left: null, ready: true },
+    { id: 'groom', name: '顺顺毛', icon: '🪶', desc: '从头顶顺到尾巴，慢慢来', left: null, ready: true },
+    { id: 'daze', name: '一起发呆', icon: '🌙', desc: '什么都不做，就陪它坐一会儿', left: null, ready: true }
+  ];
+  var wrap = h('div', 'world-feel-actions');
+  for (var i = 0; i < list.length; i++) {
+    (function(a) {
+      var off = a.ready === false;
+      var btn = h('button', 'world-feel-act' + (off ? ' is-off' : ''));
+      btn.setAttribute('data-feel-act', a.id);
+      var head = h('span', 'world-feel-act-head');
+      var iconBox = h('span', 'world-feel-act-icon');
+      iconBox.appendChild(heartIcon(a.id, 'world-feel-act-pix', a.icon));
+      head.appendChild(iconBox);
+      head.appendChild(h('span', 'world-feel-act-name', a.name || '陪陪它'));
+      btn.appendChild(head);
+      btn.appendChild(h('span', 'world-feel-act-desc', a.desc || ''));
+
+      var metaText, metaCls;
+      if (a.cooldownSec > 0) {
+        metaText = Math.ceil(a.cooldownSec / 60) + ' 分钟后再来';
+        metaCls = 'is-cool';
+      } else if (a.left === 0) {
+        metaText = '今天做够啦';
+        metaCls = 'is-done';
+      } else if (a.left != null) {
+        metaText = '还能 ' + a.left + ' 次';
+        metaCls = 'is-ready';
+      } else {
+        metaText = '点一下试试';
+        metaCls = 'is-ready';
+      }
+      btn.appendChild(h('span', 'world-feel-act-meta ' + metaCls, metaText));
+
+      btn.addEventListener('click', function() {
+        if (off) {
+          sysToast(a.left === 0 ? ('今天的「' + (a.name || '这个') + '」已经做够啦') : '先让它缓一缓', 'info');
+          return;
+        }
+        doHeartAct(a.id, btn);
+      });
+      wrap.appendChild(btn);
+    })(list[i]);
+  }
+  return wrap;
+}
+
+function doHeartAct(id, btn) {
+  if (!api) { sysToast('暂时连不上服务器，等会儿再陪它', 'info'); return; }
+  if (btn) btn.disabled = true;
+  api.post('/pet/heart/act', { action: id }).then(function(res) {
+    var d = (res.data && res.data.data) || {};
+    if (d.state) state = d.state;
+    if (!heartInfo) heartInfo = {};
+    if (d.emotion) heartInfo.emotion = d.emotion;
+    if (d.mood) heartInfo.mood = d.mood;
+    if (d.greeting) heartInfo.greeting = d.greeting;
+    if (d.actions) heartInfo.actions = d.actions;
+    if (d.goodnight) heartInfo.goodnight = d.goodnight;
+    if (d.memories) heartInfo.memories = d.memories;
+    if (d.stats) heartInfo.stats = d.stats;
+    var rewardText = '';
+    if (d.addedBond > 0) rewardText += '羁绊 +' + d.addedBond;
+    if (d.gainedMood > 0) rewardText += (rewardText ? ' · ' : '') + '心情 +' + d.gainedMood;
+    if (d.capped && !rewardText) rewardText = '今天的陪伴羁绊已经满了';
+    heartEcho = { icon: '💬', text: d.line || '（它靠了过来）', rewardText: rewardText };
+    heartMemoryToast(d.memoriesNew);
+    try { if (window.__ciPetSfx) window.__ciPetSfx.play('poke'); } catch (e) {}
+    if (root) {
+      var pet = root.querySelector('.world-pet');
+      if (pet) worldHearts(pet, 2);
+    }
+    heartDispatch();
+    heartRefresh();
+  }, function(err) {
+    var msg = (err && err.response && err.response.data && err.response.data.message) || '它好像没准备好';
+    sysToast(msg, 'info');
+    if (btn) btn.disabled = false;
+  });
+}
+
+// 气泡：奶白纸（它）／暖紫（我），带一个像素小尖角
+function heartBubble(cls, text) {
+  var row = h('div', 'world-feel-row' + (cls ? ' ' + cls : ''));
+  row.appendChild(h('div', 'world-feel-bubble', text || ''));
+  return row;
+}
+
+// 思考中的气泡：文字 + 三个跳动的小方块，比干等一句「加载中」有生命感
+function heartTypingRow(label) {
+  var row = h('div', 'world-feel-row is-typing');
+  var b = h('div', 'world-feel-bubble world-feel-bubble--typing');
+  b.appendChild(h('span', 'world-feel-typingtext', label || '它在想怎么接话'));
+  var dots = h('span', 'world-feel-dots');
+  for (var i = 0; i < 3; i++) dots.appendChild(h('i', 'world-feel-tdot'));
+  b.appendChild(dots);
+  row.appendChild(b);
+  return row;
+}
+
+function heartTalkBox(d) {
+  if (heartTalkState) return heartDialogBox(d);
+  var talk = d.talk || {};
+  var box = h('div', 'world-feel-talk');
+  if (talk.left === 0) {
+    box.appendChild(h('div', 'world-feel-talknote',
+      '今天的心里话聊完了。还想说也可以，只是不再加羁绊 —— 它一样愿意听。'));
+  }
+  var topics = (talk.topics && talk.topics.length) ? talk.topics : TALK_TOPIC_FALLBACK;
+  var grid = h('div', 'world-feel-topics');
+  for (var i = 0; i < topics.length; i++) {
+    (function(t) {
+      var b = h('button', 'world-feel-topic');
+      b.setAttribute('data-feel-topic', t.id);
+      var tIcon = h('span', 'world-feel-topic-icon');
+      tIcon.appendChild(heartIcon(t.id, 'world-feel-topic-pix', t.icon));
+      b.appendChild(tIcon);
+      var txt = h('span', 'world-feel-topic-text');
+      txt.appendChild(h('span', 'world-feel-topic-name', t.name || ''));
+      txt.appendChild(h('span', 'world-feel-topic-preview', t.userLine || ''));
+      b.appendChild(txt);
+      b.appendChild(h('span', 'world-feel-topic-arrow', '\u203A'));
+      b.addEventListener('click', function() { startHeartTalk(t); });
+      grid.appendChild(b);
+    })(topics[i]);
+  }
+  box.appendChild(grid);
+  return box;
+}
+
+function heartDialogBox(d) {
+  var st = heartTalkState;
+  var box = h('div', 'world-feel-dialog');
+  var tag = h('div', 'world-feel-dialogtag');
+  var tagIcon = h('span', 'world-feel-dialogicon');
+  tagIcon.appendChild(heartIcon(st.topic.id, 'world-feel-dialog-pix', st.topic.icon));
+  tag.appendChild(tagIcon);
+  tag.appendChild(h('span', null, st.topic.name || '说心里话'));
+  box.appendChild(tag);
+  box.appendChild(heartBubble('is-me', st.topic.userLine));
+  if (st.open) box.appendChild(heartBubble('', st.open));
+  if (st.ask) box.appendChild(heartBubble('', st.ask));
+
+  if (st.step === 1) {
+    if (st.loading) {
+      box.appendChild(heartTypingRow('它在想怎么接你的话'));
+    } else {
+      var choices = h('div', 'world-feel-choices');
+      for (var i = 0; i < st.choices.length; i++) {
+        (function(c) {
+          var b = h('button', 'world-feel-choice');
+          b.appendChild(h('span', 'world-feel-choice-text', c.label || ''));
+          b.appendChild(h('span', 'world-feel-choice-arrow', '\u203A'));
+          b.addEventListener('click', function() { chooseHeartTalk(c); });
+          choices.appendChild(b);
+        })(st.choices[i]);
+      }
+      box.appendChild(choices);
+    }
+    return box;
+  }
+
+  if (st.choiceLabel) box.appendChild(heartBubble('is-me', st.choiceLabel));
+  if (st.loading) {
+    box.appendChild(heartTypingRow('它认真想了一会儿'));
+  } else {
+    if (st.reply) box.appendChild(heartBubble('', st.reply));
+    if (st.close) box.appendChild(heartBubble('', st.close));
+    var rewardText = '';
+    if (st.reward) {
+      if (st.reward.bond > 0) rewardText += '羁绊 +' + st.reward.bond;
+      if (st.reward.mood > 0) rewardText += (rewardText ? ' · ' : '') + '心情 +' + st.reward.mood;
+    }
+    if (st.capped) rewardText = '今天聊够啦，明天再讲给它听';
+    if (rewardText) {
+      var rw = h('div', 'world-feel-reward');
+      var ri = h('span', 'world-feel-rewardicon');
+      var rh = pixIcon('hug', 'world-feel-reward-pix');
+      if (rh) ri.appendChild(rh); else ri.appendChild(document.createTextNode('\u2665'));
+      rw.appendChild(ri);
+      rw.appendChild(h('span', null, rewardText));
+      box.appendChild(rw);
+    }
+    var next = h('div', 'world-feel-next');
+    var again = h('button', 'world-feel-choice is-ghost');
+    again.appendChild(h('span', 'world-feel-choice-text', '再说点别的'));
+    again.addEventListener('click', function() { heartTalkState = null; heartRefresh(); });
+    next.appendChild(again);
+    var hug = h('button', 'world-feel-choice is-primary');
+    hug.appendChild(h('span', 'world-feel-choice-text', '去抱抱它'));
+    hug.addEventListener('click', function() { doHeartAct('hug', hug); });
+    next.appendChild(hug);
+    box.appendChild(next);
+  }
+  return box;
+}
+
+function startHeartTalk(topic) {
+  if (!api) { sysToast('暂时连不上服务器，等会儿再聊', 'info'); return; }
+  heartTalkState = { topic: topic, step: 0, loading: true };
+  heartRefresh();
+  api.post('/pet/heart/talk', { topic: topic.id }).then(function(res) {
+    if (!heartTalkState || heartTalkState.topic.id !== topic.id) return;
+    var d = (res.data && res.data.data) || {};
+    heartTalkState = {
+      topic: d.topic || topic,
+      step: 1,
+      open: d.open || '',
+      ask: d.ask || '',
+      choices: d.choices || [],
+      loading: false
+    };
+    heartRefresh();
+  }, function(err) {
+    heartTalkState = null;
+    heartRefresh();
+    var msg = (err && err.response && err.response.data && err.response.data.message) || '它没听清';
+    sysToast(msg, 'error');
+  });
+}
+
+function chooseHeartTalk(choice) {
+  var st = heartTalkState;
+  if (!st || st.loading) return;
+  st.loading = true;
+  st.choiceLabel = choice.label || '';
+  st.choiceId = choice.id || '';
+  heartRefresh();
+  api.post('/pet/heart/talk', { topic: st.topic.id, choice: st.choiceId }).then(function(res) {
+    if (!heartTalkState || heartTalkState.topic.id !== st.topic.id) return;
+    var d = (res.data && res.data.data) || {};
+    if (d.state) state = d.state;
+    if (!heartInfo) heartInfo = {};
+    if (d.mood) heartInfo.mood = d.mood;
+    if (d.emotion) heartInfo.emotion = d.emotion;
+    if (d.greeting) heartInfo.greeting = d.greeting;
+    if (d.talk) heartInfo.talk = d.talk;
+    if (d.actions) heartInfo.actions = d.actions;
+    if (d.goodnight) heartInfo.goodnight = d.goodnight;
+    if (d.memories) heartInfo.memories = d.memories;
+    if (d.stats) heartInfo.stats = d.stats;
+    heartTalkState.step = 2;
+    heartTalkState.loading = false;
+    heartTalkState.reply = d.reply || '';
+    heartTalkState.close = d.close || '';
+    heartTalkState.reward = d.reward || null;
+    heartTalkState.capped = !!d.capped;
+    heartMemoryToast(d.memoriesNew);
+    heartDispatch();
+    heartRefresh();
+  }, function(err) {
+    if (heartTalkState) heartTalkState.loading = false;
+    heartRefresh();
+    var msg = (err && err.response && err.response.data && err.response.data.message) || '它没听清';
+    sysToast(msg, 'error');
+  });
+}
+
+function heartNightBox(d) {
+  var n = d.goodnight || {};
+  var cls = 'world-feel-night' + (n.done ? ' is-done' : (n.available ? ' is-open' : ''));
+  var box = h('div', cls);
+  var nIcon = h('span', 'world-feel-nighticon');
+  var nm = pixIcon(n.done ? 'moon' : 'moon', 'world-feel-night-pix');
+  if (nm) nIcon.appendChild(nm); else nIcon.appendChild(document.createTextNode('🌙'));
+  box.appendChild(nIcon);
+  var text = h('div', 'world-feel-nighttext');
+  text.appendChild(h('b', 'world-feel-nighttitle',
+    n.done ? '今晚已经说过晚安' : (n.available ? '跟它说晚安' : '它还不困')));
+  var chipText;
+  if (n.done) chipText = '连续 ' + (n.streak || 1) + ' 天 · 累计 ' + (n.total || 1) + ' 次';
+  else if (n.available) chipText = n.streak ? ('已连续 ' + n.streak + ' 天') : '第一次说晚安';
+  else chipText = '18:00 之后开放';
+  text.appendChild(h('span', 'world-feel-nightchip', chipText));
+  box.appendChild(text);
+  if (n.available && !n.done) {
+    var btn = h('button', 'world-feel-nightbtn', '晚安');
+    btn.addEventListener('click', function() { doGoodnight(btn); });
+    box.appendChild(btn);
+  } else if (n.done) {
+    box.appendChild(h('span', 'world-feel-nightdone', '\u2713'));
+  }
+  return box;
+}
+
+function doGoodnight(btn) {
+  if (!api) { sysToast('暂时连不上服务器', 'info'); return; }
+  if (btn) btn.disabled = true;
+  api.post('/pet/heart/goodnight', {}).then(function(res) {
+    var d = (res.data && res.data.data) || {};
+    if (d.state) state = d.state;
+    if (!heartInfo) heartInfo = {};
+    if (d.mood) heartInfo.mood = d.mood;
+    if (d.emotion) heartInfo.emotion = d.emotion;
+    if (d.greeting) heartInfo.greeting = d.greeting;
+    if (d.goodnight) heartInfo.goodnight = d.goodnight;
+    if (d.memories) heartInfo.memories = d.memories;
+    if (d.stats) heartInfo.stats = d.stats;
+    var rewardText = '';
+    if (d.addedBond > 0) rewardText += '羁绊 +' + d.addedBond;
+    if (d.gainedMood > 0) rewardText += (rewardText ? ' · ' : '') + '心情 +' + d.gainedMood;
+    heartEcho = { icon: '🌙', text: d.line || '晚安。', rewardText: rewardText || (d.already ? '它已经睡下了' : '') };
+    heartMemoryToast(d.memoriesNew);
+    try { if (window.__ciPetSfx) window.__ciPetSfx.play('focus-end'); } catch (e) {}
+    heartDispatch();
+    heartRefresh();
+  }, function(err) {
+    var msg = (err && err.response && err.response.data && err.response.data.message) || '它还没准备好睡';
+    sysToast(msg, 'info');
+    if (btn) btn.disabled = false;
+  });
+}
+
+function heartMemoriesBox(d) {
+  var mem = d.memories || [];
+  var total = mem.length || 12;
+  var got = 0;
+  for (var i = 0; i < mem.length; i++) if (mem[i].unlocked) got++;
+  var box = h('div', 'world-feel-memories');
+  box.appendChild(heartSection('它珍藏的回忆', got + ' / ' + total));
+  var prog = h('div', 'world-feel-prog');
+  var fill = h('i', 'world-feel-progfill');
+  fill.style.width = (total > 0 ? Math.round(got / total * 100) : 0) + '%';
+  prog.appendChild(fill);
+  box.appendChild(prog);
+  if (!mem.length) {
+    box.appendChild(h('div', 'world-feel-empty', '回忆还没翻出来，等它想起来会告诉你。'));
+    return box;
+  }
+  var now = Date.now();
+  var grid = h('div', 'world-feel-memorygrid');
+  for (var j = 0; j < mem.length; j++) {
+    (function(m) {
+      var at = m.at ? new Date(m.at).getTime() : 0;
+      var isNew = m.unlocked && at > 0 && (now - at) < 3 * 86400000;
+      var card = h('div', 'world-feel-memory' + (m.unlocked ? ' is-on' : ' is-off'));
+      card.appendChild(heartMemoryIcon(m.id, !!m.unlocked));
+      var body = h('div', 'world-feel-memorybody');
+      var nameRow = h('div', 'world-feel-memorynamerow');
+      nameRow.appendChild(h('span', 'world-feel-memoryname', m.title || ''));
+      if (isNew) nameRow.appendChild(h('span', 'world-feel-new', 'NEW'));
+      body.appendChild(nameRow);
+      body.appendChild(h('span', 'world-feel-memorysub',
+        m.unlocked ? ('想起于 ' + heartLocalDate(m.at)) : ('解锁：' + (m.hint || ''))));
+      card.appendChild(body);
+      grid.appendChild(card);
+    })(mem[j]);
+  }
+  box.appendChild(grid);
+  return box;
 }
 
 // ==================== 逗它玩（v0.31.0）====================
@@ -3377,12 +6934,37 @@ function worldWalkTo(x, done, speedFactor) {
   worldPetApplyX(ms);
   if (window.__ciWorldIdle) window.__ciWorldIdle.lastMs = ms;
 
+  // 走路扬尘：每隔一小段在脚下起一撮，落地即散。
+  // 只在「真的在走」时挂节拍器，停下立即清 —— 不给低端平板留常驻定时器。
+  if (worldDustTimer) { clearInterval(worldDustTimer); worldDustTimer = null; }
+  worldDustPuff();
+  worldDustTimer = setInterval(worldDustPuff, 320);
+
   if (worldWalkTimer) clearTimeout(worldWalkTimer);
   worldWalkTimer = setTimeout(function() {
     worldPetEl.classList.remove('is-walk');
     worldWalking = false;
+    if (worldDustTimer) { clearInterval(worldDustTimer); worldDustTimer = null; }
     if (done) done();
   }, ms + 40);
+}
+
+var worldDustTimer = null;
+// 脚下一撮像素尘：三粒小方块，随机横向散开，420ms 后自删
+function worldDustPuff() {
+  if (!worldPetEl || !worldEl) return;
+  var box = document.createElement('span');
+  box.className = 'world-dust';
+  for (var i = 0; i < 3; i++) {
+    var d = document.createElement('i');
+    d.style.left = (18 + Math.random() * 22) + '%';
+    d.style.animationDelay = (Math.random() * 0.08) + 's';
+    d.style.width = (2 + Math.round(Math.random() * 2)) + 'px';
+    d.style.height = d.style.width;
+    box.appendChild(d);
+  }
+  worldPetEl.appendChild(box);
+  setTimeout(function() { if (box.parentNode) box.parentNode.removeChild(box); }, 460);
 }
 
 // 张望：左右各看一眼（不是机械地 flip 一次）
@@ -3549,6 +7131,7 @@ function sceneAction(act, walkX) {
     if (act === 'easel') { worldSheet('画板 · 形象', easelSheetBody); return; }
     if (act === 'gift') { worldSheet('今日惊喜', giftSheetBody); return; }
     if (act === 'play') { worldSheet('逗它玩', playGameBody); return; }
+    if (act === 'heart') { openHeartSheet(); return; }
   };
   // 喂食不用走过去（食盆就在脚边），但它也不只是「喂」：
   // v0.24 起首页是像素小家，v0.19 的侧栏货架成了死代码，鱼干从此没有花处。
@@ -3865,7 +7448,11 @@ function sceneHomeBody(container) {
     startWorldPetPixels(v, pv, pctx);
   } else {
     var pv = document.createElement('canvas');
-    paint(pv, state.design, 9);
+    // 显示框是 176×176（.world-pet-cv）。按「每格 9px」画会得到 576px 画布，
+    // 再被 CSS 压到 176 —— 等于每 4 个像素丢 3 个，边缘全是锯齿糊。
+    // 这里直接按显示尺寸算格宽，画布与显示 1:1（配合 paint 的取整边界）。
+    var dispW = 176;
+    paint(pv, state.design, dispW / Math.max(1, state.design.w));
     pv.className = 'world-pet-cv';
     petBox.appendChild(pv);
   }
@@ -3901,10 +7488,14 @@ function sceneHomeBody(container) {
 
   // 头顶气泡（复用现有 thought 内容源）
   var mood = petMood();
+  // v0.37.0：有情感摘要时优先说「今天想对你说的话」——
+  // 它会记得昨天聊过什么，这比一句固定的「今天也想被摸摸」更像一只活物。
+  var bubbleText = (mood && mood.text) ? mood.text : (petMoodText ? petMoodText() : '今天也想被摸摸');
+  if (state && state.enabled !== false && heartInfo && heartInfo.greeting) bubbleText = heartInfo.greeting;
   // 说话气泡挂在角色容器里 —— 它必须跟着角色走。
   // 原来固定在全屋 55%/46%，角色一走开，气泡就飘在书架上（"谁在说话？"）。
   var bubble = h('div', 'world-bubble');
-  bubble.appendChild(h('span', 'ci-pet-hero-mood', (mood && mood.text) ? mood.text : (petMoodText ? petMoodText() : '今天也想被摸摸')));
+  bubble.appendChild(h('span', 'ci-pet-hero-mood', bubbleText));
   petBox.appendChild(bubble);
   // 台词只出现 9 秒：常驻的话，场景会变成一块说明牌
   laterWorld(function() { bubble.classList.add('is-faded'); }, 9000);
@@ -6254,22 +9845,32 @@ function sceneHomeBody(container) {
     resizeTimer = setTimeout(function() {
       resizeTimer = null;
       if (!root || !editCanvas) return;      // 只有编辑器在台上才需要重绘
+      // 旋转/分屏后画板卡宽度和视口高度都变了：重算格宽并整块重挂
+      try { if (window.__ciFitEditor) window.__ciFitEditor(); } catch (e) {}
+      try { if (window.__ciPlacePalette) window.__ciPlacePalette(); } catch (e) {}
       var next = computeCell();
-      if (next !== CELL) { CELL = next; redrawEditor(); }
+      if (next !== CELL) { CELL = next; mountEditView(); }
     }, 150);
   }
 
   // ================= 挂载契约 =================
   var context = null;
   function mount(container, ctx) {
+    editorOpen = false;   // 重新挂载时清掉残留状态（否则首页会被守卫误拦）
     context = ctx;
     api = ctx && ctx.data && ctx.data.api;
     storage = ctx && ctx.data && ctx.data.storage;
     root = h('div', 'ci-pethome');
+    // hover:none 的老 WebView 不一定认（Chrome 80 认），JS 再兜一层：
+    // 触屏设备上没有物理键盘，快捷键提示白占两行，画板正好缺这点高度。
+    var isTouch = false;
+    try { isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0); } catch (e) { isTouch = false; }
+    if (isTouch) root.classList.add('is-touch');
     container.appendChild(root);
     if (ctx && ctx.app && typeof ctx.app.onDestroy === 'function') {
       ctx.app.onDestroy(function() {
         window.removeEventListener('resize', onResize);
+        document.removeEventListener('keydown', onEditorKey);
         // 专注计时器必须在这里停：离开页面后 root 会被置空，
         // interval 再跑一次就会在 null 上 querySelector 并触发结算 / 重绘。
         stopFocusTimer();
@@ -6307,6 +9908,7 @@ function sceneHomeBody(container) {
     };
 
     window.addEventListener('resize', onResize);
+    document.addEventListener('keydown', onEditorKey);   // 编辑器快捷键（B/E/G/I/L/R、M、Ctrl+Z/Y/S）只在编辑页生效
     renderSkeleton();
     // 昼夜：读回设备偏好 + 每分钟对表（auto 模式跨过 6:30/18:30 界线时自动换景）
     dayNightLoad();
@@ -6315,6 +9917,11 @@ function sceneHomeBody(container) {
       if (dayNight.mode === 'auto') applyDayNight(true);
     }, 60000);
     // 调试/探针钩子：截图脚本用它钉住白天或黑夜
+    window.__ciBeadImport = function(url, opts) {
+      var fin = false, okv = false;
+      importImageDataUrl(url, opts || importOpts, function(ok) { fin = true; okv = ok; });
+      return { done: function() { return fin; }, ok: function() { return okv; } };
+    };
     window.__ciPetDayNight = {
       get: function() { return { mode: dayNight.mode, day: isDayNow() }; },
       set: function(m) {
@@ -6329,6 +9936,21 @@ function sceneHomeBody(container) {
       state = d.state;
       applyStateMeta(d);
       renderHome();
+      // 上次是在编辑器里被打断的（宿主重挂 / 刷新 / 切后台被回收）→ 直接续上草稿。
+      // 标记只在「明确离开」时清除，所以这里命中就一定是中断，不是用户想回家。
+      var wasEditing = false;
+      try { wasEditing = !!(storage && storage.get(EDIT_SESSION_KEY, null)); } catch (e) {}
+      if (wasEditing) {
+        var draft = readDraft();
+        if (draft) {
+          startEditor(draft.data, draft.w, draft.h, {
+            workId: draft.workId, workName: draft.workName
+          });
+          setTimeout(function() { sysToast('已回到上次没拼完的草稿', 'info'); }, 500);
+        } else {
+          clearEditSession();
+        }
+      }
       if (state && state.adopted && !petWishTimer) startWishLoop();
       loadStory(function() { renderHome(); });
       // 上次离开页面时可能有一轮专注还在跑：剩余时间没用完就接着计时，
@@ -6351,10 +9973,19 @@ function sceneHomeBody(container) {
   }
   function unmount(container) {
     window.removeEventListener('resize', onResize);
+    document.removeEventListener('keydown', onEditorKey);
     stopFocusTimer();   // 只停表，不清 focus.active —— 回来时还能接着计时（见 armFocusTimer）
     if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
     if (dayNight.timer) { clearInterval(dayNight.timer); dayNight.timer = null; }
     try { delete window.__ciPetDayNight; } catch (e) { window.__ciPetDayNight = null; }
+    try { delete window.__ciPlacePalette; } catch (e) { window.__ciPlacePalette = null; }
+    try { delete window.__ciFitEditor; } catch (e) { window.__ciFitEditor = null; }
+    try { delete window.__ciBeadImport; } catch (e) { window.__ciBeadImport = null; }
+    if (editorGestureCleanup) {
+      window.removeEventListener('pointerup', editorGestureCleanup);
+      window.removeEventListener('pointercancel', editorGestureCleanup);
+      editorGestureCleanup = null;
+    }
     if (root && root.parentNode) root.parentNode.removeChild(root);
     editCanvas = null;
     root = null;

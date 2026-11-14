@@ -328,6 +328,15 @@
 .ci-stock .hero-chip.up { background: var(--up-soft); color: var(--up); }
 .ci-stock .hero-chip.down { background: var(--down-soft); color: var(--down); }
 .ci-stock .hero-chip.flat { background: rgba(255,255,255,.05); color: var(--muted); }
+/* 口径说明：不能让人把「练习金总资产」误读成「钱包余额」 */
+.ci-stock .hero-note {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  opacity: .75;
+}
 
 .ci-stock .hero-right {
   flex: 0 0 auto;
@@ -806,6 +815,7 @@
   color: var(--muted);
 }
 .ci-stock .status-tag.pending { background: rgba(232,195,106,.14); color: var(--gold); }
+.ci-stock .status-tag.armed { background: rgba(90,160,255,.14); color: #7fb3ff; }
 .ci-stock .status-tag.filled { background: var(--up-soft); color: var(--up); }
 
 .ci-stock .cancel-btn {
@@ -819,6 +829,23 @@
   font-family: inherit;
 }
 .ci-stock .cancel-btn:active { background: rgba(255,255,255,.07); color: var(--text); }
+.ci-stock .cancel-btn.danger { color: var(--down); border-color: rgba(255, 80, 80, .35); }
+
+/* 条件单 */
+.ci-stock .cond-card { margin-bottom: 10px; }
+.ci-stock .cond-row { display: flex; align-items: center; margin-top: 8px; }
+.ci-stock .cond-k { flex: 0 0 52px; font-size: 10.5px; color: var(--dim); }
+.ci-stock .cond-input {
+  flex: 1; min-width: 0; padding: 6px 8px;
+  border-radius: 8px; border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, .04); color: var(--text);
+  font-size: 12px; font-family: inherit;
+}
+.ci-stock .cond-input.cond-qty { flex: 0 0 90px; margin-left: 8px; }
+.ci-stock .cond-unit { margin-left: 6px; font-size: 10.5px; color: var(--dim); }
+.ci-stock .cond-submit { margin-top: 10px; }
+.ci-stock .cond-note { margin-top: 6px; font-size: 10px; line-height: 1.6; color: var(--dim); }
+.ci-stock .cond-actions { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 
 /* ================= 排行 ================= */
 .ci-stock .rank-row {
@@ -1331,6 +1358,25 @@
 }
 .ci-stock .detail-star:active { background: rgba(255,255,255,.06); }
 .ci-stock .detail-star.on { color: var(--gold); }
+.ci-stock .detail-alert {
+  flex: 0 0 40px; height: 40px; margin-left: 2px; align-self: center;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; border-radius: 12px; cursor: pointer; opacity: 0.75;
+}
+.ci-stock .detail-alert:active { background: rgba(255,255,255,.06); }
+.ci-stock .detail-alerts {
+  display: flex; flex-wrap: wrap; margin: 6px 2px 2px;
+}
+.ci-stock .detail-alerts .da-chip {
+  display: inline-flex; align-items: center; margin: 0 6px 6px 0;
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 10px; color: var(--gold);
+  background: rgba(232,195,106,.1);
+  border: 1px solid rgba(232,195,106,.2);
+}
+.ci-stock .detail-alerts .da-x {
+  margin-left: 5px; font-style: normal; cursor: pointer; opacity: 0.7;
+}
 
 /* 详情页持仓速览 */
 .ci-stock .detail-pos {
@@ -1882,6 +1928,42 @@
 .ci-stock .ws-desc { font-size: 10.5px; color: var(--dim); margin-top: 3px; }
 .ci-stock .ws-amt { font-size: 13px; color: var(--gold); }
 
+/* 投资进出：赠金 ⇄ 练习金 */
+.ci-stock .inv-form {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  /* gap 需 Chrome 84+，直出文件用相邻兄弟 margin 替代（Chrome 80 基线） */
+}
+.ci-stock .inv-form > * + * { margin-left: 8px; }
+.ci-stock .inv-amt {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+.ci-stock .inv-amt:focus { border-color: var(--gold); }
+.ci-stock .inv-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.ci-stock .inv-btn.primary {
+  border-color: rgba(232,195,106,.5);
+  background: rgba(232,195,106,.14);
+  color: var(--gold);
+}
+.ci-stock .inv-btn[disabled] { opacity: .5; }
+
 .ci-stock .pos-tag.hold { color: var(--dim); border-color: rgba(255,255,255,.12); }
 .ci-stock .pos-tag.hold.long { color: var(--gold); border-color: rgba(232,195,106,.35); background: rgba(232,195,106,.08); }
 
@@ -1988,3 +2070,246 @@
   .ci-stock .wallet .amt { font-size: 13px; }
   .ci-stock .detail-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ================= 信用 / 贷款 ================= */
+.ci-stock .nav-item { position: relative; }
+.ci-stock .nav-dot {
+  position: absolute; top: 6px; right: 14px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--up);
+  box-shadow: 0 0 0 2px rgba(18, 18, 18, 0.9);
+}
+.ci-stock .view-credit { padding-bottom: 24px; }
+.ci-stock .credit-card { margin-top: 0; }
+.ci-stock .credit-score-row {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  flex-wrap: wrap; margin-top: 8px;
+}
+.ci-stock .credit-score-box { display: flex; align-items: baseline; flex-wrap: wrap; }
+.ci-stock .credit-score {
+  font-size: 36px; line-height: 1; color: var(--gold);
+  font-weight: 600; letter-spacing: -1px;
+}
+.ci-stock .credit-tier {
+  margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; color: var(--gold);
+  background: rgba(232, 195, 106, 0.1);
+  border: 1px solid rgba(232, 195, 106, 0.2);
+}
+.ci-stock .credit-limits {
+  display: flex; flex-direction: column; align-items: flex-end;
+  font-size: 11px; color: var(--dim); line-height: 1.7;
+}
+.ci-stock .credit-limit b { color: var(--text); font-size: 13px; margin-left: 4px; }
+.ci-stock .credit-bar {
+  height: 6px; margin: 12px 0 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08); overflow: hidden;
+}
+.ci-stock .credit-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #E8C36A, #F0A93F);
+}
+.ci-stock .credit-foot {
+  display: flex; justify-content: space-between; flex-wrap: wrap;
+  font-size: 10.5px; color: var(--dim);
+}
+.ci-stock .credit-note {
+  margin-top: 8px; padding: 6px 9px; border-radius: 8px;
+  font-size: 11px; color: var(--gold);
+  background: rgba(232, 195, 106, 0.08);
+}
+.ci-stock .credit-note.bad { color: #FF6B6B; background: rgba(255, 80, 80, 0.08); }
+.ci-stock .credit-tips { margin-top: 8px; font-size: 10px; color: var(--dim); line-height: 1.6; }
+.ci-stock .credit-trend { margin-top: 8px; color: #E8C36A; }
+.ci-stock .credit-trend .ct-label { margin-bottom: 2px; font-size: 9.5px; color: var(--dim); }
+.ci-stock .credit-trend svg { display: block; width: 100%; height: 36px; }
+.ci-stock .credit-active .credit-state {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  color: var(--gold); background: rgba(232, 195, 106, 0.1);
+}
+.ci-stock .credit-active .credit-state.bad { color: #FF6B6B; background: rgba(255, 80, 80, 0.1); }
+.ci-stock .credit-active .credit-state.grace { color: #FFB020; background: rgba(255, 176, 32, 0.1); }
+.ci-stock .credit-nums { display: flex; flex-wrap: wrap; margin: 10px -4px 2px; }
+.ci-stock .credit-num {
+  flex: 1 1 90px; margin: 0 4px 8px; padding: 8px 10px;
+  border-radius: 8px; background: rgba(255, 255, 255, 0.035);
+}
+.ci-stock .credit-num span { display: block; font-size: 10px; color: var(--dim); }
+.ci-stock .credit-num b { display: block; margin-top: 3px; font-size: 16px; color: var(--text); }
+.ci-stock .credit-next { margin: 4px 0 8px; font-size: 11px; color: var(--gold); }
+.ci-stock .credit-sch { margin: 4px 0 10px; }
+.ci-stock .credit-sch-row {
+  display: flex; align-items: center; flex-wrap: wrap;
+  padding: 6px 0; border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  font-size: 11px; color: var(--muted);
+}
+.ci-stock .credit-sch-row.paid { opacity: 0.55; }
+.ci-stock .cs-seq { flex: 0 0 52px; }
+.ci-stock .cs-due { flex: 1; min-width: 88px; }
+.ci-stock .cs-amt { flex: 0 0 auto; margin: 0 8px; color: var(--text); }
+.ci-stock .cs-state {
+  flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ci-stock .credit-sch-row.bad .cs-state { background: rgba(255, 80, 80, 0.16); color: #FF6B6B; }
+.ci-stock .credit-sch-row.grace .cs-state { background: rgba(255, 176, 32, 0.14); color: #FFB020; }
+.ci-stock .credit-sch-row.paid .cs-state { background: rgba(63, 185, 80, 0.12); color: #3FB950; }
+.ci-stock .credit-warn {
+  margin-top: 8px; padding: 7px 9px; border-radius: 8px;
+  font-size: 10.5px; line-height: 1.6;
+  color: #FFB020; background: rgba(255, 176, 32, 0.08);
+}
+.ci-stock .credit-tip { margin-top: 8px; font-size: 10px; line-height: 1.6; color: var(--dim); }
+.ci-stock .credit-sec { margin: 16px 0 8px; font-size: 11px; color: var(--dim); }
+.ci-stock .credit-products { display: flex; flex-wrap: wrap; margin: 0 -4px; }
+.ci-stock .credit-product {
+  flex: 1 1 150px; min-width: 140px; margin: 0 4px 8px; padding: 11px 12px;
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025); cursor: pointer;
+}
+.ci-stock .credit-product.active {
+  border-color: rgba(232, 195, 106, 0.55);
+  background: rgba(232, 195, 106, 0.06);
+}
+.ci-stock .credit-product.off { opacity: 0.45; }
+.ci-stock .cp-top { display: flex; align-items: baseline; justify-content: space-between; }
+.ci-stock .cp-name { font-size: 13px; color: var(--text); font-weight: 600; }
+.ci-stock .cp-rate { font-size: 20px; color: var(--gold); line-height: 1; }
+.ci-stock .cp-term { display: block; margin-top: 3px; font-size: 10px; color: var(--dim); }
+.ci-stock .cp-range { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.ci-stock .cp-desc { display: block; margin-top: 4px; font-size: 10px; line-height: 1.5; color: var(--dim); }
+.ci-stock .credit-apply-card { margin-top: 2px; }
+.ci-stock .credit-term { margin: 4px 0 10px; }
+.ci-stock .credit-quick { display: flex; flex-wrap: wrap; margin-top: 8px; }
+.ci-stock .credit-quick-btn {
+  margin: 0 6px 6px 0; padding: 4px 10px; border-radius: 999px;
+  font-size: 10.5px; color: var(--gold);
+  background: rgba(232, 195, 106, 0.08);
+  border: 1px solid rgba(232, 195, 106, 0.18);
+  cursor: pointer;
+}
+.ci-stock .credit-quick-btn:active { background: rgba(232, 195, 106, 0.16); }
+.ci-stock .credit-check {
+  display: flex; align-items: flex-start; margin-top: 8px;
+  font-size: 10.5px; line-height: 1.5; color: var(--dim); cursor: pointer;
+}
+.ci-stock .credit-check input { margin: 1px 6px 0 0; accent-color: #E8C36A; }
+.ci-stock .credit-preview {
+  margin-top: 10px; padding: 8px 10px; border-radius: 9px;
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.ci-stock .credit-preview .cpv-empty { font-size: 10px; color: var(--dim); }
+.ci-stock .credit-preview .cpv-total {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 11px; color: var(--text);
+}
+.ci-stock .credit-preview .cpv-total .cpv-int { font-size: 10px; color: var(--dim); }
+.ci-stock .credit-preview .cpv-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 0; font-size: 10.5px; color: var(--dim);
+  border-top: 1px dashed rgba(255, 255, 255, 0.05);
+}
+.ci-stock .credit-preview .cpv-total + .cpv-row { margin-top: 4px; }
+.ci-stock .credit-preview .cpv-row .num { color: var(--muted); }
+.ci-stock .inv-btn.disabled { opacity: 0.5; }
+.ci-stock .credit-hist-row, .ci-stock .credit-event-row {
+  display: flex; align-items: center; padding: 8px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06); font-size: 11px;
+}
+.ci-stock .credit-hist-row { cursor: pointer; }
+.ci-stock .credit-hist-item:first-child .credit-hist-row,
+.ci-stock .credit-event-row:first-of-type { border-top: none; }
+.ci-stock .credit-hist-row.open .ch-title { color: var(--gold); }
+.ci-stock .ch-main { flex: 1; min-width: 0; }
+.ci-stock .ch-title { color: var(--text); font-size: 12px; }
+.ci-stock .ch-sub { margin-top: 3px; font-size: 10px; color: var(--dim); }
+.ci-stock .ch-state {
+  flex: 0 0 auto; padding: 1px 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06); color: var(--dim);
+}
+.ci-stock .ch-state.ok { color: #3FB950; background: rgba(63, 185, 80, 0.1); }
+.ci-stock .ch-state.bad { color: #FF6B6B; background: rgba(255, 80, 80, 0.12); }
+.ci-stock .credit-event-row > .ce-reason { flex: 1; color: var(--muted); }
+.ci-stock .credit-event-row > .ce-delta { min-width: 34px; text-align: right; color: var(--dim); }
+.ci-stock .credit-event-row > .ce-delta.in { color: #3FB950; }
+.ci-stock .credit-event-row > .ce-delta.out { color: #FF6B6B; }
+.ci-stock .credit-event-row > .ce-score { flex: 0 0 34px; text-align: right; font-style: normal; color: var(--dim); }
+.ci-stock .credit-entry { margin-top: 12px; }
+.ci-stock .credit-go {
+  flex: 0 0 auto; padding: 9px 14px; border-radius: 9px;
+  background: linear-gradient(180deg, #F3D98F, #E8C36A);
+  color: #211803; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.ci-stock .credit-go:active { opacity: 0.85; }
+
+/* 到期 / 逾期提醒条 */
+.ci-stock .credit-alert {
+  border: 1px solid rgba(255, 176, 32, 0.28);
+  background: rgba(255, 176, 32, 0.07);
+}
+.ci-stock .credit-alert.bad {
+  border-color: rgba(255, 80, 80, 0.32);
+  background: rgba(255, 80, 80, 0.07);
+}
+.ci-stock .credit-alert .ca-title { font-size: 13px; font-weight: 600; color: #FFB020; }
+.ci-stock .credit-alert.bad .ca-title { color: #FF6B6B; }
+.ci-stock .credit-alert .ca-body { margin-top: 5px; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.ci-stock .credit-alert .ca-foot { margin-top: 5px; font-size: 10px; line-height: 1.6; color: var(--dim); }
+
+/* 直接用证券余额还贷 */
+.ci-stock .credit-tools { margin-top: 10px; }
+.ci-stock .credit-tools .inv-btn { width: 100%; }
+
+/* 每日津贴自动还款 */
+.ci-stock .credit-auto {
+  display: flex; align-items: center; margin-top: 10px; padding: 9px 10px;
+  border-radius: 9px; background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ci-stock .credit-auto .ca-text { flex: 1; min-width: 0; }
+.ci-stock .credit-auto .ca-text b { display: block; font-size: 11.5px; color: var(--text); }
+.ci-stock .credit-auto .ca-text span { display: block; margin-top: 3px; font-size: 10px; color: var(--dim); line-height: 1.5; }
+.ci-stock .credit-auto .ca-switch {
+  flex: 0 0 auto; margin-left: 10px; padding: 5px 12px; border-radius: 999px;
+  font-size: 10.5px; color: var(--dim); cursor: pointer;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ci-stock .credit-auto .ca-switch.on {
+  color: #3FB950; background: rgba(63, 185, 80, 0.1);
+  border-color: rgba(63, 185, 80, 0.25);
+}
+.ci-stock .credit-auto .ca-state { flex: 0 0 auto; margin-left: 10px; font-size: 10.5px; color: var(--gold); }
+
+/* 借款记录展开 */
+.ci-stock .credit-detail {
+  margin: 2px 0 10px; padding: 8px 10px; border-radius: 9px;
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.ci-stock .credit-detail .cd-title {
+  margin: 6px 0 2px; font-size: 10px; color: var(--dim);
+  text-transform: none;
+}
+.ci-stock .credit-detail .cd-row {
+  display: flex; align-items: center; padding: 4px 0; font-size: 10.5px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.05);
+}
+.ci-stock .credit-detail .cd-row:first-child { border-top: none; }
+.ci-stock .credit-detail .cd-row.paid { opacity: 0.55; }
+.ci-stock .credit-detail .cd-main { flex: 1; min-width: 0; color: var(--muted); }
+.ci-stock .credit-detail .cd-sub { flex: 0 0 auto; margin: 0 8px; color: var(--dim); }
+.ci-stock .credit-detail .cd-row.bad .cd-sub { color: #FF6B6B; }
+.ci-stock .credit-detail .cd-row.paid .cd-sub { color: #3FB950; }
+.ci-stock .credit-detail .cd-empty { padding: 4px 0; font-size: 10px; color: var(--dim); }
+.ci-stock .credit-detail .cd-note { margin-top: 5px; font-size: 10px; color: var(--gold); }
+
+/* 信用规则 */
+.ci-stock .credit-rules .cr-row {
+  display: flex; padding: 6px 0; font-size: 10.5px; line-height: 1.6;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.ci-stock .credit-rules .cr-row:first-of-type { border-top: none; }
+.ci-stock .credit-rules .cr-k { flex: 0 0 56px; color: var(--gold); }
+.ci-stock .credit-rules .cr-v { flex: 1; min-width: 0; color: var(--dim); }

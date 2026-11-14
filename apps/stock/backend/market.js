@@ -13,17 +13,22 @@
 // 11:30-13:00 午休（可挂单，等下午开盘）
 // 13:00-14:57 下午连续竞价
 // 14:57-15:00 收盘集合竞价
+// 15:00-15:02 收盘结算窗口：只给 15:00 前挂的单按收盘价成交，不接受新单立即成交
 var SESSIONS = [
   { key: 'auction_open', label: '开盘集合竞价', from: '09:15', to: '09:25' },
   { key: 'pre_open', label: '开盘前', from: '09:25', to: '09:30' },
   { key: 'morning', label: '上午连续竞价', from: '09:30', to: '11:30' },
   { key: 'lunch', label: '午间休市', from: '11:30', to: '13:00' },
   { key: 'afternoon', label: '下午连续竞价', from: '13:00', to: '14:57' },
-  { key: 'auction_close', label: '收盘集合竞价', from: '14:57', to: '15:00' }
+  { key: 'auction_close', label: '收盘集合竞价', from: '14:57', to: '15:00' },
+  { key: 'close_settle', label: '收盘结算', from: '15:00', to: '15:02' }
 ];
 
 // 这些时段接受「立即撮合」；其余时段挂单入队，等下一个可撮合时段
 var CONTINUOUS_KEYS = { morning: true, afternoon: true };
+// 这些时段允许撮合器用行情成交。集合竞价期间只收单不成交，
+// 9:25 后用开盘价成交，15:00 后用收盘价结算 —— 与真实 A 股节奏对齐。
+var MATCHABLE_KEYS = { pre_open: true, morning: true, afternoon: true, close_settle: true };
 
 // 周末休市。法定节假日不在这里（没有权威数据源，硬编码会过期），
 // 改为「行情源返回的昨收/日期」判断：休市日东财会给出上一交易日的数据，
@@ -69,27 +74,31 @@ function currentSession(ts) {
   var p = bjParts(ts);
   var out;
   if (p.weekday === 0 || p.weekday === 6) {
-    out = { key: 'closed', label: '周末休市', tradable: false, settles: false };
+    out = { key: 'closed', label: '周末休市', tradable: false, settles: false, matchable: false };
   } else {
     var m = p.hour * 60 + p.minute;
     out = null;
     for (var i = 0; i < SESSIONS.length; i++) {
       var s = SESSIONS[i];
       if (m >= toMinutes(s.from) && m < toMinutes(s.to)) {
+        var isCloseSettle = s.key === 'close_settle';
         out = {
           key: s.key,
           label: s.label,
-          tradable: true,
+          // 收盘结算窗口只结算已有挂单，不再把新单当成盘中单成交
+          tradable: !isCloseSettle,
           // 只有连续竞价能「立即成交」，集合竞价要等到结束时统一撮合
           settles: !!CONTINUOUS_KEYS[s.key],
+          matchable: !!MATCHABLE_KEYS[s.key],
+          force_quote: isCloseSettle,
           until: s.to
         };
         break;
       }
     }
     if (!out) {
-      if (m < toMinutes('09:15')) out = { key: 'pre_market', label: '未开盘', tradable: false, settles: false, until: '09:15' };
-      else out = { key: 'closed', label: '已收盘', tradable: false, settles: false, next: '次日 09:15' };
+      if (m < toMinutes('09:15')) out = { key: 'pre_market', label: '未开盘', tradable: false, settles: false, matchable: false, until: '09:15' };
+      else out = { key: 'closed', label: '已收盘', tradable: false, settles: false, matchable: false, next: '次日 09:15' };
     }
   }
 
@@ -98,9 +107,56 @@ function currentSession(ts) {
   // 价格仍然来自真实行情快照（休市时是周五收盘价），只是撮合时钟被拨正了。
   // 只在显式设置环境变量的进程里生效，生产不会带上它。
   if (process.env.STOCK_FORCE_TRADABLE === '1' && (!out.tradable || !out.settles)) {
-    out = { key: 'morning', label: '交易时段（测试强制）', tradable: true, settles: true, forced: true };
+    out = {
+      key: 'morning', label: '交易时段（测试强制）', tradable: true,
+      settles: true, matchable: true, forced: true
+    };
   }
   return out;
+}
+
+// 当日有效委托的到期时间：最近一个工作日 15:02（收盘结算结束）。
+// 若写成 15:00，会在收盘结算窗口开始前就把单撤掉，收盘竞价永远轮不到。
+// 15:00 之后下的单算下一交易日（收盘结算只收 15:00 前的单）；
+// 周末顺延到周一。节假日没有权威表，由行情日期守卫保证不会在休市日成交，
+// 到期只影响挂单寿命。
+function nextCloseMs(ts) {
+  var now = ts || Date.now();
+  var p = bjParts(now);
+  var afterClose = (p.hour * 60 + p.minute) >= 15 * 60;
+  var base = Date.UTC(p.year, p.month - 1, p.day) + (afterClose ? 86400000 : 0);
+  var d = new Date(base);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d = new Date(d.getTime() + 86400000);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 15, 2, 0) - 8 * 3600000;
+}
+
+// 收盘结算只允许结算 15:00 之前已经挂出的委托；15:00 后新下的单等下一交易日。
+function closeCutoffMs(ts) {
+  var p = bjParts(ts);
+  return Date.UTC(p.year, p.month - 1, p.day, 15, 0, 0) - 8 * 3600000;
+}
+
+// 休市日 / 行情源未更新时，别在界面上显示「交易中」。
+// 判断依据是行情自带的交易日，不硬编码节假日表。
+function sessionForSnapshot(session, snap) {
+  if (!session) return session;
+  if (snap && snap.stale) {
+    return Object.assign({}, session, {
+      key: 'stale', label: '行情延迟 · ' + session.label,
+      tradable: false, settles: false, matchable: false, stale: true
+    });
+  }
+  var today = dateKey();
+  var quoteDate = snap && snap.quote_date;
+  if (quoteDate && quoteDate !== today && session.tradable) {
+    return {
+      key: 'market_closed',
+      label: '休市（行情未更新）',
+      tradable: false, settles: false, matchable: false,
+      quote_date: quoteDate
+    };
+  }
+  return session;
 }
 
 // 是否允许下单。
@@ -214,6 +270,9 @@ module.exports = {
   hhmm: hhmm,
   isWeekend: isWeekend,
   currentSession: currentSession,
+  sessionForSnapshot: sessionForSnapshot,
+  closeCutoffMs: closeCutoffMs,
+  nextCloseMs: nextCloseMs,
   canPlaceOrder: canPlaceOrder,
   roundPrice: roundPrice,
   limitRatio: limitRatio,

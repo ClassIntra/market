@@ -50,6 +50,26 @@ try {
   console.log('  · 通知夹具写入失败（红点断言可能失败）：' + e.message);
 }
 
+// 信用页夹具：没有还款中的贷款就借一笔津贴预支（信用页最容易出现空态的是这里）
+const authHeaders = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+let creditFixture = null;
+try {
+  const h = authHeaders;
+  const cur = await (await fetch(APP + '/api/stock/loan', { headers: h })).json();
+  if (cur && cur.data && cur.data.active) {
+    creditFixture = cur.data.active;
+  } else {
+    const r = await (await fetch(APP + '/api/stock/loan/apply', {
+      method: 'POST', headers: h,
+      body: JSON.stringify({ amount: 100, product: 'advance', ref: 'probe:' + USER_ID + ':' + Date.now() })
+    })).json();
+    creditFixture = (r && r.data && r.data.loan) || null;
+  }
+  console.log('  · 信用页夹具：' + (creditFixture ? (creditFixture.product_name + ' #' + creditFixture.id) : '未创建'));
+} catch (e) {
+  console.log('  · 信用页夹具失败：' + e.message);
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let pass = 0, fail = 0;
 function ok(name, cond, detail) {
@@ -526,6 +546,14 @@ const segActive = await evalJS(`(function(){
   return '';
 })()`);
 ok('老手默认限价委托（成交满 3 次后）', /限价/.test(segActive || ''), segActive);
+const validityActive = await evalJS(`(function(){
+  var segs = document.querySelectorAll('.ci-stock-sheet .seg-item');
+  for (var i = 0; i < segs.length; i++) {
+    if (segs[i].className.indexOf('active') > -1 && /有效/.test(segs[i].textContent)) return segs[i].textContent;
+  }
+  return '';
+})()`);
+ok('交易面板有委托有效期（长期/当日）', /有效/.test(validityActive || ''), validityActive);
 const sheetTerm = await evalJS(`(function(){
   var q = document.querySelector('.ci-stock-sheet .term-q');
   if (!q) return { ok: false, title: '' };
@@ -648,6 +676,28 @@ await sleep(2400);
 const strip = await evalJS(`(function(){ var s = document.querySelector('.ci-stock .detail-pos'); return s ? s.textContent : ''; })()`);
 ok('详情页显示我的持仓速览（持仓/成本/可卖）',
   /持仓 /.test(strip || '') && /成本/.test(strip || '') && /可卖/.test(strip || ''), strip);
+const alertBtn = await evalJS(`!!document.querySelector('.ci-stock .detail-alert')`);
+ok('详情页有到价提醒入口', alertBtn);
+await evalJS(`document.querySelector('.ci-stock .detail-alert').click()`);
+await sleep(400);
+const alertModal = await evalJS(`(function(){
+  var t = (document.querySelector('.ci-stock .news-panel .news-panel-title') || {}).textContent || '';
+  return { open: !!document.querySelector('.ci-stock .news-modal'), title: t };
+})()`);
+ok('到价提醒弹层打开', alertModal.open && /到价提醒/.test(alertModal.title), alertModal.title);
+await evalJS(`document.querySelector('.ci-stock .news-panel .submit').click()`);
+await sleep(1000);
+const alertChip = await evalJS(`(function(){
+  return {
+    chips: document.querySelectorAll('.ci-stock .detail-alerts .da-chip').length,
+    text: (document.querySelector('.ci-stock .detail-alerts .da-chip') || {}).textContent || ''
+  };
+})()`);
+ok('到价提醒已创建并显示在详情页', alertChip.chips >= 1, alertChip.text);
+await evalJS(`(function(){ var x=document.querySelector('.ci-stock .detail-alerts .da-x'); if(x) x.click(); })()`);
+await sleep(800);
+const alertGone = await evalJS(`document.querySelectorAll('.ci-stock .detail-alerts .da-chip').length`);
+ok('到价提醒可取消', alertGone === 0, alertGone);
 await shot('06b-detail-pos');
 await clickNav('行情');
 await sleep(1200);
@@ -664,6 +714,17 @@ const orders = await evalJS(`(function(){
 })()`);
 ok('委托页渲染（有表格或空态）', orders.rows > 0 || orders.empty > 0, orders.rows + ' 行');
 ok('委托页导航高亮', /委托/.test(orders.active), orders.active);
+const condUI = await evalJS(`(function(){
+  return {
+    card: !!document.querySelector('.ci-stock .cond-card'),
+    selects: document.querySelectorAll('.ci-stock .cond-card select').length,
+    submit: !!document.querySelector('.ci-stock .cond-submit'),
+    types: Array.prototype.map.call(document.querySelectorAll('.ci-stock .cond-card .seg-item'), function (x) { return x.textContent; }).join('|'),
+    note: (document.querySelector('.ci-stock .cond-note') || {}).textContent || ''
+  };
+})()`);
+ok('委托页有止损/止盈/移动止损条件单表单',
+  condUI.card && condUI.selects >= 1 && condUI.submit && /移动止损/.test(condUI.types), JSON.stringify(condUI));
 await shot('07-orders');
 
 // 成交记录
@@ -738,13 +799,15 @@ const wallet = await evalJS(`(function(){
   return {
     open: !!document.querySelector('.ci-stock .news-modal'),
     balance: (document.querySelector('.ci-stock .wallet-balance') || {}).textContent || '',
-    claim: (document.querySelector('.ci-stock .wallet-claim') || {}).textContent || '',
-    src: document.querySelectorAll('.ci-stock .wallet-src-row').length
+    src: document.querySelectorAll('.ci-stock .wallet-src-row').length,
+    credit: !!document.querySelector('.ci-stock .credit-entry'),
+    creditGo: !!document.querySelector('.ci-stock .credit-go')
   };
 })()`);
-ok('学元钱包可打开（余额/津贴/来源清单）',
-  wallet.open && wallet.balance.length > 0 && wallet.src >= 6 && /领/.test(wallet.claim || ''),
+ok('练习金弹层可打开（余额/来源清单）',
+  wallet.open && wallet.balance.length > 0 && wallet.src >= 3,
   JSON.stringify(wallet));
+ok('练习金弹层有信用入口', wallet.credit && wallet.creditGo, JSON.stringify(wallet));
 await shot('09d-wallet');
 
 // 转账 / 红包入口与表单
@@ -757,24 +820,9 @@ const walletActs = await evalJS(`(function(){
     secs: secs.join('|')
   };
 })()`);
-ok('钱包内有「转账 / 发红包」入口与红包区',
-  walletActs.acts >= 2 && /可领红包/.test(walletActs.secs || ''), JSON.stringify(walletActs));
-
-await evalJS(`(function(){
-  var btns = document.querySelectorAll('.ci-stock .wallet-act');
-  for (var i = 0; i < btns.length; i++) { if (/红包/.test(btns[i].textContent)) { btns[i].click(); return true; } }
-  return false;
-})()`);
-await sleep(700);
-const packetForm = await evalJS(`(function(){
-  return {
-    inputs: document.querySelectorAll('.ci-stock .wallet-input').length,
-    title: (document.querySelector('.ci-stock .news-panel-title') || {}).textContent || '',
-    btn: (document.querySelector('.ci-stock .news-panel .submit') || {}).textContent || ''
-  };
-})()`);
-ok('发红包表单有三项输入', packetForm.inputs === 3 && /红包/.test(packetForm.title || '') && /确认/.test(packetForm.btn || ''),
-  JSON.stringify(packetForm));
+ok('练习金弹层保留投资进出',
+  /投资进出/.test(walletActs.secs || ''), JSON.stringify(walletActs));
+// 转账 / 红包 / 津贴已迁到学元钱包；证券侧只提供信用指路，不再重复做资金表单。
 await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
 await sleep(400);
 await evalJS(`(function(){ var c = document.querySelector('.ci-stock .news-close'); if (c) c.click(); return true; })()`);
@@ -832,6 +880,79 @@ ok('可从指南页重看新手引导', await evalJS(`!!document.querySelector('
 await evalJS(`document.querySelector('.ci-stock .tour-skip').click()`);
 await sleep(400);
 ok('跳过引导可关闭', !(await evalJS(`!!document.querySelector('.ci-stock .tour-layer')`)));
+
+console.log('\n=== 信用 / 贷款（v2.2 运营闭环） ===');
+await clickNav('信用');
+await sleep(1800);
+const credit = await evalJS(`(function(){
+  return {
+    view: !!document.querySelector('.ci-stock .view-credit'),
+    score: !!document.querySelector('.ci-stock .credit-score'),
+    active: !!document.querySelector('.ci-stock .credit-active'),
+    product: (document.querySelector('.ci-stock .credit-active .card-title') || {}).textContent || '',
+    auto: !!document.querySelector('.ci-stock .credit-auto'),
+    forced: (document.querySelector('.ci-stock .credit-auto .ca-state') || {}).textContent || '',
+    payAll: (document.querySelector('.ci-stock .credit-tools .inv-btn') || {}).textContent || '',
+    rules: document.querySelectorAll('.ci-stock .credit-rules .cr-row').length,
+    hist: document.querySelectorAll('.ci-stock .credit-hist-row').length
+  };
+})()`);
+ok('信用页渲染（信用分 + 当前借款）', credit.view && credit.score && credit.active, JSON.stringify(credit));
+ok('当前借款是津贴预支', /预支/.test(credit.product), credit.product);
+ok('预支显示强制自动还款', credit.auto && /强制/.test(credit.forced), credit.forced);
+ok('有「用证券余额还清」按钮', /用证券余额还清/.test(credit.payAll), credit.payAll);
+ok('信用规则 7 条', credit.rules === 7, credit.rules);
+ok('借款记录有历史', credit.hist >= 1, credit.hist);
+await evalJS(`(function(){ var r = document.querySelector('.ci-stock .credit-hist-row'); if (r) r.click(); })()`);
+await sleep(900);
+const creditDetail = await evalJS(`(function(){
+  return {
+    box: !!document.querySelector('.ci-stock .credit-detail'),
+    rows: document.querySelectorAll('.ci-stock .credit-detail .cd-row').length
+  };
+})()`);
+ok('借款记录可展开明细', creditDetail.box && creditDetail.rows >= 1, JSON.stringify(creditDetail));
+await shot('12-credit');
+
+// 还清后回到申请态，验借款试算、自动还款勾选与二次确认
+if (creditFixture && creditFixture.id) {
+  await fetch(APP + '/api/stock/loan/repay-from-practice', {
+    method: 'POST', headers: authHeaders, body: JSON.stringify({ full: true })
+  });
+}
+await clickNav('行情');
+await sleep(500);
+await clickNav('信用');
+await sleep(1800);
+const applyForm = await evalJS(`(function(){
+  var card = document.querySelector('.ci-stock .credit-apply-card');
+  return {
+    card: !!card,
+    input: !!document.querySelector('.ci-stock .credit-amount'),
+    check: !!document.querySelector('.ci-stock .credit-auto-check')
+  };
+})()`);
+ok('还清后回到借款申请态', applyForm.card && applyForm.input, JSON.stringify(applyForm));
+ok('普通借款可勾选自动还款', applyForm.check);
+await evalJS(`(function(){
+  var i = document.querySelector('.ci-stock .credit-amount');
+  if (!i) return;
+  i.value = '100';
+  i.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await sleep(300);
+const preview = await evalJS(`(function(){
+  return {
+    rows: document.querySelectorAll('.ci-stock .credit-preview .cpv-row').length,
+    total: (document.querySelector('.ci-stock .credit-preview .cpv-total') || {}).textContent || ''
+  };
+})()`);
+ok('借款试算显示每期账单', preview.rows >= 1 && /共还/.test(preview.total), JSON.stringify(preview));
+await evalJS(`document.querySelector('.ci-stock .credit-apply-card .inv-btn.primary').click()`);
+await sleep(200);
+const armed = await evalJS(`(document.querySelector('.ci-stock .credit-apply-card .inv-btn.primary') || {}).textContent || ''`);
+ok('借款需要二次确认', /确认借/.test(armed), armed);
+await shot('13-credit-apply');
 
 console.log('\n=== 竖屏自适应 ===');
 await send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 2, mobile: true });

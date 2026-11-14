@@ -15,8 +15,11 @@
 var nodePath = require('path');
 var store = require('./store');
 var quotes = require('./quotes');
-var xueyuan = require(nodePath.resolve(process.cwd(), 'src/services/xueyuan'));
-var db = require(nodePath.resolve(process.cwd(), 'src/utils/db'));
+// 账本开关（与 routes.js 保持一致）
+// 第三方应用：只能通过能力面发「练习金」（本域内的封闭资产）。
+// 成就奖励发练习金而不是赠金 —— 赠金归「学元钱包」系统应用管，插件无权印。
+var app = require('_sdk/backend/host').ledger;
+var db = require('_sdk/backend/host').db;
 
 // ---- 成就定义 ----
 // check(ctx) 返回 true 即解锁；ctx: { userId, positions, totals, realized, snapshot }
@@ -117,14 +120,8 @@ function unlock(userId, def, now) {
   // 奖励（ref 幂等：即使解锁记录被清也不会重复发钱）
   var granted = 0;
   try {
-    var r = xueyuan.mint({
-      to: userId,
-      amountCent: def.reward_cent,
-      kind: 'reward',
-      ref: 'stock:ach:' + userId + ':' + def.code,
-      app: 'stock',
-      memo: '成就解锁：' + def.label
-    });
+    var r = app.issue('stock', userId, def.reward_cent, 'stock:ach:' + userId + ':' + def.code,
+      '成就解锁：' + def.label);
     if (!r.duplicate) granted = def.reward_cent;
   } catch (e) {
     console.error('[stock-ach] 奖励发放失败 %s %s: %s', userId, def.code, e.message);
@@ -202,8 +199,8 @@ function collectStats(userId) {
     if (meta && meta.sector) sectors[meta.sector] = true;
   }
 
-  // 津贴天数（跨应用查学元账本）
-  var dailyDays = d.prepare("SELECT COUNT(DISTINCT ref) AS n FROM xy_tx WHERE ref LIKE ?").get('daily:' + uid + ':%').n;
+  // 津贴天数（跨应用查学元账本：ref 形如 daily:<学号>:<日期>）
+  var dailyDays = d.prepare("SELECT COUNT(DISTINCT ref) AS n FROM xy_ledger_transactions WHERE ref LIKE ?").get('daily:' + uid + ':%').n;
 
   // 市值 / 仓位 / 总资产 / 最长持有天数
   // 用同步快照（quotes.getCached），没有快照就退回成本价 —— 宁可保守，不能 async 爆掉同步检查
@@ -220,7 +217,9 @@ function collectStats(userId) {
     marketValue += px * p.qty;
     if (p.opened_at && (!oldestOpen || p.opened_at < oldestOpen)) oldestOpen = p.opened_at;
   }
-  var totalAsset = (acc.balance_cent || 0) + marketValue;
+  // 证券口径 = 练习金 + 持仓市值。balance_cent 是「可花余额」（充值+赠送），
+  // 不含练习金，用它算仓位占比会把满仓算成 0%。
+  var totalAsset = (acc.practice_cent || 0) + marketValue;
   var posRatio = totalAsset > 0 ? marketValue / totalAsset : 0;
   var holdDays = oldestOpen ? Math.floor((Date.now() - oldestOpen) / 86400000) : 0;
 

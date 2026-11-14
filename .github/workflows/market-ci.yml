@@ -1,0 +1,42 @@
+# 市场仓体检流水线
+#
+# 为什么只有这一条、且零依赖：
+#   1. 市场仓是第三方 PR 的入口，必须「提交即校验」，不能靠维护者人肉跑脚本；
+#   2. 只做纯 Node 检查（< 5s），不装依赖、不跑构建——第三方包本来就是直出；
+#   3. 拦的是四类会真实造成事故的问题：
+#        index.json ↔ 文件 ↔ manifest 不一致 / 逐文件 sha256 不匹配 /
+#        路由·端口冲突 / Chrome 80 语法红线（CSS 红线只告警）。
+#
+# 本地等价命令：node tools/check.mjs
+
+name: market-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 市场体检
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 运行体检
+        run: node tools/check.mjs

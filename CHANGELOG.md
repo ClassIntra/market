@@ -2,6 +2,18 @@
 
 ## 未发布
 
+- 货架精装：`chess` / `gomoku` / `pet` 各补深浅两张真机截图（1043×787）、首个更新日志与 `group` 分类；
+  市场页新增「全部 / 游戏 / 生活」分类筛选，详情页不再是空白。
+- `index.json` 升至 `23`：截图纳入 `files` 与 `hashes`，安装时一并校验。
+- 目录生成器（主仓 `scripts/market-index-gen.mjs`）改为**自动带入** `manifest.capabilities`；
+  此前能力清单靠手填，漏一次详情页的「会用到什么」就永远空着。
+- 新增 `tools/check.mjs`（零依赖）与 GitHub Actions：校验三方一致性、逐文件 sha256、路由/端口冲突、
+  Chrome 80 语法红线；CSS 兼容降级为警告。当前 **0 错误**。
+- 4 个插件补更新日志（`web-proxy` / `netease-music` / `astrbot-relay` / `campusbili-bridge`）。
+- 配套工具：独立 npm 包 `classintra-devkit`（`create` / `check` / `pack`），外部开发者不必克隆主仓。
+
+## 未发布
+
 - 新增 `plugins/` 目录，接收主仓库迁出的服务端插件源码（`astrbot-relay`、`campusbili-bridge`）。
 - 补充仓库定位说明与插件清单，明确 catalog 只索引应用、插件按目录复制安装。
 - 新增 `.gitignore`（依赖、环境变量、日志与数据库不入库）。

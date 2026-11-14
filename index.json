@@ -1,6 +1,6 @@
 {
-  "version": 61,
-  "updated_at": "2026-11-13T16:57:43.453Z",
+  "version": 65,
+  "updated_at": "2026-11-14T05:44:45.104Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "4.0.2",
-      "description": "全班同处一片云海群岛的多人小世界。v4.0「灯火」：你手里的火就是命 —— 走路会烧、站着也会暗，火弱了视野缩成一圈、雾灵从黑暗里围上来；点亮灯柱要烧掉自己的火，但那盏灯整片云海都看得见，也替别人挡雾。全班把灯点到 10/30/60/100 根，天光就往前推一档：长夜 → 晨光初现 → 云开见月 → 群星归位 → 拾光之海。",
+      "version": "4.1.0",
+      "description": "全班同处一片云海群岛的多人小世界。v4.1「灯火 · 开放世界」：你手里的火就是命 —— 走路会烧、站着也会暗，火弱了视野缩成一圈、雾灵从黑暗里围上来；点亮灯柱要烧掉自己的火，但那盏灯整片云海都看得见，也替别人挡雾，还能花 5 星屑升级得更亮。连着采集有连击加成，点一下同学就能跟随 TA 或送一枚星屑，屏幕边缘的灯色光点指向屏外的同学，世界的四角立着界标灯桩。全班把灯点到 10/30/60/100 根，天光就往前推一档：长夜 → 晨光初现 → 云开见月 → 群星归位 → 拾光之海。",
       "author": "ClassIntra",
       "files": [
         "apps/shiguang/CHANGELOG.md",
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "2638e68d8899c1eb49c6279ce77c613b69139e5f96c6c5e3fd38447d85a6cce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "c67f5952e9854257546acb57b9c9fae2f9c94408b3501a5f192a691e8067da88",
+        "backend/routes.js": "e80f4f1e19df6f42b9fd8980c899cb13e2f5453e26527a7cf6b8456d2928da57",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "cbdea965889d5f259ef0c7354aca32d12e9bedbd4e50a91166eac3be26704de1",
-        "CHANGELOG.md": "caa511618afa7706d6b1490477f03780137ac503b8dfbc2156c9039ef441e8da",
-        "frontend/entry.js": "693ed399130ba4d0faa9e505bae2103e41d133c9f598e2ab88c36063560ffa6d",
+        "CHANGELOG.md": "d2c44aec9727a2ea60ae2b44b46fc359cbf7073cc1b20b1318daf19ffc8f87b7",
+        "frontend/entry.js": "8be37c6ea003004d92bd83e53dfd63adce1dacbe9a9dee310d0d517dbe976336",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -482,15 +482,15 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "41c3acf7d02024629ab82003b2e386ca4b848519fc30a7a445367fa1599bba70",
+        "frontend/style.css": "22dab795c8d1c473cda9b69dbdc99d2c4c9634725c5991066f8f5c36753394e8",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "957e30a3b4d4de5d7a4c47ed29742821310ee566efec6c80171a3983761323d3",
+        "manifest.json": "a3841907adc60b4f5d42724b6e7368329e608b6aded08e68536fcf7b4642ebe4",
         "preview.png": "12983346e942d1936a1eaa2b35be5de88c3091767469d63182fdb2fde6b77deb",
-        "README.md": "b95daa1989c913c37e12a6be2597a9ba80bf4057f9cfb6d29e23b50d863ee49e",
+        "README.md": "ed5e537b49adb4df2bed562605570cf34264d1273473b826a4341ee73f46687e",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
         "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",
         "screenshots/03-talk.png": "1521956a456b6fe8e76274661fff4f03a595bed5cd1e209962db405d20bc962e",
-        "test/e2e.mjs": "43a29332913e24eef2d0ee5f68c036a1990704df5b2c947b7037d025d83af50d"
+        "test/e2e.mjs": "611d3f19e2f18b0207e9088e1719617b1c7274ab1d8d7af0e0ad08c49fbaa3a8"
       },
       "icon": "./icon.svg",
       "screenshots": [

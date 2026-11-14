@@ -299,6 +299,8 @@
       meteorNodes: {},
       meteor: null,
       emoteFx: [],
+      followTarget: null,     // 跟随的同学 id
+      surge: null,            // 暗涌事件 { active, until }
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
       steles: {},             // 'x,y' -> { name, rune, by, at }
       stage: 0,
@@ -1017,10 +1019,13 @@
     // 情境动作：只在特定地点出现（码头 → 纸鸢快线；石碑旁 → 触碑）
     var btnFly = actBtn('sg-act-fly', 'kite', '快线', false);
     var btnStele = actBtn('sg-act-stele', 'rune', '触碑', false);
+    var btnUpgrade = actBtn('sg-act-upgrade', 'lamp', '升级', false);
     btnFly.style.display = 'none';
     btnStele.style.display = 'none';
+    btnUpgrade.style.display = 'none';
     acts.appendChild(btnEmote);
     acts.appendChild(btnBottle);
+    acts.appendChild(btnUpgrade);
     acts.appendChild(btnFly);
     acts.appendChild(btnPlant);
     acts.appendChild(btnBuild);
@@ -3213,6 +3218,10 @@
       var lx = cx;
       var ly = cy - t * 0.18;
 
+      // 等级与暗涌：二级灯柱更亮更高，暗涌期全部缩到 55%
+      var lvl = lamp.level >= 2 ? 1.45 : 1;
+      var surgeK = state.surge && state.surge.active ? 0.55 : 1;
+
       // ---------- 光柱 ----------
       // 这是整个应用里最便宜的一次「多人感」升级：
       // 别人点的灯原来只有脚下一团光，你走到三格外才知道那儿有灯。
@@ -3242,7 +3251,7 @@
       ctx.fillRect(lx - bw * 0.32, ly - beamH * 0.52, bw * 0.64, beamH * 0.52 - t * 0.06);
       ctx.restore();
 
-      var radius = t * (3.4 + 0.24 * flicker);
+      var radius = t * (3.4 + 0.24 * flicker) * lvl * surgeK;
       var g = ctx.createRadialGradient(lx, ly, 0, lx, ly, radius);
       g.addColorStop(0, 'rgba(' + lc.glow + ', ' + (0.26 * flicker).toFixed(3) + ')');
       g.addColorStop(0.34, 'rgba(' + lc.glow + ', 0.12)');
@@ -3267,7 +3276,7 @@
       ctx.restore();
 
       ctx.fillStyle = '#3f3527';
-      ctx.fillRect(cx - t * 0.030, cy - t * 0.14, t * 0.060, t * 0.46);
+      ctx.fillRect(cx - t * 0.030, cy - t * (0.14 + (lvl - 1) * 0.16), t * 0.060, t * (0.46 + (lvl - 1) * 0.30));
 
       ctx.fillStyle = '#4c3f2d';
       ctx.beginPath();
@@ -4376,7 +4385,7 @@
       if (!state.ready) return;
 
       var moving = (Date.now() - lastMoveAt) < 300;
-      var drain = moving ? lightState.drainMove : lightState.drainIdle;
+      var drain = (moving ? lightState.drainMove : lightState.drainIdle) * (state.surge && state.surge.active ? 1.35 : 1);
 
       var near = lightNearLamp(state.me.x + 0.5, state.me.y + 0.5);
       var refill = 0;
@@ -4589,7 +4598,7 @@
         if (!lp) continue;
         var lx = (ox + (lp.x + 0.5) * t) / 3;
         var ly = (oy + (lp.y + 0.5) * t) / 3;
-        var lr = t * 4.2 / 3;
+        var lr = t * (lp.level >= 2 ? 6.0 : 4.2) * (state.surge && state.surge.active ? 0.55 : 1) / 3;
         if (lx < -lr || lx > dw + lr || ly < -lr || ly > dh + lr) continue;
         vis.push([lx, ly, lr]);
       }
@@ -5043,8 +5052,126 @@
       drawLightRing(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t, now);
       drawVeil(now);
 
+      // 界标与罗盘画在浮字之前：两者都是「发光的信使」，
+      // 必须盖过黑暗层才成立（和雾灵同理）。
+      drawWorldEdge(ox, oy, t, now);
+      drawCompass(ox, oy, t, now);
+
       // 浮字放在最后：它必须比暗角更亮，否则「+1」会被压成一块灰
       drawFloats(ox, oy, t);
+    }
+
+    // ---------- 世界的边缘 ----------
+    // 开放世界要有「尽头」：贴近边界时，画一圈微光描边 + 四座界标灯桩。
+    // 玩家需要「世界到此为止」的确定感；四座界标在远处就是北极星。
+    function nearWorldEdge() {
+      var d = Math.min(state.me.x, state.me.y, state.size - 1 - state.me.x, state.size - 1 - state.me.y);
+      return d < 12;
+    }
+
+    var WORLD_BEACONS = [[3, 3], [156, 3], [3, 156], [156, 156]];
+
+    function drawWorldEdge(ox, oy, t, now) {
+      var size = state.size;
+      var span = size * t;
+      var d = Math.min(state.me.x, state.me.y, size - 1 - state.me.x, size - 1 - state.me.y);
+      if (d < 16) {
+        var a = (16 - d) / 16;
+        ctx.strokeStyle = 'rgba(255, 226, 158, ' + (0.30 * a).toFixed(3) + ')';
+        ctx.lineWidth = Math.max(1.5, t * 0.06);
+        ctx.setLineDash([t * 0.5, t * 0.42]);
+        ctx.lineDashOffset = -(now * 0.012) % (t * 0.92);
+        ctx.strokeRect(ox, oy, span, span);
+        ctx.setLineDash([]);
+      }
+      // 四角界标：一根静立的灯桩，光束缓缓呼吸 —— 画在黑暗层之后，
+      // 所以隔着整片夜海也看得见它（「尽头有灯」是开放世界的安全感）。
+      for (var i = 0; i < WORLD_BEACONS.length; i++) {
+        var bx = ox + (WORLD_BEACONS[i][0] + 0.5) * t;
+        var by = oy + (WORLD_BEACONS[i][1] + 0.5) * t;
+        if (bx < -t * 3 || bx > view.w + t * 3 || by < -t * 6 || by > view.h + t * 2) continue;
+        var breathe = 0.72 + 0.28 * Math.sin(now * 0.0012 + i * 1.7);
+        var bh = t * 5.2;
+        var bw = t * 0.14;
+        var bg2 = ctx.createLinearGradient(0, by, 0, by - bh);
+        bg2.addColorStop(0, 'rgba(255, 232, 180, ' + (0.34 * breathe).toFixed(3) + ')');
+        bg2.addColorStop(0.5, 'rgba(255, 232, 180, 0.10)');
+        bg2.addColorStop(1, 'rgba(255, 232, 180, 0)');
+        ctx.fillStyle = bg2;
+        ctx.beginPath();
+        ctx.moveTo(bx - bw, by);
+        ctx.lineTo(bx + bw, by);
+        ctx.lineTo(bx + bw * 1.8, by - bh);
+        ctx.lineTo(bx - bw * 1.8, by - bh);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 244, 214, ' + (0.85 * breathe).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(bx, by - t * 0.16, t * 0.11, 0, 6.2832);
+        ctx.fill();
+      }
+    }
+
+    // ---------- 同学罗盘 ----------
+    // 开放大世界的多人感核心：看不见的同学不等于不存在。
+    // 屏幕边缘一枚枚灯色光点指向 TA 的方位 —— Journey 的伙伴指针，
+    // 换成「提灯」的语义：光点的颜色就是 TA 的灯色。
+    function drawCompass(ox, oy, t, now) {
+      var w = view.w;
+      var h = view.h;
+      var cx = w / 2;
+      var cy = h / 2;
+      var R = Math.min(w, h) * 0.40;
+      var list = [];
+      for (var k in state.players) {
+        if (!Object.prototype.hasOwnProperty.call(state.players, k)) continue;
+        var p = state.players[k];
+        if (!p || p.id === myId) continue;
+        var sx = ox + (p.x + 0.5) * t;
+        var sy = oy + (p.y + 0.5) * t;
+        // 屏内看得见的同学不需要罗盘，别把画面点缀成圣诞树
+        if (sx > -t && sx < w + t && sy > -t && sy < h + t) continue;
+        var dx = p.x - state.me.x;
+        var dy = p.y - state.me.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        list.push({ p: p, ang: Math.atan2(sy - cy, sx - cx), dist: dist });
+      }
+      if (!list.length) return;
+      list.sort(function (a, b) { return a.dist - b.dist; });
+      var cnt = Math.min(list.length, 6);
+      for (var i = 0; i < cnt; i++) {
+        var it = list[i];
+        var col = LANTERN_COLORS[it.p.lantern] || LANTERN_COLORS['0'];
+        var near = clamp(1 - it.dist / 120, 0.25, 1);
+        var px = cx + Math.cos(it.ang) * R;
+        var py = cy + Math.sin(it.ang) * R;
+        var isFollow = followTarget === it.p.id;
+        var r = isFollow ? 5.5 : 3.6;
+        // 尾迹：从边缘点往屏幕中心缩回的一段渐隐线，指向感靠它
+        var tail = 26 + 10 * near;
+        var tg = ctx.createLinearGradient(px, py, px - Math.cos(it.ang) * tail, py - Math.sin(it.ang) * tail);
+        tg.addColorStop(0, 'rgba(' + col.glow + ', ' + (0.55 * near).toFixed(3) + ')');
+        tg.addColorStop(1, 'rgba(' + col.glow + ', 0)');
+        ctx.strokeStyle = tg;
+        ctx.lineWidth = isFollow ? 2.4 : 1.6;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px - Math.cos(it.ang) * tail, py - Math.sin(it.ang) * tail);
+        ctx.stroke();
+        var pulse = 0.8 + 0.2 * Math.sin(now * 0.003 + i * 2.1);
+        ctx.fillStyle = 'rgba(' + col.core + ', ' + (0.9 * pulse).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(px, py, r * pulse, 0, 6.2832);
+        ctx.fill();
+        if (isFollow) {
+          // 正在跟随的同学：金色圈锁定，一眼认出「我在跟谁」
+          ctx.strokeStyle = 'rgba(255, 226, 150, 0.8)';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(px, py, r + 3.5, 0, 6.2832);
+          ctx.stroke();
+        }
+      }
     }
 
     var lastFrame = 0;
@@ -5210,8 +5337,8 @@
       state.exploreVer++;
     }
 
-    function addLamp(x, y, c) {
-      state.lamps[x + ',' + y] = { x: x, y: y, c: c || '0' };
+    function addLamp(x, y, c, level) {
+      state.lamps[x + ',' + y] = { x: x, y: y, c: c || '0', level: level || 1 };
     }
 
     function addFlower(x, y, species, at, uid) {
@@ -5271,6 +5398,17 @@
       return state.cells.charCodeAt(idx) - 48;
     }
 
+    // 脚边有没有可升级的一级灯柱（相邻即算）
+    function upgradableLampNearMe() {
+      var keys = Object.keys(state.lamps);
+      for (var i = 0; i < keys.length; i++) {
+        var lp = state.lamps[keys[i]];
+        if (!lp || lp.level >= 2) continue;
+        if (Math.abs(lp.x - state.me.x) <= 1 && Math.abs(lp.y - state.me.y) <= 1) return lp;
+      }
+      return null;
+    }
+
     // 脚边有没有未唤醒的石碑（切比雪夫 ≤2 就能触）
     function steleNearMe() {
       var steles = state.catalog.steles || [];
@@ -5293,6 +5431,7 @@
       else if (meteorNodeUnderMe()) key = 'meteor';
       else if (nodeUnderMe()) key = 'node';
       else if (steleNearMe()) key = 'stele';
+      else if (nearWorldEdge()) key = 'edge';
       else if (tileUnderMe() === T_DOCK) key = 'dock';
       else if (tileUnderMe() === T_PATH) key = 'path';
       else if (tileUnderMe() === T_MEADOW) key = 'meadow';
@@ -5308,6 +5447,7 @@
       else if (key === 'path') text = '顺着石板路走，就不会迷路';
       else if (key === 'meadow') text = '草地上可以「种花」，它会一直开在这里';
       else if (key === 'meteorFar') text = '流星雨正落在' + (state.meteor.island || '远处') + '……';
+      else if (key === 'edge') text = '这里是世界的边缘 —— 云海之外，什么都没有';
       if (key !== lastHintKey) {
         lastHintKey = key;
         hint.textContent = text || '拖动左下摇杆漫步';
@@ -5362,6 +5502,8 @@
       btnFly.style.display = canFish && !flying ? '' : 'none';
       var stele = steleNearMe();
       btnStele.style.display = stele ? '' : 'none';
+      var upLamp = upgradableLampNearMe();
+      btnUpgrade.style.display = upLamp && !flying ? '' : 'none';
 
       if (state.claimable > 0) questDot.className = 'sg-btn-dot is-on';
       else questDot.className = 'sg-btn-dot';
@@ -5563,6 +5705,69 @@
       });
     }
 
+    // ---------- 跟随同学：Journey 式的牵手 ----------
+    // 贪心寻步：主轴优先，被挡就滑副轴；卡住 5 拍或 30 秒自动停。
+    var followTarget = null;
+    var followTimer = 0;
+    var followStartedAt = 0;
+    var followStuck = 0;
+    var followLast = { x: 0, y: 0 };
+
+    function startFollow(pid) {
+      if (!state.ready) return;
+      var p = state.players[pid];
+      if (!p) return;
+      followTarget = pid;
+      followStartedAt = Date.now();
+      followStuck = 0;
+      followLast = { x: state.me.x, y: state.me.y };
+      if (!followTimer) followTimer = setInterval(followTick, 180);
+      toast('跟着 ' + p.name + ' 走　·　随便动一下就停下', 'warm');
+    }
+
+    function stopFollow() {
+      if (followTimer) { clearInterval(followTimer); followTimer = 0; }
+      followTarget = null;
+    }
+
+    function followTick() {
+      if (!followTarget || !state.ready || flying) { stopFollow(); return; }
+      var p = state.players[followTarget];
+      if (!p) { stopFollow(); return; }
+      if (Date.now() - followStartedAt > 30000) { stopFollow(); return; }
+      if (walkPath.length) stopWalk();
+      var dx = p.x - state.me.x;
+      var dy = p.y - state.me.y;
+      var man = Math.abs(dx) + Math.abs(dy);
+      if (man <= 1) { stopFollow(); toast('跟上了'); return; }
+      if (state.me.x === followLast.x && state.me.y === followLast.y) {
+        followStuck++;
+        if (followStuck > 5) { stopFollow(); toast('被墙挡住了'); return; }
+      } else {
+        followStuck = 0;
+        followLast = { x: state.me.x, y: state.me.y };
+      }
+      var dirs = [];
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        if (dx) dirs.push([dx > 0 ? 1 : -1, 0]);
+        if (dy) dirs.push([0, dy > 0 ? 1 : -1]);
+        if (dx) dirs.push([dx > 0 ? -1 : 1, 0]);
+      } else {
+        if (dy) dirs.push([0, dy > 0 ? 1 : -1]);
+        if (dx) dirs.push([dx > 0 ? 1 : -1, 0]);
+        if (dy) dirs.push([0, dy > 0 ? -1 : 1]);
+      }
+      for (var d = 0; d < dirs.length; d++) {
+        var nx = state.me.x + dirs[d][0];
+        var ny = state.me.y + dirs[d][1];
+        if (nx < 0 || ny < 0 || nx >= state.size || ny >= state.size) continue;
+        var cc = state.cells.charCodeAt(ny * state.size + nx) - 48;
+        if (cc === 0 || cc === 6) continue;
+        attemptMove(dirs[d][0], dirs[d][1]);
+        return;
+      }
+    }
+
     var bumpTimer = 0;
     function bump(dx, dy) {
       if (bumpTimer) return;
@@ -5600,6 +5805,7 @@
       if (!dir) return;
       e.preventDefault();
       if (walkPath.length) stopWalk();
+      if (followTarget) stopFollow();
       if (heldKey === e.keyCode) return;
       heldKey = e.keyCode;
       attemptMove(dir[0], dir[1]);
@@ -5720,6 +5926,7 @@
     function stickDown(e) {
       if (!state.ready || flying) return;
       if (walkPath.length) stopWalk();
+      if (followTarget) stopFollow();
       if (stickPointer !== null) return;
       e.preventDefault();
       stickPointer = e.pointerId;
@@ -5775,6 +5982,16 @@
       };
     };
 
+    function playerAt(wx, wy) {
+      var ids = Object.keys(state.players);
+      for (var i = 0; i < ids.length; i++) {
+        var p = state.players[ids[i]];
+        if (!p) continue;
+        if (Math.abs(p.x - wx) <= 0.6 && Math.abs(p.y - wy) <= 0.6) return p;
+      }
+      return null;
+    }
+
     function onCanvasClick(e) {
       if (!state.ready || flying) return;
       if (sheet.hidden === false || modal.hidden === false || tutorial.hidden === false) return;
@@ -5782,6 +5999,14 @@
       var wx = Math.floor((e.clientX - rect.left - view.ox) / view.tile);
       var wy = Math.floor((e.clientY - rect.top - view.oy) / view.tile);
       if (wx < 0 || wy < 0 || wx >= state.size || wy >= state.size) return;
+      // 点到同学：打开同学菜单（跟随 / 送火）—— 社交是点出来的
+      var hitP = playerAt(wx, wy);
+      if (hitP && hitP.id !== myId) {
+        stopWalk();
+        openSheet('player', hitP.name);
+        renderPlayerMenu(sheetBody, hitP);
+        return;
+      }
       // 云海与湖水都不可点（那是墙，不是路）
       var cc = state.cells.charCodeAt(wy * state.size + wx) - 48;
       if (cc === 0 || cc === 6) return;
@@ -5796,7 +6021,10 @@
     }
     canvas.addEventListener('click', onCanvasClick);
     onDestroy(function() { canvas.removeEventListener('click', onCanvasClick); });
-    onDestroy(function() { if (walkTimer) { clearInterval(walkTimer); walkTimer = 0; } });
+    onDestroy(function() {
+      if (walkTimer) { clearInterval(walkTimer); walkTimer = 0; }
+      if (followTimer) { clearInterval(followTimer); followTimer = 0; }
+    });
 
     // ---------- 动作 ----------
 
@@ -5819,15 +6047,20 @@
         // 增量要在覆盖 state.me.shards 之前算出来，浮字上写的必须是这一次真的捡到几枚
         var gain = Math.max(1, (data.shards | 0) - (state.me.shards | 0));
         state.me.shards = data.shards;
-        // 采集是唯一的「主动补火」：一次 +14，约等于走过五格半的消耗。
-        // 调这个数就是调整个游戏的节奏 —— 玩家必须不断地「出去捡、走回来」。
-        lightState.v = Math.min(LIGHT_MAX, lightState.v + (data.meteor ? 22 : 14));
+        // 采集是唯一的「主动补火」：连击加成也回一点火 —— 快节奏本身就有奖励
+        lightState.v = Math.min(LIGHT_MAX, lightState.v + (data.meteor ? 22 : 14) + (data.comboBonus ? data.comboBonus * 3 : 0));
         if (data.meteor) {
           delete state.meteorNodes[x + ',' + y];
           toast('拾到一颗星陨　共 ' + data.shards + ' 枚星屑', 'warm');
         } else {
           state.gathered[x + ',' + y] = Date.now();
-          toast('+1 星屑　共 ' + data.shards + ' 枚');
+          // 连击反馈：×2 起浮字，×4 起变调，×8 起金字加码 —— 节奏感全靠递进
+          if (data.combo >= 2) {
+            spawnFloat(x + 0.5, y + 0.1, '连击 ×' + data.combo + (data.comboBonus ? ' +' + data.comboBonus : ''), data.combo >= 8 ? [255, 214, 130] : [170, 220, 255], data.combo >= 8 ? 0.34 : 0.28);
+            audio.blip(520 + Math.min(10, data.combo) * 55, 0.18, 'sine', 0.12, 0);
+          }
+          spawnFloat(x + 0.5, y - 0.05, '+' + (data.gain || 1), [255, 236, 170], 0.26);
+          toast('+' + (data.gain || 1) + ' 星屑　共 ' + data.shards + ' 枚' + (data.combo >= 4 ? '　连击 ×' + data.combo : ''));
         }
         if (data.reveal) revealCells(data.reveal);
         bombGather(x + 0.5, y + 0.5, !!data.meteor, gain);
@@ -6001,6 +6234,31 @@
       });
     }
 
+    // 灯柱升级：5 星屑，半径 4→6，全班受益
+    function doUpgrade() {
+      if (!state.ready || flying) return;
+      var lp = upgradableLampNearMe();
+      if (!lp) return;
+      http('post', '/shiguang/upgrade', { x: lp.x, y: lp.y }).then(function(data) {
+        if (!data) return;
+        if (data.rejected) {
+          if (data.rejected === 'shards') toast('还差 ' + (data.need - state.me.shards) + ' 枚星屑');
+          else if (data.rejected === 'max') toast('这根灯柱已经是二级了');
+          else if (data.rejected === 'far') toast('走近一点再升级');
+          else toast('升不了');
+          return;
+        }
+        state.me.shards = data.shards;
+        addLamp(lp.x, lp.y, state.lamps[lp.x + ',' + lp.y].c, 2);
+        sfx.build();
+        camPunch(0.972, 600);
+        toast('灯柱升级了　光照更远', 'warm');
+        updateHud();
+      }).catch(function(err) {
+        toast((err && err.message) || '升级失败');
+      });
+    }
+
     // 纸鸢快线：打开选岛面板
     function doFly() {
       if (!state.ready || flying) return;
@@ -6056,12 +6314,14 @@
     btnFish.addEventListener('click', doFish);
     btnFly.addEventListener('click', doFly);
     btnStele.addEventListener('click', doStele);
+    btnUpgrade.addEventListener('click', doUpgrade);
     onDestroy(function() {
       btnGather.removeEventListener('click', doGather);
       btnBuild.removeEventListener('click', doBuild);
       btnPlant.removeEventListener('click', doPlant);
       btnFish.removeEventListener('click', doFish);
       btnFly.removeEventListener('click', doFly);
+      btnUpgrade.removeEventListener('click', doUpgrade);
       btnStele.removeEventListener('click', doStele);
     });
 
@@ -6735,6 +6995,55 @@
       renderBook(sheetBody, 0);
     }
 
+    // ---------- 同学菜单（跟随 / 送火） ----------
+    function renderPlayerMenu(body, p) {
+      clearNode(body);
+      var head = el('div', 'sg-pm-head');
+      head.appendChild(el('div', 'sg-pm-name', p.name));
+      if (p.title && p.title !== 't_pick') {
+        var tn = shopNameOf('title', p.title);
+        if (tn) head.appendChild(el('div', 'sg-pm-role', '「' + tn + '」'));
+      }
+      var man = Math.abs(p.x - state.me.x) + Math.abs(p.y - state.me.y);
+      head.appendChild(el('div', 'sg-cf-note', man + ' 格之外 · (' + p.x + ', ' + p.y + ')'));
+      body.appendChild(head);
+
+      var followBtn = el('button', 'sg-set-action');
+      followBtn.type = 'button';
+      followBtn.appendChild(svgIcon('pin'));
+      followBtn.appendChild(el('span', null, '跟随 TA —— 自动沿路跟在身边'));
+      followBtn.addEventListener('click', function() {
+        closeSheet();
+        startFollow(p.id);
+      });
+      body.appendChild(followBtn);
+
+      var giveBtn = el('button', 'sg-set-action');
+      giveBtn.type = 'button';
+      giveBtn.appendChild(svgIcon('shard'));
+      giveBtn.appendChild(el('span', null, '送一枚星屑（1 星屑，6 格内）'));
+      giveBtn.addEventListener('click', function() {
+        http('post', '/shiguang/give', { to: p.id }).then(function(data) {
+          if (data && data.rejected) {
+            if (data.rejected === 'shards') toast('星屑不够');
+            else if (data.rejected === 'far') toast('走近一点再送');
+            else if (data.rejected === 'offline') toast('TA 已经不在岛上了');
+            else toast('送不出去');
+            return;
+          }
+          state.me.shards = data.shards;
+          sfx.award();
+          toast('送了一枚星屑给 ' + p.name, 'warm');
+          closeSheet();
+          updateHud();
+        }).catch(function(err) {
+          toast((err && err.message) || '没能送出去');
+        });
+      });
+      body.appendChild(giveBtn);
+      body.appendChild(el('div', 'sg-tip', '跟随会被任何移动打断；送出的星屑会化作 TA 身边的一圈金光。'));
+    }
+
     // ---------- 漂流瓶 ----------
     function openBottles() {
       openSheet('bottles', '漂流瓶');
@@ -6816,7 +7125,9 @@
         ['飞', '码头边按「快线」搭纸鸢跨岛（2 星屑），落地自动点亮周围。'],
         ['碑', '八岛间藏着五座石碑。走近按「触碑」唤醒（+5 星屑），集齐五座全班解锁秘境。'],
         ['雨', '流星雨不定时落在某座岛上，星陨比星屑更值得抢。'],
-        ['伴', '岛上有居民（提灯守夜的人）。走近他们会跟你搭话。']
+        ['伴', '岛上有居民（提灯守夜的人）。走近他们会跟你搭话。'],
+        ['同', '点同学打开菜单：可以跟随 TA，或送一枚星屑。屏幕边缘的光点指向看不见的同学。'],
+        ['界', '云海有尽头：走到世界边缘能看到四座界标灯桩 —— 那是群岛的边界。']
       ];
       for (var i = 0; i < steps.length; i++) {
         var row = el('div', 'sg-help-row');
@@ -7179,7 +7490,7 @@
         if (payload.lamps) {
           for (var l = 0; l < payload.lamps.length; l++) {
             var lampRec = payload.lamps[l];
-            addLamp(lampRec[0], lampRec[1], lampRec[2]);
+            addLamp(lampRec[0], lampRec[1], lampRec[2], lampRec[3]);
           }
           state.lampCount = Object.keys(state.lamps).length;
         }
@@ -7246,6 +7557,30 @@
         if (d <= 12) showBanner('rune', payload.by + ' 唤醒了「' + payload.name + '」', payload.rune, '', 4600);
       });
 
+      var offEnter = realtime.subscribe('shiguang.world.enter', function(payload) {
+        if (!payload || payload.id === myId) return;
+        showBanner('kite', payload.name + ' 来到了群岛', '灯柱的光会为 TA 引路 —— 点 TA 可以跟随或送火', '', 4600);
+        sfx.tap();
+      });
+      var offLeave = realtime.subscribe('shiguang.world.leave', function(payload) {
+        if (!payload || payload.id === myId) return;
+        // 从本地名单里摘掉，罗盘与人数立刻归真
+        if (state.players[payload.id]) delete state.players[payload.id];
+        toast((payload.name || '有同学') + ' 回舱休息了');
+      });
+      var offSurge = realtime.subscribe('shiguang.world.surge', function(payload) {
+        if (!payload) return;
+        if (payload.active) {
+          state.surge = { active: true, until: payload.until || (Date.now() + 45000) };
+          showBanner('rune', '暗涌来了', '全图灯柱变暗 45 秒 —— 回到灯边，守住你的火', 'meteor', 6000);
+          sfx.meteor();
+        } else {
+          state.surge = null;
+          toast('暗涌退了，灯柱重新亮起来');
+        }
+        updateHud();
+      });
+
       var offSecret = realtime.subscribe('shiguang.world.secret', function(payload) {
         if (!payload) return;
         showBanner('rune', '秘境之门开启', '五座石碑全部苏醒 —— 云海深处传来了回响', 'legend', 6500);
@@ -7282,6 +7617,9 @@
         if (offMeteor) offMeteor();
         if (offLegend) offLegend();
         if (offStele) offStele();
+        if (offEnter) offEnter();
+        if (offLeave) offLeave();
+        if (offSurge) offSurge();
         if (offSecret) offSecret();
         if (offAward) offAward();
       });
@@ -7298,6 +7636,14 @@
         if (typeof data.lampCount === 'number') state.lampCount = data.lampCount;
         if (typeof data.claimable === 'number') state.claimable = data.claimable;
         applyMeteor(data.meteor);
+        if (data.surge && data.surge.active) {
+          if (!state.surge || !state.surge.active) {
+            state.surge = { active: true, until: data.surge.until || (Date.now() + 45000) };
+            showBanner('rune', '暗涌来了', '全图灯柱变暗 45 秒 —— 回到灯边，守住你的火', 'meteor', 6000);
+          }
+        } else if (state.surge && state.surge.active) {
+          state.surge = null;
+        }
         if (state.meteor && Date.now() > state.meteor.endsAt) {
           state.meteor = null;
           state.meteorNodes = {};
@@ -7324,7 +7670,7 @@
           upsertPlayer(pr.id, pr.name, pr.x, pr.y, pr.dir, now, pr.hat, pr.lantern, pr.title);
         }
         state.lamps = {};
-        for (var l = 0; l < data.lamps.length; l++) addLamp(data.lamps[l].x, data.lamps[l].y, data.lamps[l].c);
+        for (var l = 0; l < data.lamps.length; l++) addLamp(data.lamps[l].x, data.lamps[l].y, data.lamps[l].c, data.lamps[l].level);
         for (var fk in state.flowers) {
           if (Object.prototype.hasOwnProperty.call(state.flowers, fk)) {
             var parts = fk.split(',');
@@ -7555,7 +7901,7 @@
 
       state.lamps = {};
       if (data.lamps) {
-        for (var i = 0; i < data.lamps.length; i++) addLamp(data.lamps[i].x, data.lamps[i].y, data.lamps[i].c);
+        for (var i = 0; i < data.lamps.length; i++) addLamp(data.lamps[i].x, data.lamps[i].y, data.lamps[i].c, data.lamps[i].level);
       }
       state.flowers = {};
       if (data.flowers) {

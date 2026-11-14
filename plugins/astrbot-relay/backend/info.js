@@ -10,11 +10,11 @@
 
 var fs = require('fs');
 var path = require('path');
-var db = require('../../../server/src/utils/db');
-var config = require('../../../server/src/config');
-var time = require('../../../server/src/utils/time');
-var cache = require('../../../server/src/utils/cache');
-var weatherService = require('../../../server/src/services/weather');
+var db = require('_sdk/backend/host').db;
+var config = require('_sdk/backend/host').config;
+var time = require('_sdk/backend/host').time;
+var cache = require('_sdk/backend/host').cache;
+var weatherService = require('_sdk/backend/host').weather;
 
 var RESOURCES_DIR = config.resourcesDir;
 

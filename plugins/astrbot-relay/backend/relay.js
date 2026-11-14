@@ -20,7 +20,7 @@ var fs = require('fs');
 var path = require('path');
 var crypto = require('crypto');
 var botUser = require('./bot-user');
-var db = require('../../../server/src/utils/db');
+var db = require('_sdk/backend/host').db;
 
 var CFG = {
   ciHttpPort: parseInt(process.env.PORT, 10) || 3000,

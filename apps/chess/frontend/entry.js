@@ -3024,7 +3024,14 @@
         for (var n = 0; n < navButtons.length; n++) navButtons[n].disabled = flag;
       }
     }
+    // 标题栏按钮组会被 hostNavbar 整块搬进宿主导航栏（不在 root 子树内），
+    // 因此 onAction 同时挂在 root 与 actionsDivElement 上。节点仍留在 root 内时
+    //（旧版宿主 / navbar:'custom'）一次 click 会冒泡到两处 —— 用同一个 event
+    // 去重，保证动作只执行一次，否则「悔棋」会连发两次 POST /undo。
+    var lastActionEvent = null;
     function onAction(event) {
+      if (lastActionEvent === event) return;
+      lastActionEvent = event;
       var action = event.target.closest('[data-action]');
       if (!action || disposed) return;
       var kind = action.dataset.action;
@@ -3283,6 +3290,10 @@
     boardElement.addEventListener('click', onBoardTapClick);
     boardElement.addEventListener('contextmenu', preventContext);
     root.addEventListener('click', onAction);
+    // 1.15.2：按钮组被搬进宿主导航栏后，只委托 root 会收不到它的点击 ——
+    // 表现就是「悔棋 / 退出点了没反应」。监听器直接挂在被搬走的节点上，
+    // DOM 搬运（appendChild）不会丢监听；旧宿主下节点仍在 root 内，由 onAction 去重。
+    if (actionsDivElement) actionsDivElement.addEventListener('click', onAction);
     // 快捷聊天：回车发送（平板软键盘的「发送」键同样派发 Enter）
     if (chatInputElement) chatInputElement.addEventListener('keydown', onChatKeydown);
     var removeChatInput = function() {
@@ -3350,7 +3361,10 @@
       boardElement.removeEventListener('click', onBoardTapClick);
       boardElement.removeEventListener('contextmenu', preventContext);
     };
-    var removeRootClick = function() { root.removeEventListener('click', onAction); };
+    var removeRootClick = function() {
+      root.removeEventListener('click', onAction);
+      if (actionsDivElement) actionsDivElement.removeEventListener('click', onAction);
+    };
     var onResize = function() { syncMetrics(); };
     window.addEventListener('resize', onResize);
     var removeResize = function() { window.removeEventListener('resize', onResize); };
@@ -3383,7 +3397,9 @@
     }
     // 标题栏职责移交宿主 AppNavBar（1.15.0）：返回/标题由宿主导航栏承担，
     // 连接灯与操作按钮整块搬进宿主导航栏右区。DOM 搬运 = appendChild 自动从
-    // statusbar 摘除，事件监听随节点走，render 的显隐/禁用逻辑零改动。
+    // statusbar 摘除，节点引用与直接挂在节点上的监听都跟着走，render 的显隐/禁用零改动。
+    // ⚠️ 但「委托在 root 上」的监听不会跟走：节点搬家后已不在 root 子树内，
+    //    click 不再冒泡到 root —— 1.15.2 为此把 onAction 也挂到 actionsDivElement 上。
     // 宿主导航栏不可用（旧版宿主 / navbar:'custom'）时节点原地留在 statusbar，优雅降级。
     var hostNavbarApi = (context.ui && typeof context.ui.hostNavbar === 'object') ? context.ui.hostNavbar : null;
     if (hostNavbarApi) {

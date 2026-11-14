@@ -5,11 +5,13 @@
 var express = require('express');
 var path = require('path');
 var router = express.Router();
-var requireAuth = require(path.resolve(process.cwd(), 'src/middleware/auth')).requireAuth;
-var db = require(path.resolve(process.cwd(), 'src/utils/db'));
+var requireAuth = require('_sdk/backend/host').auth.requireAuth;
+var db = require('_sdk/backend/host').db;
 
 var KV_KEY = 'desktop_pet';
-var MAX_DIM = 32;
+// v0.41：画板上限 32 → 64（48/64 是实体拼豆板常见规格）。
+// 64×64 = 4096 格，data 字符串 4096 字符，KV 存档与悬浮层渲染都还能扛。
+var MAX_DIM = 64;
 var PALETTE = {
   p16: ['#1B1B1F', '#8E8E93', '#FFFFFF', '#E5E5EA', '#FF3B30', '#FF9EBB', '#FF9500', '#FFD60A',
         '#A0715F', '#34C759', '#248A3D', '#64D2FF', '#0A84FF', '#BF5AF2', '#FFD8B8', '#FF7B92']
@@ -82,6 +84,144 @@ var TEMPLATES = [
       '...9999999999...',
       '....99999999....',
       '.....999999.....',
+      '................',
+      '................'
+    ]
+  },
+  {
+    id: 'strawberry',
+    name: '小草莓',
+    desc: '三颗小叶子托着的红草莓，籽是柠檬黄',
+    art: [
+      '................',
+      '.......9a.......',
+      '.....99aa99.....',
+      '....99999999....',
+      '..444444444444..',
+      '.44447444474444.',
+      '.44444444444444.',
+      '..444474474444..',
+      '..444444444444..',
+      '..444444444444..',
+      '...4444444444...',
+      '...4444444444...',
+      '....44444444....',
+      '.....444444.....',
+      '......4444......',
+      '................'
+    ]
+  },
+  {
+    id: 'heart',
+    name: '奶油爱心',
+    desc: '一颗有高光的糖霜爱心，适合送给同桌',
+    art: [
+      '................',
+      '.5fff......5fff.',
+      '.5ffff....5ffff.',
+      '.ffffffffffffff.',
+      '.ffffffffffffff.',
+      '.ffffffffffffff.',
+      '.ffffffffffffff.',
+      '..ffffffffffff..',
+      '...ffffffffff...',
+      '....ffffffff....',
+      '.....ffffff.....',
+      '......ffff......',
+      '.......ff.......',
+      '................',
+      '................',
+      '................'
+    ]
+  },
+  {
+    id: 'star',
+    name: '许愿星',
+    desc: '五角星中间藏着一点橙色，像夜空里的暖光',
+    art: [
+      '................',
+      '.......77.......',
+      '.......77.......',
+      '......7777......',
+      '......7777......',
+      '.77777777777777.',
+      '..777777777777..',
+      '...7777777777...',
+      '....77766777....',
+      '....77766777....',
+      '...7777777777...',
+      '..777777777777..',
+      '..7777....7777..',
+      '.777........777.',
+      '................',
+      '................'
+    ]
+  },
+  {
+    id: 'dino',
+    name: '小恐龙',
+    desc: '背着两排小刺，正在冲你眨眼',
+    art: [
+      '................',
+      '......9a9.......',
+      '.....99a999.....',
+      '....99999999....',
+      '...9999999999...',
+      '...9900990099...',
+      '...9999999999...',
+      '...9999999999...',
+      '....99999999....',
+      '.....999999.....',
+      '.....9....9.....',
+      '....9aa..9aa....',
+      '................',
+      '................',
+      '................',
+      '................'
+    ]
+  },
+  {
+    id: 'mushroom',
+    name: '小蘑菇',
+    desc: '红伞伞上撒着白糖霜，伞下是奶油色的身子',
+    art: [
+      '................',
+      '.....444444.....',
+      '...4444444444...',
+      '..444444444444..',
+      '.44422444424444.',
+      '.44444444444444.',
+      '..444444444444..',
+      '...4444444444...',
+      '....eeeeeeee....',
+      '....ee0ee0ee....',
+      '....eeeeeeee....',
+      '....eeeeeeee....',
+      '.....eeeeee.....',
+      '................',
+      '................',
+      '................'
+    ]
+  },
+  {
+    id: 'penguin',
+    name: '小企鹅',
+    desc: '一只站得笔直的小企鹅，脚是两片小橙子',
+    art: [
+      '................',
+      '.......00.......',
+      '......0000......',
+      '.....000000.....',
+      '....00222200....',
+      '....00202200....',
+      '.....026620.....',
+      '.....022220.....',
+      '....02222220....',
+      '....02222220....',
+      '....02222220....',
+      '.....022220.....',
+      '....66....66....',
+      '................',
       '................',
       '................'
     ]
@@ -266,6 +406,7 @@ function diaryPush(st, dateKey, ev) {
 
 function diaryText(dateKey, ev) {
   var feed = 0, feast = 0, poke = 0, focusMin = 0, wins = 0, caps = 0;
+  var heartN = 0, talkN = 0, nightN = 0;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i] || {};
     if (e.k === 'feed') feed += (e.n || 0);
@@ -274,6 +415,9 @@ function diaryText(dateKey, ev) {
     else if (e.k === 'focus') focusMin += (e.m || 0);
     else if (e.k === 'win') wins += (e.n || 0);
     else if (e.k === 'capture') caps += (e.n || 0);
+    else if (e.k === 'heart') heartN += (e.n || 0);
+    else if (e.k === 'talk') talkN += (e.n || 0);
+    else if (e.k === 'night') nightN += (e.n || 0);
   }
   var seed = fnv1a(dateKey);
   // 每次取模板都推进一次种子：同一天刷新仍然是同一句（确定性），
@@ -305,6 +449,19 @@ function diaryText(dateKey, ev) {
   }
   if (wins > 0) parts.push('打架赢了 ' + wins + ' 场。');
   if (caps > 0) parts.push('交到了 ' + caps + ' 个新朋友。');
+  if (heartN > 0) {
+    parts.push(pick([
+      '今天被陪了 ' + heartN + ' 次，尾巴一直翘着。',
+      '主人陪我待了 ' + heartN + ' 会儿，什么都没做也很好。'
+    ]));
+  }
+  if (talkN > 0) {
+    parts.push(pick([
+      '和主人说了 ' + talkN + ' 次心里话，我都记在小本子上。',
+      '今天听主人讲了很多，原来被信任是这种感觉。'
+    ]));
+  }
+  if (nightN > 0) parts.push('今天听到主人说晚安，睡得很沉。');
 
   if (!parts.length) {
     return pick([
@@ -332,6 +489,546 @@ function diaryView(st, today) {
   return out;
 }
 
+// ==================== 情感陪伴 · 心意（v0.37.0）====================
+// 「不接 AI」是产品选择：陪伴感来自「写得好的固定台词 + 真的记得你说过什么」，
+// 不是每次现编一段。所有回应都来自下面的静态台词表，服务端只做三件事：
+//   1. 记住你们聊过什么（话题 / 选择 / 日期）；
+//   2. 按心情、时段、多久没见，给出**可解释**的情绪；
+//   3. 用少量羁绊与心情作为「被认真对待」的回馈。
+// 数据全部塞进现有 pet state，不建表、不迁移；老存档缺字段一律按默认值现算。
+var HEART_MOOD_DEFAULT = 60;      // 心情能量默认值
+var HEART_MOOD_DECAY = 2;         // 每小时自然回落 2 点
+var HEART_BOND_DAILY = 6;         // 情感动作给羁绊的日上限（与互动 25 点分开）
+var HEART_TALK_DAILY = 2;         // 每天最多两次完整谈心
+var HEART_TALK_BOND = 3;          // 每次谈心基础羁绊（话题可覆盖）
+var HEART_TALK_MOOD = 14;         // 每次谈心基础心情
+var HEART_NIGHT_BOND = 2;
+var HEART_NIGHT_MOOD = 10;
+
+var HEART_ACTIONS = {
+  hug: {
+    id: 'hug', name: '抱一抱', icon: '🤗', desc: '把它抱起来，让它听一会儿心跳',
+    mood: 9, bond: 2, cap: 2, cooldown: 15 * 60 * 1000
+  },
+  groom: {
+    id: 'groom', name: '顺顺毛', icon: '🪶', desc: '从头顶顺到尾巴，慢慢来',
+    mood: 5, bond: 1, cap: 3, cooldown: 8 * 60 * 1000
+  },
+  daze: {
+    id: 'daze', name: '一起发呆', icon: '🌙', desc: '什么都不做，就陪它坐一会儿',
+    mood: 7, bond: 1, cap: 2, cooldown: 12 * 60 * 1000
+  }
+};
+var HEART_ACTION_IDS = ['hug', 'groom', 'daze'];
+
+var HEART_ACTION_LINES = {
+  hug: [
+    '（把下巴搁在你肩上）这样就好。',
+    '抱一会儿，充电。',
+    '（心跳有点快，是跑过来的）'
+  ],
+  groom: [
+    '（眯起眼睛）再顺一下。',
+    '毛都被你梳得发亮了。',
+    '（翻了个身）这边也要。'
+  ],
+  daze: [
+    '（一起看着窗外）',
+    '什么都不做也挺好的。',
+    '（尾巴轻轻搭在你手上）'
+  ]
+};
+
+// 性格只负责给台词加一点味道，不改变任何数值。
+// 每三次里加一次尾巴，避免每句都拖着同一条后缀。
+var HEART_PERSONA_SUFFIX = {
+  glutton: '（说完把藏起来的小鱼干推到你手边）',
+  clingy: '（一边说一边往你手边挪）',
+  aloof: '（嘴上这么说，尾巴尖轻轻碰了碰你）',
+  curious: '（眼睛一眨不眨地盯着你）',
+  sleepy: '（打了个小哈欠，还是撑着听你说完）'
+};
+
+// 谈心话题：全部是静态剧本。每个话题只有「开场 → 追问 → 两个回答 → 收尾」，
+// 结构固定反而让玩家感到「它真的在听」，而不是在和一个随机复读机聊天。
+var TALK_TOPICS = [
+  {
+    id: 'happy', name: '有件开心的事', icon: '🌞',
+    userLine: '今天有件开心的事，想跟你讲。',
+    open: ['那我要坐好听了。', '快说快说，我尾巴已经摇起来了。'],
+    ask: '是什么让你今天这么高兴呀？',
+    choices: [
+      { id: 'share', label: '从头讲给它听' },
+      { id: 'small', label: '其实也不算大事' }
+    ],
+    replies: {
+      share: [
+        '听你讲完，我也跟着高兴起来了。',
+        '好，这件事我记住了。以后你心情不好，我拿它逗你。'
+      ],
+      small: [
+        '小事也很好呀。日子就是这些小事拼起来的。',
+        '你愿意说，我就愿意听。'
+      ]
+    },
+    close: ['这份好心情我帮你收进小罐子里了。', '以后不开心的时候，记得今天。'],
+    mood: 16, bond: 3
+  },
+  {
+    id: 'tired', name: '今天有点累', icon: '🌧️',
+    userLine: '今天有点累，想在你旁边待一会儿。',
+    open: ['那先别逞强，靠过来一点。', '累的时候不用装没事，我在这儿。'],
+    ask: '是身体累，还是心里累？',
+    choices: [
+      { id: 'body', label: '身体累，想歇会儿' },
+      { id: 'mind', label: '心里也累，说不上来' }
+    ],
+    replies: {
+      body: [
+        '那就把肩膀放下来。今天到这儿就够了。',
+        '我给你守着，你闭一会儿眼睛。'
+      ],
+      mind: [
+        '说不上来也没关系。我陪你坐着，等它慢慢过去。',
+        '不用马上想明白。今晚先好好睡。'
+      ]
+    },
+    close: ['今晚早点睡，我把灯留小一点。', '明天再累的话，也记得来找我。'],
+    mood: 18, bond: 3
+  },
+  {
+    id: 'sad', name: '心里有点难过', icon: '🫧',
+    userLine: '心里有点难过，不太想说话。',
+    open: ['我不问原因，先陪你坐一会儿。', '难过的时候不用解释，我认识你就够了。'],
+    ask: '想说说，还是想安静待着？',
+    choices: [
+      { id: 'tell', label: '听我慢慢说' },
+      { id: 'quiet', label: '先安静待着' }
+    ],
+    replies: {
+      tell: [
+        '嗯，我在听。你慢慢讲，讲到哪里算哪里。',
+        '听起来真的不好受。你能说出来，已经很勇敢了。'
+      ],
+      quiet: [
+        '好，那我们不说话。我就坐在这儿。',
+        '（把尾巴轻轻搭在你手边）'
+      ]
+    },
+    close: ['难过不用马上好起来，我等你。', '今天先这样也可以，明天我还在。'],
+    mood: 20, bond: 3
+  },
+  {
+    id: 'angry', name: '有件事让我生气', icon: '🔥',
+    userLine: '有件事让我很生气，越想越气。',
+    open: ['谁惹你了？我帮你瞪他。', '先别憋着，在这儿骂两句也行。'],
+    ask: '想先吐槽，还是想让它过去？',
+    choices: [
+      { id: 'vent', label: '我要吐槽一下' },
+      { id: 'calm', label: '算了，想冷静一下' }
+    ],
+    replies: {
+      vent: [
+        '好，我听着。骂完我们再一起想办法。',
+        '确实过分。你生气是有道理的。'
+      ],
+      calm: [
+        '那先深呼吸。气还在，但不让它占满今天。',
+        '冷静不是认输，是把自己捡回来。'
+      ]
+    },
+    close: ['不管怎样，别把气撒在自己身上。', '你要是还气，就再跟我说一遍，我不嫌烦。'],
+    mood: 14, bond: 3
+  },
+  {
+    id: 'lonely', name: '有点想找人说话', icon: '🌙',
+    userLine: '有点想找人说话，就来找你了。',
+    open: ['我在呀，一直都在。', '来得正好，我刚刚也想找你。'],
+    ask: '是想说话，还是想有人陪着就行？',
+    choices: [
+      { id: 'talk', label: '陪我聊会儿' },
+      { id: 'stay', label: '陪着我待着就好' }
+    ],
+    replies: {
+      talk: [
+        '那今天从哪件小事说起都行。',
+        '跟你说话的时候，时间会变得慢一点。'
+      ],
+      stay: [
+        '好，那我不吵你。你忙你的，我在旁边。',
+        '（往你手边挪了挪）'
+      ]
+    },
+    close: ['你随时都可以来找我，不用等有事的时候。', '这间屋子因为你才像个家。'],
+    mood: 16, bond: 3
+  },
+  {
+    id: 'excited', name: '有件期待的事', icon: '✨',
+    userLine: '有件很期待的事，想想就开心。',
+    open: ['眼睛都亮起来了，说来听听。', '期待的事最好了，讲给我听。'],
+    ask: '什么时候会发生呀？',
+    choices: [
+      { id: 'soon', label: '很快就到了' },
+      { id: 'wait', label: '还要等一阵子' }
+    ],
+    replies: {
+      soon: [
+        '那我们要不要一起数日子？',
+        '到时候记得回来告诉我结果。'
+      ],
+      wait: [
+        '等的过程也算数。每天靠近一点。',
+        '我陪你等。反正我哪儿也不去。'
+      ]
+    },
+    close: ['期待本身就已经是礼物了。', '到时候不管结果怎样，都回来跟我说一声。'],
+    mood: 16, bond: 3
+  }
+];
+var TALK_TOPIC_MAP = {};
+for (var _ti = 0; _ti < TALK_TOPICS.length; _ti++) TALK_TOPIC_MAP[TALK_TOPICS[_ti].id] = TALK_TOPICS[_ti];
+
+var HEART_NIGHT_LINES = {
+  late: ['晚安。明天见。', '（把被子给你掖好）晚安。', '灯我关了，你也早点睡。'],
+  early: ['那我先睡啦，你也别太晚。', '晚安，做个好梦。']
+};
+
+// 回忆册：不是成就，是「你们之间发生过的事」。一旦解锁永久保留。
+var HEART_MEMORIES = [
+  { id: 'first_meet', title: '第一次见面', icon: '🌱', desc: '它从一个小小的像素蛋里探出头，从那天起住进了你的桌面。', hint: '领养它' },
+  { id: 'first_feed', title: '第一顿饭', icon: '🍚', desc: '你放在食盆里的第一口饭，它吃得很认真。', hint: '喂它一次' },
+  { id: 'first_focus', title: '第一次陪读', icon: '⏳', desc: '你们一起安静坐了十五分钟，谁也没打扰谁。', hint: '完成一次专注' },
+  { id: 'first_talk', title: '第一次说心里话', icon: '💬', desc: '它第一次听你讲自己的事，从此有了只属于你们的话题。', hint: '和它聊一次' },
+  { id: 'talk_5', title: '小树洞', icon: '🕯️', desc: '五次心里话，它都记着。', hint: '累计聊天 5 次' },
+  { id: 'talk_20', title: '默契搭档', icon: '🫧', desc: '二十次聊天之后，它已经能猜到你要说什么了。', hint: '累计聊天 20 次' },
+  { id: 'night_3', title: '三声晚安', icon: '🌙', desc: '连续三个晚上，你都记得跟它说晚安。', hint: '连续说晚安 3 天' },
+  { id: 'late_talk', title: '深夜那盏灯', icon: '🕯️', desc: '很晚了，你还愿意跟它说说话。', hint: '深夜和它聊一次' },
+  { id: 'streak_7', title: '一周的约定', icon: '📅', desc: '连续七天打开这间小屋。', hint: '连续登录 7 天' },
+  { id: 'bond_60', title: '亲密无间', icon: '💞', desc: '羁绊到 60 的那天，它主动把尾巴绕到你手上。', hint: '羁绊达到 60' },
+  { id: 'days_30', title: '一个月的陪伴', icon: '🏡', desc: '三十天，它把这间小屋当成了家。', hint: '陪伴 30 天' },
+  { id: 'wonder_7', title: '七次小惊喜', icon: '✨', desc: '七天里，它每天都给你留了一点小小的好事。', hint: '累计领取奇遇 7 次' }
+];
+
+function heartDateKey(d) {
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+function heartShiftKey(key, days) {
+  var d = new Date(key + 'T00:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + days);
+  return heartDateKey(d);
+}
+
+function heartDaysBetween(a, b) {
+  var da = new Date(a + 'T00:00:00');
+  var db = new Date(b + 'T00:00:00');
+  if (isNaN(da.getTime()) || isNaN(db.getTime())) return 0;
+  return Math.round((db - da) / 86400000);
+}
+
+function heartDaysSince(iso) {
+  if (!iso) return 0;
+  // ⚠️ 不能直接 slice(0,10)：adopted_at 是 UTC ISO，东八区凌晨会算成「昨天领养」，
+  //    陪伴天数凭空多一天。先转成本地时间，再取日期。
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return 0;
+  return Math.max(0, heartDaysBetween(heartDateKey(d), todayKey())) + 1;   // 领养当天算第 1 天
+}
+
+function heartClamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+// 心情能量：储存值 + 按小时自然回落。读取时现算，不写回 —— 只在动作发生时锚定。
+function heartMoodNow(st) {
+  var v = Number(st && st.heart_mood);
+  if (!isFinite(v)) v = HEART_MOOD_DEFAULT;
+  var at = Number(st && st.heart_mood_at) || 0;
+  if (at > 0) {
+    var hours = (Date.now() - at) / 3600000;
+    if (hours > 0) v -= hours * HEART_MOOD_DECAY;
+  }
+  return Math.round(heartClamp(v, 0, 100));
+}
+
+function heartMoodView(st) {
+  var v = heartMoodNow(st);
+  var label, tone;
+  if (v >= 80) { label = '心里满满当当'; tone = 'high'; }
+  else if (v >= 60) { label = '心情不错'; tone = 'mid'; }
+  else if (v >= 40) { label = '还算平静'; tone = 'mid'; }
+  else if (v >= 20) { label = '有点低落'; tone = 'low'; }
+  else { label = '很想被陪'; tone = 'low'; }
+  return { value: v, label: label, tone: tone };
+}
+
+function heartMoodBump(st, delta) {
+  var before = heartMoodNow(st);
+  var next = Math.round(heartClamp(before + delta, 0, 100));
+  st.heart_mood = next;
+  st.heart_mood_at = Date.now();
+  return next - before;
+}
+
+// 陪伴动作共享 6 点/日的情感羁绊额度；谈心与晚安各自独立封顶
+// （谈心每天最多 2 次×3、晚安每天 1 次×2），互不挤占。
+function heartBondAdd(st, want, shared) {
+  var add = want;
+  if (shared) {
+    var remaining = Math.max(0, HEART_BOND_DAILY - (st.heart_bond || 0));
+    add = Math.min(want, remaining);
+    if (add > 0) st.heart_bond = (st.heart_bond || 0) + add;
+  }
+  if (add > 0) {
+    st.bond = (st.bond || 0) + add;
+    st.bond_today = (st.bond_today || 0) + add;
+  }
+  return add;
+}
+
+function heartGapDays(st) {
+  return Math.max(0, Number(st && st.heart_gap_days) || 0);
+}
+
+// 情绪：优先级就是这里的顺序。所有输入都能在界面上解释给玩家听，
+// 不做「随机心情」——随机情绪会让照顾失去意义。
+function heartEmotionOf(st) {
+  var h = new Date().getHours();
+  var mood = heartMoodView(st);
+  var gap = heartGapDays(st);
+  var fed = (st && st.fed_today) || 0;
+  if (gap >= 2) {
+    return { id: 'miss', name: '很想你', icon: '🥺', tone: 'low',
+             text: '你不在的时候，我把你的位置一直留着。', reason: '已经 ' + gap + ' 天没见' };
+  }
+  if (h >= 23 || h < 6) {
+    return { id: 'sleepy', name: '困了', icon: '😴', tone: 'low',
+             text: '这个点还没睡吗…我趴一会儿，有事叫我', reason: '夜深了' };
+  }
+  // 阈值与心情标签对齐（<40 才算低落），避免出现「情绪平静、心情却写着有点低落」。
+  if (mood.value < 40) {
+    return { id: 'down', name: '有点低落', icon: '🌧️', tone: 'low',
+             text: '今天有点没精神，想靠你近一点。', reason: '心情能量偏低' };
+  }
+  if (fed === 0 && h >= 12) {
+    return { id: 'hungry', name: '饿了', icon: '🍚', tone: 'low',
+             text: '肚子叫了一声，你听见了吗', reason: '今天还没吃饭' };
+  }
+  if (mood.value >= 80 && ((st && st.bond_today) || 0) >= 8) {
+    return { id: 'bliss', name: '心花怒放', icon: '🥰', tone: 'high',
+             text: '今天被照顾得很好，尾巴一直没放下来', reason: '今天被照顾得很好' };
+  }
+  if (mood.value >= 65) {
+    return { id: 'happy', name: '开心', icon: '😊', tone: 'high',
+             text: '看到你回来，今天就很不错。', reason: '心情能量不错' };
+  }
+  if (gap >= 1) {
+    return { id: 'wait', name: '等到了', icon: '🌤️', tone: 'mid',
+             text: '昨天没见着你，今天补回来。', reason: '昨天没来' };
+  }
+  return { id: 'calm', name: '平静', icon: '🌙', tone: 'mid',
+           text: '在桌上待着，听你敲键盘。', reason: '安安静静的一天' };
+}
+
+function heartGreeting(st, emotion) {
+  var h = new Date().getHours();
+  var lastTopic = st && st.talk_last_topic;
+  var topicName = lastTopic && TALK_TOPIC_MAP[lastTopic] ? TALK_TOPIC_MAP[lastTopic].name : '';
+  if (emotion && emotion.id === 'miss') return '你回来啦。我把你的位置一直留着。';
+  if (h >= 23 || h < 6) return '这么晚还没睡？我陪你一小会儿，然后去睡吧。';
+  if (h < 11) {
+    if (st && st.night_date === heartShiftKey(todayKey(), -1)) {
+      return '昨晚睡得好吗？我醒得比你早一点。';
+    }
+    return '早上好。今天想先做什么？';
+  }
+  if (topicName && st.talk_last_date && st.talk_last_date !== todayKey()) {
+    return '上次你说「' + topicName + '」，今天好些了吗？';
+  }
+  if (heartMoodNow(st) < 30) return '今天不用勉强自己，我就在这儿。';
+  return '你来了。我刚刚还在这儿数窗外的光。';
+}
+
+function heartToday(st) {
+  var today = todayKey();
+  if (!st.heart_date || st.heart_date !== today) {
+    st.heart_date = today;
+    st.heart_act = {};
+    st.heart_bond = 0;
+    st.talk_today = 0;
+  }
+  return today;
+}
+
+function heartPick(arr, seed) {
+  if (!arr || !arr.length) return '';
+  return arr[fnv1a(String(seed)) % arr.length];
+}
+
+function heartPersonaLine(st, uid, base, seed) {
+  var p = personalityOf(st, uid);
+  var suffix = p && HEART_PERSONA_SUFFIX[p.id];
+  if (!suffix || !base) return base;
+  if (fnv1a('persona:' + seed + ':' + (uid || 0)) % 3 !== 0) return base;
+  return base + suffix;
+}
+
+function heartMemReady(st, id) {
+  if (!st) return false;
+  // ⚠️ feed_total / focus_total_min / wonder_total 是 v0.37 新增的累计字段，
+  //    老存档没有。直接判 0 会让「吃过饭、专注过」的老玩家回忆册一片空白，
+  //    所以都用历史痕迹兜一层：喂过就有 last_fed_at，今天专注过就说明以前也专注过。
+  if (id === 'first_meet') return true;
+  if (id === 'first_feed') return (st.feed_total || 0) >= 1 || !!st.last_fed_at || (st.fed_today || 0) > 0;
+  if (id === 'first_focus') return (st.focus_total_min || 0) >= 10 || (st.focus_min || 0) >= 10;
+  if (id === 'first_talk') return (st.talk_total || 0) >= 1;
+  if (id === 'talk_5') return (st.talk_total || 0) >= 5;
+  if (id === 'talk_20') return (st.talk_total || 0) >= 20;
+  if (id === 'night_3') return (st.night_streak || 0) >= 3;
+  if (id === 'late_talk') return !!st.late_talk_once;
+  if (id === 'streak_7') return (st.login_streak || 0) >= 7;
+  if (id === 'bond_60') return (st.bond || 0) >= 60;
+  if (id === 'days_30') return heartDaysSince(st.adopted_at) >= 30;
+  if (id === 'wonder_7') return (st.wonder_total || 0) >= 7 || !!st.wonder_claimed;
+  return false;
+}
+
+// 每次读状态顺手检查一遍回忆；新解锁的返回给前端做提示。
+function checkMemories(st) {
+  var fresh = [];
+  if (!st || !st.adopted) return fresh;
+  var list = st.memories;
+  if (!list || !list.length) list = st.memories = [];
+  var have = {};
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].id) have[list[i].id] = true;
+  }
+  for (var j = 0; j < HEART_MEMORIES.length; j++) {
+    var def = HEART_MEMORIES[j];
+    if (have[def.id] || !heartMemReady(st, def.id)) continue;
+    var at = new Date().toISOString();
+    list.push({ id: def.id, at: at });
+    fresh.push({ id: def.id, title: def.title, icon: def.icon, desc: def.desc, at: at });
+  }
+  return fresh;
+}
+
+function heartMemoryView(st) {
+  var got = {};
+  var list = (st && st.memories) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].id) got[list[i].id] = list[i].at || '';
+  }
+  var out = [];
+  for (var j = 0; j < HEART_MEMORIES.length; j++) {
+    var m = HEART_MEMORIES[j];
+    out.push({
+      id: m.id, title: m.title, icon: m.icon, desc: m.desc, hint: m.hint,
+      unlocked: !!got[m.id], at: got[m.id] || ''
+    });
+  }
+  return out;
+}
+
+function heartStats(st) {
+  var tier = tierOf((st && st.bond) || 0);
+  return {
+    bond: (st && st.bond) || 0,
+    tier: tier,
+    tierName: TIER_NAMES[tier],
+    talks: (st && st.talk_total) || 0,
+    nights: (st && st.night_total) || 0,
+    days: heartDaysSince(st && st.adopted_at),
+    memories: ((st && st.memories) || []).length,
+    memoriesTotal: HEART_MEMORIES.length
+  };
+}
+
+function heartActionView(st, id) {
+  var def = HEART_ACTIONS[id];
+  if (!def || !st) return null;
+  var counts = st.heart_act || {};
+  var used = counts[id] || 0;
+  var at = (st.heart_act_at || {})[id] || 0;
+  var cdLeft = at > 0 ? Math.max(0, def.cooldown - (Date.now() - at)) : 0;
+  return {
+    id: def.id, name: def.name, icon: def.icon, desc: def.desc,
+    cap: def.cap, used: used, left: Math.max(0, def.cap - used),
+    cooldownSec: Math.round(cdLeft / 1000),
+    ready: used < def.cap && cdLeft <= 0
+  };
+}
+
+function heartActionsView(st) {
+  var out = [];
+  for (var i = 0; i < HEART_ACTION_IDS.length; i++) {
+    var v = heartActionView(st, HEART_ACTION_IDS[i]);
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+function heartTalkView(st) {
+  var today = heartToday(st);
+  return {
+    today: (st && st.talk_today) || 0,
+    cap: HEART_TALK_DAILY,
+    left: Math.max(0, HEART_TALK_DAILY - ((st && st.talk_today) || 0)),
+    total: (st && st.talk_total) || 0,
+    lastTopic: (st && st.talk_last_topic) || '',
+    lastDate: (st && st.talk_last_date) || '',
+    date: today
+  };
+}
+
+function heartTopicView(t) {
+  return { id: t.id, name: t.name, icon: t.icon, userLine: t.userLine };
+}
+
+function heartNightWindow() {
+  var h = new Date().getHours();
+  return h >= 18 || h < 4;
+}
+
+function heartGoodnightView(st) {
+  var today = todayKey();
+  return {
+    available: heartNightWindow() && (!st || st.night_date !== today),
+    done: !!(st && st.night_date === today),
+    inWindow: heartNightWindow(),
+    streak: (st && st.night_streak) || 0,
+    total: (st && st.night_total) || 0
+  };
+}
+
+// 完整/摘要视图共用一个函数：/state 只要摘要（小、常调），/heart 要全量。
+function heartView(st, uid, full) {
+  heartToday(st);
+  var mood = heartMoodView(st);
+  var emotion = heartEmotionOf(st);
+  var persona = personalityOf(st, uid);
+  var out = {
+    emotion: emotion,
+    mood: mood,
+    greeting: heartGreeting(st, emotion),
+    anniversaryDays: heartDaysSince(st.adopted_at),
+    personality: persona,
+    talk: heartTalkView(st),
+    goodnight: heartGoodnightView(st),
+    heartBondToday: (st && st.heart_bond) || 0,
+    heartBondCap: HEART_BOND_DAILY,
+    stats: heartStats(st)
+  };
+  if (full) {
+    out.actions = heartActionsView(st);
+    out.talk.topics = [];
+    for (var i = 0; i < TALK_TOPICS.length; i++) out.talk.topics.push(heartTopicView(TALK_TOPICS[i]));
+    out.memories = heartMemoryView(st);
+    out.recentTalks = ((st && st.talk_log) || []).slice(0, 4);
+  }
+  return out;
+}
 
 // ==================== 系别（v0.8.0）====================
 // 宝可梦最有用的那层设计不是「一百多种怪」，而是**属性相克**：
@@ -471,6 +1168,7 @@ router.post('/interact', requireAuth, function(req, res) {
     if (type === 'poke') { state.poked_today = used + 1; diaryPush(state, today, { k: 'poke', n: 1 }); }
     if (type === 'feed') {
       state.fed_today = used + 1;
+      state.feed_total = (state.feed_total || 0) + 1;
       state.last_fed_at = new Date().toISOString();
       if (food === 'feast') {
         state.coins = Math.max(0, (state.coins || 0) - FEAST_COST);
@@ -679,6 +1377,7 @@ router.post('/focus', requireAuth, function(req, res) {
   var addMin = Math.round(usedSec / 60);
   st.coins = (st.coins || 0) + coinsGain;
   st.focus_min = (st.focus_min || 0) + addMin;
+  st.focus_total_min = (st.focus_total_min || 0) + addMin;
   if (addMin > 0) diaryPush(st, today, { k: 'focus', m: addMin });
   writePet(uid, st);
 
@@ -780,6 +1479,24 @@ router.get('/state', requireAuth, function(req, res) {
       writePet(userId(req), state);
     }
   }
+  // v0.37.0：情感陪伴摘要。gapDays 必须在更新 heart_seen_date **之前**算出来，
+  // 否则「几天没见」永远是 0 —— 这是整个情绪系统里唯一会随时间变老的输入。
+  var heart = null;
+  var heartMemoriesNew = [];
+  if (state && state.adopted) {
+    var todayH = todayKey();
+    var seenDate = state.heart_seen_date || '';
+    // ⚠️ 只在「跨天后的第一次读」重算 gap：同一天里页面和桌面悬浮层会各请求一次 /
+    //    state，若每次都按 seen_date=today 重算，第二次就会把「几天没见」抹成 0。
+    if (seenDate !== todayH) {
+      var gapDays = seenDate ? heartDaysBetween(seenDate, todayH) : 0;
+      state.heart_gap_days = Math.max(0, Math.min(60, gapDays));
+      state.heart_seen_date = todayH;
+    }
+    heartMemoriesNew = checkMemories(state);
+    heart = heartView(state, userId(req), false);
+    writePet(userId(req), state);
+  }
   res.json({ code: 200, data: {
     state: publicState(state),
     palette: PALETTE.p16,
@@ -806,7 +1523,9 @@ router.get('/state', requireAuth, function(req, res) {
     dailyBonus: dailyBonus,
     offlineRecap: offlineRecap,
     wonder: wonderView(userId(req), state, todayKey()),
-    autonomy: (state && state.adopted) ? autonomyView(state, userId(req)) : null
+    autonomy: (state && state.adopted) ? autonomyView(state, userId(req)) : null,
+    heart: heart,
+    memoriesNew: heartMemoriesNew
   } });
 });
 
@@ -865,6 +1584,65 @@ router.put('/state', requireAuth, function(req, res) {
     'ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value')
     .run(uid, KV_KEY, JSON.stringify(state));
   res.json({ code: 200, data: { state: state } });
+});
+
+// ==================== 拼豆作品库 ====================
+// 作品库存在 state.designs 里，和桌宠状态共用同一个 KV 记录：
+//   - 不额外建表，部署零迁移；
+//   - 上限 24 件，超出按时间丢掉最旧的一件（拼豆作品是「手作」，不需要无限仓库）；
+//   - /state 响应里剔除了 designs，只有打开编辑器时才拉，避免每次开宠物屋都传几十 KB。
+var MAX_DESIGNS = 24;
+
+function designsOf(st) {
+  if (!st || !Array.isArray(st.designs)) return [];
+  return st.designs.filter(function(d) {
+    return d && typeof d.id === 'string' && !validDesign(d.design);
+  });
+}
+
+// 作品列表
+router.get('/designs', requireAuth, function(req, res) {
+  var st = readPet(userId(req));
+  res.json({ code: 200, data: { designs: designsOf(st) } });
+});
+
+// 保存作品（带 id 时覆盖旧作品，否则新建）
+router.post('/designs', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid) || {};
+  var body = req.body || {};
+  var err = validDesign(body.design);
+  if (err) return res.status(400).json({ code: 400, message: err });
+
+  var list = designsOf(st);
+  var id = String(body.id || '');
+  var name = String(body.name || '').trim().slice(0, 16) || '未命名作品';
+  var item = {
+    id: id || ('w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+    name: name,
+    design: body.design,
+    saved_at: new Date().toISOString()
+  };
+  var replaced = false;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === item.id) { list[i] = item; replaced = true; break; }
+  }
+  if (!replaced) list.unshift(item);
+  if (list.length > MAX_DESIGNS) list = list.slice(0, MAX_DESIGNS);
+
+  st.designs = list;
+  writePet(uid, st);
+  res.json({ code: 200, data: { designs: list, id: item.id } });
+});
+
+// 删除作品
+router.delete('/designs/:id', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid) || {};
+  var list = designsOf(st).filter(function(d) { return d.id !== String(req.params.id || ''); });
+  st.designs = list;
+  writePet(uid, st);
+  res.json({ code: 200, data: { designs: list } });
 });
 // ==================== 对战（v0.4.0：骨架 + 练习赛）====================
 // 设计取舍：
@@ -2197,6 +2975,7 @@ router.post('/wonder/claim', requireAuth, function(req, res) {
     return res.json({ code: 200, data: { alreadyClaimed: true, wonder: wonderView(uid, st, dateKey) } });
   }
   st.wonder_claimed = dateKey;
+  st.wonder_total = (st.wonder_total || 0) + 1;
   if (w.reward.coins) st.coins = (st.coins || 0) + w.reward.coins;
   if (w.reward.bond) {
     st.bond = (st.bond || 0) + w.reward.bond;
@@ -2547,7 +3326,8 @@ function publicState(st) {
   if (!st) return st;
   var out = {};
   for (var k in st) {
-    if (Object.prototype.hasOwnProperty.call(st, k) && k !== 'diary') out[k] = st[k];
+    // designs（拼豆作品库）体积较大，只在 /pet/designs 接口按需返回
+    if (Object.prototype.hasOwnProperty.call(st, k) && k !== 'diary' && k !== 'designs') out[k] = st[k];
   }
   return out;
 }
@@ -5286,6 +6066,220 @@ router.post('/expedition/fight', requireAuth, function(req, res) {
     weather: weather,
     quests: questsView(uid, st)
   }});
+});
+
+// ==================== 情感陪伴接口（v0.37.0）====================
+// GET /pet/heart：情绪 / 心情 / 陪伴动作 / 今日谈心额度 / 晚安 / 回忆册。
+router.get('/heart', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var fresh = checkMemories(st);
+  var view = heartView(st, uid, true);
+  view.memoriesNew = fresh;
+  // 「很想你」是一次性的重逢情绪：只有玩家**真的打开**心意面板（?seen=1）才算见到，
+  // 之后改成「等到了 / 开心」。桌面悬浮层也会轮询这个接口，它不能替玩家消费掉这次重逢。
+  if (req.query && (req.query.seen === '1' || req.query.seen === 'true')) {
+    st.heart_gap_days = 0;
+  }
+  writePet(uid, st);
+  res.json({ code: 200, data: view });
+});
+
+// POST /pet/heart/act { action: 'hug' | 'groom' | 'daze' }
+// 陪伴动作：每日次数 + 冷却双闸门；心情照给，羁绊走独立日上限（HEART_BOND_DAILY）。
+router.post('/heart/act', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var id = String((req.body && req.body.action) || '');
+  var def = HEART_ACTIONS[id];
+  if (!def) return res.status(400).json({ code: 400, message: '未知的陪伴动作' });
+  var today = heartToday(st);
+  var av = heartActionView(st, id);
+  if (av.left <= 0) {
+    return res.status(429).json({ code: 429, message: '今天的「' + def.name + '」已经做够啦，明天再来' });
+  }
+  if (av.cooldownSec > 0) {
+    return res.status(429).json({ code: 429, message: '先让它缓一缓，' + Math.ceil(av.cooldownSec / 60) + ' 分钟后再来' });
+  }
+  var counts = st.heart_act || (st.heart_act = {});
+  counts[id] = (counts[id] || 0) + 1;
+  var ats = st.heart_act_at || (st.heart_act_at = {});
+  ats[id] = Date.now();
+  var gainedMood = heartMoodBump(st, def.mood);
+  var addedBond = heartBondAdd(st, def.bond, true);
+  diaryPush(st, today, { k: 'heart', n: 1 });
+  // 人已经回来了，也真的抱过了 ——「很想你」这一档当天就可以翻篇。
+  st.heart_gap_days = 0;
+  var fresh = checkMemories(st);
+  var line = heartPersonaLine(st, uid,
+    heartPick(HEART_ACTION_LINES[id], id + ':' + today + ':' + counts[id]),
+    uid, id + ':' + today + ':' + counts[id]);
+  writePet(uid, st);
+
+  var emotion = heartEmotionOf(st);
+  res.json({ code: 200, data: {
+    line: line,
+    addedBond: addedBond,
+    gainedMood: gainedMood,
+    capped: addedBond === 0 && (st.heart_bond || 0) >= HEART_BOND_DAILY,
+    action: heartActionView(st, id),
+    actions: heartActionsView(st),
+    mood: heartMoodView(st),
+    emotion: emotion,
+    greeting: heartGreeting(st, emotion),
+    goodnight: heartGoodnightView(st),
+    memories: heartMemoryView(st),
+    memoriesNew: fresh,
+    stats: heartStats(st),
+    state: publicState(st)
+  } });
+});
+
+// POST /pet/heart/talk { topic, choice? }
+// 不传 choice = 第一步（只出开场与追问，不发奖）；传 choice = 第二步（回应 + 结算）。
+router.post('/heart/talk', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var topicId = String((req.body && req.body.topic) || '');
+  var topic = TALK_TOPIC_MAP[topicId];
+  if (!topic) return res.status(400).json({ code: 400, message: '未知的话题' });
+  var today = heartToday(st);
+  var fresh = checkMemories(st);
+  var choiceId = String((req.body && req.body.choice) || '');
+
+  if (!choiceId) {
+    var view = heartView(st, uid, true);
+    var em1 = heartEmotionOf(st);
+    view.step = 1;
+    view.topic = heartTopicView(topic);
+    view.open = heartPersonaLine(st, uid,
+      heartPick(topic.open, topicId + ':' + today), uid, topicId);
+    view.ask = topic.ask;
+    view.choices = topic.choices;
+    view.emotion = em1;
+    view.mood = heartMoodView(st);
+    view.greeting = heartGreeting(st, em1);
+    view.memoriesNew = fresh;
+    if (fresh.length) writePet(uid, st);
+    return res.json({ code: 200, data: view });
+  }
+
+  var choice = null;
+  for (var i = 0; i < topic.choices.length; i++) {
+    if (topic.choices[i].id === choiceId) { choice = topic.choices[i]; break; }
+  }
+  if (!choice) return res.status(400).json({ code: 400, message: '这个回答它没听懂' });
+
+  var capped = (st.talk_today || 0) >= HEART_TALK_DAILY;
+  var addedBond = 0;
+  var gainedMood = 0;
+  if (!capped) {
+    st.talk_today = (st.talk_today || 0) + 1;
+    st.talk_total = (st.talk_total || 0) + 1;
+    st.talk_last_topic = topic.id;
+    st.talk_last_date = today;
+    var log = st.talk_log || (st.talk_log = []);
+    log.unshift({ date: today, topic: topic.id, choice: choice.id });
+    if (log.length > 8) log.length = 8;
+    var hour = new Date().getHours();
+    if (hour >= 22 || hour < 3) st.late_talk_once = true;
+    st.heart_gap_days = 0;
+    gainedMood = heartMoodBump(st, topic.mood || HEART_TALK_MOOD);
+    addedBond = heartBondAdd(st, topic.bond || HEART_TALK_BOND, false);
+    diaryPush(st, today, { k: 'talk', n: 1 });
+    fresh = fresh.concat(checkMemories(st));
+  }
+  writePet(uid, st);
+
+  var reply = topic.replies[choice.id] || topic.replies[Object.keys(topic.replies)[0]] || [];
+  var emotion = heartEmotionOf(st);
+  res.json({ code: 200, data: {
+    step: 2,
+    topic: heartTopicView(topic),
+    choice: choice,
+    open: heartPersonaLine(st, uid, heartPick(topic.open, topicId + ':' + today), uid, topicId),
+    ask: topic.ask,
+    reply: heartPersonaLine(st, uid,
+      heartPick(reply, topicId + ':' + choiceId + ':' + today), uid, topicId + choiceId),
+    close: heartPersonaLine(st, uid,
+      heartPick(topic.close, topicId + ':close:' + today), uid, topicId + 'close'),
+    reward: { bond: addedBond, mood: gainedMood },
+    capped: capped,
+    mood: heartMoodView(st),
+    emotion: emotion,
+    greeting: heartGreeting(st, emotion),
+    talk: heartTalkView(st),
+    actions: heartActionsView(st),
+    goodnight: heartGoodnightView(st),
+    memories: heartMemoryView(st),
+    memoriesNew: fresh,
+    stats: heartStats(st),
+    state: publicState(st)
+  } });
+});
+
+// POST /pet/heart/goodnight —— 晚安仪式：一天一次，18:00–03:59 开放，
+// 连续天数用 night_last_date 判定（昨天说过就 +1，断了重来）。
+router.post('/heart/goodnight', requireAuth, function(req, res) {
+  var uid = userId(req);
+  var st = readPet(uid);
+  if (!st || !st.adopted) return res.status(400).json({ code: 400, message: '还未领养宠物' });
+  var today = heartToday(st);
+  var hour = new Date().getHours();
+  if (!(hour >= 18 || hour < 4)) {
+    return res.status(400).json({ code: 400, message: '它还不困，晚上 18:00 之后再跟它说晚安吧' });
+  }
+  if (st.night_date === today) {
+    var emDone = heartEmotionOf(st);
+    return res.json({ code: 200, data: {
+      already: true,
+      line: '今晚已经说过晚安啦，它睡得很安稳。',
+      addedBond: 0,
+      gainedMood: 0,
+      goodnight: heartGoodnightView(st),
+      mood: heartMoodView(st),
+      emotion: emDone,
+      greeting: heartGreeting(st, emDone),
+      memories: heartMemoryView(st),
+      memoriesNew: [],
+      stats: heartStats(st),
+      state: publicState(st)
+    } });
+  }
+  var yesterday = heartShiftKey(today, -1);
+  st.night_streak = (st.night_last_date === yesterday) ? ((st.night_streak || 0) + 1) : 1;
+  st.night_last_date = today;
+  st.night_date = today;
+  st.night_total = (st.night_total || 0) + 1;
+  st.heart_gap_days = 0;
+  var gainedMood = heartMoodBump(st, HEART_NIGHT_MOOD);
+  var addedBond = heartBondAdd(st, HEART_NIGHT_BOND, false);
+  diaryPush(st, today, { k: 'night', n: 1 });
+  var fresh = checkMemories(st);
+  var line = heartPersonaLine(st, uid,
+    heartPick(hour >= 22 || hour < 4 ? HEART_NIGHT_LINES.late : HEART_NIGHT_LINES.early,
+      'night:' + today), uid, 'night:' + today);
+  writePet(uid, st);
+
+  var emotion = heartEmotionOf(st);
+  res.json({ code: 200, data: {
+    already: false,
+    line: line,
+    addedBond: addedBond,
+    gainedMood: gainedMood,
+    streak: st.night_streak,
+    goodnight: heartGoodnightView(st),
+    mood: heartMoodView(st),
+    emotion: emotion,
+    greeting: heartGreeting(st, emotion),
+    memories: heartMemoryView(st),
+    memoriesNew: fresh,
+    stats: heartStats(st),
+    state: publicState(st)
+  } });
 });
 
 module.exports = router;

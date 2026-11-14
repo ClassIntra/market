@@ -92,6 +92,12 @@ async function main() {
       RESOURCES_DIR: path.join(TMP, 'res'),
       JWT_SECRET: SECRET,
       NODE_ENV: 'test',
+      // 把「经济政策参数」钉死，让本套用例只测证券链路，不受津贴/赠金调整影响。
+      // 口径：开户送 1 元（=1000 学元）、日津贴 0.01 元（=10 学元）。
+      // 生产默认值是 10 元 / 0.2 元，那条由 scripts-test-xueyuan-limits.cjs 守护。
+      XUEYUAN_WELCOME_YUAN: '1',
+      XUEYUAN_DAILY_YUAN: '0.01',
+      XUEYUAN_DAILY_BONUS_YUAN: '0.02',
       RELAY_SERVERS: '',
       TAILSCALE_ENABLED: 'false',
       // 测试通道：周末/夜间跑 e2e 时把撮合时钟强制成交易时段，
@@ -128,6 +134,14 @@ async function main() {
   ins.run('李雷', '李雷', '251801', 1);   // 班管
   ins.run('韩梅梅', '韩梅梅', '251802', 0);
   ins.run('王小明', '王小明', '251803', 0);
+
+  // 转账现在要过支付密码（payGuard 是后加的风控），测试账号先统一设成 123456。
+  // 直接写表而不是走接口：这里要测的是证券链路，不想再引入一条「设密码」的业务流程。
+  var bcrypt = require(path.join(SERVER, 'node_modules/bcryptjs'));
+  var pinHash = bcrypt.hashSync('123456', 10);
+  var pinIns = db.prepare('INSERT OR REPLACE INTO xy_pay_pin (user_id, pin_hash, fail_count, locked_until, set_at, updated_at) VALUES (?, ?, 0, 0, ?, ?)');
+  var tNow = Date.now();
+  ['251801', '251802', '251803'].forEach(function (u) { pinIns.run(u, pinHash, tNow, tNow); });
   db.close();
 
   var T1 = token('251801', true);
@@ -154,19 +168,19 @@ async function main() {
   await api('GET', '/api/xueyuan/me', { token: T2 });
 
   console.log('\n=== 转账 ===');
-  var tr = await api('POST', '/api/xueyuan/transfer', { token: T1, body: { to: '251802', amount: 60, memo: '午饭' } });
+  var tr = await api('POST', '/api/xueyuan/transfer', { token: T1, body: { to: '251802', amount: 60, memo: '午饭', pin: '123456' } });
   eq('转账成功', tr.status, 200);
   eq('转出方余额 950', tr.body.data.account.balance, 950);
-  var badTr = await api('POST', '/api/xueyuan/transfer', { token: T2, body: { to: '251802', amount: 5 } });
+  var badTr = await api('POST', '/api/xueyuan/transfer', { token: T2, body: { to: '251802', amount: 5, pin: '123456' } });
   eq('给自己转账被拒', badTr.status, 400);
 
   console.log('\n=== 炒股本金（投资练习金） ===');
   var ov0 = await api('GET', '/api/stock/overview', { token: T1 });
   eq('概览 200', ov0.status, 200);
-  eq('首次进入发放投资练习金 9000', ov0.body.data.practice_granted, 9000);
+  ok('首次进入补足练习金（补到 3 万）', ov0.body.data.practice_granted > 28000, ov0.body.data.practice_granted);
   var ov0b = await api('GET', '/api/stock/overview', { token: T1 });
   eq('再次进入不重复发放', ov0b.body.data.practice_granted, 0);
-  ok('可用本金充足（> 9000）', ov0b.body.data.summary.cash.available > 9000, ov0b.body.data.summary.cash.available);
+  ok('可用练习金达到 3 万', ov0b.body.data.summary.cash.available >= 30000, ov0b.body.data.summary.cash.available);
 
   console.log('\n=== 行情（真实数据） ===');
   var mkt = await api('GET', '/api/stock/market', { token: T1 });
@@ -243,7 +257,10 @@ async function main() {
   ok('月K有数据', (mk.body.data.klines || []).length > 0, mk.body.data && mk.body.data.klines && mk.body.data.klines.length);
 
   console.log('\n=== 买入 ===');
-  var cashBeforeBuy = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account.balance;
+  // 证券口径 = 练习金（practice 池），不是钱包的可花余额。
+  // 这两个数现在是彻底分开的：钱包里的真钱和赠送学元一分都不进股市。
+  var ovBeforeBuy = await api('GET', '/api/stock/overview', { token: T1 });
+  var cashBeforeBuy = ovBeforeBuy.body.data.summary.cash.balance;
   var buy = await api('POST', '/api/stock/order', {
     token: T1,
     body: { code: cheap.code, side: 'buy', type: 'market', qty: 100 }
@@ -276,14 +293,14 @@ async function main() {
     ok('持仓成本 = 成交额 + 费用', Math.abs(pos.cost_cent / 100 - (tr0.amount + tr0.fee)) < 0.02, { cost: pos.cost_cent / 100, expect: tr0.amount + tr0.fee });
 
     var cashAfter = buyData.summary.cash;
-    ok('学元余额已扣减', cashAfter.balance < cashBeforeBuy, cashAfter.balance);
-    // 扣减 = 成交额 + 费用 − 成就奖励：市价成交瞬间触发成就检查，
-    // 「第一单」(+20 学元) 首笔交易必得、立即入账。
-    // （成就系统坏掉时这条等式才恰好成立 —— 2026-11-03 修复成就后暴露）
+    ok('练习金余额已扣减', cashAfter.balance < cashBeforeBuy, cashAfter.balance);
+    // 余额差不能直接当扣款额：成就奖励（第一单）现在也发练习金
+    // （第三方应用只能发练习金，不能印可花的赠金），会和买入扣款在同一段时间里相抵。
+    // 精确口径放到下面「资金流水」段，按分录逐笔核：买入那条分录 = 成交额 + 费用。
     var drop = cashBeforeBuy - cashAfter.balance;
     var expectDrop = tr0.amount + tr0.fee;
-    ok('扣减额 = 成交额 + 费用 − 首单成就奖励',
-      Math.abs(drop - (expectDrop - 20)) < 0.02, { drop: drop, expect: expectDrop });
+    ok('扣款不会超过成交额 + 费用', drop <= expectDrop + 0.02,
+      { drop: drop, expect: expectDrop });
 
     console.log('\n=== 当天可卖（T+0）===');
     var sellNow = await api('POST', '/api/stock/order', {
@@ -337,7 +354,7 @@ async function main() {
   }
 
   console.log('\n=== 挂单与撤单（冻结 → 解冻） ===');
-  var before = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account.available;
+  var before = (await api('GET', '/api/stock/overview', { token: T1 })).body.data.summary.cash.available;
   // 挂在跌停价：一定不会成交，用来验证冻结
   var limitPrice = cheap.limit_down;
   var pend = await api('POST', '/api/stock/order', {
@@ -349,17 +366,17 @@ async function main() {
   ok('挂单处于待成交', pOrder && pOrder.status === 'pending', pOrder && pOrder.status);
   eq('挂单状态文案为「待成交」', pOrder.status_label, '待成交');
 
-  var afterHold = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account;
-  ok('可用学元被冻结', afterHold.available < before, { before: before, after: afterHold.available });
+  var afterHold = (await api('GET', '/api/stock/overview', { token: T1 })).body.data.summary.cash;
+  ok('可用练习金被冻结', afterHold.available < before, { before: before, after: afterHold.available });
   near('冻结额 = 委托额 + 预估费用', afterHold.frozen, pOrder.hold, 0.02);
-  eq('挂单不动总余额', Math.round(afterHold.balance * 100), Math.round(before * 100));
+  eq('挂单不动总练习金', Math.round(afterHold.balance * 100), Math.round(before * 100));
 
   var cancel = await api('POST', '/api/stock/order/' + pOrder.id + '/cancel', { token: T1, body: {} });
   eq('撤单成功', cancel.status, 200);
   eq('委托状态变为已撤', cancel.body.data.order.status, 'cancelled');
-  var afterCancel = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account;
+  var afterCancel = (await api('GET', '/api/stock/overview', { token: T1 })).body.data.summary.cash;
   eq('撤单后冻结归零', afterCancel.frozen, 0);
-  near('可用学元恢复', afterCancel.available, before, 0.02);
+  near('可用练习金恢复', afterCancel.available, before, 0.02);
 
   console.log('\n=== 挂单越界校验 ===');
   var overLimit = await api('POST', '/api/stock/order', {
@@ -433,7 +450,7 @@ async function main() {
   });
   eq('挂死单成功', dead.status, 200);
   var deadId = dead.body.data.order.id;
-  var frozenDead = (await api('GET', '/api/xueyuan/me', { token: T1 })).body.data.account.frozen;
+  var frozenDead = (await api('GET', '/api/stock/overview', { token: T1 })).body.data.summary.cash.frozen;
   ok('死单占用了冻结', frozenDead > 0, frozenDead);
 
   var dbw = new Database(DB);
@@ -467,11 +484,11 @@ async function main() {
   } else {
     ok('成就数据结构完整', false, ach.body);
   }
-  // 奖励必须真的入账：xy_tx 里应有 stock:ach:<uid>:first_deal 的幂等流水
+  // 奖励必须真的入账：账本里应有 stock:ach:<uid>:first_deal 的幂等流水
   var dbAch = new Database(DB, { readonly: true });
-  var achRef = dbAch.prepare('SELECT COUNT(*) c FROM xy_tx WHERE ref = ?').get('stock:ach:251801:first_deal').c;
+  var achRef = dbAch.prepare('SELECT COUNT(*) c FROM xy_ledger_transactions WHERE ref = ?').get('stock:ach:251801:first_deal').c;
   dbAch.close();
-  eq('成就奖励已入账（xy_tx 有幂等流水）', achRef, 1);
+  eq('成就奖励已入账（账本有幂等流水）', achRef, 1);
 
   console.log('\n=== 跨班对决 ===');
   var peer0 = await api('GET', '/api/stock/peer', { token: T1 });
@@ -577,11 +594,27 @@ async function main() {
 
   // 直接查库再确认一次（不信任接口自述）
   var db2 = new Database(DB, { readonly: true });
-  var globalSum = db2.prepare('SELECT COALESCE(SUM(balance),0) s FROM xy_account').get().s;
+  // 账本守恒：所有账户（学生 / 托管 / 发行 / 平台）的余额之和必须为 0
+  var globalSum = db2.prepare('SELECT COALESCE(SUM(balance), 0) AS s FROM xy_ledger_balances').get().s;
   eq('库内全局余额守恒', globalSum, 0);
-  var unbalanced = db2.prepare('SELECT COUNT(*) c FROM (SELECT tx_id FROM xy_entry GROUP BY tx_id HAVING SUM(delta) <> 0)').get().c;
+  // 按资产分组守恒：同一笔交易里每个资产的借贷必须各自为 0
+  var unbalanced = db2.prepare([
+    'SELECT COUNT(*) c FROM (',
+    '  SELECT tx_id, asset FROM xy_ledger_entries',
+    '  GROUP BY tx_id, asset HAVING SUM(direction * amount_cent) <> 0',
+    ')'
+  ].join('\n')).get().c;
   eq('不存在不平的交易', unbalanced, 0);
-  var drift = db2.prepare('SELECT COUNT(*) c FROM (SELECT a.user_id FROM xy_account a LEFT JOIN xy_entry e ON e.user_id=a.user_id GROUP BY a.user_id HAVING a.balance <> COALESCE(SUM(e.delta),0))').get().c;
+  // 余额与分录一致（每个账户每个资产单独比）
+  var drift = db2.prepare([
+    'SELECT COUNT(*) c FROM (',
+    '  SELECT a.id, b.asset FROM xy_ledger_accounts a',
+    '  JOIN xy_ledger_balances b ON b.account_id = a.id',
+    '  LEFT JOIN xy_ledger_entries e ON e.account_id = a.id AND e.asset = b.asset',
+    '  GROUP BY a.id, b.asset',
+    '  HAVING b.balance <> COALESCE(SUM(e.direction * e.amount_cent), 0)',
+    ')'
+  ].join('\n')).get().c;
   eq('账户余额与流水一致', drift, 0);
   var orders = db2.prepare('SELECT COUNT(*) c FROM stock_orders').get().c;
   ok('委托已落库（' + orders + ' 笔）', orders >= 2, orders);
@@ -663,68 +696,32 @@ async function main() {
   ok('阈值被夹到合法区间', pref3.body.data.up_pct <= 20 && pref3.body.data.loss_pct >= 2,
     pref3.body.data.up_pct + ' / ' + pref3.body.data.loss_pct);
 
-  console.log('\n=== 学元钱包 ===');
+  console.log('\n=== 练习金账户（第三方应用只读） ===');
+  // 2026-11-07 分层：证券是第三方应用，资金面只剩「练习金」；
+  // 津贴、转账、红包属于「学元钱包」系统应用，本应用的镜像入口已下线（410）。
   var wt = await api('GET', '/api/stock/wallet', { token: T1 });
-  eq('钱包 200', wt.status, 200);
-  ok('钱包含余额与津贴状态',
-    typeof wt.body.data.account.balance === 'number' && typeof wt.body.data.daily.claimed === 'boolean',
-    '余额 ' + wt.body.data.account.balance + ' / 已领 ' + wt.body.data.daily.claimed);
-  var c1 = await api('POST', '/api/stock/wallet/daily', { token: T1 });
-  eq('领取津贴 200', c1.status, 200);
-  // 前面「学元」用例可能已经领过，两种结果都要自洽：首次 = 10，重复 = 0
-  ok('领取结果自洽（首次 10 / 重复 0）',
-    (c1.body.data.duplicate === true && c1.body.data.amount === 0) ||
-    (c1.body.data.duplicate === false && c1.body.data.amount === 10),
-    JSON.stringify({ dup: c1.body.data.duplicate, amount: c1.body.data.amount, streak: c1.body.data.streak }));
-  var c2 = await api('POST', '/api/stock/wallet/daily', { token: T1 });
-  ok('重复领取幂等（不再加钱）', c2.body.data.duplicate === true && c2.body.data.amount === 0,
-    JSON.stringify(c2.body.data));
-  var wt2 = await api('GET', '/api/stock/wallet', { token: T1 });
-  ok('领取后状态变为已领', wt2.body.data.daily.claimed === true && wt2.body.data.daily.streak >= 1,
-    '连续 ' + wt2.body.data.daily.streak + ' 天');
+  eq('练习金账户 200', wt.status, 200);
+  ok('只暴露练习金三元组',
+    typeof wt.body.data.account.practice === 'number' &&
+    typeof wt.body.data.account.available_practice === 'number' &&
+    typeof wt.body.data.account.frozen_practice === 'number',
+    JSON.stringify(wt.body.data.account));
+  ok('不再下发通用学元余额', wt.body.data.account.balance === undefined, JSON.stringify(wt.body.data.account));
+  ok('明确指向系统钱包', wt.body.data.moved === true && wt.body.data.moved_to === '/wallet', JSON.stringify(wt.body.data));
 
-  console.log('\n=== 转账 / 红包 ===');
-  var balA0 = (await api('GET', '/api/stock/wallet', { token: T1 })).body.data.account.balance;
-  var balB0 = (await api('GET', '/api/stock/wallet', { token: T2 })).body.data.account.balance;
-  var tr1 = await api('POST', '/api/stock/wallet/transfer', {
-    token: T1, body: { to: '251802', amount: 5, note: '测试转账', request_id: 'e2e-tr-1' }
-  });
-  eq('转账 200', tr1.status, 200);
-  var wA1 = await api('GET', '/api/stock/wallet', { token: T1 });
-  var wB1 = await api('GET', '/api/stock/wallet', { token: T2 });
-  ok('转账双方金额一致（各 5 学元）',
-    Math.abs((balA0 - wA1.body.data.account.balance) - 5) < 0.001 &&
-    Math.abs((wB1.body.data.account.balance - balB0) - 5) < 0.001,
-    (balA0 - wA1.body.data.account.balance) + ' / ' + (wB1.body.data.account.balance - balB0));
-  var tr2 = await api('POST', '/api/stock/wallet/transfer', {
-    token: T1, body: { to: '251802', amount: 5, note: '测试转账', request_id: 'e2e-tr-1' }
-  });
-  ok('同一 request_id 不重复扣钱', tr2.body.data.duplicate === true, JSON.stringify(tr2.body.data));
+  var gone = [
+    ['POST', '/api/stock/wallet/daily'],
+    ['POST', '/api/stock/wallet/transfer'],
+    ['GET', '/api/stock/wallet/packets'],
+    ['POST', '/api/stock/wallet/packet']
+  ];
+  for (var gi = 0; gi < gone.length; gi++) {
+    var gOpt = gone[gi][0] === 'GET' ? { token: T1 } : { token: T1, body: {} };
+    var g = await api(gone[gi][0], gone[gi][1], gOpt);
+    eq(gone[gi][1] + ' 已下线（410）', g.status, 410);
+  }
 
-  var pk = await api('POST', '/api/stock/wallet/packet', {
-    token: T1, body: { total: 3, count: 3, note: '考试加油' }
-  });
-  eq('发红包 200', pk.status, 200);
-  var pid = pk.body.data.id;
-  var wA2 = await api('GET', '/api/stock/wallet', { token: T1 });
-  ok('发红包冻结总额（余额不变、冻结 +3）',
-    Math.abs(wA2.body.data.account.balance - wA1.body.data.account.balance) < 0.001 &&
-    Math.abs((wA2.body.data.account.frozen - wA1.body.data.account.frozen) - 3) < 0.001,
-    '冻结 ' + wA2.body.data.account.frozen);
-
-  var cl1 = await api('POST', '/api/stock/wallet/packet/' + pid + '/claim', { token: T2 });
-  eq('领红包 200', cl1.status, 200);
-  ok('红包金额在 0.01–3 之间', cl1.body.data.amount > 0 && cl1.body.data.amount <= 3, cl1.body.data.amount);
-  var cl2 = await api('POST', '/api/stock/wallet/packet/' + pid + '/claim', { token: T2 });
-  ok('重复领取幂等（金额相同）',
-    cl2.body.data.duplicate === true && Math.abs(cl2.body.data.amount - cl1.body.data.amount) < 0.001,
-    JSON.stringify(cl2.body.data));
-  var pkList = await api('GET', '/api/stock/wallet/packets', { token: T2 });
-  ok('已领的红包不再出现在可领列表',
-    (pkList.body.data.available || []).every(function (x) { return x.id !== pid; }),
-    (pkList.body.data.available || []).length + ' 个可领');
-
-  console.log('\n=== 成就（v1.14 新增 5 个） ===');
+console.log('\n=== 成就（v1.14 新增 5 个） ===');
   var ach = await api('GET', '/api/stock/achievements?force=1', { token: T1 });
   eq('成就总数 15', ach.body.data.total, 15);
   var achList = ach.body.data.list || [];
@@ -770,6 +767,140 @@ async function main() {
     ].join('\n')).run(Date.now());
     sdb.close();
   } catch (e) { console.log('  · 探针种子写入失败：' + e.message); }
+
+  console.log('\n=== 交易基座健康 ===');
+  var eng = await api('GET', '/api/stock/health', { token: T1 });
+  eq('健康检查 200', eng.status, 200);
+  ok('有撮合器运行状态', !!(eng.body.data.matcher && eng.body.data.matcher.running), JSON.stringify(eng.body.data.matcher));
+  ok('有行情快照时间', !!(eng.body.data.quote && eng.body.data.quote.quote_ts), JSON.stringify(eng.body.data.quote));
+  ok('有挂单计数', typeof eng.body.data.pending_orders === 'number', eng.body.data.pending_orders);
+
+  console.log('\n=== 委托有效期 / 条件单 / 一键撤单 ===');
+  var qNow = await api('GET', '/api/stock/quote/' + cheap.code, { token: T1 });
+  var qt = qNow.body.data.quote;
+  if (qt.limit_down < qt.price) {
+    var dayBuy = await api('POST', '/api/stock/order', {
+      token: T1,
+      body: { code: cheap.code, side: 'buy', type: 'limit', price: qt.limit_down, qty: 100, validity: 'day' }
+    });
+    eq('当日有效买单 200', dayBuy.status, 200);
+    eq('委托有效期 day', dayBuy.body.data.order.validity, 'day');
+    ok('当日单有到期时间', dayBuy.body.data.order.expires_at > 0, dayBuy.body.data.order.expires_at);
+    eq('低价买单未成交', dayBuy.body.data.order.status, 'pending');
+    var cancelAll = await api('POST', '/api/stock/orders/cancel-all', { token: T1 });
+    eq('一键撤单 200', cancelAll.status, 200);
+    ok('一键撤单至少撤 1 笔', cancelAll.body.data.cancelled >= 1, cancelAll.body.data.cancelled);
+    ok('一键撤单释放冻结学元', cancelAll.body.data.released > 0, cancelAll.body.data.released);
+  } else {
+    ok('当日有效委托夹具（现价跌停，跳过）', true);
+  }
+
+  var posNow = await api('GET', '/api/stock/positions', { token: T1 });
+  var held = (posNow.body.data.positions || [])[0];
+  var condTested = false;
+  if (held && held.available_qty > 0) {
+    var hq = (await api('GET', '/api/stock/quote/' + held.code, { token: T1 })).body.data.quote;
+    var trig = Math.max(hq.limit_down, Math.round(hq.price * 0.95 * 100) / 100);
+    var cqty = Math.min(100, held.available_qty);
+    if (trig < hq.price) {
+      var cond = await api('POST', '/api/stock/order/condition', {
+        token: T1,
+        body: {
+          code: held.code, trigger_type: 'stop_loss',
+          trigger_price: trig, qty: cqty, validity: 'day'
+        }
+      });
+      eq('止损条件单 200', cond.status, 200);
+      eq('条件单状态 armed', cond.body.data.order.status, 'armed');
+      eq('条件单类型止损', cond.body.data.order.type_label, '止损');
+      eq('条件单触发价正确', cond.body.data.order.trigger_price, trig);
+      var condCancel = await api('POST', '/api/stock/order/' + cond.body.data.order.id + '/cancel', { token: T1 });
+      eq('条件单可撤单', condCancel.status, 200);
+      var trailPct = 0.5;
+      if (hq.limit_down <= hq.price * (1 - trailPct / 100)) {
+        var trail = await api('POST', '/api/stock/order/condition', {
+          token: T1,
+          body: {
+            code: held.code, trigger_type: 'trailing_stop',
+            trail_percent: trailPct, qty: cqty, validity: 'day'
+          }
+        });
+        eq('移动止损条件单 200', trail.status, 200);
+        if (trail.status !== 200) console.log('    移动止损失败：' + trail.body.message);
+        eq('移动止损类型', trail.body.data.order.type_label, '移动止损');
+        eq('移动止损记录回撤比例', trail.body.data.order.trail_percent, trailPct);
+        ok('移动止损记录初始峰值', trail.body.data.order.peak_price > 0, trail.body.data.order.peak_price);
+        eq('移动止损触发线低于现价',
+          trail.body.data.order.trigger_price < trail.body.data.order.peak_price, true);
+        var trailCancel = await api('POST', '/api/stock/order/' + trail.body.data.order.id + '/cancel', { token: T1 });
+        eq('移动止损可撤单', trailCancel.status, 200);
+      } else {
+        ok('移动止损夹具（现价贴跌停，跳过）', true);
+      }
+      condTested = true;
+    }
+  }
+  if (!condTested) ok('条件单夹具（无持仓或已跌停，跳过）', true);
+
+  var alertCreate = await api('POST', '/api/stock/alerts', {
+    token: T1,
+    body: { code: cheap.code, direction: 'above', target_price: qt.price * 1.05 }
+  });
+  eq('到价提醒 200', alertCreate.status, 200);
+  eq('到价提醒状态 active', alertCreate.body.data.alert.status, 'active');
+  var alertList = await api('GET', '/api/stock/alerts', { token: T1 });
+  ok('到价提醒列表可见', (alertList.body.data.list || []).some(function (a) {
+    return a.id === alertCreate.body.data.alert.id;
+  }));
+  var alertBad = await api('POST', '/api/stock/alerts', {
+    token: T1, body: { code: cheap.code, direction: 'sideways', target_price: 10 }
+  });
+  eq('非法提醒方向 400', alertBad.status, 400);
+  var alertCancel = await api('POST', '/api/stock/alerts/' + alertCreate.body.data.alert.id + '/cancel', { token: T1 });
+  eq('到价提醒可取消', alertCancel.status, 200);
+
+  var tooBig = await api('POST', '/api/stock/order', {
+    token: T1,
+    body: { code: cheap.code, side: 'buy', type: 'limit', price: qt.limit_down, qty: 100001 }
+  });
+  eq('单笔超过 10 万股被拒（400）', tooBig.status, 400);
+  ok('超量提示可读', /单笔最多/.test(tooBig.body.message || ''), tooBig.body.message);
+
+  console.log('\n=== 信用 / 贷款（v2.2 运营闭环） ===');
+  var loan0 = await api('GET', '/api/stock/loan', { token: T1 });
+  eq('信用档案 200', loan0.status, 200);
+  eq('四个产品（含津贴预支）', loan0.body.data.products.length, 4);
+  eq('没有未还贷款', loan0.body.data.active, null);
+  var w0 = await api('GET', '/api/stock/wallet', { token: T1 });
+  var p0 = w0.body.data.account.available_practice;
+  var ap = await api('POST', '/api/stock/loan/apply', {
+    token: T1, body: { amount: 100, product: 'advance' }
+  });
+  eq('借津贴预支 200', ap.status, 200);
+  eq('预支 0 利息', ap.body.data.loan.interest, 0);
+  eq('预支强制自动还款', ap.body.data.loan.auto_repay_forced, true);
+  var lid = ap.body.data.loan.id;
+  var offAuto = await api('POST', '/api/stock/loan/' + lid + '/auto', { token: T1, body: { on: false } });
+  eq('预支不能关自动还款（400）', offAuto.status, 400);
+
+  var rp = await api('POST', '/api/stock/loan/repay-from-practice', {
+    token: T1, body: { full: true }
+  });
+  eq('练习金直接还清 200', rp.status, 200);
+  eq('贷款已还清', rp.body.data.loan.status, 'repaid');
+  eq('实还 100 学元', rp.body.data.repaid, 100);
+  var w1 = await api('GET', '/api/stock/wallet', { token: T1 });
+  eq('练习金扣了 100 学元', Math.round(p0 - w1.body.data.account.available_practice), 100);
+  var loan1 = await api('GET', '/api/stock/loan', { token: T1 });
+  eq('当前借款清空', loan1.body.data.active, null);
+  var aq = await api('POST', '/api/stock/loan/apply', {
+    token: T1, body: { amount: 100, auto_repay: true }
+  });
+  eq('普通借款申请时可开启自动还款', aq.body.data.loan.auto_repay, true);
+  var aqRepay = await api('POST', '/api/stock/loan/repay', { token: T1, body: { full: true } });
+  eq('自动还款标记不影响正常还清', aqRepay.body.data.loan.status, 'repaid');
+  var alertOff = await api('GET', '/api/stock/loan/alert', { token: T1 });
+  eq('没有到期提醒', alertOff.body.data.alert, null);
 
   console.log('\n=== 结果 ===');
   console.log('通过 ' + pass + ' / 失败 ' + fail);

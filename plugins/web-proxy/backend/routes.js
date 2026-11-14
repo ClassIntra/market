@@ -10,7 +10,7 @@
 
 var express = require('express');
 var router = express.Router();
-var auth = require('../../../server/src/middleware/auth');
+var auth = require('_sdk/backend/host').auth;
 var os = require('os');
 
 var proxy = require('./proxy-server');
@@ -165,7 +165,7 @@ router.post('/access', auth.requireAuth, auth.requireAdmin, function (req, res) 
 // 搜索可指定的成员：只读 users 表的公开字段，不依赖 manage_users 权限
 router.get('/users', auth.requireAuth, auth.requireAdmin, function (req, res) {
   var q = String(req.query.q || '').trim().substring(0, 40);
-  var db = require('../../../server/src/utils/db');
+  var db = require('_sdk/backend/host').db;
   var rows;
   try {
     if (q) {

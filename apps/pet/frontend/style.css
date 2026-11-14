@@ -846,6 +846,14 @@
 }
 .ci-pethome h2 { font-size: 17px; margin: 18px 0 10px; }
 .ci-pethome .ci-pethome-sub { font-size: 13px; color: var(--ci-color-text-secondary, #6b6b70); margin: 0 0 14px; line-height: 1.6; }
+/* 快捷键提示：一行小字，贴着副标题，不跟工具条抢注意力 */
+.ci-pet-kbdhint {
+  margin: -6px 0 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.2px;
+  color: var(--ci-color-text-tertiary, #8E8E93);
+}
 
 /* 模板选择卡 */
 .ci-pet-templates { display: -webkit-flex; display: flex; flex-wrap: wrap; margin: -6px; }
@@ -881,7 +889,8 @@
   background: var(--ci-color-bg-card, #fff);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
-.ci-pet-editcanvas { display: block; touch-action: none; cursor: crosshair; }
+/* 大画板（32×32）时工具条可能比画布宽，画布居中才不会一边空一边挤 */
+.ci-pet-editcanvas { display: block; margin: 0 auto; touch-action: none; cursor: crosshair; }
 .ci-pet-tools { -webkit-flex: 1 1 220px; flex: 1 1 220px; min-width: 220px; }
 .ci-pet-palette { display: -webkit-flex; display: flex; flex-wrap: wrap; margin: -4px 0 8px -4px; }
 .ci-pet-palette > .ci-pet-swatch { margin: 4px 0 0 4px; }
@@ -968,6 +977,312 @@
   background: var(--ci-color-bg-card, #fff);
   color: inherit;
   min-height: 44px;
+}
+
+/* ---------- 拼豆工作台 v0.35.0：工具条 / 色号 / 备料 / 作品库 ----------
+   颜色一律走 --ci-color-text-*（画板卡与工具卡昼夜两套变量都已重绑），
+   中性面用 12%~16% 灰：夜里是淡玻璃，白天落在米色纸上也只是一层浅影。 */
+.ci-pet-boardbar {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-justify-content: center; justify-content: center;
+  -webkit-align-items: center; align-items: center;
+  margin: 0 -4px 8px -4px;
+}
+.ci-pet-boardbar > * { margin: 4px; }
+.ci-pet-seg {
+  display: -webkit-flex; display: flex;
+  padding: 2px;
+  border-radius: 11px;
+  background: rgba(127, 127, 127, 0.16);
+}
+.ci-pet-seg-btn {
+  padding: 5px 9px;
+  min-height: 30px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+}
+/* 选中态用「主色描边 + 主色字」而不是白字压金底：
+   夜间主色是 #ffd76e，白字在它上面会糊成一片 */
+.ci-pet-seg-btn.is-on {
+  color: var(--ci-color-primary, #0A84FF);
+  background: rgba(127, 127, 127, 0.22);
+  box-shadow: inset 0 0 0 1.5px var(--ci-color-primary, #0A84FF);
+}
+.ci-pet-chip {
+  padding: 6px 12px;
+  min-height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.16);
+  color: var(--ci-color-text-secondary, rgba(198, 212, 240, 0.74));
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ci-pet-chip.is-on {
+  color: var(--ci-color-primary, #0A84FF);
+  background: rgba(127, 127, 127, 0.22);
+  box-shadow: inset 0 0 0 1.5px var(--ci-color-primary, #0A84FF);
+}
+.ci-pet-boardcap {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+.ci-pet-boardcap-tip {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+/* 光标坐标：预留固定宽度，鼠标进出画板时这一行不会跳高 */
+.ci-pet-boardpos {
+  -webkit-flex: none; flex: none;
+  min-width: 78px;
+  margin-left: 10px;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ci-color-text-secondary, rgba(198, 212, 240, 0.74));
+  white-space: nowrap;
+}
+
+/* 分区标题：和调色盘、作品库的间距拉开，一眼能分出「工具箱的格子」 */
+.ci-pet-subhead,
+.ci-pet-sechead {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--ci-color-text-secondary, rgba(198, 212, 240, 0.74));
+}
+.ci-pet-subhead { margin: 2px 0 8px; }
+.ci-pet-sechead { margin: 18px 0 8px; }
+
+/* 当前色 */
+.ci-pet-curcolor {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.16);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #EEF3FF);
+}
+
+/* 调色盘：每个色块下面带实体拼豆的色号（A1–A16） */
+.ci-pet-palette { margin: -4px 0 4px -4px; }
+.ci-pet-palette > .ci-pet-swatchbox { margin: 4px 0 0 4px; }
+.ci-pet-swatchbox {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ci-pet-palette .ci-pet-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+.ci-pet-swatch-code {
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.3px;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+
+/* 预览 & 备料 */
+.ci-pet-meta {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: flex-start; align-items: flex-start;
+  margin: -6px;
+}
+.ci-pet-meta > * { margin: 6px; max-width: 100%; }
+.ci-pet-previewbox {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  padding: 8px 8px 6px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.16);
+  text-align: center;
+}
+.ci-pet-previewcv { display: block; margin: 0 auto; image-rendering: pixelated; }
+.ci-pet-previewcap {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+.ci-pet-statbox {
+  -webkit-flex: 1 1 160px; flex: 1 1 160px;
+  min-width: 140px;
+}
+.ci-pet-statline {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #EEF3FF);
+}
+.ci-pet-statwrap {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: -3px;
+}
+.ci-pet-statwrap > * { margin: 3px; }
+.ci-pet-stat {
+  display: -webkit-inline-flex; display: inline-flex;
+  -webkit-align-items: center; align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.16);
+  color: var(--ci-color-text-secondary, rgba(198, 212, 240, 0.74));
+  white-space: nowrap;
+}
+.ci-pet-stat > * + * { margin-left: 3px; }
+.ci-pet-stat-dot {
+  -webkit-flex: none; flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+}
+.ci-pet-stat-code { font-size: 10px; color: var(--ci-color-text-primary, #EEF3FF); }
+.ci-pet-stat-num { font-size: 10px; }
+.ci-pet-stat-empty {
+  font-size: 11px;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+/* 备料标题行：左边颗数、右边「复制清单」，两者垂直居中 */
+.ci-pet-statbox .ci-pet-stathead {
+  -webkit-align-items: center; align-items: center;
+}
+.ci-pet-statbox .ci-pet-statline { margin-bottom: 0; }
+.ci-pet-minibtn {
+  padding: 3px 9px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.18);
+  color: var(--ci-color-text-secondary, rgba(198, 212, 240, 0.74));
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ci-pet-minibtn:active { transform: scale(0.95); }
+
+/* 作品库：横向滑动的作品抽屉，缩略图按原图等比缩放进 96px 卡 */
+.ci-pet-gallerysec { margin-top: 4px; }
+.ci-pet-saverow {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: center; align-items: center;
+  margin: -4px;
+}
+.ci-pet-saverow > * { margin: 4px; }
+.ci-pet-saverow > .ci-pet-input {
+  -webkit-flex: 1 1 140px; flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 100%;
+}
+.ci-pet-gallery {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
+  margin: 10px -4px 0 -4px;
+  padding: 4px 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.ci-pet-work {
+  position: relative;
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  width: 96px;
+  margin-right: 8px;
+  padding: 7px 6px 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.16);
+  text-align: center;
+  cursor: pointer;
+}
+.ci-pet-work:active { transform: scale(0.97); }
+/* 手上正在编辑的那一件：加一圈描边，免得在库里找不到自己 */
+.ci-pet-work.is-editing {
+  box-shadow:
+    inset 0 0 0 1px rgba(127, 127, 127, 0.16),
+    0 0 0 2px var(--ci-color-primary, #0A84FF);
+}
+.ci-pet-work-cv {
+  display: block;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+.ci-pet-work-info { margin-top: 4px; }
+.ci-pet-work-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ci-color-text-primary, #EEF3FF);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ci-pet-work-time {
+  font-size: 10px;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+.ci-pet-work-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.28);
+  color: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+.ci-pet-work-del:hover { background: rgba(255, 59, 48, 0.85); color: #fff; }
+.ci-pet-work-empty {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  padding: 10px 2px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ci-color-text-tertiary, rgba(198, 212, 240, 0.5));
+}
+/* 续作卡：橙色描边提示「这不是模板，是你的草稿」 */
+.ci-pethome .ci-pet-tpl.ci-pet-tpl--draft {
+  box-shadow:
+    inset 0 0 0 1px rgba(120, 94, 48, 0.13),
+    0 6px 18px rgba(4, 7, 18, 0.3),
+    0 0 0 2px rgba(255, 159, 67, 0.55);
 }
 
 /* ===== M2：行为与情感系统 ===== */
@@ -5886,8 +6201,8 @@
 }
 .ci-pethome .ci-pet-hero-stage canvas {
   bottom: 32%;
-  width: 168px;
-  height: 168px;
+  width: 190px;
+  height: 190px;
 }
 .ci-pethome .ci-pet-hero-info {
   padding: 36px 20px 10px;
@@ -10043,6 +10358,933 @@
   color: rgba(198, 210, 240, 0.6);
 }
 
+/* ---------- 情感陪伴 · 心意面板（v0.37.1 精修） ---------- */
+/* 像素手账：2px 墨线 + 硬投影，强调色只用暖金；间距一律 margin（Chrome 80 无 gap）。 */
+
+/* 开场：内容块逐块上浮（只在首次打开时播，交互重绘不播） */
+.ci-pethome .world-feel-block {
+  -webkit-animation: worldFeelIn 0.26s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  animation: worldFeelIn 0.26s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes worldFeelIn {
+  from { opacity: 0; -webkit-transform: translateY(8px); transform: translateY(8px); }
+  to { opacity: 1; -webkit-transform: translateY(0); transform: translateY(0); }
+}
+
+/* 骨架（拿数据之前的样子） */
+.ci-pethome .world-feel-skel { padding: 2px 0 6px; }
+.ci-pethome .world-feel-skelhero,
+.ci-pethome .world-feel-skelrow {
+  background: linear-gradient(90deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(255, 255, 255, 0.10) 42%,
+    rgba(255, 255, 255, 0.045) 84%);
+  background-size: 220% 100%;
+  -webkit-animation: worldFeelShimmer 1.35s linear infinite;
+  animation: worldFeelShimmer 1.35s linear infinite;
+  box-shadow: 0 0 0 2px rgba(28, 17, 25, 0.6);
+}
+.ci-pethome .world-feel-skelhero { height: 96px; margin-bottom: 12px; }
+.ci-pethome .world-feel-skelrow { height: 54px; margin-bottom: 10px; }
+.ci-pethome .world-feel-skelrow.is-short { width: 62%; }
+@keyframes worldFeelShimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -60% 0; }
+}
+
+/* ---------- 情绪卡 ---------- */
+.ci-pethome .world-feel-hero {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #2f2639;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.12), 4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+/* 左侧 3px 情绪色条：不用整卡换色，只留一条，语气更克制 */
+.ci-pethome .world-feel-hero.is-high {
+  box-shadow: 0 0 0 2px #1c1119, inset 3px 0 0 #ffd76e,
+    inset 0 0 0 1px rgba(255, 233, 184, 0.12), 4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pethome .world-feel-hero.is-low {
+  box-shadow: 0 0 0 2px #1c1119, inset 3px 0 0 #e86a86,
+    inset 0 0 0 1px rgba(255, 233, 184, 0.12), 4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pethome .world-feel-hero.is-mid {
+  box-shadow: 0 0 0 2px #1c1119, inset 3px 0 0 #9fd2f0,
+    inset 0 0 0 1px rgba(255, 233, 184, 0.12), 4px 4px 0 rgba(0, 0, 0, 0.42);
+}
+.ci-pethome .world-feel-hero-main {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+}
+.ci-pethome .world-feel-portrait {
+  position: relative;
+  -webkit-flex: 0 0 62px;
+  flex: 0 0 62px;
+  width: 62px;
+  height: 62px;
+  margin-right: 12px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  /* 头像框做成一张「小相片」：米白纸底比深底更能托住表情图标 */
+  background: linear-gradient(180deg, #f8f0dc 0%, #e9dab9 100%);
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 2px #fffdf4, 3px 3px 0 rgba(0, 0, 0, 0.36);
+}
+/* 头像：48px = 12 格 × 4px，整数缩放；在 62px 相片框里留 7px 白边 */
+.ci-pethome .world-feel-face-pix { width: 48px; height: 48px; }
+.ci-pethome .world-feel-live {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  background: #8fe6a6;
+  box-shadow: 0 0 0 2px #1c1119;
+  -webkit-animation: worldFeelLive 2.4s ease-in-out infinite;
+  animation: worldFeelLive 2.4s ease-in-out infinite;
+}
+.ci-pethome .world-feel-hero.is-low .world-feel-live { background: #e86a86; }
+.ci-pethome .world-feel-hero.is-mid .world-feel-live { background: #9fd2f0; }
+@keyframes worldFeelLive {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.ci-pethome .world-feel-info {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-namerow {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: baseline;
+  align-items: baseline;
+}
+.ci-pethome .world-feel-name {
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  color: #ffe9b8;
+  text-shadow: 1px 1px 0 #000;
+}
+.ci-pethome .world-feel-persona {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffd76e;
+}
+.ci-pethome .world-feel-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(226, 235, 255, 0.82);
+}
+.ci-pethome .world-feel-meter {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-top: 9px;
+}
+.ci-pethome .world-feel-meterlabel {
+  margin-right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: rgba(198, 210, 240, 0.62);
+}
+.ci-pethome .world-feel-moodbar {
+  -webkit-flex: 1;
+  flex: 1;
+  display: -webkit-flex;
+  display: flex;
+  height: 10px;
+}
+.ci-pethome .world-feel-seg {
+  -webkit-flex: 1;
+  flex: 1;
+  height: 10px;
+  margin-right: 2px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.10);
+}
+.ci-pethome .world-feel-seg:last-child { margin-right: 0; }
+.ci-pethome .world-feel-seg.is-fill {
+  background: #ffd76e;
+  box-shadow: inset 0 0 0 1px #a3700f;
+  -webkit-animation: worldFeelSeg 0.32s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  animation: worldFeelSeg 0.32s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+.ci-pethome .world-feel-hero.is-low .world-feel-seg.is-fill {
+  background: #e86a86;
+  box-shadow: inset 0 0 0 1px #7a2436;
+}
+.ci-pethome .world-feel-hero.is-mid .world-feel-seg.is-fill {
+  background: #9fd2f0;
+  box-shadow: inset 0 0 0 1px #3a6f8f;
+}
+@keyframes worldFeelSeg {
+  from { opacity: 0; -webkit-transform: scaleY(0.4); transform: scaleY(0.4); }
+  to { opacity: 1; -webkit-transform: scaleY(1); transform: scaleY(1); }
+}
+.ci-pethome .world-feel-meterval {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #ffd76e;
+  text-shadow: 1px 1px 0 #000;
+}
+.ci-pethome .world-feel-tags {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 10px -3px 0;
+}
+.ci-pethome .world-feel-tag {
+  margin: 3px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  color: rgba(226, 235, 255, 0.8);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.14);
+}
+.ci-pethome .world-feel-tag.is-gold {
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 215, 110, 0.38);
+}
+.ci-pethome .world-feel-tag.is-soft {
+  color: rgba(198, 210, 240, 0.6);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+/* ---------- 它想对你说（奶白便签） ---------- */
+.ci-pethome .world-feel-greet {
+  position: relative;
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 12px;
+  padding: 10px 14px 11px 12px;
+  background: #fdf6e3;
+  box-shadow:
+    0 0 0 2px #241a2e,
+    inset 0 0 0 2px #fffdf4,
+    inset 4px 0 0 #e8a83c,
+    4px 4px 0 rgba(0, 0, 0, 0.36);
+}
+.ci-pethome .world-feel-quote {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 26px;
+  color: #d8ac54;
+}
+.ci-pethome .world-feel-greetbody {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-greettag {
+  display: block;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: #a3700f;
+}
+.ci-pethome .world-feel-greettext {
+  display: block;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.65;
+  color: #2b2233;
+}
+
+/* ---------- 回话条 ---------- */
+.ci-pethome .world-feel-echo {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  background: #2b2437;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.16), 3px 3px 0 rgba(0, 0, 0, 0.32);
+}
+.ci-pethome .world-feel-echoicon {
+  -webkit-flex: 0 0 28px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin-right: 10px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 15px;
+  background: #241c30;
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.16);
+}
+.ci-pethome .world-feel-echotext {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-echoline {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+  color: #f2ecff;
+}
+.ci-pethome .world-feel-echoreward {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #ffd76e;
+}
+
+/* ---------- 区块标题 ---------- */
+.ci-pethome .world-feel-section {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin: 16px 0 9px;
+}
+.ci-pethome .world-feel-secbullet {
+  -webkit-flex: 0 0 8px;
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  background: #ffd76e;
+  box-shadow: 0 0 0 2px #1c1119, 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+.ci-pethome .world-feel-sectitle {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #ffe9b8;
+  text-shadow: 1px 1px 0 #000;
+}
+.ci-pethome .world-feel-rule {
+  -webkit-flex: 1;
+  flex: 1;
+  height: 0;
+  margin: 0 8px;
+  border-top: 2px dotted rgba(255, 233, 184, 0.18);
+}
+.ci-pethome .world-feel-count {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  font-size: 10px;
+  color: rgba(198, 210, 240, 0.62);
+}
+/* ---------- 陪伴动作 ---------- */
+.ci-pethome .world-feel-actions {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 0 -4px;
+}
+.ci-pethome .world-feel-act {
+  -webkit-flex: 1 1 30%;
+  flex: 1 1 30%;
+  min-width: 104px;
+  margin: 4px;
+  padding: 10px 10px 9px;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  background: #332a3f;
+  color: #f2ecff;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.12), 3px 3px 0 rgba(0, 0, 0, 0.4);
+  -webkit-transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease;
+}
+/* 按下：整块向右下压 2px，硬投影跟着变短 —— 与屋里家具的按压语言一致（不用 scale） */
+.ci-pethome .world-feel-act:active {
+  background: #3d3050;
+  -webkit-transform: translate(2px, 2px);
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.22), 1px 1px 0 rgba(0, 0, 0, 0.4);
+}
+.ci-pethome .world-feel-act.is-off { opacity: 0.55; }
+.ci-pethome .world-feel-act-head {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+}
+.ci-pethome .world-feel-act-icon {
+  -webkit-flex: 0 0 28px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  margin-right: 7px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  background: #241c30;
+  box-shadow: inset 0 0 0 2px rgba(255, 233, 184, 0.16);
+}
+.ci-pethome .world-feel-act-name {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.2;
+  color: #ffe9b8;
+}
+.ci-pethome .world-feel-act-desc {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(198, 210, 240, 0.58);
+}
+.ci-pethome .world-feel-act-meta {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 0 6px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+}
+.ci-pethome .world-feel-act-meta.is-ready {
+  color: #ffe9b8;
+  background: rgba(255, 215, 110, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 215, 110, 0.36);
+}
+.ci-pethome .world-feel-act-meta.is-cool {
+  color: rgba(198, 210, 240, 0.62);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.ci-pethome .world-feel-act-meta.is-done {
+  color: #8fe6a6;
+  background: rgba(143, 230, 166, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(143, 230, 166, 0.3);
+}
+/* ---------- 谈心话题 ---------- */
+.ci-pethome .world-feel-talknote {
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  font-size: 10px;
+  line-height: 1.55;
+  color: rgba(226, 235, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ci-pethome .world-feel-topics {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 0 -4px;
+}
+.ci-pethome .world-feel-topic {
+  -webkit-flex: 1 1 44%;
+  flex: 1 1 44%;
+  min-width: 138px;
+  margin: 4px;
+  padding: 9px 9px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: flex-start;
+  align-items: flex-start;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  background: #2d2539;
+  color: #f2ecff;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.1), 3px 3px 0 rgba(0, 0, 0, 0.36);
+  -webkit-transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease;
+}
+.ci-pethome .world-feel-topic:active {
+  background: #3d3050;
+  -webkit-transform: translate(2px, 2px);
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.2), 1px 1px 0 rgba(0, 0, 0, 0.36);
+}
+.ci-pethome .world-feel-topic-icon {
+  -webkit-flex: 0 0 26px;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  margin-right: 7px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  background: #241c30;
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.14);
+}
+/* 像素图标统一 24px = 12 格 × 2px，整数缩放永远清晰 */
+.ci-pethome .world-feel-pix { width: 24px; height: 24px; }
+.ci-pethome .world-feel-act-icon .world-feel-pix,
+.ci-pethome .world-feel-topic-icon .world-feel-pix,
+.ci-pethome .world-feel-nighticon .world-feel-pix,
+.ci-pethome .world-feel-memoryicon .world-feel-pix { width: 24px; height: 24px; }
+.ci-pethome .world-feel-dialogicon .world-feel-pix { width: 14px; height: 14px; }
+.ci-pethome .world-feel-reward-pix { width: 12px; height: 12px; }
+.ci-pethome .world-feel-topic-text {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-topic-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.3;
+  color: #ffe9b8;
+}
+.ci-pethome .world-feel-topic-preview {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(198, 210, 240, 0.58);
+}
+.ci-pethome .world-feel-topic-arrow {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding-top: 2px;
+  font-size: 14px;
+  font-weight: 900;
+  color: rgba(255, 215, 110, 0.55);
+}
+/* ---------- 谈心对话 ---------- */
+.ci-pethome .world-feel-dialog { padding-top: 2px; }
+.ci-pethome .world-feel-dialogtag {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #ffd76e;
+  background: rgba(255, 215, 110, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 215, 110, 0.32);
+}
+.ci-pethome .world-feel-dialogicon { margin-right: 5px; }
+.ci-pethome .world-feel-row {
+  display: -webkit-flex;
+  display: flex;
+  margin-bottom: 9px;
+}
+.ci-pethome .world-feel-row.is-me {
+  -webkit-justify-content: flex-end;
+  justify-content: flex-end;
+}
+.ci-pethome .world-feel-bubble {
+  position: relative;
+  max-width: 84%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+  background: #fdf6e3;
+  color: #2b2233;
+  box-shadow: 0 0 0 2px #241a2e, inset 0 0 0 2px #fffdf4, 3px 3px 0 rgba(0, 0, 0, 0.34);
+}
+/* 像素小尖角：旋转 45° 的方块 + 单侧描边（与屋里头顶气泡同一套做法） */
+.ci-pethome .world-feel-bubble::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  bottom: 8px;
+  width: 8px;
+  height: 8px;
+  background: #fdf6e3;
+  box-shadow: -6px 0 0 0 #241a2e;
+  -webkit-transform: rotate(45deg);
+  transform: rotate(45deg);
+}
+.ci-pethome .world-feel-row.is-me .world-feel-bubble {
+  background: #3a2c52;
+  color: #ffe9b8;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.18), 3px 3px 0 rgba(0, 0, 0, 0.34);
+}
+.ci-pethome .world-feel-row.is-me .world-feel-bubble::after {
+  left: auto;
+  right: -4px;
+  background: #3a2c52;
+  box-shadow: 6px 0 0 0 #1c1119;
+}
+.ci-pethome .world-feel-bubble--typing {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  color: #6b5a3a;
+}
+.ci-pethome .world-feel-typingtext { font-size: 12px; font-weight: 700; }
+.ci-pethome .world-feel-dots {
+  display: -webkit-inline-flex;
+  display: inline-flex;
+  margin-left: 6px;
+}
+.ci-pethome .world-feel-tdot {
+  width: 4px;
+  height: 4px;
+  margin-right: 3px;
+  background: #a3700f;
+  -webkit-animation: worldFeelDot 0.9s infinite ease-in-out;
+  animation: worldFeelDot 0.9s infinite ease-in-out;
+}
+.ci-pethome .world-feel-tdot:last-child { margin-right: 0; }
+.ci-pethome .world-feel-tdot:nth-child(2) { -webkit-animation-delay: 0.15s; animation-delay: 0.15s; }
+.ci-pethome .world-feel-tdot:nth-child(3) { -webkit-animation-delay: 0.3s; animation-delay: 0.3s; }
+@keyframes worldFeelDot {
+  0%, 100% { opacity: 0.22; -webkit-transform: translateY(0); transform: translateY(0); }
+  40% { opacity: 1; -webkit-transform: translateY(-3px); transform: translateY(-3px); }
+}
+.ci-pethome .world-feel-choices { margin-top: 4px; }
+.ci-pethome .world-feel-choice {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  background: #332a3f;
+  color: #ffe9b8;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.16);
+}
+.ci-pethome .world-feel-choice:active {
+  background: #3d3050;
+  -webkit-transform: translate(2px, 2px);
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.24), 1px 1px 0 rgba(0, 0, 0, 0.36);
+}
+.ci-pethome .world-feel-choice-text { -webkit-flex: 1; flex: 1; min-width: 0; }
+.ci-pethome .world-feel-choice-arrow {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  margin-left: 8px;
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffd76e;
+}
+/* 后续两键：一虚一实，主次分明 */
+.ci-pethome .world-feel-choice.is-ghost {
+  background: transparent;
+  color: rgba(226, 235, 255, 0.8);
+  box-shadow: inset 0 0 0 2px rgba(255, 233, 184, 0.18);
+}
+.ci-pethome .world-feel-choice.is-primary {
+  color: #3a2418;
+  background: linear-gradient(180deg, #ffd76e 0%, #e0a83a 100%);
+  box-shadow: 0 0 0 2px #7c5210, 0 3px 0 #7c5210;
+}
+.ci-pethome .world-feel-choice.is-primary:active {
+  box-shadow: 0 0 0 2px #7c5210, 0 1px 0 #7c5210;
+}
+.ci-pethome .world-feel-next { margin-top: 8px; }
+.ci-pethome .world-feel-reward {
+  display: -webkit-inline-flex;
+  display: inline-flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-top: 10px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #4a2e00;
+  background: linear-gradient(180deg, #ffd76e 0%, #e0a83a 100%);
+  box-shadow: 0 2px 0 #7c5210;
+  -webkit-animation: worldFeelPop 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  animation: worldFeelPop 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.ci-pethome .world-feel-rewardicon {
+  margin-right: 5px;
+  font-size: 11px;
+  color: #a83e3e;
+}
+@keyframes worldFeelPop {
+  from { opacity: 0; -webkit-transform: scale(0.8); transform: scale(0.8); }
+  to { opacity: 1; -webkit-transform: scale(1); transform: scale(1); }
+}
+/* ---------- 晚安 ---------- */
+.ci-pethome .world-feel-night {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: #2b2336;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.12), 3px 3px 0 rgba(0, 0, 0, 0.32);
+}
+.ci-pethome .world-feel-night.is-open {
+  background: #322a37;
+  box-shadow: 0 0 0 2px #6f5216, inset 0 0 0 1px rgba(255, 215, 110, 0.2), 3px 3px 0 rgba(0, 0, 0, 0.32);
+}
+.ci-pethome .world-feel-night.is-done {
+  background: #28302f;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(143, 230, 166, 0.2), 3px 3px 0 rgba(0, 0, 0, 0.3);
+}
+.ci-pethome .world-feel-nighticon {
+  -webkit-flex: 0 0 32px;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  margin-right: 10px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 18px;
+  background: #241c30;
+  box-shadow: inset 0 0 0 2px rgba(255, 233, 184, 0.16);
+}
+.ci-pethome .world-feel-nighttext {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-nighttitle {
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  color: #ffe9b8;
+}
+.ci-pethome .world-feel-nightchip {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 0 6px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 16px;
+  color: rgba(226, 235, 255, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.ci-pethome .world-feel-night.is-done .world-feel-nightchip {
+  color: rgba(143, 230, 166, 0.9);
+  background: rgba(143, 230, 166, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(143, 230, 166, 0.24);
+}
+.ci-pethome .world-feel-nightbtn {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  border: 2px solid #a3700f;
+  background: linear-gradient(180deg, #ffd76e 0%, #e0a83a 100%);
+  color: #4a2e00;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 15px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 3px 0 #7c5210;
+}
+.ci-pethome .world-feel-nightbtn:active {
+  -webkit-transform: translateY(2px);
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #7c5210;
+}
+.ci-pethome .world-feel-nightdone {
+  -webkit-flex: 0 0 auto;
+  flex: 0 0 auto;
+  font-size: 17px;
+  font-weight: 900;
+  color: #8fe6a6;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* ---------- 回忆册 ---------- */
+.ci-pethome .world-feel-prog {
+  height: 6px;
+  margin: 0 0 10px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.1);
+}
+.ci-pethome .world-feel-progfill {
+  display: block;
+  height: 6px;
+  background: linear-gradient(90deg, #e0a83a 0%, #ffd76e 100%);
+  -webkit-transition: width 0.35s ease;
+  transition: width 0.35s ease;
+}
+.ci-pethome .world-feel-memorygrid {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  margin: 0 -4px;
+}
+.ci-pethome .world-feel-memory {
+  -webkit-flex: 1 1 44%;
+  flex: 1 1 44%;
+  min-width: 138px;
+  margin: 4px;
+  padding: 9px 9px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  background: #2f2639;
+  box-shadow: 0 0 0 2px #1c1119, inset 0 0 0 1px rgba(255, 233, 184, 0.1);
+}
+.ci-pethome .world-feel-memory.is-on {
+  background: #332b3f;
+  box-shadow: 0 0 0 2px #6f5216, inset 0 0 0 1px rgba(255, 215, 110, 0.18);
+}
+.ci-pethome .world-feel-memory.is-off {
+  opacity: 0.5;
+  background: #2a2436;
+}
+.ci-pethome .world-feel-memoryicon {
+  -webkit-flex: 0 0 26px;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  background: #241c30;
+  box-shadow: inset 0 0 0 1px rgba(255, 233, 184, 0.14);
+}
+.ci-pethome .world-feel-memory.is-on .world-feel-memoryicon {
+  background: #f7eeda;
+  box-shadow: inset 0 0 0 1px rgba(58, 36, 24, 0.28);
+  font-size: 16px;
+}
+.ci-pethome .world-feel-memorybody {
+  -webkit-flex: 1;
+  flex: 1;
+  min-width: 0;
+}
+.ci-pethome .world-feel-memorynamerow {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-align-items: center;
+  align-items: center;
+}
+.ci-pethome .world-feel-memoryname {
+  font-size: 12px;
+  font-weight: 900;
+  color: #f2ecff;
+}
+.ci-pethome .world-feel-new {
+  margin-left: 5px;
+  padding: 0 4px;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 12px;
+  letter-spacing: 0.5px;
+  color: #4a2e00;
+  background: #ffd76e;
+  box-shadow: 0 1px 0 #7c5210;
+}
+.ci-pethome .world-feel-memorysub {
+  display: block;
+  margin-top: 3px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: rgba(198, 210, 240, 0.55);
+}
+.ci-pethome .world-feel-empty {
+  padding: 14px 0;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(198, 210, 240, 0.55);
+}
+.ci-pethome .world-feel-foot {
+  margin-top: 16px;
+  padding-top: 11px;
+  border-top: 2px dashed rgba(255, 233, 184, 0.14);
+  font-size: 10px;
+  line-height: 1.7;
+  text-align: center;
+  color: rgba(198, 210, 240, 0.5);
+}
+@media (max-width: 420px) {
+  /* 窄屏三个动作并排：图标在上、名字在下，去掉长描述 —— 比「2 + 1 拉伸」均衡得多 */
+  .ci-pethome .world-feel-act {
+    -webkit-flex: 1 1 0;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 9px 7px 8px;
+  }
+  .ci-pethome .world-feel-act-head {
+    -webkit-flex-direction: column;
+    flex-direction: column;
+    -webkit-align-items: flex-start;
+    align-items: flex-start;
+  }
+  .ci-pethome .world-feel-act-icon { margin: 0 0 6px; }
+  .ci-pethome .world-feel-act-name { font-size: 12px; }
+  .ci-pethome .world-feel-act-desc { display: none; }
+  .ci-pethome .world-feel-act-meta {
+    margin-top: 6px;
+    padding: 0 4px;
+    font-size: 8px;
+  }
+  .ci-pethome .world-feel-meterval { margin-left: 6px; }
+  .ci-pethome .world-feel-name { font-size: 16px; }
+}
+/* 减少动效：所有入场/呼吸/跳动动画一律停掉，只留静态终态 */
+@media (prefers-reduced-motion: reduce) {
+  .ci-pethome .world-feel-block,
+  .ci-pethome .world-feel-seg.is-fill,
+  .ci-pethome .world-feel-reward,
+  .ci-pethome .world-feel-live,
+  .ci-pethome .world-feel-tdot,
+  .ci-pethome .world-feel-skelhero,
+  .ci-pethome .world-feel-skelrow {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
 /* 毛线球本体只有 40×30（yarn 8×6 像素 × 5），平板上比 44px 的最小点击目标还小。
    用透明伪元素把命中区撑到 56×50 —— 视觉不变，手指好点得中。 */
 .ci-pethome .world-obj[data-obj="ball"]::after {
@@ -12044,6 +13286,36 @@
   text-shadow: none !important;
 }
 
+/* ---------- 27.16 拼豆工作台新增面板：白天把中性灰底换成暖木色 ---------- */
+.ci-pethome.is-day .ci-pet-seg,
+.ci-pethome.is-day .ci-pet-chip:not(.is-on),
+.ci-pethome.is-day .ci-pet-curcolor,
+.ci-pethome.is-day .ci-pet-previewbox,
+.ci-pethome.is-day .ci-pet-stat,
+.ci-pethome.is-day .ci-pet-work,
+.ci-pethome.is-day .ci-pet-work-del {
+  background: rgba(150, 110, 60, 0.12);
+}
+.ci-pethome.is-day .ci-pet-seg-btn.is-on,
+.ci-pethome.is-day .ci-pet-chip.is-on {
+  background: rgba(150, 110, 60, 0.18);
+}
+.ci-pethome.is-day .ci-pet-previewbox,
+.ci-pethome.is-day .ci-pet-work {
+  box-shadow: inset 0 0 0 1px rgba(120, 84, 40, 0.18);
+}
+/* 白天：编辑中的那件用暖橙色描边，和「续作卡」统一 */
+.ci-pethome.is-day .ci-pet-work.is-editing {
+  box-shadow:
+    inset 0 0 0 1px rgba(120, 84, 40, 0.18),
+    0 0 0 2px rgba(255, 159, 67, 0.75);
+}
+/* 白天删除键仍要能看出是「危险操作」 */
+.ci-pethome.is-day .ci-pet-work-del:hover {
+  background: rgba(255, 59, 48, 0.85);
+  color: #fff;
+}
+
 /* ==============================================================================
    29. 今日规则 + 深渊（v0.28.0）
    今日规则条：塔页顶部的两条词缀——它是「今天的变奏」，视觉上要像
@@ -13084,4 +14356,765 @@
   font-size: 12px;
   font-weight: 900;
   color: #4f7a42;
+}
+
+
+/* ==============================================================================
+   34. 拼豆工作台 v0.38.0 —— 大画板 / 两列布局 / 触屏手感
+   旧版：画板 flex:0 0 auto + 30px 格宽封顶，1024×768 平板上整块板只有 480px，
+   右边一半空着，页头再吃掉 217px。现在按画板卡的真实宽高算格宽（上限 56），
+   宽屏走「画板 + 340px 工具列」两列，页头压成一行。
+   ============================================================================== */
+.ci-pet-edhead {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: baseline; align-items: baseline;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 0 0 6px 0;
+}
+.ci-pet-edtitle {
+  margin: 0 12px 0 0 !important;
+  font-size: 20px !important;
+  line-height: 1.2;
+}
+.ci-pet-edhint {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-pet-edback {
+  margin-left: 10px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-secondary, #6b6b70);
+  background: rgba(127, 127, 127, 0.14);
+}
+.ci-pet-edback:active { opacity: 0.7; }
+
+/* 触屏：快捷键行没有意义，直接让位给画板 */
+.ci-pethome.is-touch .ci-pet-kbdhint { display: none; }
+@media (hover: none) {
+  .ci-pet-kbdhint { display: none; }
+}
+
+.ci-pet-editor {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: flex-start; align-items: flex-start;
+  margin: 0 -7px;
+}
+/* ⚠️ 不能用 flex gap：本项目基线设备是 Android 9 / Chrome 80，
+   flex 的 gap 在 Chrome 84 才支持，第三方市场应用没有 PostCSS 兜底（见 docs/ecosystem-design.md）。
+   用 margin 做间距，任何版本都成立。 */
+.ci-pet-editor > * { max-width: 100%; margin: 0 7px 14px 7px; }
+.ci-pet-editor > .ci-pet-canvaswrap,
+.ci-pet-editor > .ci-pet-tools { box-sizing: border-box; }
+.ci-pet-canvaswrap {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px;
+}
+.ci-pet-tools {
+  -webkit-flex: 1 1 280px; flex: 1 1 280px;
+  min-width: 0;
+}
+
+/* 画板舞台：底层豆子 + 上层预览 */
+.ci-pet-boardstage {
+  position: relative;
+  margin: 0 auto;
+  line-height: 0;
+  /* 触屏：手指在画板上滑动只画豆，不滚页面、不缩放 */
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ci-pet-editcanvas {
+  display: block;
+  margin: 0;
+  touch-action: none;
+  cursor: crosshair;
+  -webkit-user-select: none; user-select: none;
+  /* 给画板一条内描边：它是一块「板」，不是一块悬浮的色块 */
+  box-shadow: inset 0 0 0 1px rgba(120, 96, 52, 0.18);
+}
+.ci-pet-editfx {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  touch-action: none;
+}
+
+/* 常用色 */
+.ci-pet-recent {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 0 0 8px 0;
+}
+.ci-pet-recent-label {
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ci-color-text-tertiary, #9a8266);
+}
+.ci-pet-recent-dot {
+  width: 26px;
+  height: 26px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px rgba(58, 42, 28, 0.22);
+}
+.ci-pet-recent-dot:active { transform: translateY(1px); }
+
+/* 整图操作：翻转 / 平移 */
+.ci-pet-mover {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 2px -3px 4px -3px;
+}
+.ci-pet-mover > .ci-pet-movebtn { margin: 0 3px 6px 3px; }
+.ci-pet-movebtn {
+  min-width: 38px;
+  min-height: 40px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ci-color-text-primary, #4a3527);
+  background: rgba(127, 127, 127, 0.14);
+  box-shadow: 0 2px 0 rgba(58, 42, 28, 0.18);
+}
+.ci-pet-movebtn:active { transform: translateY(2px); box-shadow: none; }
+
+/* 「去云盘看看」快捷入口（导出成功后短暂出现，不遮挡画板） */
+.ci-pet-cloudjump {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  z-index: 9999;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #2C3E50;
+  background: #FFD76E;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+/* 宽屏（平板横屏 / 桌面）：两列 —— 画板吃满剩余宽度，工具列固定 340 */
+@media (min-width: 900px) {
+  .ci-pet-editor { -webkit-flex-wrap: nowrap; flex-wrap: nowrap; }
+  .ci-pet-canvaswrap { -webkit-flex: 1 1 auto; flex: 1 1 auto; }
+  .ci-pet-tools {
+    -webkit-flex: 0 0 320px; flex: 0 0 320px;
+    width: 320px;
+  }
+  .ci-pet-edhint { max-width: none; }
+}
+
+/* 窄屏：工具列整行落到画板下面，画板优先占满宽度 */
+@media (max-width: 899px) {
+  .ci-pet-editor { -webkit-flex-direction: column; flex-direction: column; }
+  .ci-pet-canvaswrap { width: 100%; }
+  .ci-pet-tools { width: 100%; }
+}
+
+/* 页头里的画板条：不再单独占一行，跟在标题后面靠右 */
+.ci-pet-boardbar.ci-pet-edbar {
+  -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
+  margin: 0 0 0 auto;
+}
+@media (max-width: 899px) {
+  /* 窄屏也保持一行：标题 | 尺寸档位 | 返回。
+     之前强行 100% 宽会把「先不换了」挤到第三行，白白多占一条。 */
+  .ci-pet-boardbar.ci-pet-edbar {
+    -webkit-flex: 0 1 auto; flex: 0 1 auto;
+    margin: 0 0 0 auto;
+    -webkit-justify-content: flex-end; justify-content: flex-end;
+  }
+}
+
+/* 调色盘面板：窄屏整体搬进画板卡（在坐标行下面），保证「选色」不用滚出首屏 */
+.ci-pet-palpanel.is-inline {
+  margin: 8px -2px 0 -2px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(120, 96, 52, 0.28);
+}
+@media (max-width: 899px) {
+  .ci-pet-edhint { display: none; }
+  .ci-pet-edback { margin-left: auto; }
+}
+
+
+/* ==============================================================================
+   35. 拼豆工作台 v0.40 —— 横屏不再整页滚动 / 按钮加大 / 主操作吸底
+   用户反馈（平板横屏）：「要来回滚」「按钮太小太挤」「卡顿」「画不出来」。
+   ① 编辑区高度钉死为一屏，工具列自己滚；② 「就它了」吸底；③ 按钮 44→48 高、间距 8。
+   ⚠️ 仍然不能用 flex gap（Chrome 80 不支持，见 34 节注释）。
+   ============================================================================== */
+.ci-pet-pinbar {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  z-index: 3;
+  margin: 8px -10px -10px -10px;
+  padding: 8px 10px;
+  background: var(--pp-paper, #FFFCF4);
+  box-shadow: 0 -2px 0 rgba(58, 42, 28, 0.10), 0 -10px 14px rgba(58, 42, 28, 0.06);
+}
+/* 工具内容独立滚动：操作条是它的兄弟节点，不会被内容盖住 */
+.ci-pet-toolscroll {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+@media (min-width: 900px) {
+  .ci-pet-tools { display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; }
+  .ci-pet-toolscroll { overflow-y: auto; }
+}
+.ci-pet-pinbar .ci-pet-btnrow {
+  margin: 0;
+  -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
+  -webkit-align-items: stretch; align-items: stretch;
+}
+.ci-pet-pinbar .ci-pet-btnrow > .ci-pet-btn {
+  margin: 0 0 0 8px;
+  min-height: 46px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.ci-pet-pinbar .ci-pet-btnrow > .ci-pet-btn:first-child { margin-left: 0; }
+.ci-pet-pinbar .ci-pet-pinprimary {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* 工具按钮：加大 + 拉开 */
+.ci-pet-tools .ci-pet-btn {
+  min-height: 46px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+/* 3 列等宽：按钮宽度一致，不再出现「一行 3 个 + 掉下来 1 个」 */
+.ci-pet-toolgrid {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  margin: 0 -4px;
+}
+.ci-pet-toolgrid > .ci-pet-btn {
+  -webkit-flex: 0 0 calc(33.333% - 8px); flex: 0 0 calc(33.333% - 8px);
+  width: calc(33.333% - 8px);
+  margin: 4px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.ci-pet-tools .ci-pet-btnrow { margin: 12px -4px 0 -4px; }
+.ci-pet-tools .ci-pet-btnrow > .ci-pet-btn { margin: 4px 4px; }
+.ci-pet-tools .ci-pet-sechead { margin-top: 16px; }
+
+/* 「整图」那排小按钮：40×40 起，别让手指点空 */
+.ci-pet-tools .ci-pet-movebtn {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 14px;
+}
+
+/* 调色盘：格子上限放宽一点，选色更准 */
+@media (min-width: 900px) {
+  .ci-pet-tools { padding: 10px 12px; }
+}
+
+/* 横屏：画板卡与工具列同高，画板卡内部不滚 */
+@media (min-width: 900px) {
+  .ci-pet-canvaswrap { overflow: hidden; }
+  .ci-pet-tools { overscroll-behavior: contain; }
+}
+
+/* 可视区域矮（横屏平板常见 600~800）时，压掉不必要的头图 */
+@media (min-width: 900px) and (max-height: 820px) {
+  .ci-pethome.is-editor .ci-pet-edtitle { font-size: 18px !important; }
+  .ci-pethome.is-editor .ci-pet-edhint { display: none; }
+}
+
+/* 竖屏 / 手机：工具列落在画板下方，sticky 够不着 —— 主操作条改成固定在视口底部，
+   页面留出等高的底部内边距，最后一件作品不会被盖住。 */
+@media (max-width: 899px) {
+  .ci-pethome.is-editor { padding-bottom: 76px; }
+  .ci-pet-toolscroll { overflow-y: visible; }
+  .ci-pethome.is-editor .ci-pet-pinbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 8px 12px;
+    padding-bottom: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top: 2px solid rgba(58, 42, 28, 0.14);
+    box-shadow: 0 -8px 18px rgba(58, 42, 28, 0.12);
+  }
+}
+
+/* ==============================================================================
+   36. 拼豆 v0.41 —— 画板 48/64 档 + 缩放/抓手
+   ============================================================================== */
+.ci-pet-canvaswrap {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+}
+/* 视口：放大后超出卡片时用原生滚动平移；不放大时居中 */
+.ci-pet-boardview {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: -webkit-flex; display: flex;
+}
+/* margin:auto 而不是 justify-content:center —— 后者在内容超宽时会把左边裁掉 */
+.ci-pet-boardview > .ci-pet-boardstage { margin: auto; }
+@media (max-width: 899px) {
+  .ci-pet-boardview { max-height: 64vh; }
+}
+.ci-pet-boardstage.is-pan { cursor: grab; }
+.ci-pet-boardstage.is-pan:active { cursor: grabbing; }
+
+/* 缩放控件 */
+.ci-pet-zoombox {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-left: 6px;
+  border-radius: 11px;
+  background: rgba(127, 127, 127, 0.16);
+}
+.ci-pet-zoombtn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ci-color-text-primary, #4a3527);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+}
+.ci-pet-zoombtn:disabled { opacity: 0.35; }
+.ci-pet-zoomlabel {
+  min-width: 46px;
+  height: 30px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ci-color-text-primary, #4a3527);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* ==============================================================================
+   37. 拼豆 v0.41 —— 云盘导入选择器
+   ⚠️ 不用 inset（Chrome 87+），四条边分开写。
+   ============================================================================== */
+/* 弹窗是米白纸面（--pp-paper 不随昼夜变），里面的文字必须固定用墨色。
+   否则夜间主题下 --ci-color-text-* 是近白色 → 白字压米色纸，几乎看不见（实测截图）。 */
+.ci-pet-cloudpick,
+.ci-pet-pickzoom {
+  --ci-color-text-primary: #4a3527;
+  --ci-color-text-secondary: #7a5f45;
+  --ci-color-text-tertiary: #9a8266;
+  color: #4a3527;
+}
+.ci-pet-cloudpick {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: 9990;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  padding: 16px;
+  background: rgba(24, 18, 34, 0.48);
+}
+.ci-pet-cloudpick-panel {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  width: 720px;
+  max-width: 100%;
+  max-height: 86vh;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--pp-paper, #FFFCF4);
+  box-shadow: 0 0 0 2px var(--pp-ink, #3a2a1c), 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+.ci-pet-cloudpick-head {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  padding: 12px 14px;
+  border-bottom: 2px solid rgba(58, 42, 28, 0.14);
+}
+.ci-pet-cloudpick-title {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ci-color-text-primary, #4a3527);
+}
+.ci-pet-cloudpick-x {
+  width: 36px; height: 36px;
+  border: 0; border-radius: 8px;
+  background: rgba(127, 127, 127, 0.14);
+  color: inherit;
+  font-size: 15px;
+}
+.ci-pet-cloudpick-opts {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  padding: 10px 14px 4px;
+}
+.ci-pet-opts {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 0 14px 6px 0;
+}
+.ci-pet-opts-label {
+  margin-right: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ci-color-text-secondary, #7a5f45);
+}
+.ci-pet-opts .ci-pet-chip { min-height: 34px; padding: 4px 10px; font-size: 12px; }
+.ci-pet-cloudpick-sub {
+  padding: 2px 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ci-color-text-secondary, #7a5f45);
+}
+.ci-pet-cloudpick-grid {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 14px 14px;
+  display: -ms-grid;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 132px));
+  grid-gap: 10px;
+  -webkit-justify-content: start; justify-content: start;
+  align-content: start;
+}
+.ci-pet-cloudpick-hint {
+  grid-column: 1 / -1;
+  padding: 26px 6px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ci-color-text-secondary, #7a5f45);
+}
+.ci-pet-cloudtile {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  padding: 0;
+  border: 0;
+  background: rgba(127, 127, 127, 0.10);
+  border-radius: 8px;
+  overflow: hidden;
+  color: inherit;
+}
+.ci-pet-cloudtile img {
+  display: block;
+  width: 100%;
+  height: 88px;
+  object-fit: cover;
+}
+.ci-pet-cloudtile-name {
+  padding: 4px 6px 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-pet-cloudtile.is-busy { opacity: 0.55; }
+.ci-pet-cloudtile.is-broken img { opacity: 0.2; }
+.ci-pet-cloudpick-foot {
+  padding: 10px 14px;
+  border-top: 2px solid rgba(58, 42, 28, 0.14);
+  text-align: right;
+}
+
+/* ---------- 云盘导入：列表 / 预览两层 ---------- */
+.ci-pet-pickview {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  min-height: 0;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.ci-pet-pickpair {
+  display: -webkit-flex; display: flex;
+  -webkit-justify-content: center; justify-content: center;
+  -webkit-align-items: flex-start; align-items: flex-start;
+  padding: 12px 14px 6px;
+}
+.ci-pet-pickcell { margin: 0 8px; text-align: center; }
+.ci-pet-pickcell.is-busy { opacity: 0.5; }
+.ci-pet-pickimg,
+.ci-pet-pickcv {
+  display: block;
+  width: 190px;
+  height: 190px;
+  border-radius: 8px;
+  background: #FBF6E8;
+  box-shadow: 0 0 0 2px rgba(58, 42, 28, 0.18);
+  object-fit: cover;
+}
+.ci-pet-pickcap {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ci-color-text-secondary, #7a5f45);
+}
+.ci-pet-pickview .ci-pet-cloudpick-opts { padding: 6px 10px 0; }
+.ci-pet-pickview .ci-pet-cloudpick-foot {
+  display: -webkit-flex; display: flex;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  -webkit-align-items: center; align-items: center;
+}
+.ci-pet-pinsmall {
+  min-height: 42px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 800;
+}
+@media (max-width: 560px) {
+  .ci-pet-pickimg, .ci-pet-pickcv { width: 132px; height: 132px; }
+}
+
+/* ---------- v0.44：空板引导 / 当前色块 / 预览放大 ---------- */
+.ci-pet-emptyhint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%);
+  display: none;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: rgba(255, 252, 244, 0.92);
+  box-shadow: 0 0 0 2px rgba(58, 42, 28, 0.16), 0 6px 18px rgba(58, 42, 28, 0.12);
+  color: #6b5540;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.ci-pet-emptyhint.is-on { display: -webkit-flex; display: flex; }
+.ci-pet-emptyhint-icon { font-size: 22px; margin-bottom: 4px; }
+
+.ci-pet-curdot {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 7px;
+  border-radius: 4px;
+  vertical-align: -3px;
+  box-shadow: 0 0 0 2px rgba(58, 42, 28, 0.22);
+}
+.ci-pet-curcolor { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+
+.ci-pet-pickzoom {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--pp-paper, #FFFCF4);
+  box-shadow: 0 0 0 2px var(--pp-ink, #3a2a1c), 0 18px 40px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+.ci-pet-pickzoom canvas {
+  display: block;
+  border-radius: 6px;
+  max-width: 84vw;
+  max-height: 70vh;
+}
+
+/* 笔尖粗细行 */
+.ci-pet-brushrow {
+  margin: 2px 0 6px 0;
+  padding-left: 2px;
+}
+.ci-pet-brushrow .ci-pet-chip { min-width: 46px; justify-content: center; }
+
+/* 「画笔工具 + 笔尖」同一行 */
+.ci-pet-toolhead {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  margin-top: 14px;
+}
+.ci-pet-toolhead > .ci-pet-sechead { margin: 0; }
+.ci-pet-toolhead .ci-pet-brushrow { margin: 0; }
+
+
+/* ==============================================================================
+   38. 桌宠动画细节（v0.47）
+   ① 修：走路/跳跃动画把 transform 整个接管了，于是 `.is-flip { scaleX(-1) }` 被覆盖
+      —— 桌宠向左走时仍然朝右（最容易露馅的一处）。
+      这里给「翻转态」补一套同名动画；同时加待机呼吸。
+   ② 呼吸只做 2px 整像素位移，不做缩放 —— 像素画一旦非整数缩放，边缘就会抖。
+   ③ 起跳时影子同步收放，落地再铺开（没有这一步，跳跃像在贴图上平移）。
+   ============================================================================== */
+@keyframes worldBreath {
+  0%, 100% { -webkit-transform: translateY(0); transform: translateY(0); }
+  50% { -webkit-transform: translateY(-2px); transform: translateY(-2px); }
+}
+@keyframes worldBreathFlip {
+  0%, 100% { -webkit-transform: scaleX(-1) translateY(0); transform: scaleX(-1) translateY(0); }
+  50% { -webkit-transform: scaleX(-1) translateY(-2px); transform: scaleX(-1) translateY(-2px); }
+}
+@keyframes worldWalkBobFlip {
+  0%, 100% { -webkit-transform: scaleX(-1) translateY(0); transform: scaleX(-1) translateY(0); }
+  50% { -webkit-transform: scaleX(-1) translateY(-4px); transform: scaleX(-1) translateY(-4px); }
+}
+@keyframes worldHopFlip {
+  0% { -webkit-transform: scaleX(-1) translateY(0) scale(1, 1); transform: scaleX(-1) translateY(0) scale(1, 1); }
+  35% { -webkit-transform: scaleX(-1) translateY(-26px) scale(0.94, 1.08); transform: scaleX(-1) translateY(-26px) scale(0.94, 1.08); }
+  70% { -webkit-transform: scaleX(-1) translateY(0) scale(1.06, 0.92); transform: scaleX(-1) translateY(0) scale(1.06, 0.92); }
+  100% { -webkit-transform: scaleX(-1) translateY(0) scale(1, 1); transform: scaleX(-1) translateY(0) scale(1, 1); }
+}
+@keyframes worldShadowHop {
+  0% { -webkit-transform: scale(1); transform: scale(1); opacity: 1; }
+  35% { -webkit-transform: scale(0.82); transform: scale(0.82); opacity: 0.62; }
+  70% { -webkit-transform: scale(1.04); transform: scale(1.04); opacity: 1; }
+  100% { -webkit-transform: scale(1); transform: scale(1); opacity: 1; }
+}
+
+/* 待机呼吸（走路/跳跃时由更高优先级规则接管） */
+.ci-pethome .world-pet-cv {
+  -webkit-animation: worldBreath 3.8s ease-in-out infinite;
+  animation: worldBreath 3.8s ease-in-out infinite;
+}
+.ci-pethome .world-pet.is-flip .world-pet-cv {
+  -webkit-animation-name: worldBreathFlip;
+  animation-name: worldBreathFlip;
+}
+/* 翻转 + 走路 / 跳跃：补上朝向，别再把它翻回来 */
+.ci-pethome .world-pet.is-flip.is-walk .world-pet-cv {
+  -webkit-animation-name: worldWalkBobFlip;
+  animation-name: worldWalkBobFlip;
+}
+.ci-pethome .world-pet.is-flip.is-hop .world-pet-cv {
+  -webkit-animation-name: worldHopFlip;
+  animation-name: worldHopFlip;
+}
+/* 走路节奏收一点：176px 的像素宠，5px 起伏像在蹦 */
+.ci-pethome .world-pet.is-walk .world-pet-cv {
+  -webkit-animation-duration: 0.3s;
+  animation-duration: 0.3s;
+}
+.ci-pethome .world-pet.is-hop .world-pet-shadow {
+  -webkit-animation: worldShadowHop 0.5s ease-out;
+  animation: worldShadowHop 0.5s ease-out;
+}
+
+/* 走路扬尘：三粒像素尘，只在 is-walk 期间存在 */
+.ci-pethome .world-dust {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 90px;
+  height: 16px;
+  margin-left: -45px;
+  pointer-events: none;
+  z-index: 3;
+}
+.ci-pethome .world-dust i {
+  position: absolute;
+  bottom: 4px;
+  display: block;
+  background: rgba(150, 118, 82, 0.55);
+  border-radius: 1px;
+  animation: worldDust 0.42s ease-out forwards;
+}
+@keyframes worldDust {
+  0% { opacity: 0.75; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-7px) scale(0.6); }
+}
+/* 呼吸时影子同步微缩：没有这一步，角色像贴在影子上 */
+@keyframes worldShadowBreath {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.965); opacity: 0.92; }
+}
+.ci-pethome .world-pet-shadow {
+  animation: worldShadowBreath 3.8s ease-in-out infinite;
+}
+
+/* 桌宠本体长时间用 transform 位移：显式提升为合成层，避免每次拖拽重绘整块。
+   （只加在 64px 的小元素上，代价可控。） */
+.ci-pet { will-change: transform; }
+.ci-pet-flip { will-change: transform; }
+
+/* ==============================================================================
+   桌宠长按 / 右键菜单（v0.50）
+   之前这个类**没有任何样式**：position 缺失 → left/top 无效；又继承了
+   宿主容器的 pointer-events:none → 菜单既不在手指旁边、也点不动。
+   ============================================================================== */
+.ci-pet-menu {
+  position: fixed;
+  z-index: 9600;
+  pointer-events: auto;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  min-width: 150px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #FFFCF4;
+  box-shadow: 0 0 0 2px #3a2a1c, 0 10px 26px rgba(0, 0, 0, 0.26);
+  -webkit-animation: ciPetMenuIn 0.14s ease-out;
+  animation: ciPetMenuIn 0.14s ease-out;
+  -webkit-transform-origin: 50% 0; transform-origin: 50% 0;
+}
+@keyframes ciPetMenuIn {
+  0% { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ci-pet-menu button {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #4a3527;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ci-pet-menu button:active { background: rgba(200, 150, 88, 0.28); }
+.ci-pet-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: rgba(58, 42, 28, 0.16);
+}
+@media (hover: hover) {
+  .ci-pet-menu button:hover { background: rgba(200, 150, 88, 0.18); }
 }

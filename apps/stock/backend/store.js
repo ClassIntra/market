@@ -22,9 +22,17 @@ var _db = null;
 function db() {
   if (!_db) {
     // 市场应用的后端由 server 进程加载，cwd 就是 server/
-    _db = require(path.resolve(process.cwd(), 'src/utils/db'));
+    _db = require('_sdk/backend/host').db;
   }
   return _db;
+}
+
+function ensureColumn(d, table, col, ddl) {
+  var rows = d.prepare('PRAGMA table_info(' + table + ')').all();
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].name === col) return;
+  }
+  d.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + ddl);
 }
 
 function ensureSchema() {
@@ -58,6 +66,13 @@ function ensureSchema() {
     '  status TEXT NOT NULL DEFAULT \'pending\',', // pending/filled/cancelled/expired/rejected
     '  hold_cent INTEGER NOT NULL DEFAULT 0,',     // 买单冻结资金
     '  frozen_qty INTEGER NOT NULL DEFAULT 0,',    // 卖单冻结股数
+    "  validity TEXT NOT NULL DEFAULT 'long',",    // long / day
+    '  expires_at INTEGER NOT NULL DEFAULT 0,',    // 当日有效单的到期时间(ms)
+    '  trigger_type TEXT,',                        // stop_loss / take_profit / trailing_stop
+    '  trigger_cent INTEGER NOT NULL DEFAULT 0,',  // 条件单触发价
+    '  trail_percent REAL NOT NULL DEFAULT 0,',    // 移动止损回撤百分比
+    '  peak_cent INTEGER NOT NULL DEFAULT 0,',     // 移动止损跟踪到的最高价
+    '  triggered_at INTEGER,',                     // 实际触发时间
     '  fee_cent INTEGER NOT NULL DEFAULT 0,',
     '  trade_date TEXT,',
     '  reason TEXT,',
@@ -69,6 +84,16 @@ function ensureSchema() {
 
   d.exec('CREATE INDEX IF NOT EXISTS idx_stock_orders_user ON stock_orders(user_id, id DESC)');
   d.exec("CREATE INDEX IF NOT EXISTS idx_stock_orders_pending ON stock_orders(status, trade_date) WHERE status = 'pending'");
+
+  // 老库补列：应用自管 schema，不依赖宿主迁移。
+  ensureColumn(d, 'stock_orders', 'validity', "validity TEXT NOT NULL DEFAULT 'long'");
+  ensureColumn(d, 'stock_orders', 'expires_at', 'expires_at INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(d, 'stock_orders', 'trigger_type', 'trigger_type TEXT');
+  ensureColumn(d, 'stock_orders', 'trigger_cent', 'trigger_cent INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(d, 'stock_orders', 'trail_percent', 'trail_percent REAL NOT NULL DEFAULT 0');
+  ensureColumn(d, 'stock_orders', 'peak_cent', 'peak_cent INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(d, 'stock_orders', 'triggered_at', 'triggered_at INTEGER');
+  d.exec("CREATE INDEX IF NOT EXISTS idx_stock_orders_armed ON stock_orders(status, expires_at) WHERE status = 'armed'");
 
   d.exec([
     'CREATE TABLE IF NOT EXISTS stock_trades (',
@@ -102,6 +127,13 @@ function ensureSchema() {
     '  qty INTEGER NOT NULL DEFAULT 0,',
     '  available_qty INTEGER NOT NULL DEFAULT 0,',
     '  cost_cent INTEGER NOT NULL DEFAULT 0,',
+    // 成本来源拆分：卖出时本金按来源分别回充值池/赠送池。
+    // 不记这两列的话，「赠送学元买股 → 卖出」会把赠送学元洗成可提现的充值学元。
+    '  cost_cash_cent INTEGER NOT NULL DEFAULT 0,',
+    '  cost_grant_cent INTEGER NOT NULL DEFAULT 0,',
+    // 练习金成本：证券专属资金买来的部分。卖出时原路退回练习金池，
+    // 不进消费侧 —— 这是「印多少练习金都不会稀释购买力」的记账基础。
+    '  cost_practice_cent INTEGER NOT NULL DEFAULT 0,',
     // 首次建仓时间（成就「长期主义」用；加仓不动它）
     '  opened_at INTEGER NOT NULL DEFAULT 0,',
     '  updated_at INTEGER NOT NULL DEFAULT 0,',
@@ -113,9 +145,29 @@ function ensureSchema() {
   try {
     d.exec('ALTER TABLE stock_positions ADD COLUMN opened_at INTEGER NOT NULL DEFAULT 0');
   } catch (e) { /* 列已存在 */ }
+  try {
+    d.exec('ALTER TABLE stock_positions ADD COLUMN cost_cash_cent INTEGER NOT NULL DEFAULT 0');
+  } catch (e) { /* 列已存在 */ }
+  try {
+    d.exec('ALTER TABLE stock_positions ADD COLUMN cost_grant_cent INTEGER NOT NULL DEFAULT 0');
+  } catch (e) { /* 列已存在 */ }
+  try {
+    d.exec('ALTER TABLE stock_positions ADD COLUMN cost_practice_cent INTEGER NOT NULL DEFAULT 0');
+  } catch (e) { /* 列已存在 */ }
   // 历史数据兜底：没有建仓时间的，用最后一次更新时间近似
   try {
     d.exec('UPDATE stock_positions SET opened_at = updated_at WHERE opened_at = 0');
+  } catch (e) { /* 忽略 */ }
+  // 老持仓没有资金来源记录：一律按「赠送成本」补。
+  // 宁可少给学生提现额度，也不能把历史赠送学元洗成充值学元。
+  // 新持仓三列之和恒等于 cost_cent，所以这条只会命中真正没记录过的老数据。
+  // 必须排除 cost_practice_cent > 0：练习金建的新仓三列里 cash/grant 都是 0，
+  // 不排除的话会被误标成赠送成本，卖出时钱就流进消费池了。
+  try {
+    d.exec([
+      'UPDATE stock_positions SET cost_grant_cent = cost_cent',
+      'WHERE cost_cash_cent = 0 AND cost_grant_cent = 0 AND cost_practice_cent = 0 AND cost_cent > 0'
+    ].join('\n'));
   } catch (e) { /* 忽略 */ }
 
   d.exec([
@@ -148,6 +200,23 @@ function ensureSchema() {
   // ⚠️ 2026-11-03 补：achievements.js 一直在这里查这张表，但建表语句漏了 ——
   // 导致 /achievements 必 500、成就永远无法解锁（前端把错误吞了，表面看是
   // 「成就格子全是灰的」）。建表必须与查询字段一致：user_id+code 主键。
+  d.exec([
+    'CREATE TABLE IF NOT EXISTS stock_price_alerts (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  user_id TEXT NOT NULL,',
+    '  code TEXT NOT NULL,',
+    '  name TEXT,',
+    "  direction TEXT NOT NULL CHECK (direction IN ('above','below')),",
+    '  target_cent INTEGER NOT NULL CHECK (target_cent > 0),',
+    "  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','triggered','cancelled')),",
+    '  ref TEXT NOT NULL UNIQUE,',
+    '  created_at INTEGER NOT NULL,',
+    '  triggered_at INTEGER',
+    ')'
+  ].join('\n'));
+  d.exec("CREATE INDEX IF NOT EXISTS idx_stock_price_alerts_active ON stock_price_alerts(status, code)");
+  d.exec('CREATE INDEX IF NOT EXISTS idx_stock_price_alerts_user ON stock_price_alerts(user_id, id DESC)');
+
   d.exec([
     'CREATE TABLE IF NOT EXISTS stock_achievements (',
     '  user_id TEXT NOT NULL,',
@@ -245,7 +314,7 @@ function listOrders(userId, status, limit) {
   var n = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
   if (status && status !== 'all') {
     if (status === 'pending') {
-      return d.prepare("SELECT * FROM stock_orders WHERE user_id = ? AND status IN ('pending') ORDER BY id DESC LIMIT ?")
+      return d.prepare("SELECT * FROM stock_orders WHERE user_id = ? AND status IN ('pending','armed') ORDER BY id DESC LIMIT ?")
         .all(userId, n);
     }
     return d.prepare('SELECT * FROM stock_orders WHERE user_id = ? AND status = ? ORDER BY id DESC LIMIT ?')

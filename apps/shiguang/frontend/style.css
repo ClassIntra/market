@@ -1752,6 +1752,30 @@
   margin-top: 1px;
 }
 
+/* ---------------- 同学菜单（点同学 → 跟随 / 送火） ---------------- */
+
+.sg-pm-head {
+  padding: 4px 6px 10px;
+}
+
+.sg-pm-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sg-ink);
+  line-height: 1.4;
+}
+
+.sg-pm-role {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 208, 96, 0.14);
+  font-size: 11px;
+  color: var(--sg-amber, #ffd060);
+  line-height: 1.6;
+}
+
 /* ---------------- 漂流瓶 ---------------- */
 
 .sg-bottle-list {

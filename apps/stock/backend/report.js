@@ -105,13 +105,18 @@ function ensureToday() {
   var existing = store.getDailyReport(dateKey);
   if (existing) return Promise.resolve({ generated: false, report: existing });
 
-  // 盘中生成的数据不完整，等收盘（15:00 之后 session.key 变为 closed）
+  // 盘中生成的数据不完整，等收盘结算（15:00-15:02）结束后再生成，
+  // 否则收盘集合竞价的成交会漏进当日复盘。
   var p = market.bjParts(now);
-  var afterClose = p.weekday >= 1 && p.weekday <= 5 && (p.hour * 60 + p.minute >= 15 * 60);
+  var afterClose = p.weekday >= 1 && p.weekday <= 5 && (p.hour * 60 + p.minute >= 15 * 60 + 2);
   if (!afterClose) return Promise.resolve({ generated: false, report: store.getDailyReport(null) });
 
   return quotes.getSnapshot({ force: true }).then(function (snap) {
     if (snap.stale) return { generated: false, report: store.getDailyReport(null) };
+    // 节假日行情源会返回上一交易日的收盘价；不能把它当今天的报告存下来
+    if (snap.quote_date && snap.quote_date !== dateKey) {
+      return { generated: false, report: store.getDailyReport(null) };
+    }
     return quotes.getIndexes().then(function (indexes) {
       if (!indexes.length) return { generated: false, report: store.getDailyReport(null) };
       var payload = buildPayload(dateKey, snap, indexes);

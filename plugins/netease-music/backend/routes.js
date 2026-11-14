@@ -25,7 +25,7 @@
 
 var express = require('express');
 var router = express.Router();
-var auth = require('../../../server/src/middleware/auth');
+var auth = require('_sdk/backend/host').auth;
 var store = require('./store');
 var gatewayMod = require('./gateway');
 var streamMod = require('./stream');

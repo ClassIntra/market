@@ -6,8 +6,8 @@
 //   4. netease_likes     本地收藏镜像（离线也能查看收藏列表）
 // 注意：不新建数据库文件，全部建表在主库 classintra.db 中，便于统一备份。
 
-var db = require('../../../server/src/utils/db');
-var config = require('../../../server/src/config');
+var db = require('_sdk/backend/host').db;
+var config = require('_sdk/backend/host').config;
 var path = require('path');
 var fs = require('fs');
 

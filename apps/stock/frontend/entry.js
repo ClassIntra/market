@@ -63,8 +63,12 @@
     stockNews: {},      // code -> { list, at }
     profiles: {},       // code -> { data, at }
     pref: null,         // 提醒偏好 { enabled, up_pct, loss_pct }
+    alerts: [],         // 到价提醒
     notify: { list: [], unread: 0, at: 0 },
     orders: null,
+    showRejected: false,   // 历史异常委托默认收进抽屉
+    cond: null,            // 条件单表单 { code, type, price, qty, validity }
+    cancelAllArmed: false,
     trades: null,
     rank: null,
     lastRankAt: 0,
@@ -73,6 +77,15 @@
     achievements: null,
     report: null,
     reportOpen: false,
+    // 信用 / 贷款（学元证券专用能力面）
+    credit: null,
+    creditError: '',
+    creditAlert: null,
+    creditProduct: 'quick',
+    creditInstallments: 2,
+    creditBusy: false,
+    creditDetailId: 0,
+    creditDetails: {},
     loading: {},
     error: {},
     watch: {},
@@ -244,9 +257,9 @@
     bell.onclick = openNotify;
     top.appendChild(bell);
 
-    // 钱包（可点：学元中心 —— 余额 / 每日津贴 / 来源说明 / 最近流水）
+    // 练习金（可点：余额与流水；资金操作归「学元钱包」系统应用）
     var wallet = h('div', 'wallet');
-    wallet.appendChild(h('span', 'lbl', '学元'));
+    wallet.appendChild(h('span', 'lbl', '练习金'));
     var avail = (S.overview && S.overview.summary && S.overview.summary.cash.available) || 0;
     wallet.appendChild(h('span', 'amt num', money(avail, 2)));
     wallet.onclick = openWallet;
@@ -272,6 +285,7 @@
     { key: 'market', label: '行情', icon: '<path d="M3 17l5-5 4 3 8-8"/><path d="M14 7h6v6"/>' },
     { key: 'positions', label: '持仓', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/>' },
     { key: 'orders', label: '委托', icon: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/>' },
+    { key: 'credit', label: '信用', icon: '<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/>' },
     { key: 'rank', label: '排行', icon: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>' },
     { key: 'guide', label: '指南', icon: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5V5.5z"/><path d="M8 7h8M8 11h6"/>' },
     { key: 'rules', label: '规则', icon: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>' }
@@ -286,6 +300,9 @@
         var e = h('div', 'nav-item' + (S.tab === item.key ? ' active' : ''));
         e.appendChild(svg(item.icon));
         e.appendChild(h('span', null, item.label));
+        if (item.key === 'credit' && S.creditAlert && S.creditAlert.overdue) {
+          e.appendChild(h('span', 'nav-dot'));
+        }
         e.onclick = function () {
           if (S.tab === item.key && !S.detailCode && !S.subview) return;
           S.tab = item.key;
@@ -316,6 +333,8 @@
       main.appendChild(S.subview === 'ledger' ? viewLedger() : viewPositions());
     } else if (S.tab === 'orders') {
       main.appendChild(viewOrders());
+    } else if (S.tab === 'credit') {
+      main.appendChild(viewCredit());
     } else if (S.tab === 'rank') {
       main.appendChild(viewRank());
     } else if (S.tab === 'guide') {
@@ -582,7 +601,9 @@
   function heroCard(sum) {
     var hero = h('div', 'hero');
     var left = h('div', 'hero-left');
-    left.appendChild(h('div', 'hero-label', '总资产'));
+    // 必须写「练习金」三个字。只写「总资产」会让学生拿钱包里的赠送学元来比，
+    // 然后以为钱丢了 —— 这是两本账：钱包的钱不能炒股，炒股的钱也出不去。
+    left.appendChild(h('div', 'hero-label', '练习金总资产'));
 
     var v = h('div', 'hero-value num');
     v.appendChild(document.createTextNode(money(sum.totals.total_asset, 2)));
@@ -600,6 +621,9 @@
     chip2.className = trendClass(totalPnl);
     sub.appendChild(chip2);
     left.appendChild(sub);
+
+    left.appendChild(h('div', 'hero-sub hero-note',
+      '只算练习金（可用 + 冻结 + 持仓市值）。钱包里的充值/赠送学元不参与炒股，也不显示在这里。'));
     hero.appendChild(left);
 
     var right = h('div', 'hero-right');
@@ -672,6 +696,20 @@
   }
 
   // 只更新价格文本，不重建 DOM（避免列表在刷新时闪烁/丢滚动位置）
+  // 区块原位替换：只换 view-market 里的一张卡片，不整页 renderMain。
+  // 打开应用时 4 个行情请求并发回包，若各自整页重建，会连续触发全文档
+  // 布局（探针实测：8 次 Layout、每次 95% 文档标脏）——这是平板开屏卡顿
+  // 的主因。卡片级替换只让浏览器重排该子树。
+  // 返回是否替换成功；失败（当前不在行情页/骨架不存在）由调用方回退整页渲染。
+  function patchMarketCard(selector, build) {
+    if (!root || S.tab !== 'market' || S.detailCode) return false;
+    var cur = root.querySelector('.view-market ' + selector);
+    if (!cur || !cur.parentNode) return false;
+    var fresh = build();
+    cur.parentNode.replaceChild(fresh, cur);
+    return true;
+  }
+
   function patchQuotes(list) {
     if (!root || !list) return;
     for (var i = 0; i < list.length; i++) {
@@ -781,6 +819,7 @@
     S.tab = 'market';
     renderMain();
     loadDetail(code);
+    loadAlerts();
   }
 
   function viewDetail() {
@@ -818,7 +857,28 @@
     var star = h('div', 'detail-star' + (watched ? ' on' : ''), watched ? '★' : '☆');
     star.onclick = function () { toggleWatch(S.detailCode); };
     top.appendChild(star);
+    var alertBtn = h('div', 'detail-alert', '🔔');
+    alertBtn.title = '到价提醒';
+    alertBtn.onclick = openPriceAlert;
+    top.appendChild(alertBtn);
     wrap.appendChild(top);
+
+    var myAlerts = (S.alerts || []).filter(function (a) {
+      return a.code === S.detailCode && a.status === 'active';
+    });
+    if (myAlerts.length) {
+      var alertStrip = h('div', 'detail-alerts');
+      myAlerts.forEach(function (a) {
+        var chip = h('span', 'da-chip');
+        chip.appendChild(document.createTextNode(
+          (a.direction === 'above' ? '涨到 ' : '跌到 ') + fmt(a.target_cent / 100, 2) + ' '));
+        var x = h('em', 'da-x', '×');
+        x.onclick = function (ev) { ev.stopPropagation(); cancelPriceAlert(a.id); };
+        chip.appendChild(x);
+        alertStrip.appendChild(chip);
+      });
+      wrap.appendChild(alertStrip);
+    }
 
     // 持仓速览：看 K 线的时候就知道自己的成本，不用来回切「持仓」页
     var myPos = null;
@@ -1635,6 +1695,8 @@
 
     var tab = S.ordersTab || 'pending';
 
+    if (tab === 'pending') wrap.appendChild(conditionCard());
+
     if (tab === 'trades') {
       if (!S.trades) return (wrap.appendChild(loadingBox('加载成交')), wrap);
       if (!S.trades.length) {
@@ -1683,31 +1745,253 @@
 
     if (!S.orders) return (wrap.appendChild(loadingBox('加载委托')), wrap);
 
-    var list = tab === 'pending'
-      ? S.orders.filter(function (o) { return o.status === 'pending'; })
-      : S.orders;
+    // 历史异常委托（系统升级前双算手续费留下的 rejected 单）默认收进抽屉：
+    // 学生打开「全部委托」应该先看到有效记录，而不是一片红色「拒绝」。
+    // 数据零改动，点开仍可逐笔查看原因与冻结去向。
+    var list = [];
+    var hidden = [];
+    for (var li = 0; li < S.orders.length; li++) {
+      var o = S.orders[li];
+      if (tab === 'pending') { if (o.status === 'pending' || o.status === 'armed') list.push(o); }
+      else if (o.status === 'rejected') hidden.push(o);
+      else list.push(o);
+    }
 
-    if (!list.length) {
+    if (!list.length && !hidden.length) {
       wrap.appendChild(emptyBox('▤', tab === 'pending' ? '没有未成交的委托' : '还没有委托记录', '下单后可以在这里撤单'));
       return wrap;
     }
 
-    var card = h('div', 'card');
-    var head = h('div', 'tbl-head');
-    head.appendChild(h('div', 'tc-1', '股票 / 方向'));
-    head.appendChild(h('div', 'tc-2', '委托价'));
-    head.appendChild(h('div', 'tc-3', '数量'));
-    head.appendChild(h('div', 'tc-4', '状态'));
-    card.appendChild(head);
-
-    for (var j = 0; j < list.length; j++) {
-      card.appendChild(orderRow(list[j]));
+    if (list.length) {
+      if (tab === 'pending') wrap.appendChild(cancelAllBar());
+      var card = h('div', 'card');
+      var head = h('div', 'tbl-head');
+      head.appendChild(h('div', 'tc-1', '股票 / 方向'));
+      head.appendChild(h('div', 'tc-2', '委托价'));
+      head.appendChild(h('div', 'tc-3', '数量'));
+      head.appendChild(h('div', 'tc-4', '状态'));
+      card.appendChild(head);
+      for (var j = 0; j < list.length; j++) card.appendChild(orderRow(list[j]));
+      if (hidden.length && S.showRejected) {
+        for (var hj = 0; hj < hidden.length; hj++) card.appendChild(orderRow(hidden[hj]));
+      }
+      wrap.appendChild(card);
     }
-    wrap.appendChild(card);
+
+    if (tab === 'all' && hidden.length) {
+      var fold = h('div', 'submit-warn');
+      fold.style.cursor = 'pointer';
+      fold.style.marginTop = list.length ? '10px' : '0';
+      fold.textContent = (S.showRejected ? '▾ 收起历史异常委托' :
+        '▸ 历史异常委托 ' + hidden.length + ' 笔（系统升级前的记录，冻结资金均已退回，点开查看）');
+      fold.onclick = function () { S.showRejected = !S.showRejected; renderMain(); };
+      wrap.appendChild(fold);
+    }
 
     var note = h('div', 'submit-warn', '委托会一直有效，直到成交或撤单；晚上和周末挂的单，开盘后自动撮合。');
     wrap.appendChild(note);
     return wrap;
+  }
+
+  function condDefaultPrice(pos, type) {
+    var p = Number(pos && pos.price) || 0;
+    if (!(p > 0)) return '';
+    return round2(p * (type === 'take_profit' ? 1.05 : 0.95)).toFixed(2);
+  }
+
+  function conditionCard() {
+    var positions = (S.overview && S.overview.summary && S.overview.summary.positions) || [];
+    var card = h('div', 'card cond-card');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', '止损 / 止盈'));
+    card.appendChild(head);
+    if (!positions.length) {
+      card.appendChild(h('div', 'submit-warn', '先买入并持有股票，才能挂止损/止盈条件单。'));
+      return card;
+    }
+    if (!S.cond || !positions.some(function (p) { return p.code === S.cond.code; })) {
+      var p0 = positions[0];
+      S.cond = {
+        code: p0.code, type: 'stop_loss',
+        price: condDefaultPrice(p0, 'stop_loss'),
+        trail: '5',
+        qty: p0.available_qty, validity: 'long'
+      };
+    }
+    var st = S.cond;
+    function posOf(code) {
+      for (var i = 0; i < positions.length; i++) if (positions[i].code === code) return positions[i];
+      return null;
+    }
+
+    var row1 = h('div', 'cond-row');
+    row1.appendChild(h('span', 'cond-k', '股票'));
+    var sel = document.createElement('select');
+    sel.className = 'cond-input';
+    positions.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.code;
+      opt.textContent = p.name + ' · 可卖 ' + p.available_qty + ' 股';
+      if (p.code === st.code) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    sel.onchange = function () {
+      st.code = sel.value;
+      var p = posOf(st.code);
+      st.qty = p ? p.available_qty : 0;
+      st.price = condDefaultPrice(p, st.type);
+      renderMain();
+    };
+    row1.appendChild(sel);
+    card.appendChild(row1);
+
+    var typeRow = h('div', 'cond-row');
+    typeRow.appendChild(h('span', 'cond-k', '条件'));
+    var tseg = h('div', 'seg');
+    tseg.style.flex = '1';
+    [['stop_loss', '止损'], ['take_profit', '止盈'], ['trailing_stop', '移动止损']].forEach(function (t) {
+      var b = h('div', 'seg-item' + (st.type === t[0] ? ' active' : ''), t[1]);
+      b.style.flex = '1 1 0';
+      b.style.textAlign = 'center';
+      b.onclick = function () {
+        if (st.type === t[0]) return;
+        st.type = t[0];
+        st.price = condDefaultPrice(posOf(st.code), st.type);
+        renderMain();
+      };
+      tseg.appendChild(b);
+    });
+    typeRow.appendChild(tseg);
+    card.appendChild(typeRow);
+    var isTrailing = st.type === 'trailing_stop';
+    card.appendChild(h('div', 'cond-note', isTrailing
+      ? '移动止损：记录持仓后的最高价，从最高点回撤设定比例就卖出；峰值上移时触发线跟着上移。'
+      : (st.type === 'stop_loss' ? '跌到触发价自动卖出，防止亏损扩大。' : '涨到触发价自动卖出，把利润落袋。')));
+
+    var row2 = h('div', 'cond-row');
+    row2.appendChild(h('span', 'cond-k', isTrailing ? '回撤' : '触发价'));
+    if (isTrailing) {
+      var trailIn = document.createElement('input');
+      trailIn.className = 'cond-input';
+      trailIn.type = 'number';
+      trailIn.step = '0.5';
+      trailIn.min = '0.5';
+      trailIn.max = '20';
+      trailIn.value = st.trail;
+      trailIn.onchange = function () { st.trail = trailIn.value; };
+      row2.appendChild(trailIn);
+      row2.appendChild(h('span', 'cond-unit', '%'));
+    } else {
+      var priceIn = document.createElement('input');
+      priceIn.className = 'cond-input';
+      priceIn.type = 'number';
+      priceIn.step = '0.01';
+      priceIn.value = st.price;
+      priceIn.onchange = function () { st.price = priceIn.value; };
+      row2.appendChild(priceIn);
+    }
+    var qtyIn = document.createElement('input');
+    qtyIn.className = 'cond-input cond-qty';
+    qtyIn.type = 'number';
+    qtyIn.step = '100';
+    qtyIn.value = String(st.qty);
+    qtyIn.onchange = function () { st.qty = qtyIn.value; };
+    row2.appendChild(qtyIn);
+    row2.appendChild(h('span', 'cond-unit', '股'));
+    card.appendChild(row2);
+
+    var row3 = h('div', 'cond-row');
+    row3.appendChild(h('span', 'cond-k', '有效期'));
+    var vseg = h('div', 'seg');
+    vseg.style.flex = '1';
+    [['long', '长期有效'], ['day', '当日有效']].forEach(function (v) {
+      var b = h('div', 'seg-item' + (st.validity === v[0] ? ' active' : ''), v[1]);
+      b.style.flex = '1 1 0';
+      b.style.textAlign = 'center';
+      b.onclick = function () { st.validity = v[0]; renderMain(); };
+      vseg.appendChild(b);
+    });
+    row3.appendChild(vseg);
+    card.appendChild(row3);
+
+    var btn = h('div', 'inv-btn primary cond-submit' + (st.qty > 0 ? '' : ' disabled'),
+      st.busy ? '挂单中…' : '挂条件单');
+    btn.onclick = function () { if (!st.busy) submitCondition(); };
+    card.appendChild(btn);
+    card.appendChild(h('div', 'cond-note',
+      '条件单会冻结对应股数；触发后按市价卖出。没触发可随时撤单，当日有效单收盘结算后自动撤销。'));
+    return card;
+  }
+
+  function submitCondition() {
+    var st = S.cond;
+    if (!st || st.busy) return;
+    var isTrailing = st.type === 'trailing_stop';
+    var price = Number(st.price);
+    var trail = Number(st.trail);
+    var qty = parseInt(st.qty, 10);
+    if (!isTrailing && !(price > 0)) { toast('请填写触发价', 'error'); return; }
+    if (isTrailing && (!isFinite(trail) || trail < 0.5 || trail > 20)) {
+      toast('回撤比例需在 0.5%–20% 之间', 'error');
+      return;
+    }
+    if (!(qty > 0)) { toast('请填写数量', 'error'); return; }
+    st.busy = true;
+    renderMain();
+    var body = {
+      code: st.code,
+      trigger_type: st.type,
+      qty: qty,
+      validity: st.validity
+    };
+    if (isTrailing) body.trail_percent = trail;
+    else body.trigger_price = price;
+    post('/order/condition', body).then(function (r) {
+      st.busy = false;
+      S.cond = null;
+      toast((r && r.message) || '条件单已挂出', 'success');
+      if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
+      loadOrders();
+      loadOverview();
+      loadNotify(true);
+    }).catch(function (e) {
+      st.busy = false;
+      toast(errMsg(e), 'error');
+      renderMain();
+    });
+  }
+
+  function cancelAllBar() {
+    var bar = h('div', 'cond-actions');
+    var btn = h('button', 'cancel-btn' + (S.cancelAllArmed ? ' danger' : ''),
+      S.cancelAllArmed ? '再点一次确认全部撤单' : '全部撤单');
+    btn.onclick = function () {
+      if (!S.cancelAllArmed) {
+        S.cancelAllArmed = true;
+        renderMain();
+        setTimeout(function () {
+          if (S.cancelAllArmed) {
+            S.cancelAllArmed = false;
+            if (S.tab === 'orders') renderMain();
+          }
+        }, 5000);
+        return;
+      }
+      S.cancelAllArmed = false;
+      post('/orders/cancel-all').then(function (r) {
+        toast((r && r.message) || '已全部撤单', 'success');
+        if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
+        loadOrders();
+        loadOverview();
+        loadLedger(true);
+        loadNotify(true);
+      }).catch(function (e) {
+        toast(errMsg(e), 'error');
+        renderMain();
+      });
+    };
+    bar.appendChild(btn);
+    return bar;
   }
 
   function orderRow(o) {
@@ -1718,12 +2002,32 @@
     var sub = h('div', 'flat');
     sub.style.fontSize = '10px';
     sub.style.marginTop = '2px';
-    sub.textContent = o.type_label + ' · ' + todayLabel(o.created_at);
+    sub.textContent = o.type_label + ' · ' + (o.validity === 'day' ? '当日有效' : '长期有效') +
+      ' · ' + todayLabel(o.created_at);
+    if (o.type === 'condition') {
+      sub.textContent = o.trigger_type === 'trailing_stop'
+        ? ('移动止损 · 回撤 ' + o.trail_percent + '% · 触发 ' + fmt(o.trigger_price, 2) +
+          ' · ' + (o.validity === 'day' ? '当日有效' : '长期有效'))
+        : (o.type_label + ' · 触发 ' + fmt(o.trigger_price, 2) +
+          ' · ' + (o.validity === 'day' ? '当日有效' : '长期有效'));
+    }
     c1.appendChild(sub);
     row.appendChild(c1);
 
     var priceCell = h('div', 'tc-2 num');
-    priceCell.appendChild(h('div', null, o.type === 'market' ? '市价' : fmt(o.price, 2)));
+    priceCell.appendChild(h('div', null, o.type === 'market' ? '市价'
+      : (o.type === 'condition' ? ('触发 ' + fmt(o.trigger_price, 2)) : fmt(o.price, 2))));
+    if (o.type === 'condition') {
+      var triggerLine = h('div', 'flat');
+      triggerLine.style.fontSize = '10px';
+      triggerLine.style.marginTop = '2px';
+      triggerLine.textContent = o.triggered_at
+        ? '已触发，按市价卖出'
+        : (o.trigger_type === 'trailing_stop'
+          ? ('峰值 ' + fmt(o.peak_price, 2) + ' · 等待回撤')
+          : '等待触发');
+      priceCell.appendChild(triggerLine);
+    }
     // 未成交的买单要显示冻结了多少学元 —— 学生对账时最常问的就是「我的钱去哪了」
     if (o.status === 'pending' && o.side === 'buy' && o.hold > 0) {
       var holdLine = h('div', 'flat');
@@ -1736,7 +2040,7 @@
     row.appendChild(h('div', 'tc-3 num', o.qty));
 
     var c4 = h('div', 'tc-4');
-    if (o.status === 'pending' && o.can_cancel) {
+    if (o.can_cancel) {
       var btn = h('button', 'cancel-btn', '撤单');
       btn.onclick = function (ev) {
         ev.stopPropagation();
@@ -1766,7 +2070,7 @@
 
   function cancelOrder(id) {
     post('/order/' + id + '/cancel').then(function (r) {
-      toast('已撤单，冻结资金已解冻', 'success');
+      toast('已撤单，冻结资金/股数已释放', 'success');
       if (r.data && r.data.summary && S.overview) S.overview.summary = r.data.summary;
       loadOrders();
       loadOverview();
@@ -1821,7 +2125,7 @@
     }
     wrap.appendChild(card);
 
-    var note = h('div', 'submit-warn', '排名按「总资产」排序：可用学元 + 冻结学元 + 持仓市值。收益率 = 累计盈亏 ÷ 净投入（按成交流水反推，含手续费），与资产页口径一致。');
+    var note = h('div', 'submit-warn', '排名按「总资产」排序：可用练习金 + 冻结练习金 + 持仓市值。练习金只能在本应用里买卖；想花先「撤出到钱包」变成赠金，赠金能转账、发红包，但仍买不了小铺的东西。收益率 = 累计盈亏 ÷ 净投入（按成交流水反推，含手续费），与资产页口径一致。');
     wrap.appendChild(note);
     return wrap;
   }
@@ -1973,9 +2277,15 @@
     '已实现盈亏': '卖出后真正落袋的盈亏（已扣手续费）。',
     '集合竞价': '9:15–9:25 汇总委托，9:25 统一按一个价格成交。',
     '冻结学元': '下限价买单时预扣的钱；成交按实际价多退少补，撤单/失效立刻解冻。',
-    '可卖数量': '持仓 − 已挂的卖单。本盘 T+0，当天买的当天就能卖。',
-    '限价委托': '你指定一个价格：买不高于它、卖不低于它。价格没到就挂着，长期有效，可随时撤单。适合「我就想在这个价位买」。',
+    '可卖数量': '持仓 − 已挂的卖单/条件单。本盘 T+0，当天买的当天就能卖。',
+    '限价委托': '你指定一个价格：买不高于它、卖不低于它。价格没到就挂着，可随时撤单。适合「我就想在这个价位买」。',
     '市价委托': '不指定价格，按当前最新价成交。开市时立即成交，休市时排队等开盘。新手第一单推荐它 —— 不会挂半天不成交。',
+    '条件单': '预先设一个触发价，行情到了才自动下单。挂单时冻结对应股数，没触发可随时撤单。',
+    '止损': '跌破触发价就自动卖出，防止亏损继续扩大。',
+    '止盈': '涨到触发价就自动卖出，把利润落袋。',
+    '移动止损': '不设固定触发价，只设从最高点回撤的比例；股价创新高时触发线跟着上移，回撤到位自动卖出。',
+    '到价提醒': '在个股详情页设置「涨到/跌到」某个价格，行情满足时只发站内提醒，不会自动下单。',
+    '当日有效': '只在当天有效，收盘结算后（15:02）没成交就自动撤销并解冻；对应「长期有效」。',
     '手续费': '佣金万 2.5（单笔最低 5 元）+ 印花税卖出 0.05% + 过户费。一买一卖至少约 15 学元 —— 频繁交易最伤本金。',
     '预估金额': '按委托价 × 数量 + 预估手续费算出的「大概要花多少」。市价单以实际成交价为准，多退少补。',
     '手': '100 股 = 1 手；买入必须是整手，卖出可以零股但要一次卖完。',
@@ -1984,7 +2294,7 @@
   var TERM_ALIAS = { '换手': '换手率', '市盈': '市盈率 PE' };
   var TERM_ORDER = ['昨收', '今开', '最高', '最低', '涨停', '跌停', '成交额', '换手率', '市盈率 PE',
     '持仓成本', '浮动盈亏', '已实现盈亏', '集合竞价', '冻结学元', '可卖数量', '限价委托', '市价委托',
-    '手续费', '预估金额', '收盘报告'];
+    '条件单', '止损', '止盈', '移动止损', '到价提醒', '当日有效', '手续费', '预估金额', '收盘报告'];
 
   function openTerm(word) {
     var w = TERM_ALIAS[word] || word;
@@ -2035,7 +2345,7 @@
     {
       target: '.hero',
       title: '这是你的账户',
-      body: '开户送 <b>1000 学元</b>，首次进入本应用再发 <b>9000 投资练习金</b>。这里所有盈亏都只是学元：不能充值、不能提现，也不会变成真钱。点右上角的「学元」还能领每日津贴。'
+      body: '这里是<b>练习金</b>账户，每月补足到 <b>30000</b>（亏了才补，买满仓不补）。这里只用练习金交易 —— <b>钱包里的充值/赠送学元一分都不会进股市</b>，所以「总资产」只算练习金，和钱包余额不是同一个数。练习金不能直接转账或发红包；想拿去发红包、送同学，先在练习金账户里「撤出到钱包」变成赠金。赠金能转账、能发红包，但买不了小铺的东西 —— 买东西只能用自己充值的学元。真钱进不来，所以炒股亏赚都不动你交的现金。每日津贴和开户赠金都在「学元钱包」应用里领。'
     },
     {
       target: '.sector-chips',
@@ -2195,7 +2505,7 @@
     {
       icon: '🧭', title: '三分钟上手',
       html: '<ol class="gi-steps">' +
-        '<li><b>开户有本金</b>：学元账户送 1000，首次进入本应用再发 9000 投资练习金 —— 这不是真钱，也不能充值。</li>' +
+        '<li><b>开户有本金</b>：学元账户送 10000，练习金每月补足到 30000。练习金和真钱是<b>两本账</b>：真钱能买文具、能退，但买不了股票；亏了当月能补，买满仓不补（卖一股就有钱）。</li>' +
         '<li><b>找一只股票</b>：行情页按板块分组，也可以用板块胶囊或搜索框（代码、名称都行）。点一行打开详情，先看分时和日 K。</li>' +
         '<li><b>下单</b>：详情页点「买入」，选限价或市价，数量按「手」算（1 手 = 100 股）。确认前先看预估金额和手续费。</li>' +
         '<li><b>等成交</b>：开市时市价单立即成交；限价单价格合适才成交。可以在「委托 → 当前委托」随时撤单。</li>' +
@@ -2254,13 +2564,14 @@
         '<li><b>涨停 / 跌停</b> —— 涨停提醒你「可以卖」，跌停提醒你「卖不掉是正常的」。</li>' +
         '<li>对成本的<b>浮亏超 8%</b> 或 <b>浮盈超 10%</b> —— 提醒你回头看看当初为什么买它。</li>' +
         '<li><b>委托成交 / 失效</b> —— 不用反复刷新委托页等结果。</li>' +
+        '<li><b>到价提醒</b> —— 在个股详情页点铃铛设置「涨到/跌到」某个价格，到了只提醒一次，不会自动下单。</li>' +
         '</ul>' +
         '<p>点开提醒条目会直接跳到那只股票的详情。提醒只是「叫你看一眼」，<b>怎么决策还是你自己</b>。</p>'
     },
     {
       icon: '🧾', title: '资金流水：每笔钱都能对上',
       html: '<p>「持仓」页最下面是<b>资金流水</b>，点「查看全部」能看到从开户以来的每一笔：</p>' +
-        '<p><b>买入</b>扣「成交额 + 手续费」，<b>卖出</b>得「成交额 − 手续费」，领练习金、成就奖励、班管发放、同学转账也都在里面。每行都带<b>当时的余额</b> —— 任何时刻「钱去哪了」都能一行行对出来。</p>' +
+        '<p><b>买入</b>扣「成交额 + 手续费」，<b>卖出</b>得「成交额 − 手续费」，领练习金、成就奖励、班管发放、同学转账也都在里面（其中练习金单独一池，只能在本应用里买卖）。每行都带<b>当时的余额</b> —— 任何时刻「钱去哪了」都能一行行对出来。</p>' +
         '<p>这是复式记账（和银行一样）：账户余额永远等于所有流水的和。怀疑数字不对时，别猜，翻流水。</p>'
     },
     {
@@ -2289,15 +2600,36 @@
       icon: '🪙', title: '学元从哪来、怎么领',
       html: '<p>学元是平台的练习货币，<b>不能充值、不能提现</b>，也不会变成真钱。点顶栏右侧的「学元」打开钱包：看余额、领津贴、查最近流水。</p>' +
         '<ul class="gi-list">' +
-        '<li><b>开户赠金 1000</b>：第一次开学元账户时自动到账，一次性。</li>' +
-        '<li><b>投资练习金 9000</b>：第一次进本应用自动发，专门用来练手。</li>' +
-        '<li><b>每日助学津贴 10</b>：钱包里点「领取」，每天一次；连续第 7 天起每天 20，断一天重新数。</li>' +
+        '<li><b>开户赠金 10000</b>：第一次开学元账户时自动到账，一次性（可转账、发红包、转入证券当本金；买不了小铺的东西，也不可提现）。</li>' +
+        '<li><b>投资练习金 30000</b>：每月补足到 3 万（亏了才补，买满仓不补；主动撤出到钱包不会再补）。<b>练习金只能在本应用里买卖</b>，想转账或发红包先在练习金账户里「撤出到钱包」变成赠金 —— 赠金仍买不了小铺的东西，也提不了现。</li>' +
+        '<li><b>每日助学津贴 200</b>：钱包里点「领取」，每天一次；连续第 7 天起 400，断一天重新数。</li>' +
         '<li><b>成就奖励 5–20</b>：解锁「第一单」「持股 5 只」等里程碑时自动到账。</li>' +
         '<li><b>跨班对决 100</b>：每周五胜方全班活跃学生每人一份。</li>' +
         '<li><b>班管发放 / 同学转账</b>：老师奖励，或同学之间互相转，钱包里都有记录。</li>' +
         '</ul>' +
         '<p>钱包里还能<b>发红包</b>：设总额和个数，同学点一下就能领（随机金额，24 小时没领完自动退回），不用怕被「抢错人」。</p>' +
         '<p>⚠️ 亏了不能充值 —— 这是刻意的：真实市场里亏掉的钱不会有人补给你。想继续练，就靠津贴和课堂任务。</p>'
+    },
+    {
+      icon: '💳', title: '信用与借款：预支、还贷、别逾期',
+      html: '<p>「信用」页用<b>信用分</b>决定额度和利率：新同学 600 分（B 级，500 学元额度），按时还清 +40，逾期还清 −40，核销 −150。等级越高，额度越大、利率越低。<b>额度按「按时还款的自然日」成长</b>：同一天借还多笔只算一天，24 小时内只加一次分，别想着靠小额借还刷额度。</p>' +
+        '<ul class="gi-list">' +
+        '<li><b>周转贷</b>：7 天 1 期，适合临时周转；<b>分期贷</b>：2/4 期，每期 7 天。</li>' +
+        '<li><b>投资贷</b>：借到的本金立刻转进证券练习金，直接在沙盘里用；卖出后可用「用证券余额还清」，不必先撤出到钱包。</li>' +
+        '<li><b>津贴预支</b>：0 利息，最多预支未来 3 天津贴；<b>强制用每日津贴自动还</b>，每天领的津贴先扣这一笔。</li>' +
+        '</ul>' +
+        '<p>普通借款也可以开关「每日津贴自动还款」。逾期只暂停新的借款，<b>不罚息、不自动扣钱</b>；到期后有 24 小时宽限，宽限内还清仍算按时。提前还清不收额外费用。</p>'
+    },
+    {
+      icon: '🛡️', title: '止损与止盈：不用一直盯盘',
+      html: '<p>在「委托」页可以给持仓挂<b>条件单</b>：</p>' +
+        '<ul class="gi-list">' +
+        '<li><b>止损</b>：股价跌到触发价时自动卖出，防止亏损继续扩大；</li>' +
+        '<li><b>止盈</b>：股价涨到触发价时自动卖出，把利润落袋；</li>' +
+        '<li><b>移动止损</b>：先不设死价格，只设「从最高点回撤 X%」。股价创新高时触发线跟着上移，回撤到位才卖 —— 既能保住利润，又不会过早下车。</li>' +
+        '</ul>' +
+        '<p>挂条件单会<b>冻结对应股数</b>，触发后按当时市价卖出；没触发可随时撤单。委托有效期可选「长期有效」或「当日有效」，当日有效单在收盘结算后自动撤销。</p>' +
+        '<p>注意：条件单触发的是市价卖单，如果正好跌停，可能卖不出去；真实市场也一样，止损不是保险。</p>'
     },
     {
       icon: '📖', title: '术语表',
@@ -2313,7 +2645,7 @@
     },
     {
       icon: '🏆', title: '班级排行与跨班对决',
-      html: '<p>排行按<b>总资产</b>排序（可用学元 + 冻结学元 + 持仓市值）；收益率 = 累计盈亏 ÷ 净投入（按成交流水反推，含手续费）。</p>' +
+      html: '<p>排行按<b>总资产</b>排序（可用练习金 + 冻结练习金 + 持仓市值）；收益率 = 累计盈亏 ÷ 净投入（按成交流水反推，含手续费）。</p>' +
         '<p>每周五收盘后与隔壁班比<b>人均收益率</b>，胜方全班活跃学生每人 100 学元。成就墙的奖励也是学元，靠真实交易里程碑解锁。</p>'
     }
   ];
@@ -2381,6 +2713,109 @@
       }
       return d;
     }).catch(function () {});
+  }
+
+  function loadAlerts() {
+    return get('/alerts').then(function (d) {
+      S.alerts = (d && d.list) || [];
+      if (S.detailCode) renderMain();
+      return S.alerts;
+    }).catch(function () { /* 到价提醒失败不影响行情 */ });
+  }
+
+  function cancelPriceAlert(id) {
+    post('/alerts/' + id + '/cancel').then(function () {
+      toast('已取消到价提醒', 'success');
+      loadAlerts();
+    }).catch(function (e) { toast(errMsg(e), 'error'); });
+  }
+
+  function openPriceAlert() {
+    var q = S.detailQuote;
+    if (!q || !S.detailCode) return;
+    closeNewsModal();
+    var layer = h('div', 'news-modal');
+    var panel = h('div', 'news-panel');
+    var head = h('div', 'news-panel-head');
+    head.appendChild(h('div', 'news-panel-title', '到价提醒 · ' + q.name));
+    var close = h('div', 'news-close', '✕');
+    close.onclick = closeNewsModal;
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    var body = h('div', 'news-panel-body');
+    var dir = 'above';
+    var seg = h('div', 'seg');
+    seg.style.width = '100%';
+    var above = h('div', 'seg-item active', '涨到');
+    var below = h('div', 'seg-item', '跌到');
+    above.style.flex = '1';
+    below.style.flex = '1';
+    above.style.textAlign = 'center';
+    below.style.textAlign = 'center';
+    seg.appendChild(above);
+    seg.appendChild(below);
+    body.appendChild(seg);
+
+    var input = document.createElement('input');
+    input.className = 'wallet-input';
+    input.type = 'number';
+    input.step = '0.01';
+    input.style.marginTop = '10px';
+    input.value = round2(q.price * 1.05).toFixed(2);
+    body.appendChild(input);
+
+    function setDir(next) {
+      dir = next;
+      above.className = 'seg-item' + (dir === 'above' ? ' active' : '');
+      below.className = 'seg-item' + (dir === 'below' ? ' active' : '');
+      input.value = round2(q.price * (dir === 'above' ? 1.05 : 0.95)).toFixed(2);
+    }
+    above.onclick = function () { setDir('above'); };
+    below.onclick = function () { setDir('below'); };
+
+    var btn = h('button', 'submit buy', '设置提醒');
+    btn.style.width = '100%';
+    btn.style.marginTop = '12px';
+    btn.onclick = function () {
+      var target = Number(input.value);
+      if (!(target > 0)) { toast('请填写提醒价格', 'error'); return; }
+      btn.disabled = true;
+      btn.textContent = '设置中…';
+      post('/alerts', { code: S.detailCode, direction: dir, target_price: target }).then(function () {
+        closeNewsModal();
+        toast('到价提醒已设置', 'success');
+        loadAlerts();
+        loadNotify(true);
+      }).catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = '设置提醒';
+        toast(errMsg(e), 'error');
+      });
+    };
+    body.appendChild(btn);
+    body.appendChild(h('div', 'rv-tip', '到价提醒只发站内消息，不会自动下单。触发一次后自动结束。'));
+
+    var mine = (S.alerts || []).filter(function (a) {
+      return a.code === S.detailCode && a.status === 'active';
+    });
+    if (mine.length) {
+      body.appendChild(h('div', 'pref-label', '当前提醒'));
+      mine.forEach(function (a) {
+        var row = h('div', 'pref-row');
+        row.appendChild(h('div', 'pref-label',
+          (a.direction === 'above' ? '涨到 ' : '跌到 ') + fmt(a.target_cent / 100, 2)));
+        var x = h('button', 'cancel-btn', '取消');
+        x.onclick = function () { cancelPriceAlert(a.id); closeNewsModal(); };
+        row.appendChild(x);
+        body.appendChild(row);
+      });
+    }
+
+    panel.appendChild(body);
+    layer.appendChild(panel);
+    layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
+    root.appendChild(layer);
   }
 
   function openNotify() {
@@ -2521,160 +2956,142 @@
   // 学元是平台货币，但桌面端一直没有入口 —— 学生只能在证券里看到余额，
   // 不知道去哪领津贴。这个面板把「领学元」变成可达的：余额 + 今日津贴 + 来源清单 + 最近流水。
   var WALLET_SOURCES = [
-    ['开户赠金', '1000', '第一次开学元账户时自动到账，一次性'],
-    ['投资练习金', '9000', '第一次进本应用自动发，专门用来练手'],
-    ['每日助学津贴', '10', '钱包里每天点一次；连续第 7 天起每天 20'],
+    ['开户赠金', '10000', '第一次开学元账户时自动到账，一次性'],
+    ['投资练习金', '30000', '每月补足到 3 万（亏了才补）；发红包先撤出到钱包'],
+    ['每日助学津贴', '200', '钱包里每天点一次；连续第 7 天起 400'],
     ['成就奖励', '5–20', '解锁「第一单」「持股 5 只」等里程碑'],
     ['跨班对决', '100', '每周五胜方全班活跃学生每人一份'],
     ['班管发放 / 同学转账', '不定', '老师奖励，或同学之间互相转']
   ];
 
+  // 练习金账户 + 投资进出。
+  // 练习金不再是只进不出的存钱罐：学生可以把钱包里的赠金转进来当本金，
+  // 也可以把炒股的钱（含赚的）撤回钱包去发红包、送同学。
+  // 唯一不动的是真钱 CASH —— 它只能充值/提现，永远进不了这里。
   function openWallet() {
     closeNewsModal();
     var layer = h('div', 'news-modal');
     var panel = h('div', 'news-panel');
     var head = h('div', 'news-panel-head');
-    head.appendChild(h('div', 'news-panel-title', '学元'));
+    head.appendChild(h('div', 'news-panel-title', '练习金'));
     var x = h('div', 'news-close', '✕');
     x.onclick = closeNewsModal;
     head.appendChild(x);
     panel.appendChild(head);
 
     var body = h('div', 'news-panel-body');
-    body.appendChild(h('div', 'loading', '加载钱包…'));
+    body.appendChild(h('div', 'loading', '加载中…'));
     panel.appendChild(body);
     layer.appendChild(panel);
     layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
     root.appendChild(layer);
 
-    Promise.all([
-      get('/wallet'),
-      get('/ledger', { limit: 5 }).catch(function () { return { list: [] }; }),
-      get('/wallet/packets').catch(function () { return { available: [], mine: [], claimed: [] }; })
-    ]).then(function (res) {
+    function load() {
+      return Promise.all([
+        get('/wallet'),
+        get('/ledger', { limit: 8 }).catch(function () { return { list: [] }; })
+      ]);
+    }
+
+    function render(res) {
       var w = res[0] || {};
       var acc = w.account || {};
-      var daily = w.daily || { claimed: true, base: 10, bonus: 20, bonus_from: 7, streak: 0 };
+      var grantAvail = w.grant_available || 0;
       var rows = (res[1] && res[1].list) || [];
-      var packets = res[2] || { available: [], mine: [] };
 
       clear(body);
 
-      // 余额
       var hero = h('div', 'wallet-hero');
-      hero.appendChild(h('div', 'wallet-balance num', money(acc.balance || 0)));
+      hero.appendChild(h('div', 'wallet-balance num', money(acc.practice || 0)));
       var sub = h('div', 'wallet-sub');
-      sub.appendChild(h('span', 'num', '可用 ' + money(acc.available || 0)));
-      sub.appendChild(h('span', 'num', '冻结 ' + money(acc.frozen || 0)));
+      sub.appendChild(h('span', 'num', '可用 ' + money(acc.available_practice || 0)));
+      sub.appendChild(h('span', 'num', '冻结 ' + money(acc.frozen_practice || 0)));
       hero.appendChild(sub);
       body.appendChild(hero);
 
-      // 今日津贴
-      var dailyCard = h('div', 'wallet-daily');
-      var dLeft = h('div', 'wd-left');
-      dLeft.appendChild(h('div', 'wd-title', '今日助学津贴'));
-      var dDesc = daily.claimed
-        ? '今天已领' + (daily.streak > 1 ? ' · 连续 ' + daily.streak + ' 天' : '') +
-          '（第 ' + daily.bonus_from + ' 天起每天 ' + daily.bonus + '）'
-        : '每天 ' + daily.base + ' 学元 · 连续第 ' + daily.bonus_from + ' 天起每天 ' + daily.bonus;
-      dLeft.appendChild(h('div', 'wd-desc', dDesc));
-      dailyCard.appendChild(dLeft);
+      // 信用 / 借款：贷款是投资能力，入口在证券的「信用」页。
+      var creditRow = h('div', 'wallet-daily credit-entry');
+      var cl = h('div');
+      cl.appendChild(h('div', 'wd-title', '信用 / 借款'));
+      cl.appendChild(h('div', 'wd-desc', '信用分、周转/分期/投资贷、津贴预支；证券余额可直接还贷'));
+      creditRow.appendChild(cl);
+      var go = h('div', 'credit-go', '去信用');
+      go.onclick = function () {
+        closeNewsModal();
+        S.tab = 'credit';
+        S.detailCode = '';
+        S.subview = '';
+        renderNav();
+        renderMain();
+        loadTab('credit');
+      };
+      creditRow.appendChild(go);
+      body.appendChild(creditRow);
 
-      if (daily.claimed) {
-        dailyCard.appendChild(h('div', 'wallet-claim done', '✓ 已领'));
-      } else {
-        var claim = h('div', 'wallet-claim', '领取 ' + daily.base + ' 学元');
-        claim.onclick = function () {
-          claim.textContent = '领取中…';
-          post('/wallet/daily').then(function (r) {
-            var amt = (r && r.amount) || daily.base;
-            toast('津贴已到账 +' + amt + ' 学元', 'success');
-            loadOverview();
-            loadLedger(true);
-            closeNewsModal();
-            openWallet();
-          }).catch(function (e) {
-            claim.textContent = '领取 ' + daily.base + ' 学元';
-            toast(errMsg(e), 'error');
-          });
-        };
-        dailyCard.appendChild(claim);
-      }
-      body.appendChild(dailyCard);
+      // ---- 投资进出 ----
+      body.appendChild(h('div', 'wallet-sec', '投资进出'));
+      var box = h('div', 'wallet-src');
 
-      // 转账 / 红包
-      var acts = h('div', 'wallet-acts');
-      var tBtn = h('div', 'wallet-act', '转账给同学');
-      tBtn.onclick = openTransferForm;
-      var pBtn = h('div', 'wallet-act gold', '发红包');
-      pBtn.onclick = openPacketForm;
-      acts.appendChild(tBtn);
-      acts.appendChild(pBtn);
-      body.appendChild(acts);
+      var gRow = h('div', 'wallet-src-row');
+      var gLeft = h('div', 'ws-left');
+      gLeft.appendChild(h('div', 'ws-name', '钱包里的赠送学元 ' + money(grantAvail)));
+      gLeft.appendChild(h('div', 'ws-desc', '赠金可以转进来当本金；炒股赚的也能撤回去发红包、送同学。撤出后仍是赠金，不能提现。'));
+      gRow.appendChild(gLeft);
+      box.appendChild(gRow);
 
-      // 可领红包
-      body.appendChild(h('div', 'wallet-sec', '可领红包'));
-      var pk = h('div', 'wallet-src');
-      var avail = packets.available || [];
-      if (!avail.length) {
-        pk.appendChild(h('div', 'empty-mini', '暂时没有可领的红包'));
-      } else {
-        for (var pi = 0; pi < avail.length; pi++) {
-          (function (it) {
-            var row = h('div', 'wallet-src-row');
-            var left = h('div', 'ws-left');
-            left.appendChild(h('div', 'ws-name', '🧧 ' + it.sender_name + ' 的红包 · ' + money(it.total) + ' 学元'));
-            left.appendChild(h('div', 'ws-desc',
-              (it.note ? it.note + ' · ' : '') + '剩 ' + it.remaining_count + '/' + it.count + ' 个'));
-            row.appendChild(left);
-            var btn = h('div', 'wallet-claim small', '领取');
-            btn.onclick = function () { claimPacket(it.id, btn); };
-            row.appendChild(btn);
-            pk.appendChild(row);
-          })(avail[pi]);
-        }
-      }
-      body.appendChild(pk);
+      var form = h('div', 'inv-form');
+      var amt = document.createElement('input');
+      amt.className = 'inv-amt';
+      amt.type = 'number';
+      amt.min = '0';
+      amt.placeholder = '金额（学元）';
+      form.appendChild(amt);
 
-      // 我发出的红包（只看状态）
-      var mine = packets.mine || [];
-      if (mine.length) {
-        body.appendChild(h('div', 'wallet-sec', '我发出的红包'));
-        var mp = h('div', 'wallet-src');
-        for (var mi = 0; mi < mine.length; mi++) {
-          (function (it) {
-            var row = h('div', 'wallet-src-row');
-            var left = h('div', 'ws-left');
-            left.appendChild(h('div', 'ws-name', '🧧 ' + money(it.total) + ' 学元 / ' + it.count + ' 个'));
-            var state = it.status === 'expired' ? '已过期退回'
-              : it.status === 'done' ? '已领完'
-                : '剩 ' + it.remaining_count + ' 个 · 24 小时未领退回';
-            left.appendChild(h('div', 'ws-desc', (it.note ? it.note + ' · ' : '') + state));
-            row.appendChild(left);
-            row.appendChild(h('div', 'ws-amt num', '已领 ' + money(it.total - it.remaining) + ''));
-            mp.appendChild(row);
-          })(mine[mi]);
-        }
-        body.appendChild(mp);
+      function submit(btn, dir) {
+        var v = Number(amt.value);
+        if (!isFinite(v) || v <= 0) { toast('请填写金额', 'warn'); return; }
+        btn.disabled = true;
+        var origin = btn.textContent;
+        btn.textContent = '处理中…';
+        post('/invest', { direction: dir, amount: v }).then(function () {
+          toast(dir === 'in' ? '已转入投资' : '已撤出到钱包', 'success');
+          amt.value = '';
+          return load().then(render);
+        }).catch(function (e) {
+          toast(errMsg(e), 'warn');
+          btn.disabled = false;
+          btn.textContent = origin;
+        });
       }
 
-      // 来源清单
-      body.appendChild(h('div', 'wallet-sec', '学元从哪来'));
-      var src = h('div', 'wallet-src');
-      for (var i = 0; i < WALLET_SOURCES.length; i++) {
-        var s = WALLET_SOURCES[i];
-        var row = h('div', 'wallet-src-row');
-        var l = h('div', 'ws-left');
-        l.appendChild(h('div', 'ws-name', s[0]));
-        l.appendChild(h('div', 'ws-desc', s[2]));
-        row.appendChild(l);
-        row.appendChild(h('div', 'ws-amt num', s[1]));
-        src.appendChild(row);
-      }
-      body.appendChild(src);
+      var bIn = h('button', 'inv-btn primary', '转入投资');
+      bIn.onclick = function () { submit(bIn, 'in'); };
+      form.appendChild(bIn);
 
-      // 最近流水
-      body.appendChild(h('div', 'wallet-sec', '最近学元变动'));
+      var bOut = h('button', 'inv-btn', '撤出到钱包');
+      bOut.onclick = function () { submit(bOut, 'out'); };
+      form.appendChild(bOut);
+
+      box.appendChild(form);
+      body.appendChild(box);
+
+      body.appendChild(h('div', 'wallet-sec', '这是什么'));
+      var tip = h('div', 'wallet-src');
+      var t1 = h('div', 'wallet-src-row');
+      var tl = h('div', 'ws-left');
+      tl.appendChild(h('div', 'ws-name', '练习金是沙盘本金'));
+      tl.appendChild(h('div', 'ws-desc', '只能在证券里买卖。要发红包、送同学就「撤出到钱包」变成赠金；不过赠金买不了小铺的东西。'));
+      t1.appendChild(tl);
+      tip.appendChild(t1);
+      var t2 = h('div', 'wallet-src-row');
+      var tl2 = h('div', 'ws-left');
+      tl2.appendChild(h('div', 'ws-name', '真钱不参与'));
+      tl2.appendChild(h('div', 'ws-desc', '充值学元只能充值/提现，进不了股市。这样炒股亏赚都不会动到你交的真钱。'));
+      t2.appendChild(tl2);
+      tip.appendChild(t2);
+      body.appendChild(tip);
+
+      body.appendChild(h('div', 'wallet-sec', '最近练习金流水'));
       var lg = h('div', 'wallet-src');
       if (!rows.length) lg.appendChild(h('div', 'empty-mini', '还没有记录'));
       else {
@@ -2683,10 +3100,12 @@
       body.appendChild(lg);
 
       body.appendChild(h('div', 'rv-tip',
-        '学元是练习货币：不能充值、不能提现，也不会变成真钱。亏了没人补给你 —— 真实市场也一样。'));
-    }).catch(function (e) {
+        '转入/撤出是 1:1 的，没有手续费。撤出的钱进的是「赠金」口袋：能发红包、能送同学，但买不了小铺的东西（买东西只能用自己充值的学元），也提不了现。'));
+    }
+
+    load().then(render).catch(function (e) {
       clear(body);
-      body.appendChild(h('div', 'empty-mini', '钱包加载失败：' + errMsg(e)));
+      body.appendChild(h('div', 'empty-mini', '账户加载失败：' + errMsg(e)));
     });
   }
 
@@ -2742,58 +3161,6 @@
     layer.appendChild(panel);
     layer.onclick = function (ev) { if (ev.target === layer) closeNewsModal(); };
     root.appendChild(layer);
-  }
-
-  function openTransferForm() {
-    walletForm('转账给同学', [
-      { key: 'to', label: '对方学号', type: 'tel', placeholder: '6 位学号' },
-      { key: 'amount', label: '金额', type: 'number', placeholder: '学元，如 20' },
-      { key: 'note', label: '备注', placeholder: '选填', maxlength: 30 }
-    ], function (v, fail) {
-      if (!/^\d{6}$/.test(v.to || '')) return fail('学号是 6 位数字');
-      var amt = Number(v.amount);
-      if (!(amt > 0)) return fail('金额要大于 0');
-      post('/wallet/transfer', {
-        to: v.to, amount: amt, note: v.note, request_id: 'w' + Date.now()
-      }).then(function (r) {
-        toast('已转出 ' + money(r.amount) + ' 学元', 'success');
-        loadOverview();
-        loadLedger(true);
-        openWallet();
-      }).catch(function (e) { fail(errMsg(e)); });
-    });
-  }
-
-  function openPacketForm() {
-    walletForm('发红包', [
-      { key: 'total', label: '总金额', type: 'number', placeholder: '学元，如 50' },
-      { key: 'count', label: '个数', type: 'tel', placeholder: '1–20' },
-      { key: 'note', label: '祝福语', placeholder: '选填，如「恭喜发财」', maxlength: 20 }
-    ], function (v, fail) {
-      var total = Number(v.total);
-      var count = parseInt(v.count, 10);
-      if (!(total > 0)) return fail('总金额要大于 0');
-      if (!(count >= 1 && count <= 20)) return fail('个数要在 1–20 之间');
-      post('/wallet/packet', { total: total, count: count, note: v.note })
-        .then(function () {
-          toast('红包已发出，同学可以来领了', 'success');
-          loadLedger(true);
-          openWallet();
-        }).catch(function (e) { fail(errMsg(e)); });
-    });
-  }
-
-  function claimPacket(id, btn) {
-    btn.textContent = '领取中…';
-    post('/wallet/packet/' + id + '/claim').then(function (r) {
-      toast((r.duplicate ? '已经领过：' : '红包 +') + money(r.amount) + ' 学元', 'success');
-      loadOverview();
-      loadLedger(true);
-      openWallet();
-    }).catch(function (e) {
-      btn.textContent = '领取';
-      toast(errMsg(e), 'error');
-    });
   }
 
   function notifyRow(item) {    var meta = NOTIFY_META[item.kind] || { icon: '·', cls: '' };
@@ -2937,10 +3304,12 @@
     return get('/news', { limit: 8 }).then(function (d) {
       S.fastNews = (d && d.list) || [];
       S.fastNewsAt = Date.now();
-      if (S.tab === 'market' && !S.detailCode) renderMain();
+      if (S.booting) return;   // 首载期只落数据，mount 收尾统一渲染
+      if (S.tab === 'market' && !S.detailCode && !patchMarketCard('.news-strip', newsStrip)) renderMain();
     }).catch(function () {
       if (!S.fastNews) S.fastNews = [];
-      if (S.tab === 'market' && !S.detailCode) renderMain();
+      if (S.booting) return;
+      if (S.tab === 'market' && !S.detailCode && !patchMarketCard('.news-strip', newsStrip)) renderMain();
     });
   }
 
@@ -2972,7 +3341,10 @@
     card.appendChild(ruleItem('交易单位', r.lot.note));
     card.appendChild(ruleItem('费用', '佣金 <b>万 2.5</b>（单笔最低 <b>5 元</b>，买卖双向）；印花税 <b>卖出 0.05%</b>；过户费 <b>0.001%</b>（双向）。'));
     card.appendChild(ruleItem('委托有效期', r.expiry));
-    card.appendChild(ruleItem('本金', '开户时学元账户会赠送 1000 学元；首次进入本应用再发放 9000 学元「投资练习金」。之后可以每天在学元账户领助学津贴，也可以由班管发放。'));
+    card.appendChild(ruleItem('条件单', r.condition));
+    card.appendChild(ruleItem('到价提醒', r.alert));
+    card.appendChild(ruleItem('风控护栏', r.risk));
+    card.appendChild(ruleItem('本金', '学元账户开户送 10000 学元（可买东西，不可提现）。证券账户的「练习金」每月补足到 30000，<b>只能用来买卖股票</b>；想发红包或送同学，先在练习金账户里「撤出到钱包」变成赠金。'));
     wrap.appendChild(card);
 
     var note = h('div', 'submit-warn', '本应用仅用于学习与练习，不构成任何投资建议。真实市场有风险，模拟盘的盈亏不代表真实收益。');
@@ -3036,6 +3408,7 @@
       name: q.name,
       side: side,
       type: tradeCount < 3 ? 'market' : 'limit',
+      validity: 'long',
       price: q.price,
       qty: side === 'sell' ? maxQty : Math.min(LOT, maxQty),
       maxQty: maxQty,
@@ -3104,7 +3477,7 @@
           ? maxBuyQty(st.cash.available, st.price)
           : (pos ? pos.available_qty : 0);
         if (st.maxQty <= 0) {
-          toast(side === 'sell' ? '没有可卖持仓' : '可用学元不足', 'error');
+          toast(side === 'sell' ? '没有可卖持仓' : '练习金不足', 'error');
           st.side = side === 'buy' ? 'sell' : 'buy';
           return;
         }
@@ -3139,6 +3512,30 @@
     });
     typeField.appendChild(tseg);
     body.appendChild(typeField);
+
+    // 有效期：默认长期（校园平板不是天天开）；当日有效给「今天就想成交」的场景
+    var vField = h('div', 'field');
+    var vl = h('div', 'field-label');
+    vl.appendChild(h('span', null, '委托有效期'));
+    var vq = h('span', 'term-q', '?');
+    vq.onclick = function () { openTerm('当日有效'); };
+    vl.appendChild(vq);
+    vl.appendChild(h('span', 'field-hint', st.validity === 'day' ? '收盘结算后自动撤单' : '一直有效，直到成交或撤单'));
+    vField.appendChild(vl);
+    var vseg = h('div', 'seg');
+    vseg.style.width = '100%';
+    [['long', '长期有效'], ['day', '当日有效']].forEach(function (v) {
+      var b = h('div', 'seg-item' + (st.validity === v[0] ? ' active' : ''), v[1]);
+      b.style.flex = '1 1 0';
+      b.style.textAlign = 'center';
+      b.onclick = function () {
+        st.validity = v[0];
+        renderSheet();
+      };
+      vseg.appendChild(b);
+    });
+    vField.appendChild(vseg);
+    body.appendChild(vField);
 
     // 新手第一单提示：默认就是市价，把「为什么这样选」讲清楚
     if (st.newbie && st.type === 'market') {
@@ -3267,7 +3664,7 @@
     est.appendChild(feeRow);
     if (st.side === 'buy') {
       est.appendChild(estRow('需要学元', money(amount + fee) + ' 学元', true));
-      var availRow = estRow('可用学元', money(st.cash.available) + ' 学元');
+      var availRow = estRow('可用练习金', money(st.cash.available) + ' 学元');
       termHit(availRow, '冻结学元');
       est.appendChild(availRow);
     } else {
@@ -3292,7 +3689,7 @@
 
     var warn = h('div', 'submit-warn', st.side === 'buy'
       ? (st.type === 'market'
-        ? '市价单任何时间可下：开市时按最新价立即成交，休市时排队、开盘后按开盘价成交。当天买当天可卖（T+0，真实市场是 T+1）。'
+        ? '市价单需要今天的真实行情：开市时按最新价立即成交；休市、节假日或行情延迟时会拒绝，请改限价单排队。当天买当天可卖（T+0，真实市场是 T+1）。'
         : '委托长期有效，价格合适就成交；晚上和周末挂的单开盘后自动撮合。当天买当天可卖（T+0，真实市场是 T+1）。')
       : '卖出不收冻结，成交后学元直接到账；印花税与佣金在成交时扣除。');
     foot.appendChild(warn);
@@ -3348,7 +3745,8 @@
       side: st.side,
       type: st.type,
       price: st.type === 'market' ? undefined : st.price,
-      qty: st.qty
+      qty: st.qty,
+      validity: st.validity
     }).then(function (r) {
       closeSheet();
       var msg = r.message || '委托已提交';
@@ -3379,6 +3777,690 @@
   }
 
   // ================= 数据加载 =================
+  // ================= 信用 / 贷款（学元证券专用） =================
+  // 贷款是投资/信用能力，不放在钱包。能力面只给本人看/借/还，
+  // 班管的核销/限额/调分/拉黑仍在 ClassIntra 管理端。
+  function creditWhen(iso) {
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return '';
+    var d = new Date(t);
+    var now = new Date();
+    var hm = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    var same = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    if (same) return '今天 ' + hm;
+    return (d.getMonth() + 1) + '-' + ('0' + d.getDate()).slice(-2) + ' ' + hm;
+  }
+
+  function creditRef(kind) {
+    return 'ui:' + kind + ':' + Date.now().toString(36) + ':' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function creditProduct(d) {
+    var list = (d && d.products) || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === S.creditProduct) return list[i];
+    }
+    return list[0] || null;
+  }
+
+  function selectCreditProduct(id) {
+    S.creditProduct = id;
+    renderMain();
+  }
+
+  function selectCreditInstallments(n) {
+    S.creditInstallments = n;
+    renderMain();
+  }
+
+  function loadCredit() {
+    if (S.loading.credit) return Promise.resolve(S.credit);
+    S.loading.credit = true;
+    return get('/loan').then(function (d) {
+      S.credit = d;
+      S.creditError = '';
+      return d;
+    }).catch(function (e) {
+      S.creditError = errMsg(e);
+      return null;
+    }).then(function (d) {
+      S.loading.credit = false;
+      if (S.tab === 'credit') renderMain();
+      return d;
+    });
+  }
+
+  // 导航红点：只查当前借款的下一期，不拉整份信用档案。
+  function loadCreditAlert() {
+    return get('/loan/alert').then(function (d) {
+      S.creditAlert = (d && d.alert) || null;
+      renderNav();
+    }).catch(function () { /* 信用提醒失败不影响行情 */ });
+  }
+
+  function applyCredit() {
+    var d = S.credit;
+    if (!d || S.creditBusy) return;
+    if (!d.can_borrow) { toast(d.reason || '当前不能借款', 'error'); return; }
+    var p = creditProduct(d);
+    if (!p) return;
+    var input = root.querySelector('.credit-amount');
+    var amt = Number(input && input.value);
+    if (!isFinite(amt) || amt <= 0) { toast('请填写借款金额', 'error'); return; }
+    if (amt < p.min || amt > p.max) {
+      toast(p.name + '金额需在 ' + money(p.min) + ' ~ ' + money(p.max) + ' 学元', 'error');
+      return;
+    }
+    if (amt > d.credit.available) {
+      toast('超过当前可借额度 ' + money(d.credit.available) + ' 学元', 'error');
+      return;
+    }
+    S.creditBusy = true;
+    var body = { amount: amt, product: p.id, ref: creditRef('a') };
+    if (p.id === 'installment') body.installments = S.creditInstallments;
+    var autoCb = root.querySelector('.credit-auto-check');
+    if (autoCb && autoCb.checked) body.auto_repay = true;
+    renderMain();
+    post('/loan/apply', body).then(function (r) {
+      S.creditBusy = false;
+      S.creditDetailId = 0;
+      S.creditDetails = {};
+      if (r && r.data && r.data.summary) S.credit = r.data.summary;
+      toast((r && r.message) || '借款已到账', 'success');
+      renderMain();
+      loadOverview();
+      loadCreditAlert();
+    }).catch(function (e) {
+      S.creditBusy = false;
+      toast(errMsg(e), 'error');
+      renderMain();
+    });
+  }
+
+  function repayCredit(full) {
+    var d = S.credit;
+    if (!d || !d.active || S.creditBusy) return;
+    var input = root.querySelector('.credit-repay-input');
+    var amt = full ? null : Number(input && input.value);
+    if (!full && (!isFinite(amt) || amt <= 0)) { toast('请填写还款金额', 'error'); return; }
+    S.creditBusy = true;
+    var body = { ref: creditRef('r') };
+    if (full) body.full = true; else body.amount = amt;
+    renderMain();
+    post('/loan/repay', body).then(function (r) {
+      S.creditBusy = false;
+      S.creditDetailId = 0;
+      S.creditDetails = {};
+      if (r && r.data && r.data.summary) S.credit = r.data.summary;
+      toast((r && r.message) || '还款成功', 'success');
+      renderMain();
+      loadOverview();
+      loadCreditAlert();
+    }).catch(function (e) {
+      S.creditBusy = false;
+      toast(errMsg(e), 'error');
+      renderMain();
+    });
+  }
+
+  function practiceAvailable() {
+    var c = S.overview && S.overview.summary && S.overview.summary.cash;
+    return (c && Number(c.available)) || 0;
+  }
+
+  // 投资贷学生卖出股票后，练习金就在证券里。再让他们「撤出到钱包」找还款入口
+  // 是死路（钱包已经 410 指路了），所以这里直接划扣练习金还贷。
+  function repayCreditFromPractice(full) {
+    var d = S.credit;
+    if (!d || !d.active || S.creditBusy) return;
+    var input = root.querySelector('.credit-repay-input');
+    var amt = full ? null : Number(input && input.value);
+    if (!full && (!isFinite(amt) || amt <= 0)) { toast('请填写还款金额', 'error'); return; }
+    S.creditBusy = true;
+    var body = { ref: creditRef('rp') };
+    if (full) body.full = true; else body.amount = amt;
+    renderMain();
+    post('/loan/repay-from-practice', body).then(function (r) {
+      S.creditBusy = false;
+      S.creditDetailId = 0;
+      S.creditDetails = {};
+      if (r && r.data && r.data.summary) S.credit = r.data.summary;
+      toast((r && r.message) || '还款成功', 'success');
+      renderMain();
+      loadOverview();
+      loadCreditAlert();
+    }).catch(function (e) {
+      S.creditBusy = false;
+      toast(errMsg(e), 'error');
+      renderMain();
+    });
+  }
+
+  function toggleCreditAuto(on) {
+    var d = S.credit;
+    if (!d || !d.active || S.creditBusy) return;
+    S.creditBusy = true;
+    renderMain();
+    post('/loan/' + d.active.id + '/auto', { on: !!on }).then(function (r) {
+      S.creditBusy = false;
+      if (r && r.data && r.data.summary) S.credit = r.data.summary;
+      toast((r && r.message) || '已更新', 'success');
+      renderMain();
+      loadCreditAlert();
+    }).catch(function (e) {
+      S.creditBusy = false;
+      toast(errMsg(e), 'error');
+      renderMain();
+    });
+  }
+
+  function toggleCreditDetail(id) {
+    if (S.creditDetailId === id) {
+      S.creditDetailId = 0;
+      renderMain();
+      return;
+    }
+    S.creditDetailId = id;
+    renderMain();
+    if (S.creditDetails[id]) return;
+    get('/loan/' + id).then(function (d) {
+      S.creditDetails[id] = d;
+      if (S.creditDetailId === id && S.tab === 'credit') renderMain();
+    }).catch(function (e) {
+      toast(errMsg(e), 'error');
+    });
+  }
+
+  function viewCredit() {
+    var wrap = h('div', 'view-credit');
+    if (!S.credit && !S.creditError) {
+      wrap.appendChild(loadingBox('加载信用档案'));
+      loadCredit();
+      return wrap;
+    }
+    if (!S.credit) {
+      wrap.appendChild(errorBox('信用数据加载失败', S.creditError, function () {
+        S.creditError = '';
+        renderMain();
+        loadCredit();
+      }));
+      return wrap;
+    }
+    var d = S.credit;
+    if (S.creditAlert) wrap.appendChild(creditAlertCard(S.creditAlert));
+    wrap.appendChild(creditScoreCard(d));
+    if (d.active) wrap.appendChild(creditActiveCard(d));
+    else wrap.appendChild(creditApplyBlock(d));
+    if (d.loans && d.loans.length) wrap.appendChild(creditHistory(d));
+    if (d.score_events && d.score_events.length) wrap.appendChild(creditEvents(d));
+    wrap.appendChild(creditRules(d));
+    return wrap;
+  }
+
+  function creditRules(d) {
+    var card = h('div', 'card credit-rules');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', '信用规则'));
+    card.appendChild(head);
+    var rows = [
+      ['额度', '当前 ' + money(d.credit.limit) + ' 学元；按时还款每满一个自然日提一档，同一天多笔不重复提额'],
+      ['利率', '按产品和信用等级定；等级越高利率越低，津贴预支 0 利息'],
+      ['期限', '每期 7 天，到期后 ' + d.config.grace_hours + ' 小时宽限；宽限内还清仍算按时'],
+      ['逾期', '只暂停新的借款，不罚息、不自动扣钱；还清后恢复'],
+      ['自动还款', '每日津贴到账后自动还；预支强制开启，普通借款可自行开关'],
+      ['提前还款', '随时可还，利息按账单固定收取，提前还清不收额外费用'],
+      ['征信', '按时还清 +' + d.config.score_on_time + ' 分（24 小时内只计一次）· 逾期还清 ' +
+        d.config.score_late + ' 分 · 核销 ' + d.config.score_write_off + ' 分']
+    ];
+    rows.forEach(function (x) {
+      var row = h('div', 'cr-row');
+      row.appendChild(h('span', 'cr-k', x[0]));
+      row.appendChild(h('span', 'cr-v', x[1]));
+      card.appendChild(row);
+    });
+    return card;
+  }
+
+  function creditAlertCard(al) {
+    var bad = !!al.overdue;
+    var card = h('div', 'card credit-alert' + (bad ? ' bad' : ''));
+    card.appendChild(h('div', 'ca-title', bad
+      ? ('贷款已逾期 ' + al.overdue_days + ' 天')
+      : (al.in_grace ? '已到还款日（宽限期内）' : '还款提醒')));
+    card.appendChild(h('div', 'ca-body',
+      '第 ' + al.installment + '/' + al.installments + ' 期 · 本期应还 ' + money(al.remaining) +
+      ' 学元 · 总共还剩 ' + money(al.total_remaining) + ' 学元' +
+      (al.due_at ? ' · ' + creditWhen(al.due_at) : '')));
+    if (bad) {
+      card.appendChild(h('div', 'ca-foot', '逾期只暂停新借款，不罚息、不自动扣津贴；还清后即可恢复。'));
+    } else if (al.in_grace) {
+      card.appendChild(h('div', 'ca-foot', '宽限期内还清仍算按时，不影响信用分。'));
+    } else {
+      card.appendChild(h('div', 'ca-foot', '24 小时内到期，可以现在用证券余额还，或等每日津贴自动还。'));
+    }
+    return card;
+  }
+
+  // 信用分走势：不引图表库，一条 SVG 折线足够看清趋势。
+  function creditTrend(events) {
+    var list = (events || []).slice(0, 20).reverse();
+    if (list.length < 2) return null;
+    var min = 850;
+    var max = 300;
+    list.forEach(function (e) {
+      var s = Number(e.score_after) || 0;
+      if (s < min) min = s;
+      if (s > max) max = s;
+    });
+    var W = 300;
+    var H = 46;
+    var pad = 5;
+    var pts = list.map(function (e, i) {
+      var x = pad + i * (W - pad * 2) / (list.length - 1);
+      var y = max === min
+        ? H / 2
+        : H - pad - (Number(e.score_after) - min) / (max - min) * (H - pad * 2);
+      return Math.round(x) + ',' + Math.round(y);
+    }).join(' ');
+
+    var wrap = h('div', 'credit-trend');
+    wrap.appendChild(h('div', 'ct-label', '最近 ' + list.length + ' 次变化 · ' + min + '–' + max + ' 分'));
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts);
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', 'currentColor');
+    poly.setAttribute('stroke-width', '2');
+    poly.setAttribute('stroke-linejoin', 'round');
+    poly.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(poly);
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
+  function creditScoreCard(d) {
+    var card = h('div', 'card credit-card');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', '信用分'));
+    var more = h('div', 'card-more', '刷新');
+    more.onclick = function () { loadCredit(); loadCreditAlert(); };
+    head.appendChild(more);
+    card.appendChild(head);
+
+    var row = h('div', 'credit-score-row');
+    var box = h('div', 'credit-score-box');
+    box.appendChild(h('b', 'credit-score num', String(d.profile.score)));
+    box.appendChild(h('span', 'credit-tier', d.profile.tier + ' · ' + d.profile.tier_name));
+    row.appendChild(box);
+    var lim = h('div', 'credit-limits');
+    var l1 = h('div', 'credit-limit');
+    l1.appendChild(h('span', null, '可用 '));
+    l1.appendChild(h('b', 'num', money(d.credit.available)));
+    lim.appendChild(l1);
+    var l2 = h('div', 'credit-limit');
+    l2.appendChild(h('span', null, '总额度 '));
+    l2.appendChild(h('b', 'num', money(d.credit.limit)));
+    lim.appendChild(l2);
+    row.appendChild(lim);
+    card.appendChild(row);
+
+    var bar = h('div', 'credit-bar');
+    var fill = h('span', null, '');
+    fill.style.width = Math.max(0, Math.min(100, Number(d.profile.progress) || 0)) + '%';
+    bar.appendChild(fill);
+    card.appendChild(bar);
+
+    var foot = h('div', 'credit-foot');
+    foot.appendChild(h('span', null,
+      d.profile.next_tier_score
+        ? ('再 ' + (d.profile.next_tier_score - d.profile.score) + ' 分升 ' + d.profile.next_tier_name)
+        : '已是最高等级'));
+    foot.appendChild(h('span', null,
+      '按时 ' + d.credit.on_time_days + ' 天 · 逾期 ' + d.credit.late_count + ' · 已还 ' + d.credit.repaid_count));
+    card.appendChild(foot);
+
+    var trend = creditTrend(d.score_events);
+    if (trend) card.appendChild(trend);
+
+    if (d.credit.override > 0) {
+      card.appendChild(h('div', 'credit-note', '班管已设专属额度 ' + money(d.credit.override) + ' 学元'));
+    }
+    if (d.blacklisted) {
+      card.appendChild(h('div', 'credit-note bad',
+        '借款暂停至 ' + String(d.blacklist_until || '').slice(0, 10) +
+        (d.blacklist_reason ? '：' + d.blacklist_reason : '')));
+    }
+    card.appendChild(h('div', 'credit-tips',
+      '按时还清 +' + d.config.score_on_time + ' 分 · 逾期 ' + d.config.score_late +
+      ' 分 · 核销 ' + d.config.score_write_off + ' 分'));
+    return card;
+  }
+
+  function creditActiveCard(d) {
+    var a = d.active;
+    var card = h('div', 'card credit-active');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', a.product_name + ' · 利率 ' + a.rate_percent + '%'));
+    var state = h('span', 'credit-state' + (a.overdue ? ' bad' : (a.in_grace ? ' grace' : '')),
+      a.overdue ? ('已逾期 ' + a.overdue_days + ' 天') : (a.in_grace ? '宽限期' : '还款中'));
+    head.appendChild(state);
+    card.appendChild(head);
+
+    var nums = h('div', 'credit-nums');
+    [['本金', a.principal], ['利息', a.interest], ['待还', a.remaining]].forEach(function (x) {
+      var c = h('div', 'credit-num');
+      c.appendChild(h('span', null, x[0]));
+      c.appendChild(h('b', 'num', money(x[1])));
+      nums.appendChild(c);
+    });
+    card.appendChild(nums);
+
+    var av = practiceAvailable();
+    var tool = h('div', 'credit-tools');
+    var payAll = h('div', 'inv-btn primary' + (av >= a.remaining && !S.creditBusy ? '' : ' disabled'),
+      '用证券余额还清 ' + money(a.remaining));
+    payAll.onclick = function () {
+      if (!S.creditBusy && av >= a.remaining) repayCreditFromPractice(true);
+    };
+    tool.appendChild(payAll);
+    card.appendChild(tool);
+    card.appendChild(h('div', 'credit-tip', av >= a.remaining
+      ? ('证券可用练习金 ' + money(av) + ' 学元，可直接划扣还贷。')
+      : ('证券可用练习金 ' + money(av) + ' 学元，不够还清；先卖出持仓，或等每日津贴自动还。')));
+
+    var auto = h('div', 'credit-auto');
+    var at = h('div', 'ca-text');
+    at.appendChild(h('b', null, '每日津贴自动还款'));
+    at.appendChild(h('span', null, a.auto_repay_forced
+      ? '津贴预支强制开启：每天领到的津贴先还这一笔'
+      : '开启后，每天领津贴时自动还这一笔'));
+    auto.appendChild(at);
+    if (a.auto_repay_forced) {
+      auto.appendChild(h('span', 'ca-state on', '强制开启'));
+    } else {
+      var sw = h('div', 'ca-switch' + (a.auto_repay ? ' on' : ''), a.auto_repay ? '已开启' : '关闭');
+      sw.onclick = function () { toggleCreditAuto(!a.auto_repay); };
+      auto.appendChild(sw);
+    }
+    card.appendChild(auto);
+
+    card.appendChild(h('div', 'credit-next',
+      '下一期：第 ' + (a.paid_installments + 1) + '/' + a.total_installments + ' 期 · ' +
+      money(a.next_due) + ' 学元' + (a.next_due_at ? ' · ' + creditWhen(a.next_due_at) : '')));
+
+    var sch = h('div', 'credit-sch');
+    (a.schedule || []).forEach(function (x) {
+      var row = h('div', 'credit-sch-row' + (x.status === 'paid' ? ' paid' : '') +
+        (x.overdue ? ' bad' : '') + (x.in_grace ? ' grace' : ''));
+      row.appendChild(h('span', 'cs-seq', '第 ' + x.seq + ' 期'));
+      row.appendChild(h('span', 'cs-due', x.status === 'paid'
+        ? (x.paid_at ? creditWhen(x.paid_at) + ' 已还' : '已还')
+        : creditWhen(x.due_at)));
+      row.appendChild(h('span', 'cs-amt num', money(x.total)));
+      row.appendChild(h('span', 'cs-state', x.status === 'paid'
+        ? (x.late_paid ? '逾期还清' : '已还清')
+        : (x.overdue ? '逾期' : (x.in_grace ? '宽限期' : '待还'))));
+      sch.appendChild(row);
+    });
+    card.appendChild(sch);
+
+    var form = h('div', 'inv-form credit-repay-form');
+    var input = document.createElement('input');
+    input.className = 'wallet-input credit-repay-input';
+    input.type = 'number';
+    input.placeholder = '还款金额（从钱包赠金扣）';
+    form.appendChild(input);
+    var btn = h('div', 'inv-btn primary', S.creditBusy ? '处理中…' : '用赠金还款');
+    btn.onclick = function () { if (!S.creditBusy) repayCredit(false); };
+    form.appendChild(btn);
+    var all = h('div', 'inv-btn', '用赠金还清');
+    all.onclick = function () { if (!S.creditBusy) repayCredit(true); };
+    form.appendChild(all);
+    card.appendChild(form);
+
+    if (a.invested) {
+      card.appendChild(h('div', 'credit-tip', '这笔本金已全部转入证券；还贷优先用上面的「用证券余额还清」，不必再撤出到钱包。'));
+    }
+    if (a.overdue) {
+      card.appendChild(h('div', 'credit-warn', '逾期只暂停新的借款，不自动扣津贴、不滚罚息；还清后恢复。'));
+    } else if (a.in_grace) {
+      card.appendChild(h('div', 'credit-warn', '已到还款日，还有 ' + d.config.grace_hours + ' 小时宽限；宽限内还清仍算按时。'));
+    }
+    card.appendChild(h('div', 'credit-tip', '还款先抵最早一期的利息、再抵本金；提前还清不收额外费用。'));
+    return card;
+  }
+
+  function creditApplyBlock(d) {
+    var wrap = h('div', 'credit-apply');
+    wrap.appendChild(h('div', 'credit-sec', '选择产品'));
+
+    var grid = h('div', 'credit-products');
+    (d.products || []).forEach(function (p) {
+      var b = h('div', 'credit-product' + (S.creditProduct === p.id ? ' active' : '') + (p.available ? '' : ' off'));
+      var top = h('div', 'cp-top');
+      top.appendChild(h('span', 'cp-name', p.name));
+      top.appendChild(h('b', 'cp-rate', p.rate + '%'));
+      b.appendChild(top);
+      b.appendChild(h('span', 'cp-term', p.id === 'installment'
+        ? '每 7 天一期'
+        : (p.id === 'advance' ? '随每日津贴自动还' : (p.term_days + ' 天'))));
+      b.appendChild(h('span', 'cp-range num', money(p.min) + ' ~ ' + money(p.max) + ' 学元'));
+      b.appendChild(h('span', 'cp-desc', p.desc));
+      b.onclick = function () { selectCreditProduct(p.id); };
+      grid.appendChild(b);
+    });
+    wrap.appendChild(grid);
+
+    var p = creditProduct(d);
+    if (!p) return wrap;
+
+    var card = h('div', 'card credit-apply-card');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', p.name + ' · 利率 ' + p.rate + '%'));
+    card.appendChild(head);
+
+    if (p.id === 'installment') {
+      var seg = h('div', 'seg credit-term');
+      p.periods.forEach(function (n) {
+        var it = h('div', 'seg-item' + (S.creditInstallments === n ? ' active' : ''), n + ' 期');
+        it.onclick = function () { selectCreditInstallments(n); };
+        seg.appendChild(it);
+      });
+      card.appendChild(seg);
+    }
+
+    var form = h('div', 'inv-form');
+    var input = document.createElement('input');
+    input.className = 'wallet-input credit-amount';
+    input.type = 'number';
+    input.placeholder = '借款金额（' + money(p.min) + ' ~ ' + money(p.max) + ' 学元）';
+    form.appendChild(input);
+    var armed = 0;
+    var btn = h('div', 'inv-btn primary' + (d.can_borrow && p.available && !S.creditBusy ? '' : ' disabled'),
+      S.creditBusy ? '处理中…' : '申请借款');
+    btn.onclick = function () {
+      if (S.creditBusy) return;
+      var amt = Number(input && input.value);
+      if (!isFinite(amt) || amt <= 0) { toast('请填写借款金额', 'error'); return; }
+      if (amt < p.min || amt > p.max) {
+        toast(p.name + '金额需在 ' + money(p.min) + ' ~ ' + money(p.max) + ' 学元', 'error');
+        return;
+      }
+      if (amt > d.credit.available) {
+        toast('超过当前可借额度 ' + money(d.credit.available) + ' 学元', 'error');
+        return;
+      }
+      // 两步确认：借款会立刻产生账单，避免手滑点一下就把钱借出来
+      if (armed !== amt) {
+        armed = amt;
+        btn.textContent = '确认借 ' + money(amt) + ' 学元';
+        toast('再点一次确认借款', 'info');
+        setTimeout(function () {
+          if (armed === amt) { armed = 0; btn.textContent = '申请借款'; }
+        }, 5000);
+        return;
+      }
+      armed = 0;
+      applyCredit();
+    };
+    form.appendChild(btn);
+    card.appendChild(form);
+
+    if (!p.auto_repay) {
+      var opt = h('label', 'credit-check');
+      var autoCb = document.createElement('input');
+      autoCb.type = 'checkbox';
+      autoCb.className = 'credit-auto-check';
+      opt.appendChild(autoCb);
+      opt.appendChild(document.createTextNode('每日津贴到账后自动还这一笔（可随时关闭）'));
+      card.appendChild(opt);
+    }
+
+    var preview = h('div', 'credit-preview');
+    card.appendChild(preview);
+    function renderPreview() {
+      preview.innerHTML = '';
+      var amt = Number(input.value);
+      if (!isFinite(amt) || amt <= 0) {
+        preview.appendChild(h('div', 'cpv-empty', '输入金额，先看每期要还多少'));
+        return;
+      }
+      var interest = Math.ceil(amt * p.rate / 100);
+      var total = amt + interest;
+      var n = p.id === 'installment' ? S.creditInstallments : 1;
+      var perDays = p.period_days || p.term_days || 7;
+      var pBase = Math.floor(amt / n);
+      var iBase = Math.floor(interest / n);
+      var head = h('div', 'cpv-total');
+      head.appendChild(h('span', null, '共还 ' + money(total) + ' 学元'));
+      head.appendChild(h('span', 'cpv-int', '利息 ' + money(interest) + ' 学元'));
+      preview.appendChild(head);
+      for (var i = 1; i <= n; i++) {
+        var pp = i === n ? amt - pBase * (n - 1) : pBase;
+        var ii = i === n ? interest - iBase * (n - 1) : iBase;
+        var due = new Date(Date.now() + perDays * i * 86400000);
+        var row = h('div', 'cpv-row');
+        row.appendChild(h('span', null, '第 ' + i + ' 期 · ' + (due.getMonth() + 1) + '-' +
+          ('0' + due.getDate()).slice(-2)));
+        row.appendChild(h('span', 'num', money(pp + ii) + ' 学元'));
+        preview.appendChild(row);
+      }
+    }
+    input.addEventListener('input', renderPreview);
+    renderPreview();
+
+    var quick = h('div', 'credit-quick');
+    var avail = Math.min(d.credit.available, p.max);
+    var qs = [p.min];
+    if (avail > p.min) qs.push(Math.min(avail, p.min * 2));
+    if (avail > qs[qs.length - 1]) qs.push(avail);
+    qs = qs.filter(function (v, i) { return qs.indexOf(v) === i; });
+    qs.forEach(function (q) {
+      var b = h('div', 'credit-quick-btn', money(q));
+      b.onclick = function () {
+        if (!input) return;
+        input.value = String(q);
+        renderPreview();
+      };
+      quick.appendChild(b);
+    });
+    card.appendChild(quick);
+
+    if (!d.can_borrow && d.reason) card.appendChild(h('div', 'credit-warn', d.reason));
+    if (!p.available) {
+      card.appendChild(h('div', 'credit-warn', '当前额度不足 ' + money(p.min) + ' 学元，先还清或提升信用分。'));
+    }
+    card.appendChild(h('div', 'credit-tip',
+      '利息 ' + p.rate + '%；' + (p.id === 'installment' ? '每 7 天一期' : '期限 ' + p.term_days + ' 天') +
+      '，到期后 ' + d.config.grace_hours + ' 小时宽限。借 ' + money(p.min) +
+      ' 学元利息约 ' + money(p.min * p.rate / 100) + ' 学元。' +
+      (p.invest ? ' 本金会立即转入证券，还款时可直接用证券余额划扣。' : '') +
+      (p.auto_repay ? ' 这笔借款强制用每日津贴自动还。' : '')));
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  function creditHistory(d) {
+    var card = h('div', 'card credit-hist');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', '借款记录'));
+    card.appendChild(head);
+    (d.loans || []).forEach(function (l) {
+      var item = h('div', 'credit-hist-item');
+      var row = h('div', 'credit-hist-row' + (S.creditDetailId === l.id ? ' open' : ''));
+      var left = h('div', 'ch-main');
+      left.appendChild(h('div', 'ch-title', l.product_name + ' · ' + money(l.principal) + ' 学元'));
+      left.appendChild(h('div', 'ch-sub',
+        creditWhen(l.opened_at) + ' 借 · 利息 ' + money(l.interest) +
+        (l.total_installments > 1 ? ' · ' + l.total_installments + ' 期' : '') +
+        (l.auto_repay ? ' · 津贴自动还' : '')));
+      row.appendChild(left);
+      var st = h('span', 'ch-state' + (l.status === 'written_off' || l.overdue || l.late ? ' bad' : (l.status === 'repaid' ? ' ok' : '')),
+        l.status === 'written_off' ? '已核销' : (l.status === 'repaid' ? (l.late ? '逾期还清' : '已还清') : (l.overdue ? '逾期' : (l.in_grace ? '宽限期' : '还款中'))));
+      row.appendChild(st);
+      row.onclick = function () { toggleCreditDetail(l.id); };
+      item.appendChild(row);
+
+      if (S.creditDetailId === l.id) {
+        var box = h('div', 'credit-detail');
+        var det = S.creditDetails[l.id];
+        if (!det) {
+          box.appendChild(h('div', 'cd-empty', '加载明细…'));
+        } else {
+          var sch = (det.loan && det.loan.schedule) || [];
+          sch.forEach(function (x) {
+            var sr = h('div', 'cd-row' + (x.status === 'paid' ? ' paid' : '') + (x.overdue ? ' bad' : ''));
+            sr.appendChild(h('span', 'cd-main', '第 ' + x.seq + ' 期 · ' +
+              (x.status === 'paid' ? ((x.paid_at ? creditWhen(x.paid_at) : '') + ' 已还') : creditWhen(x.due_at))));
+            sr.appendChild(h('span', 'cd-sub', x.status === 'paid'
+              ? (x.late_paid ? '逾期还清' : '按时还清')
+              : (x.overdue ? '逾期' : (x.in_grace ? '宽限期' : '待还'))));
+            sr.appendChild(h('span', 'num', money(x.total)));
+            box.appendChild(sr);
+          });
+          var reps = det.repayments || [];
+          if (reps.length) {
+            box.appendChild(h('div', 'cd-title', '还款流水'));
+            reps.forEach(function (rp) {
+              var rr = h('div', 'cd-row');
+              rr.appendChild(h('span', 'cd-main', creditWhen(rp.created_at) + ' · 本金 ' +
+                money(rp.principal) + ' / 利息 ' + money(rp.interest)));
+              rr.appendChild(h('span', 'cd-sub', ''));
+              rr.appendChild(h('span', 'num', money(rp.amount)));
+              box.appendChild(rr);
+            });
+          } else if (det.loan && det.loan.status === 'active') {
+            box.appendChild(h('div', 'cd-empty', '还没有还款记录'));
+          }
+          if (det.loan && det.loan.auto_repay) {
+            box.appendChild(h('div', 'cd-note', '这笔贷款开启了每日津贴自动还款。'));
+          }
+        }
+        item.appendChild(box);
+      }
+      card.appendChild(item);
+    });
+    return card;
+  }
+
+  function creditEvents(d) {
+    var card = h('div', 'card credit-events');
+    var head = h('div', 'card-head');
+    head.appendChild(h('div', 'card-title', '信用记录'));
+    card.appendChild(head);
+    (d.score_events || []).forEach(function (e) {
+      var row = h('div', 'credit-event-row');
+      row.appendChild(h('span', 'ce-reason', e.reason));
+      row.appendChild(h('b', 'ce-delta ' + (e.delta > 0 ? 'in' : (e.delta < 0 ? 'out' : '')),
+        (e.delta > 0 ? '+' : '') + e.delta));
+      row.appendChild(h('em', 'ce-score', String(e.score_after)));
+      card.appendChild(row);
+    });
+    return card;
+  }
+
   function loadOverview() {
     return get('/overview').then(function (d) {
       var first = !S.overview;
@@ -3402,14 +4484,14 @@
       S.market = d;
       if (S.tab === 'market' && !S.detailCode) {
         if (root.querySelector('.view-market .qrow')) patchQuotes(d.list);
-        else renderMain();
+        else if (!S.booting) renderMain();   // 首载期不渲染：mount 收尾统一出数据，避免每包一次全页重建
       }
       return d;
     }).catch(function (e) {
       if (!S.market) {
         // 首次拉取失败：显示错误态而不是空态（拉不到 ≠ 没有）
         S.marketError = errMsg(e);
-        if (S.tab === 'market' && !S.detailCode) renderMain();
+        if (S.tab === 'market' && !S.detailCode && !S.booting) renderMain();
       }
       // 已有行情时的刷新失败：保留旧数据，静默等下一轮
       return null;
@@ -3550,7 +4632,8 @@
   function loadReport() {
     return get('/report').then(function (d) {
       S.report = d && d.report ? d.report : null;
-      if (S.tab === 'market' && !S.detailCode) renderMain();
+      if (S.booting) return;   // 首载期只落数据，mount 收尾统一渲染
+      if (S.tab === 'market' && !S.detailCode && !patchMarketCard('.report-card', reportCard)) renderMain();
     }).catch(function () {});
   }
 
@@ -3565,6 +4648,7 @@
     if (tab === 'market') { loadMarket(); loadOverview(); loadReport(); loadFastNews(); }
     else if (tab === 'positions') { loadOverview(); loadAchievements(); loadLedger(true); }
     else if (tab === 'orders') { loadOrders(); }
+    else if (tab === 'credit') { loadCredit(); loadCreditAlert(); }
     else if (tab === 'rank') { loadRank(); }
     else if (tab === 'guide') { if (!S.rules) loadRules(); }
     else if (tab === 'rules' && !S.rules) { loadRules(); }
@@ -3596,6 +4680,7 @@
       if (Date.now() - S.lastRefresh > REFRESH_ASSET) {
         S.lastRefresh = Date.now();
         if (S.tab !== 'market' || !S.detailCode) loadOverview();
+        loadCreditAlert();
       }
     }, REFRESH_DETAIL);
   }
@@ -3609,6 +4694,15 @@
     context = ctx;
     api = ctx && ctx.data && ctx.data.api;
     container_ = container;
+
+    // 钱包指路：/stock?tab=credit 直达信用页
+    var tabQuery = (window.location.search.match(/[?&]tab=([^&]+)/) || [])[1];
+    if (tabQuery) {
+      var wanted = decodeURIComponent(tabQuery);
+      for (var qi = 0; qi < NAV.length; qi++) {
+        if (NAV[qi].key === wanted) S.tab = wanted;
+      }
+    }
 
     root = h('div', 'ci-stock');
     container.appendChild(root);
@@ -3626,11 +4720,22 @@
     var main = root.querySelector('.main');
     main.appendChild(loadingBox('正在连接行情'));
 
-    // 首次加载：先拿资产（顺带发放练习金），再拿行情/规则/报告
+    // 首次加载：先拿资产（顺带发放练习金），再拿行情/规则/报告。
+    // booting 期间各 loader 只落数据不渲染（4 个请求并发回包若各自整页
+    // 重建，就是开屏布局风暴的根源），由本收尾统一渲染一次。
+    S.booting = true;
+    // 深链到信用页时不等待行情：信用数据独立于行情，先渲染先加载。
+    if (S.tab === 'credit') {
+      renderMain();
+      loadCredit();
+    }
     loadOverview().then(function () {
       renderMain();
-      return Promise.all([loadMarket(), loadRules(), loadReport(), loadFastNews(), loadNotify(true)]);
+      var boot = [loadMarket(), loadRules(), loadReport(), loadFastNews(), loadNotify(true), loadAlerts(), loadCreditAlert()];
+      if (S.tab === 'credit') boot.push(loadCredit());
+      return Promise.all(boot);
     }).then(function () {
+      S.booting = false;
       renderTop();
       if (S.tab === 'market') renderMain();
       // 首次进入：等界面稳定后弹新手引导。localStorage 记住 —— 跳过也算看过，
@@ -3641,6 +4746,7 @@
         }, 700);
       }
     }).catch(function () {
+      S.booting = false;
       renderMain();
     });
 

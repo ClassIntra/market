@@ -26,7 +26,7 @@ var relay = require('./relay');
 var info = require('./info');
 var manage = require('./manage');
 // 状态接口仅管理员可见；发布接口走共享密钥，见 publishKeyOk
-var { requireAuth, requireAdmin } = require('../../../server/src/middleware/auth');
+var { requireAuth, requireAdmin } = require('_sdk/backend/host').auth;
 
 // 启动机器人（幂等；依赖 server/.env 中的 BOT_PASSWORD 等环境变量）
 relay.start();

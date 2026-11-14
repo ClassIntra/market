@@ -4,7 +4,7 @@
 //
 // 设计原则：
 // 1. **钱只走学元服务**。本应用不自己维护余额，所有资金变动都是
-//    xueyuan.settleHold / credit / hold / release，账本守恒由平台保证。
+//    app-api 的 reserve / settleBuy / settleSell，账本守恒由平台保证。
 // 2. **行情来自真实市场**，本应用不做「假装上涨」的动画数据。
 //    行情拉不到时返回 stale=true，前端必须显示「行情延迟」。
 // 3. 委托、成交、持仓全部落库（stock_* 表），刷新/换设备不丢。
@@ -15,15 +15,18 @@ var nodePath = require('path');
 var express = require('express');
 var router = express.Router();
 
-var requireAuth = require(nodePath.resolve(process.cwd(), 'src/middleware/auth')).requireAuth;
-var db = require(nodePath.resolve(process.cwd(), 'src/utils/db'));
-var xueyuan = require(nodePath.resolve(process.cwd(), 'src/services/xueyuan'));
+var requireAuth = require('_sdk/backend/host').auth.requireAuth;
+var db = require('_sdk/backend/host').db;
+// 第三方应用：只能通过平台能力面访问练习金。余额、津贴、转账、红包
+// 属于「学元钱包」系统应用，本应用不再代理。
+var app = require('_sdk/backend/host').ledger;
 
 var market = require('./market');
 var quotes = require('./quotes');
 var store = require('./store');
 var news = require('./news');
 var notify = require('./notify');
+var alerts = require('./alerts');
 var profile = require('./profile');
 var packet = require('./packet');
 var trading = require('./trading');
@@ -34,8 +37,36 @@ var report = require('./report');
 
 router.use(requireAuth);
 
-// 投资练习金：9000 学元（与学元开户赠金合计约 1 万，够买池内绝大多数股票 1 手）
-var PRACTICE_GRANT_CENT = 900000;
+// 投资练习金：每月可补足到 3 万学元（=30 元等值）。
+// 只发练习金池（practice）—— 它不能在钱包里转账、发红包、买货、提现，
+// 所以印多少都不会稀释消费市场的购买力。这是「钱不值钱」的根治办法。
+//
+// 为什么是「补足到」而不是「固定发」：
+//   学生买满仓后可用归零是正常的，不该因此发钱；
+//   但亏了就该补 —— 沙盘的意义是让人敢下手，不是让人一次亏光就退场。
+//   所以按「可用练习金 + 持仓市值」算总资产，低于目标才补差额。
+var PRACTICE_TARGET_CENT = 3000000;
+
+function monthKey() {
+  var d = new Date(Date.now() + 8 * 3600 * 1000);
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2);
+}
+
+// 练习金总资产（分）= 可用练习金 + 持仓市值 + 累计撤出到钱包的金额。
+// 只算练习金池：真钱和赠送学元都不参与证券，不能用来"凑"练习资产。
+//
+// ⚠️ 加回「累计撤出」是防刷：学生把练习金撤到钱包后可花，如果这里只按
+//    当前余额算，撤资会被当成亏损，下个月又被补到 3 万 → 凭空发行赠金。
+//    主动拿走的钱不是亏的，平台不补。见 server/src/ledger/invest.js。
+function practiceAssetCent(userId) {
+  var mv = store.db().prepare([
+    'SELECT COALESCE(SUM(p.qty * COALESCE(q.price_cent, 0)), 0) AS s',
+    'FROM stock_positions p LEFT JOIN stock_quotes q ON q.code = p.code',
+    'WHERE p.user_id = ?'
+  ].join(' ')).get(userId).s;
+  // 基数由平台能力面定义（含累计撤出），第三方只提供持仓市值。
+  return app.topUpBase('stock', userId, mv);
+}
 
 // 启动撮合器与跨班协同（模块只加载一次；重复 require 由 global 定时器兜底）
 try { matcher.start(); } catch (e) { console.error('[stock] 撮合器启动失败:', e.message); }
@@ -46,7 +77,7 @@ function ok(res, data, message) {
 }
 
 function fail(res, err) {
-  if (err && err.isTradeError) {
+  if (err && (err.isTradeError || err.isLoanError || err.isAlertError)) {
     return res.status(400).json({ code: 400, message: err.message });
   }
   console.error('[stock] 接口错误:', err && err.stack ? err.stack : err);
@@ -66,6 +97,17 @@ function wrap(fn) {
 
 function uid(req) { return String(req.user.user_id); }
 
+// 判重：只认学元账本。旧表已停止写入，切账当月可能残留的旧 ref 用一次性脚本处理，
+// 不再让运行时同时读两套表 —— 那种「两个真源」迟早会给出两个答案。
+function refExistsAnywhere(ref) {
+  var r = String(ref);
+  try {
+    return !!db.prepare('SELECT 1 FROM xy_ledger_transactions WHERE ref = ?').get(r);
+  } catch (e) {
+    return false;
+  }
+}
+
 // 班管 / 系统管理员（班级对决结算是发钱行为，只给班管）
 function requireTreasury(req, res, next) {
   if (!req.user) return res.status(401).json({ code: 401, message: '未登录' });
@@ -75,6 +117,12 @@ function requireTreasury(req, res, next) {
 
 // ---- 视图转换 ----
 function viewOrder(o) {
+  var typeLabel = o.order_type === 'market' ? '市价'
+    : (o.order_type === 'condition'
+      ? (o.trigger_type === 'stop_loss' ? '止损'
+        : (o.trigger_type === 'take_profit' ? '止盈'
+          : (o.trigger_type === 'trailing_stop' ? '移动止损' : '条件')))
+      : '限价');
   return {
     id: o.id,
     code: o.code,
@@ -82,7 +130,7 @@ function viewOrder(o) {
     side: o.side,
     side_label: o.side === 'buy' ? '买入' : '卖出',
     type: o.order_type,
-    type_label: o.order_type === 'market' ? '市价' : '限价',
+    type_label: typeLabel,
     price: o.price_cent / 100,
     price_cent: o.price_cent,
     qty: o.qty,
@@ -96,8 +144,16 @@ function viewOrder(o) {
     trade_date: o.trade_date,
     created_at: o.created_at,
     filled_at: o.filled_at,
+    validity: o.validity || 'long',
+    validity_label: o.validity === 'day' ? '当日有效' : '长期有效',
+    expires_at: Number(o.expires_at) || 0,
+    trigger_type: o.trigger_type || '',
+    trigger_price: (Number(o.trigger_cent) || 0) / 100,
+    trail_percent: Number(o.trail_percent) || 0,
+    peak_price: (Number(o.peak_cent) || 0) / 100,
+    triggered_at: o.triggered_at || 0,
     // 未成交的买单显示「预估冻结」，方便学生对账
-    can_cancel: o.status === 'pending'
+    can_cancel: o.status === 'pending' || o.status === 'armed'
   };
 }
 
@@ -125,38 +181,59 @@ function viewTrade(t) {
 }
 
 // ---- 概览：资产 + 指数 + 自选 ----
+router.get('/health', wrap(function (req, res) {
+  var pending = store.db().prepare([
+    "SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM stock_orders WHERE status IN ('pending','armed')"
+  ].join(' ')).get();
+  var armed = store.db().prepare("SELECT COUNT(*) AS n FROM stock_orders WHERE status = 'armed'").get();
+  var last = quotes.lastSnapshot();
+  ok(res, {
+    matcher: matcher.stats(),
+    pending_orders: Number(pending.n) || 0,
+    armed_orders: Number(armed.n) || 0,
+    oldest_pending_at: Number(pending.oldest) || 0,
+    session: market.currentSession(),
+    quote: last,
+    quote_session: market.sessionForSnapshot(market.currentSession(), last)
+  });
+}));
+
 router.get('/overview', wrap(function (req, res) {
   var userId = uid(req);
   // 首次进入即开户（学元账户由平台懒开户，这里只建本应用的账户行）
   store.ensureAccount(userId);
 
-  // 投资练习金：学元的开户赠金是「零花钱」定位（1000），
-  // 拿来买股票一手都不够。这里由应用发起一笔一次性助学金，
-  // 让模拟盘有真实可操作的本金。幂等靠 ref，重复进入不会重复发。
-  var practiceRef = 'stock:practice:' + userId;
-  var granted = db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get(practiceRef);
+  // 投资练习金：每月可补足到 3 万学元。
+  //   · 买满仓导致可用归零 → 不补（总资产没变，卖一股就有钱）
+  //   · 亏钱导致总资产缩水 → 补差额（沙盘要让人敢继续练）
+  // 幂等靠「每人每月一个 ref」，同一个月点一百次也只补一次。
   var practiceGranted = 0;
-  if (!granted) {
-    try {
-      var r = xueyuan.mint({
-        to: userId,
-        amountCent: PRACTICE_GRANT_CENT,
-        kind: 'reward',
-        ref: practiceRef,
-        app: 'stock',
-        memo: '学元证券 · 投资练习金'
-      });
-      if (!r.duplicate) practiceGranted = PRACTICE_GRANT_CENT / 100;
-    } catch (e) {
-      console.error('[stock] 投资练习金发放失败:', e.message);
+  var monthRef = 'stock:practice:v2:' + userId + ':' + monthKey();
+  // 跨账本判重：旧账本已发过就不再发（切账当月最容易踩到）
+  if (!refExistsAnywhere(monthRef)) {
+    var practiceAsset = practiceAssetCent(userId);
+    var needCent = Math.max(0, PRACTICE_TARGET_CENT - practiceAsset);
+    if (needCent > 0) {
+      try {
+        var r = app.issue('stock', userId, needCent, monthRef,
+          practiceAsset > 0 ? '学元证券 · 练习金补足' : '学元证券 · 投资练习金');
+        if (!r.duplicate) practiceGranted = needCent / 100;
+      } catch (e) {
+        console.error('[stock] 投资练习金发放失败:', e.message);
+      }
     }
   }
 
   return quotes.getSnapshot().then(function (snap) {
     var summary = trading.accountSummary(userId, snap);
-    // 波动提醒：打开应用时扫一遍持仓（内部 60s 节流 + 事件幂等，不会刷屏）
-    try { notify.scanPositions(userId, store.listPositions(userId), snap.byCode); } catch (e) {
-      console.error('[stock] 波动扫描失败:', e.message);
+    // 波动提醒：打开应用时扫一遍持仓（内部 60s 节流 + 事件幂等，不会刷屏）。
+    // 断网兜底价/节假日昨收价不能拿来做提醒，否则会推「假的涨停/浮亏」。
+    var quoteUsable = !snap.stale &&
+      (!snap.quote_date || snap.quote_date === market.dateKey());
+    if (quoteUsable) {
+      try { notify.scanPositions(userId, store.listPositions(userId), snap.byCode); } catch (e) {
+        console.error('[stock] 波动扫描失败:', e.message);
+      }
     }
     var watch = store.listWatch(userId);
     var watchList = [];
@@ -169,7 +246,7 @@ router.get('/overview', wrap(function (req, res) {
         summary: summary,
         indexes: indexes,
         watchlist: watchList,
-        session: market.currentSession(),
+        session: market.sessionForSnapshot(market.currentSession(), snap),
         stale: snap.stale,
         stale_reason: snap.error || '',
         matcher: matcher.stats().stats,
@@ -198,7 +275,8 @@ router.get('/market', wrap(function (req, res) {
       stale: snap.stale,
       stale_reason: snap.error || '',
       quoted_at: snap.at,
-      session: market.currentSession()
+      quote_date: snap.quote_date || '',
+      session: market.sessionForSnapshot(market.currentSession(), snap)
     });
   });
 }));
@@ -206,12 +284,12 @@ router.get('/market', wrap(function (req, res) {
 // ---- 单只详情 ----
 router.get('/quote/:code', wrap(function (req, res) {
   return quotes.getQuote(req.params.code).then(function (q) {
-    var cash = xueyuan.viewAccount(uid(req));
+    var cash = app.practiceAccount('stock', uid(req));
     ok(res, {
       quote: q,
-      session: market.currentSession(),
+      session: market.sessionForSnapshot(market.currentSession(), { stale: q.stale, quote_date: q.quote_date }),
       fee_preview: market.calcFees('buy', q.price_cent * market.LOT_SIZE),
-      max_buy: market.maxBuyQty(cash.available_cent, q.price)
+      max_buy: market.maxBuyQty(cash.available_practice_cent, q.price)
     });
   }).catch(function (err) {
     // 停牌 / 池外 / 暂时无行情：404 比 500 更准确，前端也能直接提示
@@ -242,7 +320,8 @@ router.post('/order', wrap(function (req, res) {
     side: body.side,
     type: body.type,
     price: body.price,
-    qty: body.qty
+    qty: body.qty,
+    validity: body.validity
   }).then(function (r) {
     return quotes.getSnapshot().then(function (snap) {
     ok(res, {
@@ -257,6 +336,29 @@ router.post('/order', wrap(function (req, res) {
   });
 }));
 
+// ---- 条件单：止损 / 止盈（只支持卖出）----
+router.post('/order/condition', wrap(function (req, res) {
+  var userId = uid(req);
+  var body = req.body || {};
+  return trading.placeConditional(userId, {
+    code: body.code,
+    trigger_type: body.trigger_type,
+    trigger_price: body.trigger_price,
+    trail_percent: body.trail_percent,
+    qty: body.qty,
+    validity: body.validity
+  }).then(function (r) {
+    return quotes.getSnapshot().then(function (snap) {
+      ok(res, {
+        order: viewOrder(r.order),
+        summary: trading.accountSummary(userId, snap),
+        message: r.message,
+        session: r.session
+      }, r.message);
+    });
+  });
+}));
+
 // ---- 撤单 ----
 router.post('/order/:id/cancel', wrap(function (req, res) {
   var userId = uid(req);
@@ -266,6 +368,18 @@ router.post('/order/:id/cancel', wrap(function (req, res) {
       order: viewOrder(o),
       summary: trading.accountSummary(userId, snap)
     }, '已撤单');
+  });
+}));
+
+router.post('/orders/cancel-all', wrap(function (req, res) {
+  var userId = uid(req);
+  var r = trading.cancelAll(userId);
+  return quotes.getSnapshot().then(function (snap) {
+    ok(res, {
+      cancelled: r.cancelled,
+      released: r.released_cent / 100,
+      summary: trading.accountSummary(userId, snap)
+    }, r.cancelled ? ('已撤销 ' + r.cancelled + ' 笔委托') : '没有可撤的委托');
   });
 }));
 
@@ -287,87 +401,144 @@ router.get('/positions', wrap(function (req, res) {
   });
 }));
 
-// ---- 学元钱包（平台货币，本应用是唯一有界面的入口）----
-// 平台有 /api/xueyuan/* 接口，但桌面端没有任何「领学元」的入口 ——
-// 学生只能在证券里看到余额，不知道去哪领津贴。这里把钱包做成可达的。
+// ---- 资金功能已迁出本应用 ----
+// 证券是第三方应用，只能操作练习金；余额、津贴、转账、红包属于「学元钱包」系统应用。
+// 保留一个只读的练习金视图供顶部余额条使用，其余入口一律 410。
 router.get('/wallet', wrap(function (req, res) {
-  var userId = uid(req);
-  var opened = xueyuan.ensureAccount(userId);
-  var today = xueyuan.todayKey();
-  var claimed = !!db.prepare('SELECT 1 FROM xy_tx WHERE ref = ?').get('daily:' + userId + ':' + today);
-  var lastDaily = db.prepare(
-    'SELECT meta_json FROM xy_tx WHERE ref LIKE ? ORDER BY id DESC LIMIT 1'
-  ).get('daily:' + userId + ':%');
-  var streak = 0;
-  try { streak = JSON.parse((lastDaily && lastDaily.meta_json) || '{}').streak || 0; } catch (e) { streak = 0; }
+  var acc = app.practiceAccount('stock', uid(req));
+  // 前端展示口径是「学元」（1 学元 = 100 单位），与 xy.fromCent 一致。
+  // 能力面返回的是账本单位，必须在这里换算，否则弹层余额会大 100 倍。
   ok(res, {
-    account: opened.account,
-    daily: { claimed: claimed, base: 10, bonus: 20, bonus_from: 7, streak: streak }
+    account: {
+      practice: acc.practice_cent / 100,
+      available_practice: acc.available_practice_cent / 100,
+      frozen_practice: acc.frozen_practice_cent / 100
+    },
+    // 能力面只给「可投入的赠金额度」这一个数，不给完整钱包视图。
+    grant_available: app.grantAvailable('stock', uid(req)) / 100,
+    moved: true,
+    moved_to: '/wallet'
   });
 }));
 
-router.post('/wallet/daily', wrap(function (req, res) {
-  var r = xueyuan.claimDaily(uid(req));
+// ---- 投资进出（赠金 ⇄ 练习金）----
+// 第三方应用不直连 /api/xueyuan/*：统一走平台能力面，平台可审计、可限流、可收回。
+// 方向写死在能力面里，本路由连 asset / to 参数都不接受。
+router.post('/invest', wrap(function (req, res) {
+  var b = req.body || {};
+  var amount = Number(b.amount);
+  var cent = Math.round(amount * 100);   // 学元 → 账本单位（与 xy.toCent 同口径）
+  if (!isFinite(cent) || cent <= 0) throw new Error('金额不合法');
+  var u = uid(req);
+  var r = app.invest('stock', u, String(b.direction || 'in'), cent,
+    'stock:invest:' + u + ':' + Date.now() + ':' + Math.random().toString(36).slice(2, 8));
+  ok(res, {
+    direction: r.direction,
+    amount: r.amount_cent / 100,
+    account: {
+      practice: r.account.practice_cent / 100,
+      available_practice: r.account.available_practice_cent / 100,
+      frozen_practice: r.account.frozen_practice_cent / 100
+    }
+  }, r.direction === 'in' ? '已转入投资' : '已撤出到钱包');
+}));
+
+// ---- 信用 / 贷款（学元证券专用能力面） ----
+// 只开放学生本人的看/借/还/明细；核销、限额、调分、拉黑属于班管后台。
+// 金额入参是学元；能力面收账本单位，与 /invest 的换算口径一致。
+router.get('/loan', wrap(function (req, res) {
+  ok(res, app.loanSummary('stock', uid(req)));
+}));
+
+router.get('/loan/alert', wrap(function (req, res) {
+  ok(res, { alert: app.loanAlert('stock', uid(req)) });
+}));
+
+router.get('/loan/:id', wrap(function (req, res) {
+  ok(res, app.loanDetail('stock', uid(req), req.params.id));
+}));
+
+router.post('/loan/apply', wrap(function (req, res) {
+  var b = req.body || {};
+  var amount = Number(b.amount);
+  var cent = Math.round(amount * 100);
+  if (!isFinite(cent) || cent <= 0) throw new Error('金额不合法');
+  var u = uid(req);
+  var ref = b.ref ? String(b.ref) : ('u:' + u + ':' + Date.now().toString(36) + ':' + Math.random().toString(36).slice(2, 8));
+  var r = app.loanApply('stock', u, cent, {
+    ref: ref,
+    product: b.product,
+    installments: b.installments,
+    auto_repay: !!b.auto_repay
+  });
   ok(res, {
     duplicate: !!r.duplicate,
-    amount: r.amount,
-    streak: r.streak,
-    account: r.account
-  });
+    loan: r.loan,
+    summary: app.loanSummary('stock', u)
+  }, r.duplicate ? '这笔借款已处理' : '借款已到账');
 }));
 
-// ---- 同学转账（幂等：同 request_id 不重复扣钱）----
-router.post('/wallet/transfer', wrap(function (req, res) {
-  var from = uid(req);
-  var to = String((req.body && req.body.to) || '').trim();
-  var amountCent = packet.toCent(req.body && req.body.amount);
-  var note = String((req.body && req.body.note) || '').slice(0, 30);
-  var rid = String((req.body && req.body.request_id) || '').trim();
-  if (!/^\d{6}$/.test(to)) throw new Error('对方学号是 6 位数字');
-  if (to === from) throw new Error('不能给自己转账');
-  if (amountCent <= 0) throw new Error('金额必须大于 0');
-  if (!rid) rid = Date.now() + ':' + Math.random().toString(36).slice(2, 8);
-
-  var r = xueyuan.transfer({
-    from: from,
-    to: to,
-    amountCent: amountCent,
-    ref: 'stock:transfer:' + rid,
-    app: 'stock',
-    memo: note || '同学转账'
-  });
-  if (!r.duplicate) {
-    try {
-      notify.push(to, {
-        kind: 'transfer',
-        title: packet.userName(from) + ' 转给你 ' + (amountCent / 100).toFixed(2) + ' 学元',
-        body: note || '',
-        ref: 'transfer:' + rid
-      });
-    } catch (e) { /* 通知失败不影响转账 */ }
-  }
-  ok(res, { duplicate: !!r.duplicate, amount: amountCent / 100, to: to });
-}));
-
-// ---- 红包 ----
-router.get('/wallet/packets', wrap(function (req, res) {
-  packet.sweepExpired();   // 懒清理：顺手把过期红包的冻结退掉
-  ok(res, packet.list(uid(req)));
-}));
-
-router.post('/wallet/packet', wrap(function (req, res) {
+router.post('/loan/repay', wrap(function (req, res) {
   var b = req.body || {};
-  var r = packet.create(uid(req), packet.toCent(b.total), b.count, b.note);
-  ok(res, r);
+  var u = uid(req);
+  var cent = b.full ? null : Math.round(Number(b.amount) * 100);
+  if (!b.full && (!isFinite(cent) || cent <= 0)) throw new Error('金额不合法');
+  var ref = b.ref ? String(b.ref) : ('r:' + u + ':' + Date.now().toString(36) + ':' + Math.random().toString(36).slice(2, 8));
+  var r = app.loanRepay('stock', u, cent, { ref: ref, full: !!b.full });
+  ok(res, {
+    duplicate: !!r.duplicate,
+    loan: r.loan,
+    allocation: r.allocation,
+    summary: app.loanSummary('stock', u)
+  }, r.duplicate ? '这笔还款已处理' : '还款成功');
 }));
 
-router.post('/wallet/packet/:id/claim', wrap(function (req, res) {
-  var id = parseInt(req.params.id, 10);
-  if (!id) throw new Error('红包不存在');
-  ok(res, packet.claim(id, uid(req)));
+// 投资贷专用：练习金 → 赠金 → 还款，一个事务内完成。
+// 不让学生先「撤出到钱包」再找还款入口 —— 钱包已经没有贷款页了。
+router.post('/loan/repay-from-practice', wrap(function (req, res) {
+  var b = req.body || {};
+  var u = uid(req);
+  var cent = b.full ? null : Math.round(Number(b.amount) * 100);
+  if (!b.full && (!isFinite(cent) || cent <= 0)) throw new Error('金额不合法');
+  var ref = b.ref ? String(b.ref) : ('rp:' + u + ':' + Date.now().toString(36) + ':' + Math.random().toString(36).slice(2, 8));
+  var r = app.loanRepayFromPractice('stock', u, { amountCent: cent, full: !!b.full, ref: ref });
+  ok(res, r, r.duplicate ? '这笔还款已处理' : (r.loan && r.loan.status === 'repaid' ? '贷款已还清' : '还款成功'));
 }));
+
+// 学生开关「每日津贴自动还款」。津贴预支强制开启，能力面会拒绝关闭。
+router.post('/loan/:id/auto', wrap(function (req, res) {
+  var b = req.body || {};
+  var r = app.loanSetAutoRepay('stock', uid(req), req.params.id, !!b.on);
+  ok(res, r, b.on ? '已开启津贴自动还款' : '已关闭津贴自动还款');
+}));
+
+var MOVED_MSG = '资金功能已迁移到「学元钱包」应用';['/wallet/daily', '/wallet/transfer', '/wallet/packets', '/wallet/packet', '/wallet/packet/:id/claim']
+  .forEach(function (p) {
+    router.all(p, function (req, res) {
+      res.status(410).json({ code: 410, message: MOVED_MSG, data: { moved_to: '/wallet' } });
+    });
+  });
 
 // ---- 站内通知（持仓波动 / 成交 / 委托失效）----
+// ---- 到价提醒 ----
+router.get('/alerts', wrap(function (req, res) {
+  ok(res, { list: alerts.list(uid(req)) });
+}));
+
+router.post('/alerts', wrap(function (req, res) {
+  var b = req.body || {};
+  var a = alerts.create(uid(req), {
+    code: b.code,
+    direction: b.direction,
+    target_price: b.target_price
+  });
+  ok(res, { alert: a }, '到价提醒已设置');
+}));
+
+router.post('/alerts/:id/cancel', wrap(function (req, res) {
+  ok(res, { alert: alerts.cancel(uid(req), req.params.id) }, '已取消提醒');
+}));
+
 router.get('/notify', wrap(function (req, res) {
   ok(res, notify.list(uid(req), { limit: req.query.limit }));
 }));
@@ -416,10 +587,7 @@ router.get('/news/:code', wrap(function (req, res) {
 // ---- 资金流水（学元账本：买卖、费用、奖励、班管发放，逐笔可追溯）----
 // 直接复用宿主的 xy_entry 视图，避免应用自己再记一套流水导致对不上账。
 router.get('/ledger', wrap(function (req, res) {
-  ok(res, xueyuan.history(uid(req), {
-    limit: req.query.limit,
-    beforeId: req.query.beforeId
-  }));
+  ok(res, app.history('stock', uid(req), req.query.limit, req.query.beforeId));
 }));
 
 // ---- 自选 ----
@@ -548,12 +716,17 @@ router.get('/rank', wrap(function (req, res) {
   return quotes.getSnapshot().then(function (snap) {
     // 只统计「进过本应用」的人：stock_account 在首次打开 overview 时创建。
     // 只开了学元账户、从没进过炒股的同学不该占着排行榜名额（口径 2026-11-03 修）。
+    // ⚠️ 现金余额取 PRACTICE：证券的钱是练习金，取 CASH+GRANT 会让
+    // 「买入花掉的钱」既不在余额里、又要在 net_invest 里，pnl 直接算错。
     var accounts = db.prepare([
-      'SELECT a.user_id, a.balance, u.net_name, u.real_name',
-      'FROM xy_account a',
-      'JOIN stock_account s ON s.user_id = a.user_id',
-      'LEFT JOIN users u ON u.user_id = a.user_id',
-      "WHERE a.user_id NOT LIKE '@%'"
+      'SELECT a.owner_id AS user_id,',
+      "  COALESCE((SELECT b.balance FROM xy_ledger_balances b",
+      "            WHERE b.account_id = a.id AND b.asset = 'PRACTICE'), 0) AS balance,",
+      '  u.net_name, u.real_name',
+      'FROM xy_ledger_accounts a',
+      'JOIN stock_account s ON s.user_id = a.owner_id',
+      'LEFT JOIN users u ON u.user_id = a.owner_id',
+      "WHERE a.kind = 'user'"
     ].join('\n')).all();
 
     var posRows = db.prepare('SELECT user_id, code, qty, cost_cent FROM stock_positions WHERE qty > 0').all();
@@ -653,11 +826,14 @@ router.get('/rules', wrap(function (req, res) {
     },
     t1: '本盘当天买入当天就能卖（教学盘放宽了 T+0，因为平板不是天天开机）。但请记住：<b>真实 A 股是 T+1</b> —— 今天买入的股票，下一个交易日才能卖出，考试和真实交易都按 T+1 记。',
     limits: '主板涨跌停 ±10%，创业板/科创板 ±20%；涨停买不到、跌停卖不掉，委托会排队等开板。',
-    matching: '成交价以最新市场价为准：限价买单不高于委托价成交，限价卖单不低于委托价成交。',
-    expiry: '委托会一直有效，直到成交或你主动撤单。若委托价超出了当天的涨跌停范围（比如隔夜大跌后），会在下一次撮合时自动作废并解冻资金。',
-    orderWindow: '限价与市价委托任何时间都能下 —— 晚上、周末、节假日都可以，休市时挂单不收费、也不会消失。',
-    session_note: '撮合只在开市时段发生：9:25 集合竞价按开盘价成交，9:30–11:30 / 13:00–15:00 连续竞价按最新价成交；休市期间委托排队等待，开盘后自动继续。',
-    market_order: '市价单：开市时按最新价立即成交；休市时按最新价预扣（多留 10% 缓冲）后排队，开盘按开盘价成交，跳空过大导致资金不足会被拒绝并全额解冻。'
+    matching: '成交价以真实市场价为准：连续竞价按最新价；9:25 后按开盘价；15:00 后按收盘价。限价买单不高于委托价成交，限价卖单不低于委托价成交。',
+    expiry: '长期有效委托会一直有效，直到成交或你主动撤单；当日有效委托在当天收盘结算后（15:02）自动撤销并解冻。若委托价超出了当天的涨跌停范围，会在下一次撮合时自动作废并解冻资金。',
+    condition: '条件单只支持卖出：止损（跌破触发价）、止盈（涨到触发价）、移动止损（从最高点回撤指定比例）。挂单冻结对应股数，触发后按市价卖出；没触发可随时撤单，当日有效单到期自动撤销。',
+    alert: '到价提醒只发站内消息：个股详情页点铃铛，设置「涨到 / 跌到」某个价格，行情满足时顶栏铃铛提示，触发一次后自动结束，不会自动下单。',
+    risk: '单日最多 100 笔委托、单笔最多 10 万股、同时最多 20 条条件单；单笔数量与价格还会受涨跌停和可用资金/持仓约束。',
+    orderWindow: '限价委托任何时间都能下 —— 晚上、周末、节假日都可以，休市时挂单不收费、也不会消失；市价委托需要今天的真实行情，休市或行情延迟时会提示改限价。',
+    session_note: '集合竞价（9:15–9:25、14:57–15:00）只收单不成交：9:25 后按开盘价撮合，15:00 后按收盘价结算；连续竞价（9:30–11:30、13:00–14:57）按最新价成交。休市期间委托排队等待。',
+    market_order: '市价单必须基于今天的真实行情：行情延迟、节假日或停牌时会拒绝，请改限价委托排队；开市时按最新价立即成交，休市时排队等下一次撮合。'
   });
 }));
 

@@ -17,10 +17,10 @@
 //   都没变」，DB 里始终是旧名）。现改为：账号已存在时按 .env 声明**同步差异字段**。
 //   注意 net_name 有 UNIQUE 约束，被他人占用时降级为保留原名并告警（不影响其它字段）。
 
-var db = require('../../../server/src/utils/db');
-var config = require('../../../server/src/config');
-var pwdUtil = require('../../../server/src/utils/password');
-var time = require('../../../server/src/utils/time');
+var db = require('_sdk/backend/host').db;
+var config = require('_sdk/backend/host').config;
+var pwdUtil = require('_sdk/backend/host').password;
+var time = require('_sdk/backend/host').time;
 
 function getBotConfig() {
   var userId = process.env.BOT_USER_ID || 'linxi_ai';

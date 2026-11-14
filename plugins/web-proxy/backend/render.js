@@ -23,7 +23,7 @@ var WS = require('ws');
 // 兼容模式的「可使用者」与登录校验：WS 握手在独立端口上，不经过 express 中间件，
 // 因此这里自行验 token 并按白名单判断是否放行。
 var access = require('./access');
-var jwtUtil = require('../../../server/src/utils/jwt');
+var jwtUtil = require('_sdk/backend/host').jwt;
 
 // 系统浏览器候选路径（Windows 常见安装位置）
 var BROWSER_PATHS = [

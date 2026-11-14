@@ -1,12 +1,12 @@
 var express = require('express');
 var path = require('path');
 var router = express.Router();
-var db = require(path.resolve(process.cwd(), 'src/utils/db'));
-var requireAuth = require(path.resolve(process.cwd(), 'src/middleware/auth')).requireAuth;
+var db = require('_sdk/backend/host').db;
+var requireAuth = require('_sdk/backend/host').auth.requireAuth;
 var crypto = require('crypto');
-var realtimeBus = require(path.resolve(process.cwd(), 'src/utils/realtime-bus'));
-var relayBus = require(path.resolve(process.cwd(), 'src/utils/relay-bus'));
-var config = require(path.resolve(process.cwd(), 'src/config'));
+var realtimeBus = require('_sdk/backend/host').realtimeBus;
+var relayBus = require('_sdk/backend/host').relayBus;
+var config = require('_sdk/backend/host').config;
 var http = require('http');
 var SELF_SERVER_ID = (config.relay && config.relay.serverId) || '';
 var RELAY_SECRET = (config.relay && config.relay.secret) || '';

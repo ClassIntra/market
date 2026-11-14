@@ -4,7 +4,7 @@
 //  · ref 唯一 = 幂等：同一天同一只股票的「涨 5%」只提醒一次，重启/多端都不会重复
 //  · 波动扫描按用户节流（60s），挂在 overview 上，学生打开应用就能收到
 var path = require('path');
-var db = require(path.resolve(process.cwd(), 'src/utils/db'));
+var db = require('_sdk/backend/host').db;
 var market = require('./market');
 
 var SCAN_GAP = parseInt(process.env.STOCK_NOTIFY_SCAN_GAP, 10);
