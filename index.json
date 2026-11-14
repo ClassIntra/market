@@ -1,6 +1,6 @@
 {
-  "version": 112,
-  "updated_at": "2026-11-14T12:58:40.894Z",
+  "version": 113,
+  "updated_at": "2026-11-14T14:00:59.269Z",
   "apps": [
     {
       "name": "chess",
@@ -439,7 +439,7 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "4.10.2",
+      "version": "4.11.0",
       "description": "全班同处一片云海群岛的多人小世界。v4.3「手感」：走过光点就自动捡起来，不用再停下来按按钮；连击到 8 会短暂加速；草地会随风起伏，萤火虫贴着草面飘 —— 世界不再是张静止的图。 v4.4「星露谷的一天」：一天 6 分钟，全班同住一个日历；一天浇一瓢水、隔夜长一节、浇了才长 —— 「明天再来」就是这个游戏的心跳。",
       "author": "ClassIntra",
       "files": [
@@ -482,9 +482,9 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "11a1494136025d6af8da3a90971df0069bc6319f76a2e76109ca9bbf4c2e594d",
+        "frontend/style.css": "714431c94b6f13a06f3d8766a25e49076b21cc2e1a5856074987cc756d7db931",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "df8a7c0aaa341d4700a253f9e865a356a55814e21c54e76c78ceccdfc6bfa14a",
+        "manifest.json": "7f0aeb1b45a905a0a97c576e61d075c134101105cb41ee548ae48381b5912fb1",
         "preview.png": "2cb9e6ba46f3210bc8c9e14146a9c1201511472a2ec53e157319181c16a5d768",
         "README.md": "57c4c10373686e46fff60b666d01e5516028d75aa412cb872940d088e3358504",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",

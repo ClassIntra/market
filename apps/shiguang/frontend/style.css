@@ -1128,11 +1128,19 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: linear-gradient(180deg, rgba(22, 30, 52, 0.97), rgba(14, 20, 38, 0.98));
-  border: 1px solid var(--sg-line);
-  border-bottom: none;
-  border-radius: var(--radius-3xl) var(--radius-3xl) 0 0;
-  box-shadow: 0 -14px 44px rgba(2, 6, 14, 0.55);
+  background:
+    radial-gradient(ellipse at 50% -8%, rgba(255, 208, 122, 0.13), transparent 58%),
+    radial-gradient(ellipse at 88% 4%, rgba(122, 168, 230, 0.10), transparent 42%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.016) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #1b2440 0%, #131b31 46%, #0e1526 100%);
+  border: none;
+  border-top: 2px solid rgba(255, 208, 122, 0.55);
+  box-shadow:
+    0 -14px 44px rgba(2, 6, 14, 0.60),
+    inset 0 1px 0 rgba(255, 236, 190, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  outline: 1px solid rgba(10, 16, 30, 0.9);
+  outline-offset: -3px;
   transform: translateY(104%);
   transition: transform 0.4s var(--sg-ease-spring);
   pointer-events: none;
@@ -1157,13 +1165,32 @@
   align-items: center;
   padding: 8px 16px 8px 20px;
   flex: none;
+  border-bottom: 1px solid rgba(255, 208, 122, 0.22);
+  background: linear-gradient(180deg, rgba(255, 208, 122, 0.07), transparent);
 }
 
 .sg-sheet-title {
+  letter-spacing: 2px;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.05em;
   flex: 1;
+
+  display: inline-flex;
+  align-items: center;
+}
+
+.sg-sheet-title::before,
+.sg-sheet-title::after {
+  content: '';
+  width: 18px;
+  height: 1px;
+  margin: 0 10px;
+  background: linear-gradient(90deg, transparent, rgba(255, 208, 122, 0.7));
+}
+
+.sg-sheet-title::after {
+  background: linear-gradient(90deg, rgba(255, 208, 122, 0.7), transparent);
 }
 
 .sg-sheet-close {
@@ -1397,12 +1424,25 @@
 
 .sg-qcard {
   position: relative;
-  padding: 12px 14px;
-  border-radius: var(--radius-xl);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--sg-line-soft);
+  padding: 12px 14px 12px 17px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.032));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   margin-bottom: 10px;
+  overflow: hidden;
   transition: border-color 0.24s var(--sg-ease), background 0.24s var(--sg-ease);
+}
+
+.sg-qcard::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: linear-gradient(180deg, rgba(255, 208, 122, 0.75), rgba(122, 168, 230, 0.35));
 }
 
 .sg-qcard.is-done {
@@ -1610,9 +1650,10 @@
 }
 
 .sg-ov-val {
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 800;
-  color: var(--sg-ink);
+  color: #ffd98a;
+  text-shadow: 0 0 12px rgba(255, 200, 120, 0.28);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1667,9 +1708,18 @@
   border-bottom: none;
 }
 
+.sg-rank-row.is-top {
+  background: linear-gradient(90deg, rgba(255, 208, 122, 0.10), transparent 65%);
+}
+
 .sg-rank-row.is-top .sg-rank-no {
   color: var(--sg-gold);
   font-weight: 800;
+}
+
+.sg-rank-row.is-top .sg-rank-name {
+  color: #ffe9bd;
+  font-weight: 700;
 }
 
 .sg-rank-no {
@@ -2395,7 +2445,15 @@
   box-shadow: var(--sg-shadow);
   transform: scale(0.94);
   transition: transform 0.3s var(--sg-ease-back);
-}
+
+  background-image:
+    radial-gradient(ellipse at 50% -8%, rgba(255, 208, 122, 0.12), transparent 55%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.015) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #1b2440, #0e1526);
+  border: none;
+  border-top: 2px solid rgba(255, 208, 122, 0.5);
+  outline: 1px solid rgba(10, 16, 30, 0.9);
+  outline-offset: -3px;
 
 .sg-modal.is-open .sg-modal-card {
   transform: scale(1);
