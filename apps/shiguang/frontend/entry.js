@@ -1124,31 +1124,54 @@
     // 右上：时钟面板（表盘 + 时间 + 日期 + 天气 + 金钱）
     // 右下：体力条（火 = 体力的可读化，星露谷同款竖条）
     // 底部：工具栏（锄头 / 水壶 / 种子袋 / 镰刀 —— 语境高亮，点击即动作）
+    // ---------- v4.13 怀表卡片（星露谷式时钟） ----------
+    // SVG 弧形时间进度（一天 20 小时走满 270° 扇区）+ 大字时间 + 季节/日期/天气 + 星屑 + 学元。
     var clockPanel = el('div', 'sg-clock');
-    var clockFace = el('div', 'sg-clock-face');
-    var clockDial = el('div', 'sg-clock-dial');
-    var clockHand = el('div', 'sg-clock-hand');
-    clockDial.appendChild(clockHand);
+    var clockTop = el('div', 'sg-clock-top');
+    var NSX = 'http://www.w3.org/2000/svg';
+    var dialSvg = document.createElementNS(NSX, 'svg');
+    dialSvg.setAttribute('viewBox', '0 0 44 44');
+    dialSvg.setAttribute('class', 'sg-clock-arc');
+    var dialBg = document.createElementNS(NSX, 'circle');
+    dialBg.setAttribute('cx', '22'); dialBg.setAttribute('cy', '22'); dialBg.setAttribute('r', '18');
+    dialBg.setAttribute('fill', 'none');
+    dialBg.setAttribute('stroke', 'rgba(255,255,255,0.12)');
+    dialBg.setAttribute('stroke-width', '5');
+    var dialFg = document.createElementNS(NSX, 'circle');
+    dialFg.setAttribute('cx', '22'); dialFg.setAttribute('cy', '22'); dialFg.setAttribute('r', '18');
+    dialFg.setAttribute('fill', 'none');
+    dialFg.setAttribute('stroke', '#ffd98a');
+    dialFg.setAttribute('stroke-width', '5');
+    dialFg.setAttribute('stroke-linecap', 'round');
+    dialFg.setAttribute('stroke-dasharray', '113.1');
+    dialFg.setAttribute('stroke-dashoffset', '113.1');
+    dialFg.setAttribute('transform', 'rotate(135 22 22)');
+    dialSvg.appendChild(dialBg);
+    dialSvg.appendChild(dialFg);
+    var dialCore = el('div', 'sg-clock-dial-core');
+    var seasonEl = el('div', 'sg-clock-season', '春');
+    var clockDay = el('div', 'sg-clock-daynum', '1');
+    dialCore.appendChild(seasonEl);
+    dialCore.appendChild(clockDay);
+    var dialWrap = el('div', 'sg-clock-dialwrap');
+    dialWrap.appendChild(dialSvg);
+    dialWrap.appendChild(dialCore);
+    var clockTimeCol = el('div', 'sg-clock-timecol');
     var clockTime = el('div', 'sg-clock-time', '上午 6:00');
-    clockFace.appendChild(clockDial);
-    clockFace.appendChild(clockTime);
-    var clockDate = el('div', 'sg-clock-date');
-    var seasonEl = el('span', 'sg-clock-season', '春');
-    clockDate.appendChild(seasonEl);
-    var clockDay = el('span', null, '第 1 天');
-    clockDate.appendChild(clockDay);
-    var clockWeather = el('span', 'sg-clock-weather', '☀');
-    clockDate.appendChild(clockWeather);
+    var clockWeather = el('div', 'sg-clock-weather', '☀ 晴');
+    clockTimeCol.appendChild(clockTime);
+    clockTimeCol.appendChild(clockWeather);
+    clockTop.appendChild(dialWrap);
+    clockTop.appendChild(clockTimeCol);
     var clockMoney = el('div', 'sg-clock-money');
     clockMoney.appendChild(svgIcon('shard'));
     var clockMoneyVal = el('b', null, '0');
     clockMoney.appendChild(clockMoneyVal);
     clockMoney.appendChild(el('span', 'sg-clock-g', 'g'));
     var clockXy = el('div', 'sg-clock-xy-row');
-    clockXy.appendChild(el('span', 'sg-clock-xy-label', '钱包'));
-    clockXy.appendChild(el('span', 'sg-clock-xy', '0.00 学元'));
-    clockPanel.appendChild(clockFace);
-    clockPanel.appendChild(clockDate);
+    clockXy.appendChild(el('span', 'sg-clock-xy-label', '学元'));
+    clockXy.appendChild(el('span', 'sg-clock-xy', '0.00'));
+    clockPanel.appendChild(clockTop);
     clockPanel.appendChild(clockMoney);
     clockPanel.appendChild(clockXy);
     root.appendChild(clockPanel);
@@ -5786,10 +5809,13 @@
     function updateClockPanel() {
       var prog = clockProgress();
       clockTime.textContent = clockText(prog);
-      clockHand.style.transform = 'rotate(' + Math.round(prog * 360 * 2) + 'deg)';
-      clockDay.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
-      clockWeather.textContent = state.weather === 'rain' ? '☂' : '☀';
+      // 弧形进度：270° 扇区，dashoffset 113.1 → 28.3
+      dialFg.setAttribute('stroke-dashoffset', (113.1 - 84.8 * clamp(prog, 0, 1)).toFixed(1));
+      clockDay.textContent = String(state.calendar.day || 1);
+      clockWeather.textContent = state.weather === 'rain' ? '☂ 雨' : '☀ 晴';
       clockMoneyVal.textContent = String(state.me.shards || 0);
+      var xyEl = document.querySelector('.sg-clock-xy');
+      if (xyEl) xyEl.textContent = (state.xyGrant || 0).toFixed(2);
       clockPanel.className = 'sg-clock' + (prog > 0.86 ? ' is-night' : '');
     }
 
