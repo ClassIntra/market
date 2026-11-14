@@ -1176,10 +1176,29 @@
     clockPanel.appendChild(clockXy);
     root.appendChild(clockPanel);
 
+    // v4.13 体力环：SVG 圆环包住体力图标（星露谷能量环同形态）
     var staminaBox = el('div', 'sg-stamina');
-    var staminaFill = el('div', 'sg-stamina-fill');
-    staminaFill.style.height = '100%';
-    staminaBox.appendChild(staminaFill);
+    var NSY = 'http://www.w3.org/2000/svg';
+    var stamSvg = document.createElementNS(NSY, 'svg');
+    stamSvg.setAttribute('viewBox', '0 0 40 40');
+    stamSvg.setAttribute('class', 'sg-stamina-arc');
+    var stamBg = document.createElementNS(NSY, 'circle');
+    stamBg.setAttribute('cx', '20'); stamBg.setAttribute('cy', '20'); stamBg.setAttribute('r', '16');
+    stamBg.setAttribute('fill', 'rgba(8, 14, 28, 0.82)');
+    stamBg.setAttribute('stroke', 'rgba(255,255,255,0.14)');
+    stamBg.setAttribute('stroke-width', '4');
+    var stamFg = document.createElementNS(NSY, 'circle');
+    stamFg.setAttribute('cx', '20'); stamFg.setAttribute('cy', '20'); stamFg.setAttribute('r', '16');
+    stamFg.setAttribute('fill', 'none');
+    stamFg.setAttribute('stroke', '#ffcf7a');
+    stamFg.setAttribute('stroke-width', '4');
+    stamFg.setAttribute('stroke-linecap', 'round');
+    stamFg.setAttribute('stroke-dasharray', '100.5');
+    stamFg.setAttribute('stroke-dashoffset', '0');
+    stamFg.setAttribute('transform', 'rotate(-90 20 20)');
+    stamSvg.appendChild(stamBg);
+    stamSvg.appendChild(stamFg);
+    staminaBox.appendChild(stamSvg);
     var staminaIco = el('div', 'sg-stamina-ico');
     staminaIco.appendChild(svgIcon('spark'));
     staminaBox.appendChild(staminaIco);
@@ -5821,8 +5840,10 @@
 
     function updateStaminaBar() {
       var v = lightState ? clamp(lightState.v, 0, LIGHT_MAX) : 100;
-      staminaFill.style.height = Math.round((v / LIGHT_MAX) * 100) + '%';
-      staminaBox.className = 'sg-stamina' + (v < LIGHT_MAX * 0.3 ? ' is-low' : '');
+      var frac = v / LIGHT_MAX;
+      stamFg.setAttribute('stroke-dashoffset', (100.5 * (1 - frac)).toFixed(1));
+      stamFg.setAttribute('stroke', frac < 0.3 ? '#ff8f6b' : '#ffcf7a');
+      staminaBox.className = 'sg-stamina' + (frac < 0.3 ? ' is-low' : '');
     }
 
     // ---------- v4.6 学元余额 ----------
