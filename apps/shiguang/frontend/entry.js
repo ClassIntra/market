@@ -8043,9 +8043,10 @@
       var meets = state.meets || [];
       var meetCard = el('div', 'sg-qcard');
       meetCard.style.marginBottom = '12px';
-      meetCard.appendChild(el('div', 'sg-bottle-head',
-        [el('span', 'sg-bottle-name', '相遇簿'),
-         el('span', 'sg-bottle-pos', meets.length ? '遇见过 ' + meets.length + ' 位同学' : '还没有遇见谁')]));
+      var meetHead = el('div', 'sg-bottle-head');
+      meetHead.appendChild(el('span', 'sg-bottle-name', '相遇簿'));
+      meetHead.appendChild(el('span', 'sg-bottle-pos', meets.length ? '遇见过 ' + meets.length + ' 位同学' : '还没有遇见谁'));
+      meetCard.appendChild(meetHead);
       for (var mi = 0; mi < meets.length; mi++) {
         var mrow = el('div', 'sg-sum-row');
         mrow.appendChild(el('b', 'sg-sum-key', (meets[mi].name || '同学')));

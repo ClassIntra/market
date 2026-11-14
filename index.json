@@ -1,6 +1,6 @@
 {
-  "version": 109,
-  "updated_at": "2026-11-14T12:54:37.002Z",
+  "version": 110,
+  "updated_at": "2026-11-14T12:56:26.406Z",
   "apps": [
     {
       "name": "chess",
@@ -439,7 +439,7 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "4.10.1",
+      "version": "4.10.2",
       "description": "全班同处一片云海群岛的多人小世界。v4.3「手感」：走过光点就自动捡起来，不用再停下来按按钮；连击到 8 会短暂加速；草地会随风起伏，萤火虫贴着草面飘 —— 世界不再是张静止的图。 v4.4「星露谷的一天」：一天 6 分钟，全班同住一个日历；一天浇一瓢水、隔夜长一节、浇了才长 —— 「明天再来」就是这个游戏的心跳。",
       "author": "ClassIntra",
       "files": [
@@ -474,7 +474,7 @@
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
         "CHANGELOG.md": "8c4ed39c15c20bc64b910ccbede1b0c1650e6bd4ca67e38ab41d08c3f5951182",
-        "frontend/entry.js": "51a562411646c17e84ca0818c075711ba289a1168b15b7656c12f61cf4378d09",
+        "frontend/entry.js": "5c37791b087a28f0cc2a322ab415ccad6356c7aa1960db33f012d8e1c57184dd",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -484,7 +484,7 @@
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
         "frontend/style.css": "11a1494136025d6af8da3a90971df0069bc6319f76a2e76109ca9bbf4c2e594d",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "6b6148e197ef3d13b926ff6a556fe1a426500d35df268eaa637e97c040e4728b",
+        "manifest.json": "df8a7c0aaa341d4700a253f9e865a356a55814e21c54e76c78ceccdfc6bfa14a",
         "preview.png": "2cb9e6ba46f3210bc8c9e14146a9c1201511472a2ec53e157319181c16a5d768",
         "README.md": "57c4c10373686e46fff60b666d01e5516028d75aa412cb872940d088e3358504",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
