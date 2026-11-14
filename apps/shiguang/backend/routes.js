@@ -337,25 +337,33 @@ var CROPS = {
 
 // 日历：单行表。epoch 是「第 1 天的 0 点」，day 永远落库 —— 重启不回退。
 var cal = { day: 1, epoch: Date.now() };
+cal.weather = 'sun';
 try {
-  var calRow = db.prepare('SELECT day, epoch FROM shiguang_calendar WHERE id = 1').get();
-  if (calRow) { cal.day = calRow.day; cal.epoch = calRow.epoch; }
-  else db.prepare('INSERT INTO shiguang_calendar (id, day, epoch) VALUES (1, 1, ?)').run(Date.now());
+  var calRow = db.prepare('SELECT day, epoch, weather FROM shiguang_calendar WHERE id = 1').get();
+  if (calRow) { cal.day = calRow.day; cal.epoch = calRow.epoch; cal.weather = calRow.weather || 'sun'; }
+  else db.prepare('INSERT INTO shiguang_calendar (id, day, epoch, weather) VALUES (1, 1, ?, \'sun\')').run(Date.now());
 } catch (e) {}
 
 // 跨日推进：昨晚浇过水的作物 +1 节。sweep 里每 15s 检查一次，
 // 服务器重启导致的「几天并一天」会在这里循环补齐。
 function advanceFarmDay(now) {
   cal.day += 1;
-  try { db.prepare('UPDATE shiguang_calendar SET day = ? WHERE id = 1').run(cal.day); } catch (e) {}
+  // 星露谷的天气骰子：25% 雨天。雨天全班不用浇水 —— 云替你把水浇了，
+  // 「雨天是假日」的松弛感是这个循环里最珍贵的礼物。
+  cal.weather = Math.random() < 0.25 ? 'rain' : 'sun';
+  try { db.prepare('UPDATE shiguang_calendar SET day = ?, weather = ? WHERE id = 1').run(cal.day, cal.weather); } catch (e) {}
   var grown = [];
   try {
     // 昨晚浇过水的作物今晨抽高一节；清单随晨光广播，客户端零请求同步
     db.prepare('UPDATE shiguang_flowers SET growth = growth + 1 WHERE watered_day = ?').run(cal.day - 1);
     grown = db.prepare('SELECT x, y, species, growth, user_id, watered_day FROM shiguang_flowers WHERE watered_day = ?').all(cal.day - 1);
+    // 雨天：云把今天的水全浇了（有苗的格子一律标记已浇）
+    if (cal.weather === 'rain') {
+      db.prepare('UPDATE shiguang_flowers SET watered_day = ? WHERE species >= 0').run(cal.day);
+    }
   } catch (e) {}
   // 新的一天 = 全班的晨光。田不会等人。
-  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown });
+  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather });
 }
 
 // 逐岛钓星特产：岛编号 → 特产鱼 id。在对应岛的码头抛竿，有概率只从特产池抽。
@@ -536,7 +544,15 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, np
 // 一天 6 分钟；作物「浇水才长、隔日抽高、成熟变现」——
 // 星露谷让人停不下来的从来不是机制堆料，是「一天」的节拍：
 // 锄地、播种、浇水、睡觉，作物在夜里长一截，明天有明天的事。
-db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, day INTEGER NOT NULL DEFAULT 1, epoch INTEGER NOT NULL)');
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, day INTEGER NOT NULL DEFAULT 1, epoch INTEGER NOT NULL, weather TEXT NOT NULL DEFAULT \'sun\')');
+(function ensureCalWeather() {
+  try {
+    var ccols = {};
+    var crows = db.prepare('PRAGMA table_info(shiguang_calendar)').all();
+    for (var ci = 0; ci < crows.length; ci++) ccols[crows[ci].name] = true;
+    if (!ccols.weather) db.exec('ALTER TABLE shiguang_calendar ADD COLUMN weather TEXT NOT NULL DEFAULT \'sun\'');
+  } catch (e) {}
+})();
 
 // 光花的作物字段：water 浇过几次、ready_at 何时可收、last_water_by 谁浇的最后一瓢。
 // ALTER 没有幂等语法，先查 PRAGMA 再补（和 players 表同一套写法）。
@@ -1341,7 +1357,7 @@ router.post('/enter', requireAuth, function (req, res) {
       lamps: lamps,
       flowers: flowers,
       players: players,
-      calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()) },
+      calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()), weather: cal.weather },
       stage: stage,
       stageInfo: STAGES[stage],
       lampCount: count,
@@ -1684,11 +1700,11 @@ router.post('/plant', requireAuth, function (req, res) {
     return res.json({ code: 200, data: { rejected: 'shards', need: wantCrop.cost, have: row.shards } });
   }
 
-  // 占位判定放在冷却之前：「这里已经有一朵花」比「歇 N 秒再种」信息量大得多，
-  // 玩家该听到的是与位置相关的原因，而不是一个与位置无关的秒数。
-  var exists = null;
-  try { exists = db.prepare('SELECT 1 FROM shiguang_flowers WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
-  if (exists) return res.json({ code: 200, data: { rejected: 'occupied' } });
+  // 星露谷规则：种子只肯落进翻好的土。先锄地，再播种 —— 工具的两步才叫耕作。
+  var soil = null;
+  try { soil = db.prepare('SELECT species FROM shiguang_flowers WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
+  if (!soil) return res.json({ code: 200, data: { rejected: 'untilled' } });
+  if (soil.species >= 0) return res.json({ code: 200, data: { rejected: 'occupied' } });
   var lamp = null;
   try { lamp = db.prepare('SELECT 1 FROM shiguang_lamps WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
   if (lamp) return res.json({ code: 200, data: { rejected: 'lamp' } });
@@ -1712,8 +1728,8 @@ router.post('/plant', requireAuth, function (req, res) {
   try {
     var tx2 = db.transaction(function () {
       // 星露谷节拍：种下那天记 day、growth=0；以后每天浇一瓢，隔夜长一节
-      db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, planted_day, growth, watered_day) VALUES (?, ?, ?, ?, ?, ?, 0, -1)')
-        .run(x, y, species, userId, now, cal.day);
+      db.prepare('UPDATE shiguang_flowers SET species = ?, planted_day = ?, growth = 0, watered_day = -1, created_at = ?, user_id = ? WHERE x = ? AND y = ?')
+        .run(species, cal.day, now, userId, x, y);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, planted = planted + 1, last_seen = ?, last_plant_at = ? WHERE user_id = ?')
         .run(wantCrop.cost, now, now, userId);
     });
@@ -1755,7 +1771,7 @@ router.post('/flower/water', requireAuth, function (req, res) {
 
   var f = null;
   try { f = db.prepare('SELECT * FROM shiguang_flowers WHERE x = ? AND y = ?').get(row.x, row.y); } catch (e) {}
-  if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
+  if (!f || f.species < 0) return res.json({ code: 200, data: { rejected: 'none' } });
 
   var now = Date.now();
   var cf = cropOf(f.species) || CROPS[0];
@@ -1790,7 +1806,7 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
 
   var f = null;
   try { f = db.prepare('SELECT * FROM shiguang_flowers WHERE x = ? AND y = ?').get(row.x, row.y); } catch (e) {}
-  if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
+  if (!f || f.species < 0) return res.json({ code: 200, data: { rejected: 'none' } });
 
   var now = Date.now();
   var cf2 = cropOf(f.species) || CROPS[0];
@@ -1803,7 +1819,9 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
   var got = cf2.yield;
   try {
     var tx = db.transaction(function () {
-      db.prepare('DELETE FROM shiguang_flowers WHERE x = ? AND y = ?').run(row.x, row.y);
+      // 星露谷的温柔：收完的土地回到「翻好」，明天直接再种
+      db.prepare("UPDATE shiguang_flowers SET species = -1, planted_day = 0, growth = 0, watered_day = -1, ready_at = 0, water = 0, last_water_by = '' WHERE x = ? AND y = ?")
+        .run(row.x, row.y);
       db.prepare('UPDATE shiguang_players SET shards = shards + ?, last_seen = ? WHERE user_id = ?')
         .run(got, now, userId);
       // 帮过忙的人分一点：这是他「顺手浇过一瓢」的回报
@@ -2424,6 +2442,40 @@ router.post('/give', requireAuth, function (req, res) {
 // ---------------- 路由：农田（星露谷核心循环） ----------------
 // 锄地 → 播种 → 浇水 → 隔日抽高 → 收获变现。全部作用在脚下格，
 // 和采集/点灯同一套空间语义；火就是体力（客户端本地扣）。
+// 翻好的土用 flowers 表 species = -1 表示（复用同一张表与同一套广播）。
+
+router.post('/farm/till', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var body = req.body || {};
+  var x = Number.isInteger(body.x) ? body.x : row.x;
+  var y = Number.isInteger(body.y) ? body.y : row.y;
+  if (x !== row.x || y !== row.y) return res.json({ code: 200, data: { rejected: 'far' } });
+  var tile = -1;
+  try { tile = world.tileAt(x, y); } catch (e) {}
+  if (tile !== world.TILE.MEADOW && tile !== world.TILE.PATH) {
+    return res.json({ code: 200, data: { rejected: 'ground' } });
+  }
+  var exists = null;
+  try { exists = db.prepare('SELECT species FROM shiguang_flowers WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
+  if (exists) {
+    if (exists.species === -1) return res.json({ code: 200, data: { rejected: 'tilled' } });
+    return res.json({ code: 200, data: { rejected: 'flower' } });
+  }
+  var lamp = null;
+  try { lamp = db.prepare('SELECT 1 FROM shiguang_lamps WHERE x = ? AND y = ?').get(x, y); } catch (e) {}
+  if (lamp) return res.json({ code: 200, data: { rejected: 'lamp' } });
+  try {
+    db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, planted_day, growth, watered_day) VALUES (?, ?, -1, ?, ?, 0, 0, -1)')
+      .run(x, y, userId, Date.now());
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '翻不动这块土' });
+  }
+  pendingPlants.push([x, y, -1, userId]);
+  broadcast('shiguang.world.crops', { op: 'till', x: x, y: y, species: -1 });
+  res.json({ code: 200, data: { x: x, y: y, tilled: true } });
+});
 
 router.get('/rank', requireAuth, function (req, res) {
   var gathered = [];

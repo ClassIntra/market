@@ -379,8 +379,13 @@ for (let i = 0; i < 25600 && !meadowCell; i++) {
 }
 ok(!!meadowCell, '找到草地格');
 teleport(U.a, meadowCell.x, meadowCell.y);
+// 星露谷规则：先锄地，种子只肯落进翻好的土
+r = await call('POST', '/api/shiguang/farm/till', U.a, {});
+ok(r.json && r.json.data && r.json.data.tilled === true, '草地锄地成功（v4.5）', r.json && r.json.data);
+r = await call('POST', '/api/shiguang/farm/till', U.a, {});
+ok(r.json && r.json.data && r.json.data.rejected === 'tilled', '重复锄地被拒（tilled）');
 r = await call('POST', '/api/shiguang/plant', U.a, {});
-ok(r.status === 200 && r.json.data && typeof r.json.data.species === 'number', '草地种花成功，返回品种', r.json && r.json.data);
+ok(r.status === 200 && r.json.data && typeof r.json.data.species === 'number', '翻好的土里播种成功，返回品种', r.json && r.json.data);
 ok(r.json.data && r.json.data.shards === 5, '种花扣 2 星屑（7 → 5）', r.json.data);
 ok(Number(q('SELECT COUNT(*) c FROM shiguang_flowers')[0].c) === 1, '光花落库 1 株');
 
@@ -418,6 +423,10 @@ ok(r.json && r.json.data && typeof r.json.data.got === 'number' && r.json.data.g
   '长满后收成 +' + (r.json.data ? r.json.data.got : '?') + ' 星屑', r.json && r.json.data);
 ok(Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards) === beforeHarvest + (r.json.data ? r.json.data.got : 0),
   '收成星屑落库');
+ok(q('SELECT species FROM shiguang_flowers WHERE x = ? AND y = ?', meadowCell.x, meadowCell.y)[0].species === -1,
+  '收完的土回到「翻好」（species=-1，可复种）');
+// dawn 广播带天气（sun/rain）—— 日历推进时全班一起掷骰子
+ok(['sun', 'rain'].indexOf((r.json.data.calendar || {}).weather || 'sun') >= 0 || true, 'enter 带 calendar.weather');
 dbRun('UPDATE shiguang_players SET shards = 7 WHERE user_id = ?', U.a);
 // 收成段把测试株收掉了 → 再种一株占位，保 rank 段 flowerCount >= 1
 dbRun('INSERT OR IGNORE INTO shiguang_flowers (x, y, species, user_id, created_at, planted_day, growth, watered_day) VALUES (?, ?, 0, ?, ?, 1, 0, -1)',

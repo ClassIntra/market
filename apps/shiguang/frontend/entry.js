@@ -315,6 +315,7 @@
       followTarget: null,     // 跟随的同学 id
       surge: null,            // 暗涌事件 { active, until }
       calendar: { day: 1, endsAt: 0 },   // 全班的游戏日历（星露谷的一天）
+      weather: 'sun',           // 今天的天气（sun / rain）
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
       steles: {},             // 'x,y' -> { name, rune, by, at }
       stage: 0,
@@ -1043,9 +1044,13 @@
     var btnFly = actBtn('sg-act-fly', 'kite', '快线', false);
     var btnStele = actBtn('sg-act-stele', 'rune', '触碑', false);
     var btnUpgrade = actBtn('sg-act-upgrade', 'lamp', '升级', false);
+    // v4.5 星露谷：夜里（时钟 22:00 后）出现「睡觉」—— 一天的句号
+    var btnSleep = actBtn('sg-act-sleep', 'zzz', '睡觉', false);
+    btnSleep.style.display = 'none';
     acts.appendChild(btnEmote);
     acts.appendChild(btnBottle);
     acts.appendChild(btnUpgrade);
+    acts.appendChild(btnSleep);
     acts.appendChild(btnFly);
     acts.appendChild(btnPlant);
     acts.appendChild(btnBuild);
@@ -1088,6 +1093,66 @@
     stage.appendChild(acts);
     stage.appendChild(flight);
     stage.appendChild(loading);
+    // ---------- v4.5 星露谷骨架 UI ----------
+    // 右上：时钟面板（表盘 + 时间 + 日期 + 天气 + 金钱）
+    // 右下：体力条（火 = 体力的可读化，星露谷同款竖条）
+    // 底部：工具栏（锄头 / 水壶 / 种子袋 / 镰刀 —— 语境高亮，点击即动作）
+    var clockPanel = el('div', 'sg-clock');
+    var clockFace = el('div', 'sg-clock-face');
+    var clockDial = el('div', 'sg-clock-dial');
+    var clockHand = el('div', 'sg-clock-hand');
+    clockDial.appendChild(clockHand);
+    var clockTime = el('div', 'sg-clock-time', '上午 6:00');
+    clockFace.appendChild(clockDial);
+    clockFace.appendChild(clockTime);
+    var clockDate = el('div', 'sg-clock-date');
+    clockDate.appendChild(el('span', 'sg-clock-season', '春'));
+    var clockDay = el('span', null, '第 1 天');
+    clockDate.appendChild(clockDay);
+    var clockWeather = el('span', 'sg-clock-weather', '☀');
+    clockDate.appendChild(clockWeather);
+    var clockMoney = el('div', 'sg-clock-money');
+    clockMoney.appendChild(svgIcon('shard'));
+    var clockMoneyVal = el('b', null, '0');
+    clockMoney.appendChild(clockMoneyVal);
+    clockMoney.appendChild(el('span', 'sg-clock-g', 'g'));
+    clockPanel.appendChild(clockFace);
+    clockPanel.appendChild(clockDate);
+    clockPanel.appendChild(clockMoney);
+    root.appendChild(clockPanel);
+
+    var staminaBox = el('div', 'sg-stamina');
+    var staminaFill = el('div', 'sg-stamina-fill');
+    staminaFill.style.height = '100%';
+    staminaBox.appendChild(staminaFill);
+    var staminaIco = el('div', 'sg-stamina-ico');
+    staminaIco.appendChild(svgIcon('spark'));
+    staminaBox.appendChild(staminaIco);
+    root.appendChild(staminaBox);
+
+    var toolbar = el('div', 'sg-toolbar');
+    var toolDefs = [
+      { key: 'till',   icon: 'gather', label: '锄头' },
+      { key: 'water',  icon: 'bottle', label: '水壶' },
+      { key: 'sow',    icon: 'flower', label: '种子' },
+      { key: 'cut',    icon: 'flag',   label: '镰刀' }
+    ];
+    var toolBtns = {};
+    for (var ti = 0; ti < toolDefs.length; ti++) {
+      (function(def) {
+        var b = el('button', 'sg-tool');
+        b.type = 'button';
+        b.setAttribute('aria-label', def.label);
+        b.appendChild(svgIcon(def.icon));
+        var nm = el('span', 'sg-tool-name', def.label);
+        b.appendChild(nm);
+        b.addEventListener('click', function() { useTool(def.key); });
+        toolbar.appendChild(b);
+        toolBtns[def.key] = b;
+      })(toolDefs[ti]);
+    }
+    root.appendChild(toolbar);
+
     root.appendChild(hud);
     root.appendChild(stage);
 
@@ -1916,6 +1981,8 @@
     // 全部走 drawImage 瓦片精灵（关闭平滑，保持像素锐度）；
     // 瓦片没加载成功时自动跳过 —— 世界仍是完整的，只是少了像素摆件。
 
+    // v4.5 星露谷：你的农舍就在出生点旁 —— 星露谷的「家」是循环的锚点
+    var HOME_SIGN = { x: 81, y: 87 };
     // 启明岛的住宅：大道两侧四个院落（坐标与大道/广场错开）
     var HUB_HOUSES = [
       { x: 74, y: 82, style: 'red' },
@@ -3178,6 +3245,28 @@
       var key = fx + ',' + fy;
       var f = state.flowers[key];
       if (!f) return;
+      // 星露谷的翻好土：深棕圆角块 + 三道沟纹。它不是花，是「明天」。
+      if (f.species === -1) {
+        var pad = t * 0.07;
+        var wx = sx + pad;
+        var wy = sy + pad;
+        var ww = t - pad * 2;
+        ctx.fillStyle = 'rgba(96, 70, 44, 0.82)';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(wx, wy, ww, ww, t * 0.10);
+        else ctx.rect(wx, wy, ww, ww);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(76, 55, 34, 0.9)';
+        ctx.lineWidth = Math.max(1, t * 0.035);
+        for (var g3 = 0; g3 < 3; g3++) {
+          var gy3 = wy + ww * (0.28 + g3 * 0.22);
+          ctx.beginPath();
+          ctx.moveTo(wx + ww * 0.12, gy3);
+          ctx.lineTo(wx + ww * 0.88, gy3);
+          ctx.stroke();
+        }
+        return;
+      }
       // v4.2 星露谷节拍：生长进度 = 已长节数 / 成熟天数（隔夜长一节）
       var cfA = (state.catalog.crops || [])[f.species] || { days: 1 };
       var age = clamp((f.growth || 0) / Math.max(1, cfA.days), 0, 1);
@@ -5139,6 +5228,19 @@
       // 界标与罗盘画在浮字之前：两者都是「发光的信使」，
       // 必须盖过黑暗层才成立（和雾灵同理）。
       drawWorldEdge(ox, oy, t, now);
+      // v4.5 星露谷的雨天：斜落的雨丝 + 地面涟漪感。雨是休息日。
+      if (state.weather === 'rain') {
+        ctx.strokeStyle = 'rgba(190, 214, 244, 0.42)';
+        ctx.lineWidth = 1.2;
+        for (var ri = 0; ri < 46; ri++) {
+          var rx = ((ri * 197 + now * 0.42) % (w + 120)) - 60;
+          var ry = ((ri * 131 + now * 0.9) % (h + 80)) - 40;
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 4, ry + 13);
+          ctx.stroke();
+        }
+      }
       drawCompass(ox, oy, t, now);
 
       // 浮字放在最后：它必须比暗角更亮，否则「+1」会被压成一块灰
@@ -5572,6 +5674,184 @@
       return list[i + 1] || null;
     }
 
+    // ---------- v4.5 星露谷：时钟映射 ----------
+    // 一天 6 分钟 = 游戏 20 小时（6:00 → 凌晨 2:00）。
+    // day 进度 0 → 1 映射到表盘；进度 > 0.92 即深夜，开始催你睡觉。
+    function clockProgress() {
+      var span = (state.calendar.endsAt || 0) - Date.now();
+      var full = 6 * 60 * 1000;
+      var left = clamp(span / full, 0, 1);
+      return 1 - left;
+    }
+
+    function clockText(prog) {
+      // 6:00 起床 → 24:00 → 凌晨 2:00（= 26 点，进度 1）
+      var hours = 6 + prog * 20;
+      var hh = Math.floor(hours) % 24;
+      var mm = Math.floor((hours - Math.floor(hours)) * 60);
+      mm = Math.floor(mm / 10) * 10;
+      var tag = hh < 6 ? '凌晨' : (hh < 12 ? '上午' : (hh < 18 ? '下午' : '晚上'));
+      var disp = hh % 12 === 0 ? 12 : hh % 12;
+      return tag + ' ' + disp + ':' + (mm < 10 ? '0' + mm : mm);
+    }
+
+    function updateClockPanel() {
+      var prog = clockProgress();
+      clockTime.textContent = clockText(prog);
+      clockHand.style.transform = 'rotate(' + Math.round(prog * 360 * 2) + 'deg)';
+      clockDay.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
+      clockWeather.textContent = state.weather === 'rain' ? '☂' : '☀';
+      clockMoneyVal.textContent = String(state.me.shards || 0);
+      clockPanel.className = 'sg-clock' + (prog > 0.86 ? ' is-night' : '');
+    }
+
+    function updateStaminaBar() {
+      var v = lightState ? clamp(lightState.v, 0, LIGHT_MAX) : 100;
+      staminaFill.style.height = Math.round((v / LIGHT_MAX) * 100) + '%';
+      staminaBox.className = 'sg-stamina' + (v < LIGHT_MAX * 0.3 ? ' is-low' : '');
+    }
+
+    // ---------- v4.5 锄地：星露谷的第一件农活 ----------
+    // 草地/路边、无花无灯 → 翻成土（flowers species=-1）。
+    // 火就是体力：锄地 4 点。
+    function doTill() {
+      if (!state.ready || flying) return false;
+      if (walkPath.length) stopWalk();
+      var tl = tileUnderMe();
+      if (tl !== T_MEADOW && tl !== T_PATH) { toast('锄头只肯碰草地和路边'); return false; }
+      if (flowerUnderMe()) { toast('这块地已经有主了'); return false; }
+      if (!lightState || lightState.v < 4) {
+        toast('体力不够了　锄地要 4 点　先回灯边歇歇');
+        return false;
+      }
+      http('post', '/shiguang/farm/till', { x: state.me.x, y: state.me.y }).then(function(d) {
+        if (!d) return;
+        if (d.rejected) {
+          if (d.rejected === 'ground') toast('锄头只肯碰草地和路边');
+          else if (d.rejected === 'tilled') toast('这块土已经翻好了　按种子袋播种');
+          else if (d.rejected === 'flower') toast('这块地已经有作物了');
+          else if (d.rejected === 'lamp') toast('灯柱脚下不种田');
+          else toast('翻不动');
+          return;
+        }
+        lightState.v = Math.max(1, lightState.v - 4);
+        addFlower(state.me.x, state.me.y, -1, Date.now(), myId, 0, 0);
+        spawnParts(state.me.x + 0.5, state.me.y + 0.5, 4, 8, 0.5, [142, 116, 84]);
+        audio.blip(180, 0.14, 'triangle', 0.10, 0);
+        toast('翻好了　按种子袋播种', 'warm');
+        updateHud();
+      }).catch(function() { toast('翻地失败，稍后再试'); });
+      return true;
+    }
+
+    // ---------- v4.5 睡觉：一天的句号 ----------
+    // 夜里（22:00 后）出现「睡觉」按钮：过场 → 等全班的日历翻页（dawn）→ 结算。
+    // 睡了 rested=true 次日体力满血；熬通宵体力只剩六成 —— 星露谷的惩罚温柔但存在。
+    var rested = false;
+    var sleepPending = false;
+
+    function doSleep() {
+      if (!state.ready || sleepPending) return;
+      sleepPending = true;
+      var night = el('div', 'sg-night');
+      night.appendChild(el('div', 'sg-night-zzz', 'Z z z …'));
+      night.appendChild(el('div', 'sg-night-tip', '天亮之前，是全班的夜'));
+      root.appendChild(night);
+      requestAnimationFrame(function() { night.className = 'sg-night is-show'; });
+      sfx.dawn();
+      // dawn 广播到达时 finishSleep() 会关掉这一层并弹结算
+    }
+
+    function finishSleep(weather) {
+      sleepPending = false;
+      rested = true;
+      if (lightState) lightState.v = LIGHT_MAX;
+      var night = root.querySelector('.sg-night');
+      if (night && night.parentNode) night.parentNode.removeChild(night);
+      // 结算面板（星露谷同款：新的一天 + 天气 + 昨夜的收成叙事）
+      openSheet('summary', '新的一天！');
+      clearNode(sheetBody);
+      var rain = weather === 'rain';
+      var lines = [
+        ['第 ' + state.calendar.day + ' 天', rain ? '今天下雨 —— 云替你把水浇了，别去田里了' : '今天是个大晴天，适合下地'],
+        ['体力', '满血复活（' + LIGHT_MAX + ' 点）'],
+        ['作物', rain ? '雨已经把今天的水浇好了' : '记得去田里浇水 —— 浇了才长']
+      ];
+      for (var li = 0; li < lines.length; li++) {
+        var row = el('div', 'sg-sum-row');
+        row.appendChild(el('b', 'sg-sum-key', lines[li][0]));
+        row.appendChild(el('span', 'sg-sum-val', lines[li][1]));
+        sheetBody.appendChild(row);
+      }
+      sheetBody.appendChild(el('div', 'sg-tip', '睡得早体力足 —— 熬通宵的第二天只有六成力气。'));
+      showBanner('flag', '第 ' + state.calendar.day + ' 天', rain ? '今天下雨' : '今天晴', '', 3800);
+      updateHud();
+    }
+
+    // 工具栏语境：脚下格的状态决定哪个工具在「手」里。
+    // 点工具 = 干这件事（等价于语境按钮，但它是星露谷的手感）。
+    function useTool(key) {
+      if (key === 'till') {
+        if (!doTill()) return;
+        return;
+      }
+      if (key === 'water') {
+        http('post', '/shiguang/flower/water', {}).then(function(d) {
+          if (!d) return;
+          if (d.rejected) {
+            if (d.rejected === 'wet') toast('今天已经浇过了　明天再来');
+            else if (d.rejected === 'ripe') toast('已经熟了　按镰刀收下来');
+            else if (d.rejected === 'none') toast('脚下没有要浇的作物');
+            else toast('浇不了');
+            return;
+          }
+          if (!lightState || lightState.v < 2) {
+            toast('体力不够了　浇水要 2 点　先睡一觉');
+            return;
+          }
+          lightState.v = Math.max(1, lightState.v - 2);
+          var fc = flowerUnderMe();
+          if (fc) fc.wateredDay = d.day;
+          spawnRing(state.me.x + 0.5, state.me.y + 0.5, [150, 200, 255]);
+          sfx.gather();
+          toast('浇过了　明天它会长高一节', 'warm');
+          updateHud();
+        }).catch(function() { toast('浇水失败'); });
+        return;
+      }
+      if (key === 'sow') {
+        if (btnPlant && btnPlant.style.display !== 'none' && !flowerUnderMe()) {
+          btnPlant.click();
+          return;
+        }
+        if (flowerUnderMe()) { toast('脚下已经有作物了'); return; }
+        toast('先用锄头把脚下的草地翻成土');
+        return;
+      }
+      if (key === 'cut') {
+        if (flowerUnderMe() && cropRipe(flowerUnderMe())) {
+          btnGather.click();
+          return;
+        }
+        toast('脚下没有成熟的作物');
+        return;
+      }
+    }
+
+    function updateToolbar() {
+      var fc = flowerUnderMe();
+      var ripe = fc && cropRipe(fc);
+      var groundOk = tileUnderMe() === T_MEADOW || tileUnderMe() === T_PATH;
+      var canTill = !fc && groundOk;
+      var canWater = fc && !ripe && (fc.wateredDay | 0) < (state.calendar.day || 1);
+      var canSow = fc && fc.species === -1;
+      var canCut = !!ripe;
+      toolBtns.till.className = 'sg-tool' + (canTill ? ' is-active' : '');
+      toolBtns.water.className = 'sg-tool' + (canWater ? ' is-active' : '');
+      toolBtns.sow.className = 'sg-tool' + (canSow ? ' is-active' : '');
+      toolBtns.cut.className = 'sg-tool' + (canCut ? ' is-active' : '');
+    }
+
     function updateHud() {
       var shards = state.me.shards || 0;
       statOnline.textContent = state.onlineCount + ' 人在岛';
@@ -5615,9 +5895,16 @@
       btnStele.style.display = stele ? '' : 'none';
       var upLamp = upgradableLampNearMe();
       btnUpgrade.style.display = upLamp && !flying ? '' : 'none';
+      // 星露谷的夜里：22:00 后催你睡觉
+      btnSleep.style.display = clockProgress() > 0.80 && !sleepPending ? '' : 'none';
 
       // v4.2 星露谷的一天：顶栏常驻日历
       if (dayVal) dayVal.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
+
+      // v4.5 星露谷骨架：时钟 / 体力 / 工具高亮
+      updateClockPanel();
+      updateStaminaBar();
+      updateToolbar();
 
       if (state.claimable > 0) questDot.className = 'sg-btn-dot is-on';
       else questDot.className = 'sg-btn-dot';
@@ -6526,6 +6813,7 @@
     btnFly.addEventListener('click', doFly);
     btnStele.addEventListener('click', doStele);
     btnUpgrade.addEventListener('click', doUpgrade);
+    btnSleep.addEventListener('click', doSleep);
     onDestroy(function() {
       btnGather.removeEventListener('click', doGather);
       btnBuild.removeEventListener('click', doBuild);
@@ -6533,6 +6821,7 @@
       btnFish.removeEventListener('click', doFish);
       btnFly.removeEventListener('click', doFly);
       btnUpgrade.removeEventListener('click', doUpgrade);
+      btnSleep.removeEventListener('click', doSleep);
       btnStele.removeEventListener('click', doStele);
     });
 
@@ -7874,15 +8163,34 @@
         state.calendar.day = payload.day || (state.calendar.day + 1);
         // 全班的田长高的那一截，跟着晨光一起到
         var grown = payload.grown || [];
+        state.weather = payload.weather || 'sun';
         for (var gi = 0; gi < grown.length; gi++) {
           var g = grown[gi];
           var gc = state.flowers[g.x + ',' + g.y];
           if (gc) { gc.growth = g.growth; gc.wateredDay = g.watered_day; }
         }
+        // 雨天自动浇透：今天所有苗都算浇过了
+        if (state.weather === 'rain') {
+          for (var fk in state.flowers) {
+            if (!Object.prototype.hasOwnProperty.call(state.flowers, fk)) continue;
+            var fkin = state.flowers[fk];
+            if (fkin.species >= 0) fkin.wateredDay = state.calendar.day;
+          }
+        }
         if (state.ready) {
-          showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
-            grown.length ? '昨晚浇过水的作物长高了一节' : '别忘了给作物浇水', '', 4200);
-          sfx.dawn();
+          // 通宵惩罚：没睡觉熬过跨日 → 体力只剩六成
+          if (!rested && !sleepPending && lightState) {
+            lightState.v = Math.max(1, lightState.v * 0.6);
+            toast('你熬了个通宵　浑身只剩六成力气', 'warn');
+          }
+          rested = false;
+          if (sleepPending) { finishSleep(state.weather); }
+          else {
+            showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
+              state.weather === 'rain' ? '今天下雨 —— 云替你把水浇了' :
+              grown.length ? '昨晚浇过水的作物长高了一节' : '别忘了给作物浇水', '', 4200);
+            sfx.dawn();
+          }
           updateHud();
         }
       });
@@ -8281,9 +8589,10 @@
         }
       }
 
-      // v4.2 星露谷的一天：进世界先对齐日历
+      // v4.2 星露谷的一天：进世界先对齐日历与天气
       state.calendar = { day: (data.calendar && data.calendar.day) || 1,
                          endsAt: Date.now() + ((data.calendar && data.calendar.msLeft) || 0) };
+      state.weather = (data.calendar && data.calendar.weather) || 'sun';
       applyMeteor(data.meteor);
 
       state.ready = true;
