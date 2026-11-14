@@ -314,6 +314,7 @@
       emoteFx: [],
       followTarget: null,     // 跟随的同学 id
       surge: null,            // 暗涌事件 { active, until }
+      calendar: { day: 1, endsAt: 0 },   // 全班的游戏日历（星露谷的一天）
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
       steles: {},             // 'x,y' -> { name, rune, by, at }
       stage: 0,
@@ -864,6 +865,14 @@
     pillLamp.appendChild(lampsVal);
     pillLamp.appendChild(el('span', 'sg-pill-unit', '灯柱'));
 
+    // v4.2 游戏日历：全班同一天。一天 6 分钟，作物隔夜抽高。
+    var pillDay = el('div', 'sg-pill sg-pill-day');
+    var icoDay = el('span', 'sg-pill-ico');
+    icoDay.appendChild(svgIcon('flag'));
+    var dayVal = el('b', 'sg-pill-val', '第 1 天');
+    pillDay.appendChild(icoDay);
+    pillDay.appendChild(dayVal);
+
     // 灯油弧表：核心生存资源的「可读化」。黑暗层会告诉你要不要慌，
     // 但「还剩多少」必须有个能瞄一眼的地方 —— 否则恐惧没有刻度。
     var oilGauge = el('div', 'sg-oil');
@@ -1033,9 +1042,6 @@
     var btnFly = actBtn('sg-act-fly', 'kite', '快线', false);
     var btnStele = actBtn('sg-act-stele', 'rune', '触碑', false);
     var btnUpgrade = actBtn('sg-act-upgrade', 'lamp', '升级', false);
-    btnFly.style.display = 'none';
-    btnStele.style.display = 'none';
-    btnUpgrade.style.display = 'none';
     acts.appendChild(btnEmote);
     acts.appendChild(btnBottle);
     acts.appendChild(btnUpgrade);
@@ -3171,7 +3177,9 @@
       var key = fx + ',' + fy;
       var f = state.flowers[key];
       if (!f) return;
-      var age = clamp((now - f.at) / Math.max(1, state.flowerGrowMs), 0, 1);
+      // v4.2 星露谷节拍：生长进度 = 已长节数 / 成熟天数（隔夜长一节）
+      var cfA = (state.catalog.crops || [])[f.species] || { days: 1 };
+      var age = clamp((f.growth || 0) / Math.max(1, cfA.days), 0, 1);
       var col = FLOWER_COLORS[f.species % FLOWER_COLORS.length];
       var seed = hash2(fx, fy, 733);
       var sway = Math.sin(now * 0.0011 + seed * 6.283) * 0.045;
@@ -5418,6 +5426,10 @@
 
     // 光花现在是作物：除了「种下时间」，还要知道「何时能收」和「浇过几次」。
     // readyAt 缺省按 3 分钟推算 —— 老数据（没有这一列）也能正常显示成熟度。
+    function addFlower(x, y, species, at, uid) {
+      state.flowers[x + ',' + y] = { x: x, y: y, species: species, at: at, uid: uid || '' };
+    }
+
     function addFlower(x, y, species, at, uid, readyAt, water) {
       state.flowers[x + ',' + y] = {
         x: x, y: y, species: species, at: at, uid: uid || '',
@@ -5433,7 +5445,9 @@
 
     function cropRipe(f, now) {
       if (!f) return false;
-      return (now || Date.now()) >= (f.readyAt || 0);
+      var cfR = (state.catalog.crops || [])[f.species];
+      if (!cfR) return false;
+      return (f.growth || 0) >= cfR.days;
     }
 
     function upsertPlayer(id, name, x, y, dir, now, hat, lantern, title) {
@@ -5600,6 +5614,9 @@
       btnStele.style.display = stele ? '' : 'none';
       var upLamp = upgradableLampNearMe();
       btnUpgrade.style.display = upLamp && !flying ? '' : 'none';
+
+      // v4.2 星露谷的一天：顶栏常驻日历
+      if (dayVal) dayVal.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
 
       if (state.claimable > 0) questDot.className = 'sg-btn-dot is-on';
       else questDot.className = 'sg-btn-dot';
@@ -6149,7 +6166,7 @@
         http('post', '/shiguang/flower/harvest', {}).then(function(d) {
           if (!d) return;
           if (d.rejected) {
-            if (d.rejected === 'growing') toast('还要等 ' + d.left + ' 秒');
+            if (d.rejected === 'growing') toast('还要长 ' + d.left + ' 天　记得每天浇水');
             else if (d.rejected === 'notMine') toast('这是别人种的，只能帮他浇水');
             else toast('这里没有可收的作物');
             return;
@@ -6271,18 +6288,22 @@
       // 而「站空地上是种、站苗上是浇」本身就是星露谷的手感。
       var fc = flowerUnderMe();
       if (fc && !cropRipe(fc)) {
+        // 火就是体力：浇水 2 点 —— 田里最日常的一件事也要花力气
+        if (!lightState || lightState.v < 2) {
+          toast('火不够了　浇水要 2 点火，先回灯边歇歇');
+          return;
+        }
         http('post', '/shiguang/flower/water', {}).then(function(d) {
           if (!d) return;
           if (d.rejected) {
-            if (d.rejected === 'cooldown') toast('歇 ' + d.wait + ' 秒再浇');
-            else if (d.rejected === 'full') toast('这株已经浇透了');
+            if (d.rejected === 'wet') toast('今天已经浇过了　明天再来');
             else if (d.rejected === 'ripe') toast('已经熟了，直接收吧');
             else toast('这里没有要浇的作物');
             return;
           }
-          fc.water = d.water;
-          fc.readyAt = d.readyAt;
-          toast(d.byMe ? '浇水 +1　成熟提早了一点' : '帮 ' + '别人' + ' 浇了一瓢水', 'warm');
+          lightState.v = Math.max(1, lightState.v - 2);
+          fc.wateredDay = d.day;
+          toast('浇过了　明天它会长高一节', 'warm');
           sfx.gather();
           updateHud();
         }).catch(function() { toast('浇水失败，稍后再试'); });
@@ -6436,6 +6457,18 @@
       });
     }
 
+    // ---------- v4.2 农事：锄 / 种 / 浇 / 收 ----------
+    // 火就是体力：锄 4、浇 2、播 1。收获不扣 —— 成就感的瞬间不该收费。
+    function farmSpendFire(cost, label) {
+      if (!lightState || lightState.v < cost) {
+        toast('火不够了　' + label + '要烧 ' + cost + ' 点火，先回灯边歇歇');
+        return false;
+      }
+      lightState.v = Math.max(1, lightState.v - cost);
+      updateHud();
+      return true;
+    }
+
     // 纸鸢快线：打开选岛面板
     function doFly() {
       if (!state.ready || flying) return;
@@ -6584,7 +6617,7 @@
         return;
       }
       var shards = state.me.shards || 0;
-      var tierName = { 1: '一阶 · 快（几分钟回本）', 2: '二阶 · 中（四到七分钟）', 3: '三阶 · 慢（要挂一会儿）' };
+      var tierName = { 1: '一阶 · 快（今天种，明后天就收）', 2: '二阶 · 中（三到五天）', 3: '三阶 · 慢（一周以上的牵挂）' };
       var tierNow = 0;
       for (var i = 0; i < list.length; i++) {
         var c = list[i];
@@ -6607,7 +6640,7 @@
         topRow.appendChild(el('i', null, c.cost + ' ★'));
         body.appendChild(topRow);
         body.appendChild(el('span', null,
-          fmtDur(c.grow) + '　收 ' + c.yield + '　净赚 ' + (c.yield - c.cost)));
+          c.days + ' 天成熟　收 ' + c.yield + '　净赚 ' + (c.yield - c.cost)));
         row.appendChild(body);
         (function(crop) {
           row.addEventListener('click', function() {
@@ -6621,7 +6654,7 @@
         })(c);
         sheetBody.appendChild(row);
       }
-      sheetBody.appendChild(el('div', 'sg-seed-tip', '浇水能让成熟提早（每次 −15%，最多三次）；别人也能帮你浇。'));
+      sheetBody.appendChild(el('div', 'sg-seed-tip', '一天浇一瓢水，隔夜长一节；不浇不长。别人也能帮你浇。'));
     }
 
     function plantCrop(species) {
@@ -6642,9 +6675,11 @@
           return;
         }
         state.me.shards = data.shards;
-        addFlower(x, y, data.species, Date.now(), myId, data.readyAt, 0);
+        addFlower(x, y, data.species, Date.now(), myId, 0, 0);
+        var planted = state.flowers[x + ',' + y];
+        if (planted) planted.growth = 0;
         bombBuild(x + 0.5, y + 0.5);
-        toast(data.speciesName + '　种下了　' + fmtDur(Math.round((data.readyAt - Date.now()) / 1000)) + '后来收', 'warm');
+        toast(data.speciesName + '　种下了　' + data.days + ' 天后收　每天记得浇水', 'warm');
         sfx.build();
         updateHud();
       }).catch(function() { toast('种植失败，稍后再试'); });
@@ -7387,7 +7422,9 @@
         ['雨', '流星雨不定时落在某座岛上，星陨比星屑更值得抢。'],
         ['伴', '岛上有居民（提灯守夜的人）。走近他们会跟你搭话。'],
         ['同', '点同学打开菜单：可以跟随 TA，或送一枚星屑。屏幕边缘的光点指向看不见的同学。'],
-        ['界', '云海有尽头：走到世界边缘能看到四座界标灯桩 —— 那是群岛的边界。']
+        ['界', '云海有尽头：走到世界边缘能看到四座界标灯桩 —— 那是群岛的边界。'],
+        ['田', '草地按「种花」选种下地（12 种，越慢熟的越值钱）；站在苗上同一个键就是浇水。'],
+        ['农', '一天 6 分钟，一天浇一瓢水，隔夜长一节，浇了才长；熟了按「采集」收星屑。浇水要 2 点火。']
       ];
       for (var i = 0; i < steps.length; i++) {
         var row = el('div', 'sg-help-row');
@@ -7831,6 +7868,23 @@
         if (state.players[payload.id]) delete state.players[payload.id];
         toast((payload.name || '有同学') + ' 回舱休息了');
       });
+      var offDawn = realtime.subscribe('shiguang.world.dawn', function(payload) {
+        if (!payload) return;
+        state.calendar.day = payload.day || (state.calendar.day + 1);
+        // 全班的田长高的那一截，跟着晨光一起到
+        var grown = payload.grown || [];
+        for (var gi = 0; gi < grown.length; gi++) {
+          var g = grown[gi];
+          var gc = state.flowers[g.x + ',' + g.y];
+          if (gc) { gc.growth = g.growth; gc.wateredDay = g.watered_day; }
+        }
+        if (state.ready) {
+          showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
+            grown.length ? '昨晚浇过水的作物长高了一节' : '别忘了给作物浇水', '', 4200);
+          sfx.dawn();
+          updateHud();
+        }
+      });
       var offSurge = realtime.subscribe('shiguang.world.surge', function(payload) {
         if (!payload) return;
         if (payload.active) {
@@ -7882,6 +7936,7 @@
         if (offStele) offStele();
         if (offEnter) offEnter();
         if (offLeave) offLeave();
+        if (offDawn) offDawn();
         if (offSurge) offSurge();
         if (offSecret) offSecret();
         if (offAward) offAward();
@@ -7946,6 +8001,8 @@
           for (var fl = 0; fl < data.flowers.length; fl++) {
             var f = data.flowers[fl];
             addFlower(f.x, f.y, f.species, f.created_at, f.user_id, f.ready_at, f.water);
+            var ff2 = state.flowers[f.x + ',' + f.y];
+            if (ff2) { ff2.growth = f.growth || 0; ff2.wateredDay = f.watered_day || -1; }
           }
         }
         updateHud();
@@ -8171,6 +8228,8 @@
         for (var fl = 0; fl < data.flowers.length; fl++) {
           var f = data.flowers[fl];
           addFlower(f.x, f.y, f.species, f.created_at, f.user_id, f.ready_at, f.water);
+          var ff = state.flowers[f.x + ',' + f.y];
+          if (ff) { ff.growth = f.growth || 0; ff.wateredDay = f.watered_day || -1; }
         }
       }
       state.players = {};
@@ -8221,6 +8280,9 @@
         }
       }
 
+      // v4.2 星露谷的一天：进世界先对齐日历
+      state.calendar = { day: (data.calendar && data.calendar.day) || 1,
+                         endsAt: Date.now() + ((data.calendar && data.calendar.msLeft) || 0) };
       applyMeteor(data.meteor);
 
       state.ready = true;

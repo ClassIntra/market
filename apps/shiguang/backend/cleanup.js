@@ -22,7 +22,10 @@ module.exports = function cleanup(ctx) {
     'shiguang_quests',
     'shiguang_achievements',
     'shiguang_wardrobe',
-    'shiguang_steles'
+    'shiguang_steles',
+    'shiguang_npc_talk',
+    'shiguang_calendar',
+    'shiguang_crops'
   ];
   for (var i = 0; i < tables.length; i++) {
     db.prepare('DROP TABLE IF EXISTS ' + tables[i]).run();

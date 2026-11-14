@@ -66,7 +66,7 @@ console.log('✓ 副本库就绪');
   const SG_TABLES = [
     'shiguang_players', 'shiguang_lamps', 'shiguang_bottles', 'shiguang_explored', 'shiguang_nodes',
     'shiguang_flowers', 'shiguang_catches', 'shiguang_quests', 'shiguang_achievements', 'shiguang_wardrobe',
-    'shiguang_steles'
+    'shiguang_steles', 'shiguang_npc_talk', 'shiguang_calendar'
   ];
   const wipe = new Database(DB);
   for (const t of SG_TABLES) {
@@ -156,10 +156,10 @@ ok(mine.length === 1, 'installed 列表含 shiguang');
 const TABLES = [
   'shiguang_players', 'shiguang_lamps', 'shiguang_bottles', 'shiguang_explored', 'shiguang_nodes',
   'shiguang_flowers', 'shiguang_catches', 'shiguang_quests', 'shiguang_achievements', 'shiguang_wardrobe',
-  'shiguang_steles'
+  'shiguang_steles', 'shiguang_npc_talk', 'shiguang_calendar'
 ];
 const missing = TABLES.filter((t) => !tableExists(t));
-ok(missing.length === 0, '11 张自建表已建', missing);
+ok(missing.length === 0, '14 张自建表已建', missing);
 
 const playerCols = q('PRAGMA table_info(shiguang_players)').map((c) => c.name);
 const needCols = ['hat', 'lantern', 'title', 'planted', 'fished', 'meteors', 'tutorial'];
@@ -391,6 +391,38 @@ ok(r.json && r.json.data && r.json.data.rejected === 'occupied', '同一格再�
 r = await call('POST', '/api/shiguang/build', U.a, { x: meadowCell.x, y: meadowCell.y });
 ok(r.json && r.json.data && r.json.data.rejected === 'flower', '灯柱压光花被拒（flower）', r.json && r.json.data);
 
+// ---------- v4.2 星露谷的一天 ----------
+section('五点五、星露谷的一天（v4.2）');
+r = await call('POST', '/api/shiguang/enter', U.a, {});
+ok(r.json && r.json.data && r.json.data.calendar && Number.isInteger(r.json.data.calendar.day),
+  'enter 带回游戏日历（第 ' + (r.json.data.calendar ? r.json.data.calendar.day : '?') + ' 天）', r.json && r.json.data.calendar);
+
+// 浇水：种花段种下的那株还没熟 → 今天一瓢；重复浇拒 wet
+teleport(U.a, meadowCell.x, meadowCell.y);
+r = await call('POST', '/api/shiguang/flower/water', U.a, {});
+ok(r.json && r.json.data && r.json.data.day >= 1, '浇水成功（今天这一瓢）', r.json && r.json.data);
+r = await call('POST', '/api/shiguang/flower/water', U.a, {});
+ok(r.json && r.json.data && r.json.data.rejected === 'wet', '当天重复浇水被拒（wet）');
+
+// 未熟拒收：服务端直接告诉「还差几天」
+r = await call('POST', '/api/shiguang/flower/harvest', U.a, {});
+ok(r.json && r.json.data && r.json.data.rejected === 'growing' && r.json.data.left >= 1,
+  '未熟收获被拒（growing，还需 ' + (r.json.data.left || '?') + ' 天）', r.json && r.json.data);
+
+// 隔夜长满（按服务端给的差值推 growth）→ 收成成功
+const daysLeft = r.json.data.left;
+dbRun('UPDATE shiguang_flowers SET growth = growth + ? WHERE x = ? AND y = ?', daysLeft, meadowCell.x, meadowCell.y);
+const beforeHarvest = Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards);
+r = await call('POST', '/api/shiguang/flower/harvest', U.a, {});
+ok(r.json && r.json.data && typeof r.json.data.got === 'number' && r.json.data.got > 0,
+  '长满后收成 +' + (r.json.data ? r.json.data.got : '?') + ' 星屑', r.json && r.json.data);
+ok(Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards) === beforeHarvest + (r.json.data ? r.json.data.got : 0),
+  '收成星屑落库');
+dbRun('UPDATE shiguang_players SET shards = 7 WHERE user_id = ?', U.a);
+// 收成段把测试株收掉了 → 再种一株占位，保 rank 段 flowerCount >= 1
+dbRun('INSERT OR IGNORE INTO shiguang_flowers (x, y, species, user_id, created_at, planted_day, growth, watered_day) VALUES (?, ?, 0, ?, ?, 1, 0, -1)',
+  meadowCell.x + 1, meadowCell.y, U.a, Date.now());
+
 // 沙地不能种
 let sandCell = null;
 for (let i = 0; i < 25600 && !sandCell; i++) {
@@ -590,7 +622,7 @@ r = await call('POST', '/api/market/uninstall', U.admin, { name: NAME });
 ok(r.status === 200 && r.json.code === 200, '卸载接口返回 200', r.json);
 
 const left = TABLES.filter((t) => tableExists(t));
-ok(left.length === 0, 'shiguang_* 表全部 DROP（11 张）', left);
+ok(left.length === 0, 'shiguang_* 表全部 DROP（14 张）', left);
 ok(!existsSync(INSTALLED), '应用目录已删除');
 ok(q('SELECT 1 FROM app_control WHERE app_name = ?', NAME).length === 0, 'app_control 无残留');
 r = await call('GET', '/api/shiguang/terrain', null);
@@ -602,7 +634,7 @@ cpSync(SRC_APP, INSTALLED, { recursive: true }); // 目录已被删，重装需�
 r = await call('POST', '/api/market/install', U.admin, { name: NAME, source: 'local' });
 ok(r.status === 200 && r.json.code === 200, '重装成功（不受残留影响）', r.json);
 const again = TABLES.filter((t) => !tableExists(t));
-ok(again.length === 0, '11 张表重新建好', again);
+ok(again.length === 0, '14 张表重新建好', again);
 r = await call('POST', '/api/shiguang/enter', U.a, {});
 ok(r.status === 200 && r.json.data && r.json.data.me, '重装后能正常进入（存档已清空）');
 ok(Number(q('SELECT COUNT(*) c FROM shiguang_lamps')[0].c) === 0, '灯柱表为空（未残留旧数据）');

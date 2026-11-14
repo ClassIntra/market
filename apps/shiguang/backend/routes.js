@@ -54,7 +54,6 @@ var FLOWER_GROW_MS = 90 * 1000; // 从破土到盛开（客户端按 planted_at 
 var CROP_GROW_MS = 180 * 1000;   // 种下到成熟，3 分钟（一个课间）
 var CROP_WATER_CUT_MS = 40 * 1000; // 每次浇水让成熟提早 40 秒
 var CROP_WATER_MAX = 3;          // 最多浇 3 次 → 最快 60 秒
-var CROP_WATER_GAP_MS = 20 * 1000; // 同一株的浇水中途冷却
 var CROP_YIELD = 8;              // 收成
 var CROP_HELPER_BONUS = 1;       // 帮别人浇过水的人，收成时也拿 1
 
@@ -320,6 +319,45 @@ var STAGES = [
   { at: 100, name: '拾光之海', desc: '你们把整片云海，走成了星图。' }
 ];
 
+// ---------- v4.2 农事：作物目录与游戏日历 ----------
+// 一天 6 分钟（一节课 ≈ 6 天），作物 2~10 天成熟。
+// 定价逻辑：种子的钱是入场费，收益 ≈ 种子价 × 2~3，摊到天数后
+// 「短期作物回本快、长期作物利润厚」—— 星露谷的经济骨架。
+var DAY_MS = 6 * 60 * 1000;
+var CROPS = {
+  c_wheat:  { name: '星麦',   days: 2,  seed: 2,  yield: 6 },
+  c_berry:  { name: '雾莓',   days: 3,  seed: 4,  yield: 11 },
+  c_tuber:  { name: '光薯',   days: 4,  seed: 7,  yield: 19 },
+  c_pepper: { name: '月椒',   days: 5,  seed: 11, yield: 30 },
+  c_bell:   { name: '云铃',   days: 6,  seed: 16, yield: 45 },
+  c_frost:  { name: '霜果',   days: 7,  seed: 23, yield: 64 },
+  c_gourd:  { name: '潮瓜',   days: 8,  seed: 32, yield: 88 },
+  c_dragon: { name: '龙息果', days: 10, seed: 48, yield: 140 }
+};
+
+// 日历：单行表。epoch 是「第 1 天的 0 点」，day 永远落库 —— 重启不回退。
+var cal = { day: 1, epoch: Date.now() };
+try {
+  var calRow = db.prepare('SELECT day, epoch FROM shiguang_calendar WHERE id = 1').get();
+  if (calRow) { cal.day = calRow.day; cal.epoch = calRow.epoch; }
+  else db.prepare('INSERT INTO shiguang_calendar (id, day, epoch) VALUES (1, 1, ?)').run(Date.now());
+} catch (e) {}
+
+// 跨日推进：昨晚浇过水的作物 +1 节。sweep 里每 15s 检查一次，
+// 服务器重启导致的「几天并一天」会在这里循环补齐。
+function advanceFarmDay(now) {
+  cal.day += 1;
+  try { db.prepare('UPDATE shiguang_calendar SET day = ? WHERE id = 1').run(cal.day); } catch (e) {}
+  var grown = [];
+  try {
+    // 昨晚浇过水的作物今晨抽高一节；清单随晨光广播，客户端零请求同步
+    db.prepare('UPDATE shiguang_flowers SET growth = growth + 1 WHERE watered_day = ?').run(cal.day - 1);
+    grown = db.prepare('SELECT x, y, species, growth, user_id, watered_day FROM shiguang_flowers WHERE watered_day = ?').all(cal.day - 1);
+  } catch (e) {}
+  // 新的一天 = 全班的晨光。田不会等人。
+  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown });
+}
+
 // 逐岛钓星特产：岛编号 → 特产鱼 id。在对应岛的码头抛竿，有概率只从特产池抽。
 var ISLAND_SPECIAL = {
   0: ['f_glow', 'f_lantern'],   // 启明：灯鱼
@@ -362,30 +400,29 @@ var SHOP = {
 
 // 光花品种（种下时随机定一种，永久的 —— 全班的颜色由每个人的选择汇成）
 // ---- 作物表（2026-11-14）----
-// 12 种，三档。设计原则只有一条：**时间换钱**。
-// 一档几分钱但马上回本（课间一轮），三档要挂几小时但回报 5 倍。
-// 这样「现在种什么」就变成了一个真实的取舍：今天还有多少时间？
+// 12 种，三档。设计原则只有一条：**一天的节拍**（星露谷的魂）。
+// 一天 6 分钟；作物「每天浇一瓢水、隔夜长一节、浇了才长」。
+// 一档 1~2 天回本（今天种明天收），三档要养两个星期但回报 5 倍 ——
+// 「现在种什么」变成了一个真实的取舍：这个星期你愿意回来多少天？
 //
 // 每一档的回报率（yield / cost）：一档 ~2.0，二档 ~3.2，三档 ~4.8
-// 水位：每次浇水让成熟提早 grow × 0.15，最多三次（合计 −45%）
 var CROPS = [
-  // 一档：快，1~2.5 分钟
-  { id: 0,  name: '星苔',   tier: 1, cost: 2,   grow: 60,   yield: 4 },
-  { id: 1,  name: '萤草',   tier: 1, cost: 3,   grow: 90,   yield: 7 },
-  { id: 2,  name: '露铃',   tier: 1, cost: 5,   grow: 120,  yield: 12 },
-  { id: 3,  name: '风铃籽', tier: 1, cost: 8,   grow: 150,  yield: 20 },
-  // 二档：中，4~7 分钟
-  { id: 4,  name: '月见花', tier: 2, cost: 12,  grow: 240,  yield: 38 },
-  { id: 5,  name: '灯芯藤', tier: 2, cost: 18,  grow: 300,  yield: 60 },
-  { id: 6,  name: '潮汐穗', tier: 2, cost: 26,  grow: 360,  yield: 88 },
-  { id: 7,  name: '霜葡萄', tier: 2, cost: 36,  grow: 420,  yield: 124 },
-  // 三档：慢，15 分钟 ~ 2 小时
-  { id: 8,  name: '珊瑚果', tier: 3, cost: 60,  grow: 900,  yield: 260 },
-  { id: 9,  name: '拾光麦', tier: 3, cost: 90,  grow: 1800, yield: 420 },
-  { id: 10, name: '星陨果', tier: 3, cost: 140, grow: 3600, yield: 680 },
-  { id: 11, name: '长夜葵', tier: 3, cost: 220, grow: 7200, yield: 1100 }
+  // 一档：快，1~2 天（今天种，明天就有得收）
+  { id: 0,  name: '星苔',   tier: 1, cost: 2,   days: 1,  yield: 4 },
+  { id: 1,  name: '萤草',   tier: 1, cost: 3,   days: 1,  yield: 7 },
+  { id: 2,  name: '露铃',   tier: 1, cost: 5,   days: 2,  yield: 12 },
+  { id: 3,  name: '风铃籽', tier: 1, cost: 8,   days: 2,  yield: 20 },
+  // 二档：中，3~5 天
+  { id: 4,  name: '月见花', tier: 2, cost: 12,  days: 3,  yield: 38 },
+  { id: 5,  name: '灯芯藤', tier: 2, cost: 18,  days: 4,  yield: 60 },
+  { id: 6,  name: '潮汐穗', tier: 2, cost: 26,  days: 5,  yield: 88 },
+  { id: 7,  name: '霜葡萄', tier: 2, cost: 36,  days: 5,  yield: 124 },
+  // 三档：慢，7~14 天（整个星期的牵挂）
+  { id: 8,  name: '珊瑚果', tier: 3, cost: 60,  days: 7,  yield: 260 },
+  { id: 9,  name: '拾光麦', tier: 3, cost: 90,  days: 9,  yield: 420 },
+  { id: 10, name: '星陨果', tier: 3, cost: 140, days: 12, yield: 680 },
+  { id: 11, name: '长夜葵', tier: 3, cost: 220, days: 14, yield: 1100 }
 ];
-var CROP_MAX_WATER = 3;
 // 兼容旧字段：客户端曾经靠 flowerSpecies 拿花名，现在作物表才是唯一的名字来源
 var FLOWER_SPECIES = CROPS.map(function (c) { return c.name; });
 
@@ -495,6 +532,12 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_steles (x INTEGER NOT NULL, y INTEG
 // 必须落库：一次会话里聊完就忘，等于「这个世界不记得你」。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, said INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, PRIMARY KEY (user_id, npc_id))');
 
+// v4.2 —— 星露谷核心循环：全班共享的游戏日历 + 各人的农田。
+// 一天 6 分钟；作物「浇水才长、隔日抽高、成熟变现」——
+// 星露谷让人停不下来的从来不是机制堆料，是「一天」的节拍：
+// 锄地、播种、浇水、睡觉，作物在夜里长一截，明天有明天的事。
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, day INTEGER NOT NULL DEFAULT 1, epoch INTEGER NOT NULL)');
+
 // 光花的作物字段：water 浇过几次、ready_at 何时可收、last_water_by 谁浇的最后一瓢。
 // ALTER 没有幂等语法，先查 PRAGMA 再补（和 players 表同一套写法）。
 (function ensureFlowerColumns() {
@@ -507,6 +550,10 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, np
     if (!cols.last_water_by) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN last_water_by TEXT NOT NULL DEFAULT \'\'');
     if (!cols.water_at) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN water_at INTEGER NOT NULL DEFAULT 0');
     if (!cols.harvested) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN harvested INTEGER NOT NULL DEFAULT 0');
+    // v4.2 星露谷节拍：planted_day 种下那天 / growth 已长几节 / watered_day 最后浇水那天
+    if (!cols.planted_day) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN planted_day INTEGER NOT NULL DEFAULT 0');
+    if (!cols.growth) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN growth INTEGER NOT NULL DEFAULT 0');
+    if (!cols.watered_day) db.exec('ALTER TABLE shiguang_flowers ADD COLUMN watered_day INTEGER NOT NULL DEFAULT -1');
   } catch (e) { /* 表还没建出来：下一个请求会再走一遍 */ }
 })();
 
@@ -1060,6 +1107,16 @@ var sweepTimer = setInterval(function () {
       surge = { active: true, endsAt: now + SURGE_DURATION_MS };
       broadcast('shiguang.world.surge', { active: true, until: surge.endsAt, now: now });
     }
+    // 游戏日历：到达新的一天就推进（重启补齐也走这里）
+    try {
+      var calRow2 = db.prepare('SELECT day, epoch FROM shiguang_calendar WHERE id = 1').get();
+      if (calRow2) {
+        cal.day = calRow2.day; cal.epoch = calRow2.epoch;
+        var due = Math.floor((now - cal.epoch) / DAY_MS) + 1;
+        var guard = 0;
+        while (cal.day < due && guard < 400) { advanceFarmDay(now); guard++; }
+      }
+    } catch (e2) {}
   } catch (e) {
     if (/no such table/i.test(String(e && e.message))) disabled = true;
   }
@@ -1284,6 +1341,7 @@ router.post('/enter', requireAuth, function (req, res) {
       lamps: lamps,
       flowers: flowers,
       players: players,
+      calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()) },
       stage: stage,
       stageInfo: STAGES[stage],
       lampCount: count,
@@ -1653,8 +1711,9 @@ router.post('/plant', requireAuth, function (req, res) {
   var species = wantCrop.id;
   try {
     var tx2 = db.transaction(function () {
-      db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, ready_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(x, y, species, userId, now, now + wantCrop.grow * 1000);
+      // 星露谷节拍：种下那天记 day、growth=0；以后每天浇一瓢，隔夜长一节
+      db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, planted_day, growth, watered_day) VALUES (?, ?, ?, ?, ?, ?, 0, -1)')
+        .run(x, y, species, userId, now, cal.day);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, planted = planted + 1, last_seen = ?, last_plant_at = ? WHERE user_id = ?')
         .run(wantCrop.cost, now, now, userId);
     });
@@ -1680,7 +1739,7 @@ router.post('/plant', requireAuth, function (req, res) {
       speciesName: wantCrop.name,
       cost: wantCrop.cost,
       yield: wantCrop.yield,
-      readyAt: now + wantCrop.grow * 1000
+      days: wantCrop.days
     }
   });
 });
@@ -1700,19 +1759,14 @@ router.post('/flower/water', requireAuth, function (req, res) {
 
   var now = Date.now();
   var cf = cropOf(f.species) || CROPS[0];
-  var readyAt = f.ready_at || (f.created_at + cf.grow * 1000);
-  if (now >= readyAt) return res.json({ code: 200, data: { rejected: 'ripe' } });
-  if ((f.water || 0) >= CROP_MAX_WATER) return res.json({ code: 200, data: { rejected: 'full' } });
-  if (f.water_at && now - f.water_at < CROP_WATER_GAP_MS) {
-    return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((CROP_WATER_GAP_MS - (now - f.water_at)) / 1000) } });
-  }
+  // 已经熟了就不用浇了
+  if ((f.growth || 0) >= cf.days) return res.json({ code: 200, data: { rejected: 'ripe' } });
+  // 每天一瓢：浇过就是浇过了，今天的手感就是「明天再来」
+  if ((f.watered_day || -1) >= cal.day) return res.json({ code: 200, data: { rejected: 'wet', day: cal.day } });
 
-  // 每次浇水按这一作的时长折算（15%），慢的作物浇一次收益更大
-  var nextReady = Math.max(now + 5000, readyAt - Math.round(cf.grow * 150));
-  var water = (f.water || 0) + 1;
   try {
-    db.prepare('UPDATE shiguang_flowers SET water = ?, ready_at = ?, water_at = ?, last_water_by = ? WHERE x = ? AND y = ?')
-      .run(water, nextReady, now, userId, row.x, row.y);
+    db.prepare('UPDATE shiguang_flowers SET watered_day = ?, water = water + 1, water_at = ?, last_water_by = ? WHERE x = ? AND y = ?')
+      .run(cal.day, now, userId, row.x, row.y);
   } catch (e) {
     return res.status(500).json({ code: 500, message: '浇水失败' });
   }
@@ -1721,8 +1775,7 @@ router.post('/flower/water', requireAuth, function (req, res) {
   res.json({
     code: 200,
     data: {
-      water: water,
-      readyAt: nextReady,
+      day: cal.day,
       byMe: String(f.user_id) === userId,
       owner: String(f.user_id)
     }
@@ -1741,9 +1794,8 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
 
   var now = Date.now();
   var cf2 = cropOf(f.species) || CROPS[0];
-  var readyAt = f.ready_at || (f.created_at + cf2.grow * 1000);
-  if (now < readyAt) {
-    return res.json({ code: 200, data: { rejected: 'growing', left: Math.ceil((readyAt - now) / 1000) } });
+  if ((f.growth || 0) < cf2.days) {
+    return res.json({ code: 200, data: { rejected: 'growing', left: cf2.days - (f.growth || 0) } });
   }
   // 只有主人能收：别人的田不能拔，这是多人底线
   if (String(f.user_id) !== userId) return res.json({ code: 200, data: { rejected: 'notMine' } });
@@ -2368,6 +2420,10 @@ router.post('/give', requireAuth, function (req, res) {
 });
 
 // ---------------- 路由：排行与世界总览 ----------------
+
+// ---------------- 路由：农田（星露谷核心循环） ----------------
+// 锄地 → 播种 → 浇水 → 隔日抽高 → 收获变现。全部作用在脚下格，
+// 和采集/点灯同一套空间语义；火就是体力（客户端本地扣）。
 
 router.get('/rank', requireAuth, function (req, res) {
   var gathered = [];
