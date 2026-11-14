@@ -1,6 +1,6 @@
 {
   "version": 65,
-  "updated_at": "2026-11-14T06:13:08.521Z",
+  "updated_at": "2026-11-14T06:29:09.452Z",
   "apps": [
     {
       "name": "chess",
@@ -439,8 +439,8 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "4.1.0",
-      "description": "全班同处一片云海群岛的多人小世界。v4.1「作物」：光花从装饰变成真正的作物 —— 2 星屑种下，3 分钟成熟（浇一次水提早 40 秒，最多三次），收成 8 星屑；帮别人浇过水的人也能分到一点。星屑第一次有了「生产」而不只是「捡」，点灯的钱终于有了来源。",
+      "version": "4.2.0",
+      "description": "全班同处一片云海群岛的多人小世界。v4.2「种子」：12 种作物分三档 —— 星苔 2 星屑 1 分钟回本，长夜葵 220 星屑挂两小时收 1100。按「种花」打开种子面板选种，浇水让成熟提早（别人也能帮你浇，收成时他分一份）。星屑第一次有了真正的生产链，点灯的钱从此有着落。",
       "author": "ClassIntra",
       "files": [
         "apps/shiguang/backend/cleanup.js",
@@ -470,11 +470,11 @@
       "hashes": {
         "backend/cleanup.js": "2638e68d8899c1eb49c6279ce77c613b69139e5f96c6c5e3fd38447d85a6cce0",
         "backend/README.md": "eea5c9b75b7340918aaa1563fee78981ba17bc1756392fbde3bf044f912164a0",
-        "backend/routes.js": "e2fa0397340368d0f8bcc3bb728ee47c295b2070d321b7c306b52518794e4ad2",
+        "backend/routes.js": "ea4e4aeedf9f5ef9446e0f697fb69075039797b1415b0dc4bed5d8af1d6c661c",
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "cbdea965889d5f259ef0c7354aca32d12e9bedbd4e50a91166eac3be26704de1",
-        "CHANGELOG.md": "2e21aa13eed083d9e72f85033cd275038bc5360e7f3a7dd1c05c86efcc4f24c7",
-        "frontend/entry.js": "3b74ea7d5796f3494c08b7cde77d836b481059e77aff0906704f11cd24ac1743",
+        "CHANGELOG.md": "a74794452369a8485518cb8028bf2074a2f9662c9a32d7c1627e99802a7ade13",
+        "frontend/entry.js": "b5f4ead322e47ff6b47f56cae721a68aa2319f289b25a5e621c387075f556cbf",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",
@@ -482,10 +482,10 @@
         "frontend/img/farm.png": "0c4b3b4058cacf6a9bf021666838156d46da9ce27500d4c13e30cd5a92b722f4",
         "frontend/img/LICENSE-kenney.txt": "c483c167cc3bdfe17c15f957ff847d409f64d81b410b28783636cf3b2b7814c5",
         "frontend/img/town.png": "3a54d99ecde790d4fdea207a3644cf130fc56fa838f1beb1507c185a95b8e902",
-        "frontend/style.css": "22dab795c8d1c473cda9b69dbdc99d2c4c9634725c5991066f8f5c36753394e8",
+        "frontend/style.css": "a57e2b682b470ec14cde646de7bc66582cfc42372994a3863675ecb540f43cd5",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "34da4cb6212dfa990e01c2f7a0a8c4a75207194a26fc13011c0a4bae45e6aab0",
-        "preview.png": "cd2669b0d92fa8bdc51ec4811b7b308824342f64e4120a01b3db35ae78e1ecba",
+        "manifest.json": "6f196487eba4efd8c3527f45a32a7464b69ff6665bd07b0eacc6fff716f9d122",
+        "preview.png": "424eea08f85a0f473ee801cfbce51e94b22ea533a33f714299a8b2247dbd3dda",
         "README.md": "ed5e537b49adb4df2bed562605570cf34264d1273473b826a4341ee73f46687e",
         "screenshots/01-world.png": "7049c4d6b67cb09ac42a67cf9884ddccf396d13d2a7eb0276f79b9f78faa7b8f",
         "screenshots/02-lowlight.png": "5e2a79c627fb4010b2db32b257238636fba52fb8282d1e6a3d8b3e77661f0725",

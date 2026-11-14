@@ -61,11 +61,24 @@
   ];
 
   // 光花品种（species 索引对应 backend FLOWER_SPECIES）
+  // 12 种作物 → 12 套配色。一档青蓝、二档暖橙、三档紫金，
+  // 这样远远看一眼田里花的颜色，就知道那人种的是快钱还是长线。
   var FLOWER_COLORS = [
+    // 一档：青蓝系（快）
     { petal: 'rgba(120, 196, 255, 0.95)', deep: 'rgba(48, 108, 190, 0.9)', core: 'rgba(214, 240, 255, 1)', glow: '110, 190, 255' },
+    { petal: 'rgba(146, 226, 214, 0.95)', deep: 'rgba(40, 140, 130, 0.9)', core: 'rgba(226, 255, 250, 1)', glow: '120, 224, 208' },
+    { petal: 'rgba(178, 214, 246, 0.95)', deep: 'rgba(70, 118, 176, 0.9)', core: 'rgba(238, 248, 255, 1)', glow: '150, 200, 246' },
+    { petal: 'rgba(206, 236, 226, 0.95)', deep: 'rgba(84, 150, 132, 0.9)', core: 'rgba(246, 255, 250, 1)', glow: '176, 232, 214' },
+    // 二档：暖橙粉系（中）
     { petal: 'rgba(255, 178, 102, 0.95)', deep: 'rgba(190, 96, 40, 0.9)', core: 'rgba(255, 236, 190, 1)', glow: '255, 176, 92' },
-    { petal: 'rgba(240, 246, 252, 0.96)', deep: 'rgba(148, 160, 184, 0.92)', core: 'rgba(255, 255, 255, 1)', glow: '214, 230, 255' },
-    { petal: 'rgba(190, 150, 255, 0.95)', deep: 'rgba(104, 62, 190, 0.9)', core: 'rgba(240, 224, 255, 1)', glow: '178, 136, 255' }
+    { petal: 'rgba(255, 204, 140, 0.95)', deep: 'rgba(202, 126, 48, 0.9)', core: 'rgba(255, 244, 214, 1)', glow: '255, 202, 132' },
+    { petal: 'rgba(255, 160, 158, 0.95)', deep: 'rgba(190, 70, 78, 0.9)', core: 'rgba(255, 226, 222, 1)', glow: '255, 150, 150' },
+    { petal: 'rgba(246, 190, 216, 0.95)', deep: 'rgba(178, 92, 140, 0.9)', core: 'rgba(255, 234, 246, 1)', glow: '240, 176, 210' },
+    // 三档：紫金系（慢）
+    { petal: 'rgba(190, 150, 255, 0.95)', deep: 'rgba(104, 62, 190, 0.9)', core: 'rgba(240, 224, 255, 1)', glow: '178, 136, 255' },
+    { petal: 'rgba(232, 212, 138, 0.95)', deep: 'rgba(166, 132, 44, 0.9)', core: 'rgba(255, 250, 224, 1)', glow: '238, 216, 140' },
+    { petal: 'rgba(255, 236, 176, 0.95)', deep: 'rgba(186, 146, 52, 0.9)', core: 'rgba(255, 253, 236, 1)', glow: '255, 236, 170' },
+    { petal: 'rgba(240, 246, 252, 0.96)', deep: 'rgba(148, 160, 184, 0.92)', core: 'rgba(255, 255, 255, 1)', glow: '214, 230, 255' }
   ];
 
   // 天光阶段的全屏染色：夜 → 晨 → 月 → 星 → 海
@@ -313,7 +326,7 @@
       flowerCap: 40,
       flowerGrowMs: 90000,
       fishCooldownMs: 25000,
-      catalog: { shop: null, fishTable: [], emotes: [], flowerSpecies: [], islands: [], landmarks: [], steles: [], speechLines: [], stages: [] },
+      catalog: { shop: null, fishTable: [], emotes: [], flowerSpecies: [], islands: [], landmarks: [], steles: [], speechLines: [], stages: [], crops: [] },
       quests: { intro: [], daily: [] },
       wardrobe: { owned: { hat: [], lantern: [], title: [] }, equipped: { hat: '0', lantern: '0', title: '' } },
       achCount: 0,
@@ -6070,7 +6083,8 @@
           delete state.flowers[x + ',' + y];
           state.me.shards = d.shards;
           bombGather(x + 0.5, y + 0.5, false, d.got || 1);
-          toast('收成了 ' + (d.got || 0) + ' 枚星屑' + (d.helped ? '　帮你浇水的人也分到了一点' : ''), 'warm');
+          toast('收了 ' + (d.cropName || '作物') + '　+' + (d.got || 0) + ' 星屑' +
+            (d.helped ? '　帮你浇水的人也分到了一点' : ''), 'warm');
           sfx.gather();
           updateHud();
         }).catch(function() { toast('收成失败，稍后再试'); });
@@ -6194,6 +6208,15 @@
         return;
       }
       if (fc) { toast('已经熟了，按「采集」收下来'); return; }
+
+      var tl0 = tileUnderMe();
+      if (tl0 !== T_MEADOW && tl0 !== T_PATH) {
+        toast('作物只肯在草地和路边扎根');
+        return;
+      }
+      // 种什么由玩家选：打开种子面板（12 种、三档，价格差 100 倍）
+      openSeedSheet();
+      return;
 
       var tl = tileUnderMe();
       if (tl !== T_MEADOW && tl !== T_PATH) {
@@ -6461,6 +6484,89 @@
 
     function sectionTitle(text) {
       return el('div', 'sg-sec-title', text);
+    }
+
+    // ---------- 种子面板 ----------
+    // 12 种作物按三档列出：成本 / 时间 / 收成 / 净赚。
+    // 「净赚」必须直接写出来 —— 让玩家自己算 38−12 是在浪费他的注意力。
+    function fmtDur(sec) {
+      if (sec < 60) return sec + ' 秒';
+      if (sec < 3600) return Math.round(sec / 60) + ' 分';
+      return (Math.round(sec / 360) / 10) + ' 小时';
+    }
+
+    function openSeedSheet() {
+      openSheet('seed', '选一包种子');
+      var list = (state.catalog && state.catalog.crops) || [];
+      if (!list.length) {
+        sheetBody.appendChild(emptyBox('种子还没送到，等一会儿再试'));
+        return;
+      }
+      var shards = state.me.shards || 0;
+      var tierName = { 1: '一阶 · 快（几分钟回本）', 2: '二阶 · 中（四到七分钟）', 3: '三阶 · 慢（要挂一会儿）' };
+      var tierNow = 0;
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i];
+        if (c.tier !== tierNow) {
+          tierNow = c.tier;
+          sheetBody.appendChild(sectionTitle(tierName[c.tier] || '作物'));
+        }
+        var row = el('button', 'sg-seed' + (shards < c.cost ? ' is-poor' : ''));
+        row.type = 'button';
+        var dot = el('i', 'sg-seed-dot');
+        var col = FLOWER_COLORS[c.id % FLOWER_COLORS.length];
+        dot.style.background = col.petal;
+        dot.style.boxShadow = '0 0 8px rgba(' + col.glow + ',0.75)';
+        row.appendChild(dot);
+        // 价格不再单独占一列：列宽固定 + 中文数字宽度不定，在 1024 上会被右边缘裁掉。
+        // 改成「名字 ←→ 价格」同一行，第二行放时间/收成/净赚 —— 怎么缩都不会溢出。
+        var body = el('div', 'sg-seed-body');
+        var topRow = el('div', 'sg-seed-top');
+        topRow.appendChild(el('b', null, c.name));
+        topRow.appendChild(el('i', null, c.cost + ' ★'));
+        body.appendChild(topRow);
+        body.appendChild(el('span', null,
+          fmtDur(c.grow) + '　收 ' + c.yield + '　净赚 ' + (c.yield - c.cost)));
+        row.appendChild(body);
+        (function(crop) {
+          row.addEventListener('click', function() {
+            if ((state.me.shards || 0) < crop.cost) {
+              toast('还差 ' + (crop.cost - state.me.shards) + ' 枚星屑');
+              return;
+            }
+            closeSheet();
+            plantCrop(crop.id);
+          });
+        })(c);
+        sheetBody.appendChild(row);
+      }
+      sheetBody.appendChild(el('div', 'sg-seed-tip', '浇水能让成熟提早（每次 −15%，最多三次）；别人也能帮你浇。'));
+    }
+
+    function plantCrop(species) {
+      if (!state.ready) return;
+      var x = state.me.x;
+      var y = state.me.y;
+      http('post', '/shiguang/plant', { x: x, y: y, species: species }).then(function(data) {
+        if (!data) return;
+        if (data.rejected) {
+          if (data.rejected === 'occupied') toast('这里已经有一株了');
+          else if (data.rejected === 'lamp') toast('灯柱底下种不下');
+          else if (data.rejected === 'ground') toast('这里不是草地');
+          else if (data.rejected === 'shards') toast('还差 ' + (data.need - data.have) + ' 枚星屑');
+          else if (data.rejected === 'my_cap') toast('你的田满了（' + data.cap + ' 株）');
+          else if (data.rejected === 'world_cap') toast('岛上的田已经够多了');
+          else if (data.rejected === 'cooldown') toast('歇 ' + data.wait + ' 秒再种');
+          else toast('没能种下');
+          return;
+        }
+        state.me.shards = data.shards;
+        addFlower(x, y, data.species, Date.now(), myId, data.readyAt, 0);
+        bombBuild(x + 0.5, y + 0.5);
+        toast(data.speciesName + '　种下了　' + fmtDur(Math.round((data.readyAt - Date.now()) / 1000)) + '后来收', 'warm');
+        sfx.build();
+        updateHud();
+      }).catch(function() { toast('种植失败，稍后再试'); });
     }
 
     function emptyBox(text) {
@@ -8070,6 +8176,7 @@
         // 阶段表原本只存在于服务端。/terrain 一直在返回它，前端却从来没接住 ——
         // 于是顶栏只能显示当前档名，显示不出「还差几根」。
         state.catalog.stages = terrain.stages || [];
+        state.catalog.crops = terrain.crops || [];
         buildField();
         applyExplored('');
         return http('post', '/shiguang/enter', {});

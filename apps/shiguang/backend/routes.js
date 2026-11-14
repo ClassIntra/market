@@ -361,7 +361,39 @@ var SHOP = {
 };
 
 // 光花品种（种下时随机定一种，永久的 —— 全班的颜色由每个人的选择汇成）
-var FLOWER_SPECIES = ['萤蓝', '暖橘', '月白', '星紫'];
+// ---- 作物表（2026-11-14）----
+// 12 种，三档。设计原则只有一条：**时间换钱**。
+// 一档几分钱但马上回本（课间一轮），三档要挂几小时但回报 5 倍。
+// 这样「现在种什么」就变成了一个真实的取舍：今天还有多少时间？
+//
+// 每一档的回报率（yield / cost）：一档 ~2.0，二档 ~3.2，三档 ~4.8
+// 水位：每次浇水让成熟提早 grow × 0.15，最多三次（合计 −45%）
+var CROPS = [
+  // 一档：快，1~2.5 分钟
+  { id: 0,  name: '星苔',   tier: 1, cost: 2,   grow: 60,   yield: 4 },
+  { id: 1,  name: '萤草',   tier: 1, cost: 3,   grow: 90,   yield: 7 },
+  { id: 2,  name: '露铃',   tier: 1, cost: 5,   grow: 120,  yield: 12 },
+  { id: 3,  name: '风铃籽', tier: 1, cost: 8,   grow: 150,  yield: 20 },
+  // 二档：中，4~7 分钟
+  { id: 4,  name: '月见花', tier: 2, cost: 12,  grow: 240,  yield: 38 },
+  { id: 5,  name: '灯芯藤', tier: 2, cost: 18,  grow: 300,  yield: 60 },
+  { id: 6,  name: '潮汐穗', tier: 2, cost: 26,  grow: 360,  yield: 88 },
+  { id: 7,  name: '霜葡萄', tier: 2, cost: 36,  grow: 420,  yield: 124 },
+  // 三档：慢，15 分钟 ~ 2 小时
+  { id: 8,  name: '珊瑚果', tier: 3, cost: 60,  grow: 900,  yield: 260 },
+  { id: 9,  name: '拾光麦', tier: 3, cost: 90,  grow: 1800, yield: 420 },
+  { id: 10, name: '星陨果', tier: 3, cost: 140, grow: 3600, yield: 680 },
+  { id: 11, name: '长夜葵', tier: 3, cost: 220, grow: 7200, yield: 1100 }
+];
+var CROP_MAX_WATER = 3;
+// 兼容旧字段：客户端曾经靠 flowerSpecies 拿花名，现在作物表才是唯一的名字来源
+var FLOWER_SPECIES = CROPS.map(function (c) { return c.name; });
+
+function cropOf(species) {
+  var i = Number(species);
+  if (!Number.isInteger(i) || i < 0 || i >= CROPS.length) return null;
+  return CROPS[i];
+}
 
 // 星鱼图鉴。权重合计必须 = 1（钓星按累积权重落点）。
 // 稀有度：0 常见 / 1 稀有 / 2 史诗 / 3 传说。传说全服播报。
@@ -1112,6 +1144,7 @@ router.get('/terrain', function (req, res) {
         return { id: f.id, name: f.name, rarity: f.rarity, shards: f.shards, note: f.note };
       }),
       flowerSpecies: FLOWER_SPECIES,
+      crops: CROPS,
       // v3：地标 / 石碑 / NPC 台词 —— 世界结构的唯一真相在服务端，客户端只绘制
       landmarks: world.LANDMARKS,
       steles: world.STELES,
@@ -1586,7 +1619,12 @@ router.post('/plant', requireAuth, function (req, res) {
   if (x !== row.x || y !== row.y) return res.json({ code: 200, data: { rejected: 'far' } });
   // 只能种在草地上：沙滩保住「镶边」的干净，岩地本来就不是土
   if (world.tileAt(x, y) !== world.TILE.MEADOW) return res.json({ code: 200, data: { rejected: 'ground' } });
-  if (row.shards < FLOWER_COST) return res.json({ code: 200, data: { rejected: 'shards', need: FLOWER_COST, have: row.shards } });
+  // 种什么由客户端选（种子面板），钱按所选的作物扣
+  var wantCrop = cropOf(body.species === undefined ? 0 : body.species);
+  if (!wantCrop) return res.json({ code: 200, data: { rejected: 'crop' } });
+  if (row.shards < wantCrop.cost) {
+    return res.json({ code: 200, data: { rejected: 'shards', need: wantCrop.cost, have: row.shards } });
+  }
 
   // 占位判定放在冷却之前：「这里已经有一朵花」比「歇 N 秒再种」信息量大得多，
   // 玩家该听到的是与位置相关的原因，而不是一个与位置无关的秒数。
@@ -1612,13 +1650,13 @@ router.post('/plant', requireAuth, function (req, res) {
   if (worldCount >= FLOWER_WORLD_CAP) return res.json({ code: 200, data: { rejected: 'world_cap' } });
   if (mineCount >= FLOWER_PLAYER_CAP) return res.json({ code: 200, data: { rejected: 'my_cap', cap: FLOWER_PLAYER_CAP } });
 
-  var species = Math.floor(Math.random() * FLOWER_SPECIES.length) % FLOWER_SPECIES.length;
+  var species = wantCrop.id;
   try {
     var tx2 = db.transaction(function () {
       db.prepare('INSERT INTO shiguang_flowers (x, y, species, user_id, created_at, ready_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(x, y, species, userId, now, now + CROP_GROW_MS);
+        .run(x, y, species, userId, now, now + wantCrop.grow * 1000);
       db.prepare('UPDATE shiguang_players SET shards = shards - ?, planted = planted + 1, last_seen = ?, last_plant_at = ? WHERE user_id = ?')
-        .run(FLOWER_COST, now, now, userId);
+        .run(wantCrop.cost, now, now, userId);
     });
     tx2();
   } catch (e) {
@@ -1626,7 +1664,7 @@ router.post('/plant', requireAuth, function (req, res) {
   }
 
   var p = online.get(userId);
-  if (p) { p.shards = Math.max(0, (p.shards || 0) - FLOWER_COST); online.set(userId, p); }
+  if (p) { p.shards = Math.max(0, (p.shards || 0) - wantCrop.cost); online.set(userId, p); }
   pendingPlants.push([x, y, species, userId]);
 
   bumpQuest(userId, 'plant', 1);
@@ -1639,8 +1677,10 @@ router.post('/plant', requireAuth, function (req, res) {
       shards: updated ? updated.shards : 0,
       planted: updated ? updated.planted : 0,
       species: species,
-      speciesName: FLOWER_SPECIES[species],
-      readyAt: now + CROP_GROW_MS
+      speciesName: wantCrop.name,
+      cost: wantCrop.cost,
+      yield: wantCrop.yield,
+      readyAt: now + wantCrop.grow * 1000
     }
   });
 });
@@ -1659,14 +1699,16 @@ router.post('/flower/water', requireAuth, function (req, res) {
   if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
 
   var now = Date.now();
-  var readyAt = f.ready_at || (f.created_at + CROP_GROW_MS);
+  var cf = cropOf(f.species) || CROPS[0];
+  var readyAt = f.ready_at || (f.created_at + cf.grow * 1000);
   if (now >= readyAt) return res.json({ code: 200, data: { rejected: 'ripe' } });
-  if ((f.water || 0) >= CROP_WATER_MAX) return res.json({ code: 200, data: { rejected: 'full' } });
+  if ((f.water || 0) >= CROP_MAX_WATER) return res.json({ code: 200, data: { rejected: 'full' } });
   if (f.water_at && now - f.water_at < CROP_WATER_GAP_MS) {
     return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((CROP_WATER_GAP_MS - (now - f.water_at)) / 1000) } });
   }
 
-  var nextReady = Math.max(now + 5000, readyAt - CROP_WATER_CUT_MS);
+  // 每次浇水按这一作的时长折算（15%），慢的作物浇一次收益更大
+  var nextReady = Math.max(now + 5000, readyAt - Math.round(cf.grow * 150));
   var water = (f.water || 0) + 1;
   try {
     db.prepare('UPDATE shiguang_flowers SET water = ?, ready_at = ?, water_at = ?, last_water_by = ? WHERE x = ? AND y = ?')
@@ -1698,14 +1740,15 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
   if (!f) return res.json({ code: 200, data: { rejected: 'none' } });
 
   var now = Date.now();
-  var readyAt = f.ready_at || (f.created_at + CROP_GROW_MS);
+  var cf2 = cropOf(f.species) || CROPS[0];
+  var readyAt = f.ready_at || (f.created_at + cf2.grow * 1000);
   if (now < readyAt) {
     return res.json({ code: 200, data: { rejected: 'growing', left: Math.ceil((readyAt - now) / 1000) } });
   }
   // 只有主人能收：别人的田不能拔，这是多人底线
   if (String(f.user_id) !== userId) return res.json({ code: 200, data: { rejected: 'notMine' } });
 
-  var got = CROP_YIELD;
+  var got = cf2.yield;
   try {
     var tx = db.transaction(function () {
       db.prepare('DELETE FROM shiguang_flowers WHERE x = ? AND y = ?').run(row.x, row.y);
@@ -1736,6 +1779,7 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
       shards: updated ? updated.shards : 0,
       got: got,
       species: f.species,
+      cropName: cf2.name,
       helped: String(f.last_water_by || '') !== '' && String(f.last_water_by) !== userId
     }
   });
