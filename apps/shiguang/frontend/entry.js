@@ -8100,11 +8100,10 @@
     function renderPlayerMenu(body, p) {
       clearNode(body);
       var head = el('div', 'sg-pm-head');
-      head.appendChild(el('div', 'sg-pm-name', p.name));
-      if (p.title && p.title !== 't_pick') {
-        var tn = shopNameOf('title', p.title);
-        if (tn) head.appendChild(el('div', 'sg-pm-role', '「' + tn + '」'));
-      }
+      // v4.10 名字已在抽屉标题里 —— 这里只放称号与位置，不再重复名字
+      var hasTitle = p.title && p.title !== 't_pick';
+      var tn = hasTitle ? shopNameOf('title', p.title) : '';
+      if (tn) head.appendChild(el('div', 'sg-pm-role', '「' + tn + '」'));
       var man = Math.abs(p.x - state.me.x) + Math.abs(p.y - state.me.y);
       head.appendChild(el('div', 'sg-cf-note', man + ' 格之外 · (' + p.x + ', ' + p.y + ')'));
       body.appendChild(head);
@@ -8162,6 +8161,7 @@
 
       // v4.6 与别人交易：赠送学元（平台学元体系，GRANT 通道免密、单次 ≤2、每日 ≤10）
       var xyRow = el('div', 'sg-pm-xy');
+      xyRow.appendChild(el('div', 'sg-cf-note', '赠学元（面对面 · 每日限 10 学元）：'));
       [1, 2].forEach(function(amt) {
         var b = el('button', 'sg-set-action');
         b.type = 'button';
