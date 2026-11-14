@@ -437,6 +437,18 @@ ok(r.json && r.json.data && r.json.data.rejected === 'amount', '单次超 2 学�
 teleport(U.b, 0, 0);
 await call('POST', '/api/shiguang/enter', U.b, {});
 
+// ---------- v4.10 目标链与演出标记 ----------
+section('五点五八、目标链（v4.10）');
+r = await call('POST', '/api/shiguang/enter', U.a, {});
+ok(r.json && r.json.data && 'tutorial' in (r.json.data.me || {}),
+  'enter.me 带 tutorial 标记（修复重复播开场）', r.json.data.me);
+r = await call('GET', '/api/shiguang/story', U.a);
+const goalNow = r.json.data && r.json.data.goal;
+ok(!!goalNow && typeof goalNow.title === 'string',
+  '当前目标下发：' + (goalNow ? goalNow.title : '?'), goalNow);
+ok(goalNow && (goalNow.id === 'g_walk' || goalNow.id === 'g_gather' || goalNow.id === 'g_lamp' || goalNow.id === 'g_plant' || goalNow.id === 'g_town'),
+  '目标链按序推进（当前 ' + (goalNow ? goalNow.id : '?') + '）');
+
 // ---------- v4.8 相遇簿 ----------
 section('五点六前、相遇簿（v4.8）');
 r = await call('GET', '/api/shiguang/meets', U.a);

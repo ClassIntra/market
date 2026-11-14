@@ -385,8 +385,28 @@ function advanceFarmDay(now) {
   // v4.8 季节节日：每季第一天是全班的节日（种子半价，当天有效）
   var newSeason = seasonOf(cal.day);
   var festival = newSeason !== prevSeason ? SEASONS[newSeason] : '';
+  // v4.10 剧情演出：跨日检查「全班级章节」是否刚解锁（灯/碑/天光）
+  var newChapter = '';
+  try {
+    var lampCountNow = lampCount();
+    var stNow = stageFor(lampCountNow);
+    var stelesNow = 0;
+    try { stelesNow = db.prepare('SELECT COUNT(*) AS c FROM shiguang_steles').get().c; } catch (e3) {}
+    var ctxNow = { lampCount: lampCountNow, stelesDone: stelesNow, stage: stNow, surgeSeen: surgeSeen };
+    for (var sci = 0; sci < STORY.length; sci++) {
+      var sch = STORY[sci];
+      if (sch.cond && storyUnlocked(sch, ctxNow)) {
+        var unlockedAt = 'lamp:' + lampCountNow + ':steles:' + stelesNow + ':stage:' + stNow;
+        if (!cal.chapterSeen) cal.chapterSeen = {};
+        if (!cal.chapterSeen[sch.id]) {
+          cal.chapterSeen[sch.id] = true;
+          newChapter = sch.id;
+        }
+      }
+    }
+  } catch (e4) {}
   // 新的一天 = 全班的晨光。田不会等人。
-  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather, season: SEASONS[newSeason], festival: festival });
+  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather, season: SEASONS[newSeason], festival: festival, newChapter: newChapter });
 }
 
 // ---------------- v4.7 世界剧情《灯火纪》 ----------------
@@ -478,6 +498,39 @@ var STORY = [
     ]
   }
 ];
+
+// ---------------- v4.10 新手目标链 ----------------
+// 开场演出结束，玩家问的第一句话是「我现在该干嘛」——
+// 目标链就是答案：走 → 采 → 点灯 → 种 → 进镇。每一步完成自动下一步，
+// 全部由个人真实数据实时判定，不落库（做过的事不会因为刷新被遗忘）。
+var GOALS = [
+  { id: 'g_walk',   title: '在岛上走一走（WASD / 摇杆 / 点地面）', stat: 'walk',     need: 8 },
+  { id: 'g_gather', title: '采集 3 枚星屑（走到光点按「采集」）',   stat: 'gathered', need: 3 },
+  { id: 'g_lamp',   title: '点亮第一盏灯（草地按「点灯」）',       stat: 'built',    need: 1 },
+  { id: 'g_plant',  title: '种下第一株作物（锄地 → 播种）',        stat: 'planted',  need: 1 },
+  { id: 'g_town',   title: '沿着石板路去拾光镇，见见店主们',       town: true }
+];
+var TOWN_CENTER = { x: 180, y: 198 };   // 240 基准：主岛大道交叉口附近
+
+function currentGoal(userId) {
+  var row = playerRow(userId);
+  if (!row) return null;
+  for (var i = 0; i < GOALS.length; i++) {
+    var g = GOALS[i];
+    if (g.stat === 'walk' && (row.walked || 0) < g.need) return g;
+    if (g.stat === 'gathered' && (row.gathered || 0) < g.need) return g;
+    if (g.stat === 'built' && (row.built || 0) < g.need) return g;
+    if (g.stat === 'planted' && (row.planted || 0) < g.need) return g;
+    if (g.town) {
+      var d = Math.abs(row.x - TOWN_CENTER.x) + Math.abs(row.y - TOWN_CENTER.y);
+      if (d > 14) {
+        return { id: g.id, title: g.title, at: { x: TOWN_CENTER.x, y: TOWN_CENTER.y } };
+      }
+    }
+  }
+  // 目标链走完 → 交给《灯火纪》：当前最靠前的未读章节就是新目标
+  return null;
+}
 
 function storyUnlocked(ch, ctx) {
   var c = ch.cond || null;
@@ -740,7 +793,8 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, d
     combo_at: 'INTEGER NOT NULL DEFAULT 0',
     house_slot: 'INTEGER NOT NULL DEFAULT -1',
     bag: "TEXT NOT NULL DEFAULT '{}'",
-    favor: "TEXT NOT NULL DEFAULT '{}'"
+    favor: "TEXT NOT NULL DEFAULT '{}'",
+    walked: 'INTEGER NOT NULL DEFAULT 0'
   };
   try {
     var cols = {};
@@ -931,7 +985,8 @@ function playerPublic(row) {
     gathered: row.gathered,
     hat: row.hat || '0',
     lantern: row.lantern || '0',
-    title: row.title || ''
+    title: row.title || '',
+    tutorial: row.tutorial || 0
   };
 }
 
@@ -1725,6 +1780,7 @@ router.post('/move', requireAuth, function (req, res) {
   // 未带 steps 的调用（e2e / 旧客户端）按移动距离取整兜底 —— 从 A 到 B 至少算 1 步
   var dist = Math.sqrt((tx - row.x) * (tx - row.x) + (ty - row.y) * (ty - row.y));
   var steps = Math.max(1, Math.min(6, Number(body.steps) | 0 || Math.round(dist)));
+  try { db.prepare('UPDATE shiguang_players SET walked = walked + ? WHERE user_id = ?').run(steps, userId); } catch (e) {}
   if (steps > 0) bumpQuest(userId, 'walk', steps);
 
   res.json({
@@ -2966,6 +3022,7 @@ router.post('/npc/gift', requireAuth, function (req, res) {
 
 // ---------- v4.7 剧情接口：《灯火纪》 ----------
 router.get('/story', requireAuth, function (req, res) {
+  try {
   var userId = String(req.user.user_id);
   var count = 0;
   try { count = db.prepare('SELECT COUNT(*) AS c FROM shiguang_lamps').get().c; } catch (e) {}
@@ -2998,10 +3055,27 @@ router.get('/story', requireAuth, function (req, res) {
       paras: unlocked ? ch.paras : null
     });
   }
-  res.json({ code: 200, data: { chapters: chapters, season: SEASONS[seasonOf(cal.day)], day: cal.day } });
-});
+  // v4.10 目标链：开场演出结束后，永远知道下一步做什么
+  var goal = null;
+  try { goal = currentGoal(userId); } catch (e5) {
+    console.log('[shiguang] /story goal error:', e5 && e5.message);
+  }
+  res.json({
+    code: 200,
+    data: {
+      chapters: chapters,
+      season: SEASONS[seasonOf(cal.day)],
+      day: cal.day,
+      goal: goal ? { id: goal.id, title: goal.title, at: goal.at || null } : null,
+      lampCount: count,
+      stage: stageFor(count)
+    }
+  });
 
-router.post('/story/read', requireAuth, function (req, res) {
+  } catch (eStory) {
+    return res.json({ code: 200, data: { chapters: [], error: String((eStory && eStory.message) || eStory) } });
+  }
+});router.post('/story/read', requireAuth, function (req, res) {
   var userId = String(req.user.user_id);
   var ch = String((req.body && req.body.chapter) || '');
   var known = null;
