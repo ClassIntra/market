@@ -434,6 +434,60 @@ ok(r.json && r.json.data && r.json.data.rejected === 'amount', '单次超 2 学�
 teleport(U.b, 0, 0);
 await call('POST', '/api/shiguang/enter', U.b, {});
 
+// ---------- v4.7 完整世界：采集 / 背包经济 / 好感 / 剧情 ----------
+section('五点六、采集背包与剧情（v4.7）');
+// 找树格与矿格（客户端同参的分布函数）
+let treeCell = null, oreCell = null;
+for (let i = 0; i < 57600 && !(treeCell && oreCell); i++) {
+  const gx = i % 240, gy = Math.floor(i / 240);
+  const tl = T.cells.charCodeAt(i) - 48;
+  if (!treeCell && tl === 1 && T.nodes.charCodeAt(i) !== 49) {
+    // 星苔草地的树：hash 复刻由服务端定 —— 试探式：先砍再判
+    treeCell = treeCell || { x: gx, y: gy, i: i };
+  }
+  if (!oreCell && tl === 3) oreCell = { x: gx, y: gy };
+}
+ok(!!oreCell, '找到石岛矿格');
+teleport(U.a, oreCell.x, oreCell.y);
+r = await call('POST', '/api/shiguang/world/mine', U.a, {});
+const mineOk = r.json && r.json.data && (r.json.data.kind === 'ore' || (r.json.data.rejected === 'cooldown' || r.json.data.rejected === 'nothing'));
+ok(mineOk, '矿镐请求可达（挖到或该格无矿）', r.json && r.json.data);
+if (r.json.data && r.json.data.kind === 'ore') {
+  ok(Number(q("SELECT bag FROM shiguang_players WHERE user_id = ?", U.a)[0].bag.match(/"ore":1/) ? 1 : 0) >= 0 && (JSON.parse(q('SELECT bag FROM shiguang_players WHERE user_id = ?', U.a)[0].bag).ore || 0) >= 1, '矿石进背包');
+}
+// 卖材料
+dbRun("UPDATE shiguang_players SET bag = ? WHERE user_id = ?", JSON.stringify({ ore: 3 }), U.a);
+const shards0 = Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards);
+r = await call('POST', '/api/shiguang/market/sell', U.a, { crop: 'ore', count: 3 });
+ok(r.json && r.json.data && r.json.data.gain === 27, '卖 3 矿石 +27 星屑', r.json && r.json.data);
+ok(Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards) === shards0 + 27, '卖货落库');
+ok(JSON.parse(q('SELECT bag FROM shiguang_players WHERE user_id = ?', U.a)[0].bag).ore === undefined, '卖完背包清空该物品');
+
+// 送果实：面对面
+dbRun("UPDATE shiguang_players SET bag = ? WHERE user_id = ?", JSON.stringify({ c0: 2 }), U.a);
+teleport(U.b, meadowCell.x, meadowCell.y);
+await call('POST', '/api/shiguang/enter', U.b, {});
+teleport(U.a, meadowCell.x, meadowCell.y);
+r = await call('POST', '/api/shiguang/bag/gift', U.a, { to: U.b, crop: 'c0', count: 2 });
+ok(r.json && r.json.data && r.json.data.count === 2, '面对面送果实成功', r.json && r.json.data);
+ok(JSON.parse(q('SELECT bag FROM shiguang_players WHERE user_id = ?', U.b)[0].bag || '{}').c0 === 2, 'B 的背包收到 2 株');
+
+// NPC 送礼好感
+teleport(U.a, 114, 138);   // 守灯人锚点（240 缩放后）：游荡半径 7 格内即可送礼
+r = await call('POST', '/api/shiguang/npc/gift', U.a, { npc: 'npc_li', shards: 3 });
+ok(r.json && r.json.data && r.json.data.favor === 3 && r.json.data.level === '陌生', '给守灯人送礼 → 好感 3（陌生）', r.json && r.json.data);
+r = await call('GET', '/api/shiguang/story', U.a);
+const storyCh = r.json && r.json.data && r.json.data.chapters;
+ok(Array.isArray(storyCh) && storyCh.length === 7, '《灯火纪》七章齐（' + (storyCh ? storyCh.filter(c => c.unlocked).length : 0) + ' 章已解锁）');
+ok(storyCh && storyCh[0].unlocked && storyCh[0].paras && storyCh[0].paras.length >= 3, '序章「长夜之始」开卷即读');
+ok(storyCh && storyCh[6].unlocked === false && storyCh[6].paras === null, '终章未解锁时正文保密');
+r = await call('POST', '/api/shiguang/story/read', U.a, { chapter: 's0' });
+ok(r.json && r.json.data && r.json.data.chapter === 's0', '记下序章（已读落库）');
+r = await call('GET', '/api/shiguang/story', U.a);
+ok(r.json.data.chapters[0].read === true, '已读状态回读');
+teleport(U.b, 0, 0);
+await call('POST', '/api/shiguang/enter', U.b, {});
+
 // ---------- v4.2 星露谷的一天 ----------
 section('五点五、星露谷的一天（v4.2）');
 r = await call('POST', '/api/shiguang/enter', U.a, {});
@@ -455,12 +509,15 @@ ok(r.json && r.json.data && r.json.data.rejected === 'growing' && r.json.data.le
 // 隔夜长满（按服务端给的差值推 growth）→ 收成成功
 const daysLeft = r.json.data.left;
 dbRun('UPDATE shiguang_flowers SET growth = growth + ? WHERE x = ? AND y = ?', daysLeft, meadowCell.x, meadowCell.y);
+const harvestedSpecies = q('SELECT species FROM shiguang_flowers WHERE x = ? AND y = ?', meadowCell.x, meadowCell.y)[0].species;
 const beforeHarvest = Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards);
 r = await call('POST', '/api/shiguang/flower/harvest', U.a, {});
 ok(r.json && r.json.data && typeof r.json.data.got === 'number' && r.json.data.got > 0,
   '长满后收成 +' + (r.json.data ? r.json.data.got : '?') + ' 星屑', r.json && r.json.data);
-ok(Number(q('SELECT shards FROM shiguang_players WHERE user_id = ?', U.a)[0].shards) === beforeHarvest + (r.json.data ? r.json.data.got : 0),
-  '收成星屑落库');
+// v4.7 背包经济：收成进包不直接变现 —— bag 里应该出现对应果实
+const bagJson = q('SELECT bag FROM shiguang_players WHERE user_id = ?', U.a)[0].bag || '{}';
+const bagObj = JSON.parse(bagJson);
+ok(bagObj['c' + harvestedSpecies] >= 1, '收成进背包（bag 落库）', bagJson);
 ok(q('SELECT species FROM shiguang_flowers WHERE x = ? AND y = ?', meadowCell.x, meadowCell.y)[0].species === -1,
   '收完的土回到「翻好」（species=-1，可复种）');
 // dawn 广播带天气（sun/rain）—— 日历推进时全班一起掷骰子

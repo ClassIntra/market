@@ -335,6 +335,14 @@ var STAGES = [
 // 定价逻辑：种子的钱是入场费，收益 ≈ 种子价 × 2~3，摊到天数后
 // 「短期作物回本快、长期作物利润厚」—— 星露谷的经济骨架。
 var DAY_MS = 6 * 60 * 1000;
+// 季节：7 天一季，春 → 夏 → 秋 → 冬 轮换（第 1~7 天春…）。
+// 当季作物长得快（隔夜长两节），过季作物不能新种 —— 地里的照常生长。
+var SEASON_DAYS = 7;
+var SEASONS = ['春', '夏', '秋', '冬'];
+function seasonOf(day) {
+  // 返回 0~3 索引（与 CROPS[].season 同型）；展示用 SEASONS[i]
+  return Math.floor(((day - 1) % (SEASON_DAYS * 4)) / SEASON_DAYS);
+}
 var CROPS = {
   c_wheat:  { name: '星麦',   days: 2,  seed: 2,  yield: 6 },
   c_berry:  { name: '雾莓',   days: 3,  seed: 4,  yield: 11 },
@@ -374,7 +382,111 @@ function advanceFarmDay(now) {
     }
   } catch (e) {}
   // 新的一天 = 全班的晨光。田不会等人。
-  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather });
+  broadcast('shiguang.world.dawn', { day: cal.day, grown: grown, weather: cal.weather, season: SEASONS[seasonOf(cal.day)] });
+}
+
+// ---------------- v4.7 世界剧情《灯火纪》 ----------------
+// 七章主线。解锁条件全部由世界实时状态判定（不落库进度），
+// 落库的只有「你读到哪一章」—— 每个人按自己的节奏翻开这本志。
+// 正文写得像信，不像公告：这一行字要配得上等它等的那些天。
+var STORY = [
+  {
+    id: 's0', title: '序章 · 长夜之始',
+    hint: '进入群岛即启',
+    npc: '',
+    paras: [
+      '很多年前，群岛的夜不是这样的。',
+      '那时灯塔自己会亮，鲸群每夜绕岛一圈，石碑上刻的字在夜里发着微光——老人们说，那是「先行者」留下的名字，谁的名字在碑上，谁就没有真的离开。',
+      '后来灯塔的光一年比一年弱。不是灯芯坏了——是点亮它的人，走散了。',
+      '你们班来到群岛的那天，云海吞掉了最后一点天光。守灯人·栗站在灯塔下，对每个人说的都是同一句话：',
+      '「灯不是灯。是『有人在』的证据。」'
+    ]
+  },
+  {
+    id: 's1', title: '第一章 · 第一盏灯',
+    hint: '全班点亮第 1 根灯柱',
+    npc: 'npc_li',
+    cond: { kind: 'lamps', at: 1 },
+    paras: [
+      '第一根灯柱立起来的那个晚上，整片云海都看得到它。',
+      '守灯人·栗擦了擦手，像在想一件很久远的事：「我守这座灯塔二十年了。灯没坏过一次——坏掉的是点灯的人。他们一个个搬去了云海之外，灯就一盏盏暗了下去。」',
+      '「你现在点的不是灯柱。是把这个岛重新变成『有人住的地方』。」'
+    ]
+  },
+  {
+    id: 's2', title: '第二章 · 泥土的回答',
+    hint: '你第一次收下收成',
+    npc: 'npc_lang',
+    own: { kind: 'harvest' },
+    paras: [
+      '第一批作物熟的那天，花匠·榔蹲在你的田边看了很久。',
+      '「种子不欠谁一个花期。」她说，「你浇的水、你等的那些天，它都记得——然后一次性还给你。」',
+      '「所以别催。地是最诚实的，也是最慢的。」'
+    ]
+  },
+  {
+    id: 's3', title: '第三章 · 石头开口',
+    hint: '五座石碑全部唤醒',
+    npc: '',
+    cond: { kind: 'steles', at: 5 },
+    paras: [
+      '五座石碑全部亮起的那夜，碑上的字一个个浮了出来。',
+      '把它们连起来读，是先行者留下的最后一句话：',
+      '「我们不是离开了——我们是先走一步，去把云海那边的光点好。你们到了那一天，记得把我们记回来。」',
+      '从那天起，群岛每晚都多一颗新的星。'
+    ]
+  },
+  {
+    id: 's4', title: '第四章 · 海的那边',
+    hint: '钓起一条传说级星光',
+    npc: 'npc_yao',
+    own: { kind: 'legend_fish' },
+    paras: [
+      '观星·遥把那条传说级的星光捧在手里，看了很久才放回水里。',
+      '「传说鱼不挑饵，只挑人。」她说，「它们只游向认真的人——认真走、认真等、认真把一件事做完的人。」',
+      '「海的那边有什么？我不知道。但它们知道，所以它们来看你。」'
+    ]
+  },
+  {
+    id: 's5', title: '第五章 · 暗涌的真相',
+    hint: '和全班一起熬过一次暗涌',
+    npc: 'npc_li',
+    cond: { kind: 'surge' },
+    paras: [
+      '第一次暗涌过去之后，守灯人·栗终于开口讲了那件事。',
+      '「暗涌不是灾难。是群岛在换气——它把白天吸进去的杂光吐出来，好记得自己本来的样子。」',
+      '「雾灵呢？」你问。',
+      '「雾灵是忘了自己名字的灯光。」他说，「你手里有火，它们就跟着你——不是要抢，是想起来。每一盏灯柱亮起来，就有一只雾灵想起自己的名字，变回一颗星。」'
+    ]
+  },
+  {
+    id: 's6', title: '终章 · 拾光之海',
+    hint: '全班点亮 100 根灯柱，把天光推到尽头',
+    npc: '',
+    cond: { kind: 'stage', at: 4 },
+    paras: [
+      '第一百根灯柱亮起时，灯塔睁开了眼睛。',
+      '光柱扫过云海，雾退成一层薄纱，八座岛像一串被点亮的脚印。鲸群跃出海面——它们等这一天，等了二十年。',
+      '守灯人·栗仰着头，轻声念出碑上的名字。每念一个，天上就多一颗星。',
+      '「看，」他说，「拾光之海。你们把它走成了星图。」',
+      '——而你低头看自己的手：上面有火、有泥土、有星屑，还有明天要浇的那瓢水。',
+      '群岛的故事到这里并没有结束。因为「有人在」这件事，每一天都要重新做一遍。'
+    ]
+  }
+];
+
+function storyUnlocked(ch, ctx) {
+  var c = ch.cond || null;
+  if (ch.id === 's0') return true;
+  if (!c) {
+    // own：个人事件（收成 / 传说鱼）由调用方传入
+    return false;
+  }
+  if (c.kind === 'lamps') return ctx.lampCount >= c.at;
+  if (c.kind === 'steles') return ctx.stelesDone >= c.at;
+  if (c.kind === 'stage') return ctx.stage >= c.at;
+  if (c.kind === 'surge') return ctx.surgeSeen >= 1;
+  return false;
 }
 
 // 逐岛钓星特产：岛编号 → 特产鱼 id。在对应岛的码头抛竿，有概率只从特产池抽。
@@ -426,22 +538,28 @@ var SHOP = {
 //
 // 每一档的回报率（yield / cost）：一档 ~2.0，二档 ~3.2，三档 ~4.8
 var CROPS = [
+  // 每季 3 种：春(0) 夏(1) 秋(2) 冬(3)。过季不能新种，地里的照常生长。
   // 一档：快，1~2 天（今天种，明天就有得收）
-  { id: 0,  name: '星苔',   tier: 1, cost: 2,   days: 1,  yield: 4 },
-  { id: 1,  name: '萤草',   tier: 1, cost: 3,   days: 1,  yield: 7 },
-  { id: 2,  name: '露铃',   tier: 1, cost: 5,   days: 2,  yield: 12 },
-  { id: 3,  name: '风铃籽', tier: 1, cost: 8,   days: 2,  yield: 20 },
+  { id: 0,  name: '星苔',   tier: 1, cost: 2,   days: 1,  yield: 4,   season: 0 },
+  { id: 1,  name: '萤草',   tier: 1, cost: 3,   days: 1,  yield: 7,   season: 0 },
+  { id: 2,  name: '露铃',   tier: 1, cost: 5,   days: 2,  yield: 12,  season: 0 },
+  { id: 3,  name: '风铃籽', tier: 1, cost: 8,   days: 2,  yield: 20,  season: 1 },
   // 二档：中，3~5 天
-  { id: 4,  name: '月见花', tier: 2, cost: 12,  days: 3,  yield: 38 },
-  { id: 5,  name: '灯芯藤', tier: 2, cost: 18,  days: 4,  yield: 60 },
-  { id: 6,  name: '潮汐穗', tier: 2, cost: 26,  days: 5,  yield: 88 },
-  { id: 7,  name: '霜葡萄', tier: 2, cost: 36,  days: 5,  yield: 124 },
+  { id: 4,  name: '月见花', tier: 2, cost: 12,  days: 3,  yield: 38,  season: 1 },
+  { id: 5,  name: '灯芯藤', tier: 2, cost: 18,  days: 4,  yield: 60,  season: 1 },
+  { id: 6,  name: '潮汐穗', tier: 2, cost: 26,  days: 5,  yield: 88,  season: 2 },
+  { id: 7,  name: '霜葡萄', tier: 2, cost: 36,  days: 5,  yield: 124, season: 2 },
   // 三档：慢，7~14 天（整个星期的牵挂）
-  { id: 8,  name: '珊瑚果', tier: 3, cost: 60,  days: 7,  yield: 260 },
-  { id: 9,  name: '拾光麦', tier: 3, cost: 90,  days: 9,  yield: 420 },
-  { id: 10, name: '星陨果', tier: 3, cost: 140, days: 12, yield: 680 },
-  { id: 11, name: '长夜葵', tier: 3, cost: 220, days: 14, yield: 1100 }
+  { id: 8,  name: '珊瑚果', tier: 3, cost: 60,  days: 7,  yield: 260,  season: 2 },
+  { id: 9,  name: '拾光麦', tier: 3, cost: 90,  days: 9,  yield: 420,  season: 3 },
+  { id: 10, name: '星陨果', tier: 3, cost: 140, days: 12, yield: 680,  season: 3 },
+  { id: 11, name: '长夜葵', tier: 3, cost: 220, days: 14, yield: 1100, season: 3 }
 ];
+// 材料目录：斧头砍树得木材，镐挖矿得矿石 —— 都能卖给钱庄
+var MATERIALS = {
+  wood: { name: '云杉木', yield: 6 },
+  ore:  { name: '星岩矿', yield: 9 }
+};
 // 兼容旧字段：客户端曾经靠 flowerSpecies 拿花名，现在作物表才是唯一的名字来源
 var FLOWER_SPECIES = CROPS.map(function (c) { return c.name; });
 
@@ -537,7 +655,15 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_shiguang_lamp_pos ON shiguang_lam
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_bottles (id INTEGER PRIMARY KEY AUTOINCREMENT, x INTEGER NOT NULL, y INTEGER NOT NULL, user_id TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_shiguang_bottle_pos ON shiguang_bottles(x, y)');
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_explored (x INTEGER NOT NULL, y INTEGER NOT NULL, at INTEGER NOT NULL, by_user TEXT NOT NULL DEFAULT \'\', PRIMARY KEY (x, y))');
-db.exec('CREATE TABLE IF NOT EXISTS shiguang_nodes (x INTEGER NOT NULL, y INTEGER NOT NULL, ready_at INTEGER NOT NULL, PRIMARY KEY (x, y))');
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_nodes (x INTEGER NOT NULL, y INTEGER NOT NULL, ready_at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT \'star\', PRIMARY KEY (x, y))');
+(function ensureNodeKind() {
+  try {
+    var nk = {};
+    var nr = db.prepare('PRAGMA table_info(shiguang_nodes)').all();
+    for (var ni = 0; ni < nr.length; ni++) nk[nr[ni].name] = true;
+    if (!nk.kind) db.exec('ALTER TABLE shiguang_nodes ADD COLUMN kind TEXT NOT NULL DEFAULT \'star\'');
+  } catch (e) {}
+})();
 // v2 新表
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_flowers (x INTEGER NOT NULL, y INTEGER NOT NULL, species INTEGER NOT NULL, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (x, y))');
 db.exec('CREATE INDEX IF NOT EXISTS idx_shiguang_flower_user ON shiguang_flowers(user_id)');
@@ -550,6 +676,11 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_steles (x INTEGER NOT NULL, y INTEG
 // v3.1 —— NPC 对话进度：每人跟每个 NPC 聊到第几句。
 // 必须落库：一次会话里聊完就忘，等于「这个世界不记得你」。
 db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_talk (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, said INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, PRIMARY KEY (user_id, npc_id))');
+
+// v4.7 —— NPC 好感度与剧情已读。
+// 送礼给岛民会攒好感：陌生 → 熟识 → 知己，台词与称呼都会变。
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_npc_favor (user_id TEXT NOT NULL, npc_id TEXT NOT NULL, favor INTEGER NOT NULL DEFAULT 0, last_gift_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, npc_id))');
+db.exec('CREATE TABLE IF NOT EXISTS shiguang_story_read (user_id TEXT NOT NULL, chapter TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, chapter))');
 
 // v4.2 —— 星露谷核心循环：全班共享的游戏日历 + 各人的农田。
 // 一天 6 分钟；作物「浇水才长、隔日抽高、成熟变现」——
@@ -600,7 +731,9 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, d
     last_plant_at: 'INTEGER NOT NULL DEFAULT 0',
     combo: 'INTEGER NOT NULL DEFAULT 0',
     combo_at: 'INTEGER NOT NULL DEFAULT 0',
-    house_slot: 'INTEGER NOT NULL DEFAULT -1'
+    house_slot: 'INTEGER NOT NULL DEFAULT -1',
+    bag: "TEXT NOT NULL DEFAULT '{}'",
+    favor: "TEXT NOT NULL DEFAULT '{}'"
   };
   try {
     var cols = {};
@@ -657,6 +790,7 @@ var meteorNextAt = Date.now() + (5 + Math.floor(Math.random() * 6)) * 60 * 1000;
 
 // 暗涌：灯柱集体变暗的生存事件。纯内存状态，重启即清。
 var surge = { active: false, endsAt: 0, nextAt: Date.now() + SURGE_MIN_GAP_MS + Math.floor(Math.random() * (SURGE_MAX_GAP_MS - SURGE_MIN_GAP_MS)) };
+var surgeSeen = 0;   // 世界累计熬过的暗涌次数（剧情第五章钥匙；重启清零可接受）
 
 function key(x, y) { return x + ',' + y; }
 
@@ -1126,9 +1260,10 @@ var sweepTimer = setInterval(function () {
       startMeteor();
     }
     // 暗涌：开/收。与流星雨错峰（同屏两个全服事件太吵）。
-    if (surge.active) {
+      if (surge.active) {
       if (now >= surge.endsAt) {
         surge = { active: false, endsAt: 0, nextAt: now + SURGE_MIN_GAP_MS + Math.floor(Math.random() * (SURGE_MAX_GAP_MS - SURGE_MIN_GAP_MS)) };
+        surgeSeen += 1;
         broadcast('shiguang.world.surge', { active: false });
       }
     } else if (now >= surge.nextAt && online.size > 0 && !meteor.active) {
@@ -1418,7 +1553,8 @@ router.post('/enter', requireAuth, function (req, res) {
       lamps: lamps,
       flowers: flowers,
       players: players,
-      calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()), weather: cal.weather },
+      calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()), weather: cal.weather, season: SEASONS[seasonOf(cal.day)] },
+      bag: bagOf(row),
       stage: stage,
       stageInfo: STAGES[stage],
       lampCount: count,
@@ -1757,6 +1893,10 @@ router.post('/plant', requireAuth, function (req, res) {
   // 种什么由客户端选（种子面板），钱按所选的作物扣
   var wantCrop = cropOf(body.species === undefined ? 0 : body.species);
   if (!wantCrop) return res.json({ code: 200, data: { rejected: 'crop' } });
+  // 星露谷的季节律：过季的种子不肯下地（地里的照常长）
+  if (wantCrop.season !== seasonOf(cal.day)) {
+    return res.json({ code: 200, data: { rejected: 'season', season: seasonOf(cal.day), need: SEASONS[wantCrop.season] } });
+  }
   if (row.shards < wantCrop.cost) {
     return res.json({ code: 200, data: { rejected: 'shards', need: wantCrop.cost, have: row.shards } });
   }
@@ -1878,13 +2018,19 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
   if (String(f.user_id) !== userId) return res.json({ code: 200, data: { rejected: 'notMine' } });
 
   var got = cf2.yield;
+  // v4.7 背包经济：收获进包不直接变现 —— 卖给钱庄、或送给同学，由你决定
+  var bag = {};
+  try { bag = JSON.parse(row.bag || '{}') || {}; } catch (e) {}
+  var cropKey = 'c' + f.species;
+  var bonus = seasonOf(cal.day) === cf2.season && Math.random() < 0.35 ? 2 : 1;
+  bag[cropKey] = (bag[cropKey] || 0) + bonus;
   try {
     var tx = db.transaction(function () {
       // 星露谷的温柔：收完的土地回到「翻好」，明天直接再种
       db.prepare("UPDATE shiguang_flowers SET species = -1, planted_day = 0, growth = 0, watered_day = -1, ready_at = 0, water = 0, last_water_by = '' WHERE x = ? AND y = ?")
         .run(row.x, row.y);
-      db.prepare('UPDATE shiguang_players SET shards = shards + ?, last_seen = ? WHERE user_id = ?')
-        .run(got, now, userId);
+      db.prepare('UPDATE shiguang_players SET bag = ?, last_seen = ? WHERE user_id = ?')
+        .run(JSON.stringify(bag), now, userId);
       // 帮过忙的人分一点：这是他「顺手浇过一瓢」的回报
       var helper = String(f.last_water_by || '');
       if (helper && helper !== userId) {
@@ -1898,9 +2044,13 @@ router.post('/flower/harvest', requireAuth, function (req, res) {
   }
 
   var p = online.get(userId);
-  if (p) { p.shards = (p.shards || 0) + got; online.set(userId, p); }
+  if (p) { online.set(userId, p); }
   pendingPlants.push([row.x, row.y, -1, userId]);
   bumpQuest(userId, 'harvest', 1);
+  // 剧情第二章钥匙：个人首次收获
+  try {
+    db.prepare('INSERT OR IGNORE INTO shiguang_story_read (user_id, chapter, at) VALUES (?, \'s2_unlock\', ?)').run(userId, now);
+  } catch (e) {}
   evaluateAchievements(userId);
 
   var updated = playerRow(userId);
@@ -2032,6 +2182,9 @@ router.post('/npc/talk', requireAuth, function (req, res) {
       .run(userId, nid, got.said, Date.now());
   } catch (e) {}
 
+  var favorRow = null;
+  try { favorRow = db.prepare('SELECT favor FROM shiguang_npc_favor WHERE user_id = ? AND npc_id = ?').get(userId, nid); } catch (e) {}
+  var favor = (favorRow && favorRow.favor) || 0;
   res.json({
     code: 200,
     data: {
@@ -2039,6 +2192,8 @@ router.post('/npc/talk', requireAuth, function (req, res) {
       name: n.def.name,
       role: n.def.role || '岛民',
       shop: n.def.shop || '',
+      favor: favor,
+      favorLevel: favor >= 15 ? '知己' : (favor >= 5 ? '熟识' : '陌生'),
       lines: got.lines,
       fixed: got.fixed,
       said: got.said
@@ -2608,6 +2763,221 @@ router.post('/gift_xy', requireAuth, function (req, res) {
     code: 200,
     data: { to: to, amount: amount, grant: (v && v.grant) || 0, tx_id: r && r.tx_id }
   });
+});
+
+// ---------------- v4.7 背包经济：卖出 / 送果实 / 采集 ----------------
+
+function bagOf(row) {
+  try { return JSON.parse(row.bag || '{}') || {}; } catch (e) { return {}; }
+}
+
+// 卖给钱庄：果实按目录价变现
+router.post('/market/sell', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var body = req.body || {};
+  var cropId = String(body.crop || '');
+  var count = Math.max(1, Math.min(50, Number(body.count || 0) | 0));
+  var item = null;
+  if (cropId === 'wood') item = MATERIALS.wood;
+  else if (cropId === 'ore') item = MATERIALS.ore;
+  else {
+    var idx = /^c(\d+)$/.exec(cropId);
+    if (idx) item = CROPS[Number(idx[1])];
+  }
+  if (!item) return res.json({ code: 200, data: { rejected: 'item' } });
+  var bag = bagOf(row);
+  if (!((bag[cropId] || 0) >= count)) return res.json({ code: 200, data: { rejected: 'not_enough' } });
+  bag[cropId] -= count;
+  if (bag[cropId] <= 0) delete bag[cropId];
+  var got = item.yield * count;
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('UPDATE shiguang_players SET bag = ?, shards = shards + ?, last_seen = ? WHERE user_id = ?')
+        .run(JSON.stringify(bag), got, Date.now(), userId);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '卖不掉' });
+  }
+  var p = online.get(userId);
+  if (p) { p.shards = (p.shards || 0) + got; online.set(userId, p); }
+  res.json({ code: 200, data: { crop: cropId, count: count, gain: got, shards: row.shards + got, bag: bag } });
+});
+
+// 送果实：面对面（6 格内），bag 直接转移
+router.post('/bag/gift', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var body = req.body || {};
+  var to = String(body.to || '');
+  var cropId = String(body.crop || '');
+  var count = Math.max(1, Math.min(20, Number(body.count || 0) | 0));
+  var target = null;
+  online.forEach(function (p, uid) { if (uid === to) target = p; });
+  if (!target || to === userId) return res.json({ code: 200, data: { rejected: 'offline' } });
+  if (Math.abs(target.x - row.x) > 6 || Math.abs(target.y - row.y) > 6) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  var bag = bagOf(row);
+  if (!((bag[cropId] || 0) >= count)) return res.json({ code: 200, data: { rejected: 'not_enough' } });
+  bag[cropId] -= count;
+  if (bag[cropId] <= 0) delete bag[cropId];
+  var trow = playerRow(to);
+  var tbag = trow ? bagOf(trow) : {};
+  tbag[cropId] = (tbag[cropId] || 0) + count;
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('UPDATE shiguang_players SET bag = ?, last_seen = ? WHERE user_id = ?').run(JSON.stringify(bag), Date.now(), userId);
+      db.prepare('UPDATE shiguang_players SET bag = ?, last_seen = ? WHERE user_id = ?').run(JSON.stringify(tbag), Date.now(), to);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '没能送出去' });
+  }
+  broadcast('shiguang.you.bag_gift', { from: userId, fromName: userName(userId), to: to, toName: userName(to), crop: cropId, count: count }, [userId, to]);
+  res.json({ code: 200, data: { to: to, crop: cropId, count: count, bag: bag } });
+});
+
+// 砍树 / 挖矿：材料进包，节点 2 分钟重生
+var GATHER_RESPAWN_MS = 120 * 1000;
+
+function gatherNode(kind) {
+  return kind === 'tree' || kind === 'ore';
+}
+
+function nodeStateAt(x, y, kind) {
+  try {
+    return db.prepare('SELECT ready_at FROM shiguang_nodes WHERE x = ? AND y = ? AND kind = ?').get(x, y, kind);
+  } catch (e) { return null; }
+}
+
+function gatherRoute(kind, toolVerb) {
+  return function (req, res) {
+    var userId = String(req.user.user_id);
+    var row = playerRow(userId);
+    if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+    var x = row.x;
+    var y = row.y;
+    var has = kind === 'tree' ? world.hasTree(x, y) : world.hasOre(x, y);
+    if (!has) {
+      return res.json({ code: 200, data: { rejected: 'nothing', hint: kind === 'tree' ? '脚下没有可以砍的树' : '脚下没有矿脉（矿在星坠/望潮/霜屿的石地上）' } });
+    }
+    var ns = nodeStateAt(x, y, kind);
+    var now = Date.now();
+    if (ns && now < ns.ready_at) {
+      return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((ns.ready_at - now) / 1000) } });
+    }
+    var got = kind === 'tree' ? (Math.random() < 0.3 ? 2 : 1) : (Math.random() < 0.25 ? 2 : 1);
+    var bag = bagOf(row);
+    var key = kind === 'tree' ? 'wood' : 'ore';
+    bag[key] = (bag[key] || 0) + got;
+    try {
+      var tx = db.transaction(function () {
+        db.prepare('INSERT OR REPLACE INTO shiguang_nodes (x, y, ready_at, kind) VALUES (?, ?, ?, ?)').run(x, y, now + GATHER_RESPAWN_MS, kind);
+        db.prepare('UPDATE shiguang_players SET bag = ?, last_seen = ? WHERE user_id = ?').run(JSON.stringify(bag), now, userId);
+      });
+      tx();
+    } catch (e) {
+      return res.status(500).json({ code: 500, message: '采集失败' });
+    }
+    broadcast('shiguang.world.gather', { kind: kind, x: x, y: y, by: userName(userId) });
+    res.json({ code: 200, data: { kind: key, got: got, bag: bag } });
+  };
+}
+
+router.post('/world/chop', requireAuth, gatherRoute('tree', '砍'));
+router.post('/world/mine', requireAuth, gatherRoute('ore', '挖'));
+
+// ---------- v4.7 NPC 好感度：送礼攒 favor ----------
+// 等级：0-4 陌生 · 5-14 熟识 · 15+ 知己。送礼 1~5 星屑一次，有 60 秒冷却。
+router.post('/npc/gift', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var nid = String((req.body && req.body.npc) || '');
+  var n = npcState.get(nid);
+  if (!n) return res.status(404).json({ code: 404, message: '岛上没有这个人' });
+  if (Math.abs(row.x - n.x) > 5 || Math.abs(row.y - n.y) > 5) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  var shards = Math.max(1, Math.min(5, Number((req.body && req.body.shards) || 1)));
+  if (row.shards < shards) return res.json({ code: 200, data: { rejected: 'shards' } });
+  // NPC 在 ±7 格内游荡：送礼的「走近」按游荡半径算（7 格），玩家看得见 TA 就送得到
+  if (Math.abs(row.x - n.x) > 7 || Math.abs(row.y - n.y) > 7) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  var now = Date.now();
+  var favRow = null;
+  try { favRow = db.prepare('SELECT favor, last_gift_at FROM shiguang_npc_favor WHERE user_id = ? AND npc_id = ?').get(userId, nid); } catch (e) {}
+  if (favRow && now - favRow.last_gift_at < 60 * 1000) {
+    return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((60 * 1000 - (now - favRow.last_gift_at)) / 1000) } });
+  }
+  var favor = ((favRow && favRow.favor) || 0) + shards;
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('INSERT OR REPLACE INTO shiguang_npc_favor (user_id, npc_id, favor, last_gift_at) VALUES (?, ?, ?, ?)').run(userId, nid, favor, now);
+      db.prepare('UPDATE shiguang_players SET shards = shards - ?, last_seen = ? WHERE user_id = ?').run(shards, now, userId);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '送礼失败' });
+  }
+  var p = online.get(userId);
+  if (p) { p.shards = Math.max(0, (p.shards || 0) - shards); online.set(userId, p); }
+  var level = favor >= 15 ? '知己' : (favor >= 5 ? '熟识' : '陌生');
+  res.json({ code: 200, data: { npc: nid, favor: favor, level: level, shards: row.shards - shards } });
+});
+
+// ---------- v4.7 剧情接口：《灯火纪》 ----------
+router.get('/story', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var count = 0;
+  try { count = db.prepare('SELECT COUNT(*) AS c FROM shiguang_lamps').get().c; } catch (e) {}
+  var stelesDone = 0;
+  try { stelesDone = db.prepare('SELECT COUNT(*) AS c FROM shiguang_steles').get().c; } catch (e) {}
+  var ctx = { lampCount: count, stelesDone: stelesDone, stage: stageFor(count), surgeSeen: surgeSeen };
+  var read = {};
+  try {
+    var rows = db.prepare('SELECT chapter FROM shiguang_story_read WHERE user_id = ?').all(userId);
+    for (var i = 0; i < rows.length; i++) read[rows[i].chapter] = true;
+  } catch (e) {}
+  // own 类章节：个人事件钥匙（收成 → s2；传说鱼 → s4；都在 read 里由触发时写入）
+  var legendFish = false;
+  try {
+    legendFish = db.prepare("SELECT 1 AS one FROM shiguang_catches WHERE user_id = ? AND species IN ('f_dragon', 'f_whale', 'f_comet') LIMIT 1").get(userId) != null;
+  } catch (e) {}
+  var chapters = [];
+  for (var c = 0; c < STORY.length; c++) {
+    var ch = STORY[c];
+    var unlocked = false;
+    if (ch.id === 's0') unlocked = true;
+    else if (ch.cond) unlocked = storyUnlocked(ch, ctx);
+    else if (ch.own && ch.own.kind === 'harvest') unlocked = !!read['s2_unlock'] || !!read[ch.id];
+    else if (ch.own && ch.own.kind === 'legend_fish') unlocked = legendFish || !!read[ch.id];
+    // 读过 = 永久解锁（世界状态回退不收回故事）
+    if (read[ch.id]) unlocked = true;
+    chapters.push({
+      id: ch.id, title: ch.title, hint: ch.hint,
+      npc: ch.npc || '', unlocked: unlocked, read: !!read[ch.id],
+      paras: unlocked ? ch.paras : null
+    });
+  }
+  res.json({ code: 200, data: { chapters: chapters, season: SEASONS[seasonOf(cal.day)], day: cal.day } });
+});
+
+router.post('/story/read', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var ch = String((req.body && req.body.chapter) || '');
+  var known = null;
+  for (var i = 0; i < STORY.length; i++) if (STORY[i].id === ch) known = ch;
+  if (!known) return res.status(404).json({ code: 404, message: '没有这一章' });
+  try {
+    db.prepare('INSERT OR IGNORE INTO shiguang_story_read (user_id, chapter, at) VALUES (?, ?, ?)').run(userId, known, Date.now());
+  } catch (e) {}
+  res.json({ code: 200, data: { chapter: known } });
 });
 
 router.get('/rank', requireAuth, function (req, res) {

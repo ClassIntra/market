@@ -1752,6 +1752,65 @@
   margin-top: 1px;
 }
 
+/* ---------------- v4.7 完整世界：背包/剧情/好感 ---------------- */
+
+.sg-story-para {
+  font-size: 12.5px;
+  color: var(--sg-ink-2);
+  line-height: 1.9;
+  margin: 8px 4px 0;
+}
+
+.sg-talk-favor {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px 0;
+}
+
+.sg-talk-favor-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+}
+
+.sg-talk-favor-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, #f6a93c, #ffe27a);
+  transition: opacity 0.3s var(--sg-ease);
+}
+
+.sg-talk-favor-label {
+  flex: none;
+  margin-left: 8px;
+  font-size: 10.5px;
+  color: var(--sg-ink-3);
+}
+
+.sg-seed-season {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+}
+
+.sg-seed-season.is-in {
+  background: rgba(140, 220, 150, 0.18);
+  color: #9fdcae;
+}
+
+.sg-seed-season.is-out {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sg-ink-3);
+}
+
 /* ---------------- v4.6 城镇与学元 ---------------- */
 
 .sg-clock-xy-row {

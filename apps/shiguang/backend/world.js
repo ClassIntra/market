@@ -411,6 +411,22 @@ function hasNode(x, y) {
 
 // 节点分布位图：与地形一起下发给前端。
 var cachedNodeBits = null;
+// v4.7 采集节点：可砍的树（草地/路边，避开星屑格）与可挖的矿（石岛石地）。
+// 与星屑同一套哈希分布 —— 世界记得每个格子该长什么。
+function hasTree(x, y) {
+  if (!walkable(x, y)) return false;
+  var t = tileAt(x, y);
+  if (t !== MEADOW && t !== PATH) return false;
+  if (hasNode(x, y)) return false;
+  return hash2(x, y, 19) < 0.02;
+}
+
+function hasOre(x, y) {
+  if (!walkable(x, y)) return false;
+  if (tileAt(x, y) !== STONE) return false;
+  return hash2(x, y, 23) < 0.035;
+}
+
 function nodeBits() {
   if (cachedNodeBits) return cachedNodeBits;
   var out = [];
@@ -531,6 +547,8 @@ module.exports = {
   nodeBits: nodeBits,
   walkable: walkable,
   hasNode: hasNode,
+  hasTree: hasTree,
+  hasOre: hasOre,
   nearestWalkable: nearestWalkable,
   stepDistance: stepDistance,
   islandNameAt: islandNameAt,

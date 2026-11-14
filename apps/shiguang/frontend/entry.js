@@ -52,6 +52,8 @@
     { base: '#e2ac78', shade: '#cb9260' },
     { base: '#c68d5c', shade: '#ad7446' }
   ];
+  var SEASONS = ['春', '夏', '秋', '冬'];
+
   var HAIR_COLORS = [
     { base: '#463529', shade: '#2e2118' },
     { base: '#7a5230', shade: '#5c3a1e' },
@@ -317,6 +319,9 @@
       calendar: { day: 1, endsAt: 0 },   // 全班的游戏日历（星露谷的一天）
       weather: 'sun',           // 今天的天气（sun / rain）
       xyGrant: 0,               // 我的赠送学元余额（平台学元体系）
+      bag: {},                  // 我的背包 { cropId|wood|ore: count }
+      season: '春',             // 今天的季节
+      storyChapters: [],        // 《灯火纪》章节缓存
       house: null,              // 我的宅基地 { x, y, gate }
       houses: [],               // 全班已认领的宅基地 [{ user_id, name, x, y }]
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
@@ -826,6 +831,22 @@
     online.appendChild(statOnline);
     hudRight.appendChild(online);
 
+    // v4.7 背包与拾光志入口按钮
+    var bagBtn = iconBtn('bottle', '背包');
+    bagBtn.addEventListener('click', function() { openBag(); });
+    var storyBtn = iconBtn('book', '拾光志');
+    storyBtn.addEventListener('click', function() {
+      refreshStory();
+      openSheet('story', '拾光志 · 灯火纪');
+      renderStory(sheetBody);
+    });
+    hudRight.appendChild(bagBtn);
+    hudRight.appendChild(storyBtn);
+    onDestroy(function() {
+      bagBtn.removeEventListener('click', openBag);
+      storyBtn.removeEventListener('click', storyBtn._h || function() {});
+    });
+
     function iconBtn(name, label) {
       var b = el('button', 'sg-icon-btn');
       b.type = 'button';
@@ -1109,7 +1130,8 @@
     clockFace.appendChild(clockDial);
     clockFace.appendChild(clockTime);
     var clockDate = el('div', 'sg-clock-date');
-    clockDate.appendChild(el('span', 'sg-clock-season', '春'));
+    var seasonEl = el('span', 'sg-clock-season', '春');
+    clockDate.appendChild(seasonEl);
     var clockDay = el('span', null, '第 1 天');
     clockDate.appendChild(clockDay);
     var clockWeather = el('span', 'sg-clock-weather', '☀');
@@ -1142,7 +1164,9 @@
       { key: 'till',   icon: 'gather', label: '锄头' },
       { key: 'water',  icon: 'bottle', label: '水壶' },
       { key: 'sow',    icon: 'flower', label: '种子' },
-      { key: 'cut',    icon: 'flag',   label: '镰刀' }
+      { key: 'cut',    icon: 'flag',   label: '镰刀' },
+      { key: 'chop',   icon: 'tree',   label: '斧头' },
+      { key: 'mine',   icon: 'spark',  label: '矿镐' }
     ];
     var toolBtns = {};
     for (var ti = 0; ti < toolDefs.length; ti++) {
@@ -5018,6 +5042,9 @@
         }
       }
 
+      // v4.7 采集节点呼吸标记（树 / 矿）
+      drawGatherNodes(ox, oy, t, now, x0, x1, y0, y1, size);
+
       drawFogLayer(ox, oy, t);
 
       for (var ny = y0; ny <= y1; ny++) {
@@ -5845,6 +5872,72 @@
       updateHud();
     }
 
+    // ---------- v4.7 采集：斧头砍树 / 矿镐挖矿 ----------
+    // 树长在草地（避开星屑），矿藏在星坠/望潮/霜屿的石地上。
+    // 材料进背包，卖给钱庄 —— 经济链从「种田」延伸到「采集」。
+    function doGatherNode(kind) {
+      if (!state.ready || flying) return;
+      if (walkPath.length) stopWalk();
+      var verb = kind === 'tree' ? '砍树' : '挖矿';
+      if (!lightState || lightState.v < 5) {
+        toast('体力不够了　' + verb + '要 5 点，先回灯边歇歇');
+        return;
+      }
+      http('post', kind === 'tree' ? '/shiguang/world/chop' : '/shiguang/world/mine', {}).then(function(d) {
+        if (!d) return;
+        if (d.rejected) {
+          if (d.rejected === 'cooldown') toast('这里刚被采过　歇 ' + d.wait + ' 秒');
+          else if (d.rejected === 'nothing') toast(d.hint || '脚下没有可以采集的');
+          else toast('采不了');
+          return;
+        }
+        lightState.v = Math.max(1, lightState.v - 5);
+        state.bag = d.bag || state.bag;
+        spawnParts(state.me.x + 0.5, state.me.y + 0.5, 5, 9, 0.6, kind === 'tree' ? [110, 160, 96] : [150, 160, 180]);
+        audio.blip(kind === 'tree' ? 220 : 320, 0.14, 'square', 0.08, 0);
+        toast((kind === 'tree' ? '砍到云杉木' : '挖到星岩矿') + ' ×' + d.got + '　放进背包了', 'warm');
+        updateHud();
+      }).catch(function() { toast('采集失败，稍后再试'); });
+    }
+
+    // 树/矿节点渲染：在 Kenney 摆件层之上加「可采集」的呼吸标记
+    function drawGatherNodes(ox, oy, t, now, x0, x1, y0, y1, size) {
+      for (var gy = y0; gy <= y1; gy++) {
+        for (var gx = x0; gx <= x1; gx++) {
+          if (gx < 0 || gy < 0 || gx >= size || gy >= size) continue;
+          var kind = null;
+          if (worldHasTree(gx, gy)) kind = 'tree';
+          else if (worldHasOre(gx, gy)) kind = 'ore';
+          if (!kind) continue;
+          var sx2 = ox + (gx + 0.5) * t;
+          var sy2 = oy + (gy + 0.62) * t;
+          var pk = 0.5 + 0.5 * Math.sin(now * 0.0026 + gx * 3 + gy * 7);
+          ctx.strokeStyle = kind === 'tree' ? 'rgba(140, 220, 150, ' + (0.35 + 0.3 * pk).toFixed(3) + ')'
+                                            : 'rgba(200, 214, 244, ' + (0.35 + 0.3 * pk).toFixed(3) + ')';
+          ctx.lineWidth = Math.max(1.2, t * 0.04);
+          ctx.beginPath();
+          ctx.arc(sx2, sy2, t * (0.26 + 0.05 * pk), 0, 6.2832);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 前端侧的节点判定（与服务端 world.hasTree/hasOre 同参同源）
+    function worldHasTree(x, y) {
+      if (!state.cells || !state.nodes) return false;
+      var idx = y * state.size + x;
+      var tl = state.cells.charCodeAt(idx) - 48;
+      if (tl !== T_MEADOW && tl !== T_PATH) return false;
+      if (state.nodes.charCodeAt(idx) === 49) return false;
+      return hash2(x, y, 19) < 0.02;
+    }
+    function worldHasOre(x, y) {
+      if (!state.cells) return false;
+      var idx = y * state.size + x;
+      if (state.cells.charCodeAt(idx) - 48 !== T_STONE) return false;
+      return hash2(x, y, 23) < 0.035;
+    }
+
     // 工具栏语境：脚下格的状态决定哪个工具在「手」里。
     // 点工具 = 干这件事（等价于语境按钮，但它是星露谷的手感）。
     function useTool(key) {
@@ -5893,6 +5986,8 @@
         toast('脚下没有成熟的作物');
         return;
       }
+      if (key === 'chop') { doGatherNode('tree'); return; }
+      if (key === 'mine') { doGatherNode('ore'); return; }
     }
 
     function updateToolbar() {
@@ -5907,6 +6002,9 @@
       toolBtns.water.className = 'sg-tool' + (canWater ? ' is-active' : '');
       toolBtns.sow.className = 'sg-tool' + (canSow ? ' is-active' : '');
       toolBtns.cut.className = 'sg-tool' + (canCut ? ' is-active' : '');
+      var farmFire2 = lightState ? lightState.v : 100;
+      toolBtns.chop.className = 'sg-tool' + (worldHasTree(state.me.x, state.me.y) && farmFire2 >= 5 ? ' is-active' : '');
+      toolBtns.mine.className = 'sg-tool' + (worldHasOre(state.me.x, state.me.y) && farmFire2 >= 5 ? ' is-active' : '');
     }
 
     function updateHud() {
@@ -5957,6 +6055,7 @@
 
       // v4.2 星露谷的一天：顶栏常驻日历
       if (dayVal) dayVal.textContent = '第 ' + (state.calendar.day || 1) + ' 天';
+      if (seasonEl) seasonEl.textContent = state.season || '春';
 
       // v4.5 星露谷骨架：时钟 / 体力 / 工具高亮
       updateClockPanel();
@@ -6984,13 +7083,22 @@
         var body = el('div', 'sg-seed-body');
         var topRow = el('div', 'sg-seed-top');
         topRow.appendChild(el('b', null, c.name));
+        // v4.7 季节标记：当季生长，过季不能种
+        var inSeason = c.season === SEASONS.indexOf(state.season || '春');
         topRow.appendChild(el('i', null, c.cost + ' ★'));
         body.appendChild(topRow);
+        var seasonTag = el('span', 'sg-seed-season ' + (inSeason ? 'is-in' : 'is-out'),
+          SEASONS[c.season] + '作物' + (inSeason ? ' · 当季' : ' · 要等' + SEASONS[c.season]));
+        body.appendChild(seasonTag);
         body.appendChild(el('span', null,
           c.days + ' 天成熟　收 ' + c.yield + '　净赚 ' + (c.yield - c.cost)));
         row.appendChild(body);
         (function(crop) {
           row.addEventListener('click', function() {
+            if (crop.season !== SEASONS.indexOf(state.season || '春')) {
+              toast(SEASONS[crop.season] + '的种子要等' + SEASONS[crop.season] + '天 —— 现在是' + (state.season || '春'));
+              return;
+            }
             if ((state.me.shards || 0) < crop.cost) {
               toast('还差 ' + (crop.cost - state.me.shards) + ' 枚星屑');
               return;
@@ -7637,6 +7745,158 @@
       renderBook(sheetBody, 0);
     }
 
+    // ---------- v4.7 背包面板：果实 / 材料，可卖出可送人 ----------
+    function bagNameOf(key) {
+      if (key === 'wood') return '云杉木';
+      if (key === 'ore') return '星岩矿';
+      var idx = /^c(\d+)$/.exec(key);
+      if (idx && CROPS[Number(idx[1])]) return CROPS[Number(idx[1])].name;
+      return key;
+    }
+    function bagPriceOf(key) {
+      if (key === 'wood') return 6;
+      if (key === 'ore') return 9;
+      var idx = /^c(\d+)$/.exec(key);
+      if (idx && CROPS[Number(idx[1])]) return CROPS[Number(idx[1])].yield;
+      return 0;
+    }
+
+    function openBag() {
+      openSheet('bag', '背包');
+      renderBag(sheetBody);
+    }
+
+    function renderBag(body) {
+      clearNode(body);
+      var keys = Object.keys(state.bag || {});
+      if (!keys.length) {
+        body.appendChild(emptyBox('背包空空的。收成、砍树、挖矿的东西都会放在这里。'));
+        return;
+      }
+      body.appendChild(el('div', 'sg-tip', '果实和材料可以卖给钱庄换成星屑，也可以走到同学身边送出去。'));
+      for (var i = 0; i < keys.length; i++) {
+        (function(key) {
+          var cnt = state.bag[key] || 0;
+          if (cnt <= 0) return;
+          var row = el('div', 'sg-qcard');
+          row.style.marginBottom = '10px';
+          var head = el('div', 'sg-bottle-head');
+          head.appendChild(el('span', 'sg-bottle-name', bagNameOf(key) + ' × ' + cnt));
+          head.appendChild(el('span', 'sg-bottle-pos', '每个卖 ' + bagPriceOf(key) + ' 星屑'));
+          row.appendChild(head);
+          var sell = el('button', 'sg-set-action');
+          sell.type = 'button';
+          sell.appendChild(svgIcon('shard'));
+          sell.appendChild(el('span', null, '全部卖给钱庄（+' + (bagPriceOf(key) * cnt) + ' 星屑）'));
+          sell.addEventListener('click', function() {
+            http('post', '/shiguang/market/sell', { crop: key, count: cnt }).then(function(d) {
+              if (d && d.rejected) { toast('卖不掉'); return; }
+              state.me.shards = d.shards;
+              state.bag = d.bag || state.bag;
+              sfx.award();
+              toast('卖掉了　+' + d.gain + ' 星屑', 'warm');
+              updateHud();
+              renderBag(body);
+            }).catch(function() { toast('卖出失败'); });
+          });
+          row.appendChild(sell);
+          body.appendChild(row);
+        })(keys[i]);
+      }
+    }
+
+    // 同学菜单里选果实送人（key + 数量）
+    function renderBagGift(body, toId, toName) {
+      var keys = [];
+      for (var k in (state.bag || {})) {
+        if (Object.prototype.hasOwnProperty.call(state.bag, k) && state.bag[k] > 0) keys.push(k);
+      }
+      if (!keys.length) {
+        body.appendChild(el('div', 'sg-tip', '你的背包是空的 —— 收成或采集之后就能送 TA 东西。'));
+        return;
+      }
+      for (var i = 0; i < keys.length; i++) {
+        (function(key) {
+          var cnt = state.bag[key];
+          var b = el('button', 'sg-set-action');
+          b.type = 'button';
+          b.appendChild(svgIcon('flower'));
+          b.appendChild(el('span', null, '送 ' + bagNameOf(key) + ' × ' + cnt + ' 给 ' + toName));
+          b.addEventListener('click', function() {
+            http('post', '/shiguang/bag/gift', { to: toId, crop: key, count: cnt }).then(function(d) {
+              if (d && d.rejected) {
+                if (d.rejected === 'far') toast('走近一点再送（6 格内）');
+                else if (d.rejected === 'not_enough') toast('背包里不够了');
+                else toast('没送出去');
+                return;
+              }
+              state.bag = d.bag || state.bag;
+              sfx.award();
+              toast('把 ' + bagNameOf(key) + ' × ' + cnt + ' 送给了 ' + toName, 'warm');
+              closeSheet();
+            }).catch(function() { toast('赠送失败'); });
+          });
+          body.appendChild(b);
+        })(keys[i]);
+      }
+    }
+
+    // ---------- v4.7 剧情《灯火纪》 ----------
+    function refreshStory() {
+      http('get', '/shiguang/story').then(function(d) {
+        if (d && !d.rejected) {
+          state.storyChapters = (d.chapters || []);
+          if (d.season) state.season = d.season;
+          var se = document.querySelector('.sg-clock-season');
+          if (se) se.textContent = state.season || '春';
+          // 拾光志面板开着时，章节到了要补渲染（异步回填）
+          if (sheetKind === 'story' && sheetBody) renderStory(sheetBody);
+        }
+      }).catch(function() {});
+    }
+
+    function renderStory(body) {
+      clearNode(body);
+      var chs = state.storyChapters || [];
+      if (!chs.length) {
+        body.appendChild(emptyBox('故事还在加载……'));
+        return;
+      }
+      body.appendChild(el('div', 'sg-tip', '《灯火纪》—— 这本志跟着全班一起写。章节由世界自己翻开：灯、田、碑、鱼、暗涌、天光。'));
+      for (var i = 0; i < chs.length; i++) {
+        (function(ch) {
+          var card = el('div', 'sg-qcard');
+          card.style.marginBottom = '10px';
+          var head = el('div', 'sg-bottle-head');
+          head.appendChild(el('span', 'sg-bottle-name', ch.unlocked ? ch.title : '？？？'));
+          head.appendChild(el('span', 'sg-bottle-pos', ch.read ? '已读' : (ch.unlocked ? '新章' : '未解锁')));
+          card.appendChild(head);
+          if (!ch.unlocked) {
+            card.appendChild(el('div', 'sg-cf-note', '解锁条件：' + ch.hint));
+          } else {
+            var paras = ch.paras || [];
+            for (var pi = 0; pi < paras.length; pi++) {
+              card.appendChild(el('div', 'sg-story-para', paras[pi]));
+            }
+            if (!ch.read) {
+              var markBtn = el('button', 'sg-set-action');
+              markBtn.type = 'button';
+              markBtn.appendChild(svgIcon('book'));
+              markBtn.appendChild(el('span', null, '记下这一章'));
+              markBtn.addEventListener('click', function() {
+                http('post', '/shiguang/story/read', { chapter: ch.id }).then(function() {
+                  toast('记下了　「' + ch.title + '」', 'warm');
+                  refreshStory();
+                }).catch(function() {});
+              });
+              card.appendChild(markBtn);
+            }
+          }
+          body.appendChild(card);
+        })(chs[i]);
+      }
+    }
+
     // ---------- 同学菜单（跟随 / 送火） ----------
     function renderPlayerMenu(body, p) {
       clearNode(body);
@@ -7683,6 +7943,23 @@
         });
       });
       body.appendChild(giveBtn);
+
+      // v4.7 以物易物：把背包里的果实/材料直接送给 TA
+      var bagBtn = el('button', 'sg-set-action');
+      bagBtn.type = 'button';
+      bagBtn.appendChild(svgIcon('bottle'));
+      bagBtn.appendChild(el('span', null, '送 TA 一样背包里的东西'));
+      bagBtn.addEventListener('click', function() {
+        clearNode(body);
+        var back = el('button', 'sg-set-action');
+        back.type = 'button';
+        back.appendChild(svgIcon('close'));
+        back.appendChild(el('span', null, '← 返回'));
+        back.addEventListener('click', function() { renderPlayerMenu(body, p); });
+        body.appendChild(back);
+        renderBagGift(body, p.id, p.name);
+      });
+      body.appendChild(bagBtn);
 
       // v4.6 与别人交易：赠送学元（平台学元体系，GRANT 通道免密、单次 ≤2、每日 ≤10）
       var xyRow = el('div', 'sg-pm-xy');
@@ -8253,6 +8530,7 @@
         // 全班的田长高的那一截，跟着晨光一起到
         var grown = payload.grown || [];
         state.weather = payload.weather || 'sun';
+        if (payload.season) state.season = payload.season;
         for (var gi = 0; gi < grown.length; gi++) {
           var g = grown[gi];
           var gc = state.flowers[g.x + ',' + g.y];
@@ -8528,6 +8806,8 @@
         var nm = String(data.name || '岛民');
         talkFace.textContent = nm.charAt(nm.length - 1) || '?';
         talkName.textContent = nm;
+        talkFavor.hidden = false;
+        talkGiftBtn.hidden = false;
         talkRole.textContent = (data.role || '岛民') + (data.fixed ? '' : ' · 他还有话说');
         // v4.6 拾光镇店主：对话里直接给一扇「看看商品」的门
         talkShopBtn.hidden = !talk.shop;
@@ -8536,6 +8816,11 @@
             : talk.shop === 'wardrobe' ? '看看衣帽'
             : '查查学元';
         }
+        // v4.7 好感度：条 + 送礼按钮（岛民都吃这一套）
+        talkFavor.hidden = false;
+        talkFavorFill.style.width = Math.min(100, Math.round(((data.favor || 0) / 15) * 100)) + '%';
+        talkFavorLabel.textContent = '好感 · ' + (data.favorLevel || '陌生');
+        talkGiftBtn.hidden = false;
         talkBox.hidden = false;
         talkBox.className = 'sg-talk is-on';
         talkShowLine(0);
@@ -8545,6 +8830,41 @@
     talkBox.addEventListener('click', function(e) {
       e.preventDefault();
       talkNext();
+    });
+
+    // v4.7 好感度条 + 送礼按钮
+    var talkFavor = el('div', 'sg-talk-favor');
+    var talkFavorBar = el('div', 'sg-talk-favor-bar');
+    var talkFavorFill = el('div', 'sg-talk-favor-fill');
+    talkFavorFill.style.width = '0%';
+    talkFavorBar.appendChild(talkFavorFill);
+    var talkFavorLabel = el('span', 'sg-talk-favor-label', '好感 · 陌生');
+    talkFavor.appendChild(talkFavorBar);
+    talkFavor.appendChild(talkFavorLabel);
+    talkFavor.hidden = true;
+    var talkGiftBtn = el('button', 'sg-talk-shop');
+    talkGiftBtn.type = 'button';
+    talkGiftBtn.hidden = true;
+    talkGiftBtn.textContent = '送 TA 一点星屑（1~5）';
+    talkGiftBtn.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var nid = talk.npc;
+      if (!nid) return;
+      http('post', '/shiguang/npc/gift', { npc: nid, shards: 2 }).then(function(d) {
+        if (d && d.rejected) {
+          if (d.rejected === 'cooldown') toast('歇 ' + d.wait + ' 秒再送');
+          else if (d.rejected === 'shards') toast('星屑不够了');
+          else toast('送不了');
+          return;
+        }
+        state.me.shards = d.shards;
+        talkFavorFill.style.width = Math.min(100, Math.round(((d.favor || 0) / 15) * 100)) + '%';
+        talkFavorLabel.textContent = '好感 · ' + (d.level || '陌生');
+        sfx.award();
+        toast('TA 收下了　好感 +2', 'warm');
+        updateHud();
+      }).catch(function() { toast('送礼失败'); });
     });
 
     // v4.6 店主的「看看商品」按钮：种子铺 / 衣帽店 / 钱庄
@@ -8571,9 +8891,14 @@
           (state.xyGrant || 0).toFixed(2) + ' 学元（赠送学元 · 同学间互赠、不能购买商品）'));
         sheetBody.appendChild(row);
         sheetBody.appendChild(el('div', 'sg-tip',
-          '想给同学送学元：走近 TA 点 TA，选「赠学元」。种田卖星屑是岛上的钱，学元是带出群岛的钱。'));
+          '想给同学送学元：走近 TA 点 TA，选「赠学元」。'));
+        // v4.7 钱庄收货：背包里的果实/材料在这里变现
+        sheetBody.appendChild(sectionTitle('收购行市'));
+        renderBag(sheetBody);
       }
     });
+    talkBox.appendChild(talkFavor);
+    talkBox.appendChild(talkGiftBtn);
     talkBox.appendChild(talkShopBtn);
 
     var talkTimer = setInterval(function() {
@@ -8722,7 +9047,10 @@
       // v4.6 宅基地与学元
       state.house = data.house || null;
       state.houses = data.houses || [];
+      state.bag = data.bag || {};
+      state.season = (data.calendar && data.calendar.season) || '春';
       refreshWallet();
+      refreshStory();
       applyMeteor(data.meteor);
 
       state.ready = true;
