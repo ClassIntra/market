@@ -1,6 +1,6 @@
 {
-  "version": 111,
-  "updated_at": "2026-11-14T12:57:08.698Z",
+  "version": 112,
+  "updated_at": "2026-11-14T12:58:40.894Z",
   "apps": [
     {
       "name": "chess",
@@ -474,7 +474,7 @@
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
         "CHANGELOG.md": "8c4ed39c15c20bc64b910ccbede1b0c1650e6bd4ca67e38ab41d08c3f5951182",
-        "frontend/entry.js": "5c37791b087a28f0cc2a322ab415ccad6356c7aa1960db33f012d8e1c57184dd",
+        "frontend/entry.js": "c8bb67d8e3d4674dd6f10524f6e879fc6925c989c32540669ed30763752c45aa",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
         "frontend/img/battle.png": "d8b164ef0e8db6429407dca2e68669c76f57df08ddb3e8ec4278eb26556f5656",
         "frontend/img/city.png": "e4b371dd9077f8261f6dce40e6ee1a849e03eeabe030be6f12d3bda63e7ec2b9",

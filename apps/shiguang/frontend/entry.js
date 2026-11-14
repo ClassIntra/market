@@ -321,6 +321,7 @@
       xyGrant: 0,               // 我的赠送学元余额（平台学元体系）
       bag: {},                  // 我的背包 { cropId|wood|ore: count }
       meets: [],                // 相遇簿 [{ user_id, name, count, last_at }]
+      goal: null,               // v4.10 当前目标 { id, title, at }（开场后的「下一步」）
       season: '春',             // 今天的季节
       storyChapters: [],        // 《灯火纪》章节缓存
       house: null,              // 我的宅基地 { x, y, gate }
@@ -4911,8 +4912,13 @@
       // 台词在屏幕上、人在框后面，这是最廉价的一种「不专业」。
       // 抬的是 camY（相机往南看），世界整体上移，人就从框里露出来了。
       // v4.9 丝滑移动：相机直接跟随浮点位置（每帧连续，不再跳格）
+      // v4.10 开场演出期间：镜头交给叙事（飞向灯塔、摇回出生点）
       var focusX = (meFx > 0 ? meFx : state.me.x + 0.5);
       var focusY = (meFy > 0 ? meFy : state.me.y + 0.5);
+      if (cinemaPlaying && cinemaCam) {
+        focusX = cinemaCam.x;
+        focusY = cinemaCam.y;
+      }
       var talking = talkBox.hidden === false && talk.npc && state.players[talk.npc];
       if (talking) {
         var tp = state.players[talk.npc];
@@ -5265,6 +5271,8 @@
 
       // v4.6 宅基地牌子：每个走进群岛的人都有自己的农舍
       drawHouseSigns(ox, oy, t, now);
+      // v4.10 目标箭头（屏幕边缘）
+      drawGoalArrow(ox, oy, t, now);
 
       // 界标与罗盘画在浮字之前：两者都是「发光的信使」，
       // 必须盖过黑暗层才成立（和雾灵同理）。
@@ -5538,6 +5546,7 @@
       mmTimer = setInterval(function() {
         if (mmStamp !== state.exploreVer) paintMinimapBase();
         paintMinimapDots();
+        drawGoalMinimap();
         // 流星雨到点兜底收场
         if (state.meteor && Date.now() > state.meteor.endsAt) {
           state.meteor = null;
@@ -5876,6 +5885,70 @@
       showBanner('flag', '第 ' + state.calendar.day + ' 天', rain ? '今天下雨' : '今天晴', '', 3800);
       updateHud();
     }
+
+    // ---------- v4.10 目标指引 ----------
+    // 开场后永远知道下一步：小地图金圈 + 屏幕边缘箭头 + 拾光志目标行。
+    // 目标由服务端按个人真实数据实时判定（走→采→灯→种→进镇）。
+    function refreshGoal() {
+      http('get', '/shiguang/story').then(function(d) {
+        if (d && !d.rejected) {
+          var changed = (!state.goal && d.goal) || (state.goal && d.goal && state.goal.id !== d.goal.id);
+          state.goal = d.goal || null;
+          state.storyChapters = d.chapters || [];
+          if (d.season) state.season = d.season;
+          if (changed && d.goal) {
+            toast('目标：' + d.goal.title, 'warm');
+            sfx.tap();
+          }
+          // 拾光志面板开着时目标到了要补渲染（异步回填）
+          if (sheetKind === 'story' && sheetBody) renderStory(sheetBody);
+        }
+      }).catch(function() {});
+    }
+
+    // 小地图金圈：目标位置闪烁
+    function drawGoalMinimap() {
+      if (!state.goal || !state.goal.at) return;
+      var mc = mmDots.getContext('2d');
+      var pk = 0.5 + 0.5 * Math.sin(performance.now() * 0.004);
+      mc.strokeStyle = 'rgba(255, 224, 140, ' + (0.5 + 0.45 * pk).toFixed(3) + ')';
+      mc.lineWidth = 1.5;
+      mc.beginPath();
+      mc.arc(state.goal.at.x + 0.5, state.goal.at.y + 0.5, 3.2 + pk * 1.6, 0, 6.2832);
+      mc.stroke();
+    }
+
+    // 屏幕边缘箭头：目标不在屏内时指向它（用罗盘同款几何）
+    function drawGoalArrow(ox, oy, t, now) {
+      if (!state.goal || !state.goal.at) return;
+      var tx = ox + (state.goal.at.x + 0.5) * t;
+      var ty = oy + (state.goal.at.y + 0.5) * t;
+      var w = view.w;
+      var h = view.h;
+      if (tx > -t && tx < w + t && ty > -t && ty < h + t) return;   // 屏内可见，不画箭头
+      var cx = w / 2;
+      var cy = h / 2;
+      var ang = Math.atan2(ty - cy, tx - cx);
+      var R = Math.min(w, h) * 0.40;
+      var px = cx + Math.cos(ang) * R;
+      var py = cy + Math.sin(ang) * R;
+      var pk = 0.5 + 0.5 * Math.sin(now * 0.005);
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(ang);
+      ctx.fillStyle = 'rgba(255, 224, 140, ' + (0.55 + 0.35 * pk).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-5, 5);
+      ctx.lineTo(-5, -5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 目标轮询：完成一步自动切下一步（12 秒一次，轻请求）
+    var goalTimer = setInterval(refreshGoal, 12000);
+    onDestroy(function() { clearInterval(goalTimer); });
 
     // ---------- v4.7 采集：斧头砍树 / 矿镐挖矿 ----------
     // 树长在草地（避开星屑），矿藏在星坠/望潮/霜屿的石地上。
@@ -8039,6 +8112,16 @@
 
     function renderStory(body) {
       clearNode(body);
+      // v4.10 当前目标：这本志也告诉你下一步
+      if (state.goal) {
+        var goalCard = el('div', 'sg-qcard');
+        goalCard.style.marginBottom = '12px';
+        goalCard.appendChild(el('div', 'sg-bottle-head',
+          [el('span', 'sg-bottle-name', '当前目标'),
+           el('span', 'sg-bottle-pos', '跟着小地图的金圈走')]));
+        goalCard.appendChild(el('div', 'sg-story-para', state.goal.title));
+        body.appendChild(goalCard);
+      }
       // v4.8 相遇簿：这本志的第一页，永远写给「你遇见过的人」
       var meets = state.meets || [];
       var meetCard = el('div', 'sg-qcard');
@@ -8539,14 +8622,17 @@
     // ---------- v4.8 开场剧情演出：长夜之始 ----------
     // 取代分步引导。演出是一段沉进黑幕里的独白：世界为什么是长夜、
     // 你为什么在这里、以及「灯不是灯」—— 看完的人才算真的踏进群岛。
+    // 每段 = { t: 独白, dim: 黑幕透明度, cam: [x, y] 镜头摇向 }。
+    // 演出时黑幕会「打开」让世界显现，镜头飞到灯塔再摇回出生点 ——
+    // 剧情不是贴在画面上的字，它发生在世界里。
     var INTRO_PARAS = [
-      '很多年前，群岛的夜不是这样的。',
-      '那时灯塔自己会亮，鲸群每夜绕岛一圈，石碑上的名字在夜里发着微光。',
-      '后来灯塔的光一年比一年弱。不是灯芯坏了——',
-      '是点亮它的人，走散了。',
-      '现在，云海吞掉了最后一点天光。',
-      '而你们，在这个清晨登上了群岛。',
-      '灯不是灯。是「有人在」的证据。'
+      { t: '很多年前，群岛的夜不是这样的。', dim: 0.985, cam: [120, 120] },
+      { t: '那时灯塔自己会亮，鲸群每夜绕岛一圈，石碑上的名字在夜里发着微光。', dim: 0.62, cam: [120, 120] },
+      { t: '后来灯塔的光一年比一年弱。不是灯芯坏了——', dim: 0.82, cam: [120, 120] },
+      { t: '是点亮它的人，走散了。', dim: 0.985, cam: [120, 120] },
+      { t: '现在，云海吞掉了最后一点天光。', dim: 0.90, cam: [120, 132] },
+      { t: '而你们，在这个清晨登上了群岛。', dim: 0.55, cam: [120, 133] },
+      { t: '灯不是灯。是「有人在」的证据。', dim: 0.88, cam: [120, 133] }
     ];
 
     function introCinema(skippable) {
@@ -8568,17 +8654,24 @@
       skip.type = 'button';
       cinema.appendChild(skip);
       root.appendChild(cinema);
+      // 演出结束顺手播「第一章 · 第一盏灯」卡（如果它刚好解锁）
+      setTimeout(function() { refreshStory(); }, 300);
       requestAnimationFrame(function() { cinema.className = 'sg-cinema is-show'; });
 
       var idx = 0;
       var timer = 0;
       function showNext() {
         if (idx >= INTRO_PARAS.length) { endCinema(); return; }
-        var line = el('p', 'sg-cinema-line', INTRO_PARAS[idx]);
+        var seg = INTRO_PARAS[idx];
+        var line = el('p', 'sg-cinema-line', seg.t);
         txt.appendChild(line);
         requestAnimationFrame(function() { line.className = 'sg-cinema-line is-in'; });
+        // v4.10 画面指令：黑幕透明度呼吸 + 镜头摇向叙事点
+        cinemaDim = seg.dim;
+        cinema.style.background = 'rgba(3, 6, 14, ' + seg.dim + ')';
+        if (seg.cam) { cinemaCam.x = seg.cam[0]; cinemaCam.y = seg.cam[1]; }
         idx += 1;
-        timer = setTimeout(showNext, idx === INTRO_PARAS.length ? 1600 : 2100);
+        timer = setTimeout(showNext, idx === INTRO_PARAS.length ? 1600 : 2300);
       }
       function endCinema() {
         if (timer) clearTimeout(timer);
@@ -8601,7 +8694,26 @@
       setTimeout(showNext, 900);
     }
 
+    // ---------- v4.10 章节卡：解锁一章时全屏立起它的名字 ----------
+    // 星露谷的章节卡是「你走进了一个新故事」的仪式感 —— 我们同款。
+    function playChapterCard(title, subtitle) {
+      var card = el('div', 'sg-chapter');
+      card.appendChild(el('div', 'sg-chapter-eyebrow', subtitle || '拾光志 · 新章'));
+      card.appendChild(el('div', 'sg-chapter-title', title));
+      root.appendChild(card);
+      requestAnimationFrame(function() { card.className = 'sg-chapter is-show'; });
+      sfx.rune();
+      setTimeout(function() {
+        card.className = 'sg-chapter';
+        setTimeout(function() {
+          if (card.parentNode) card.parentNode.removeChild(card);
+        }, 900);
+      }, 3200);
+    }
+
     var cinemaPlaying = false;
+    var cinemaCam = null;      // 演出期间的镜头目标 { x, y }
+    var cinemaDim = 0.985;
 
     function tutorialStart() {
       introCinema();
@@ -8817,7 +8929,14 @@
           rested = false;
           if (sleepPending) { finishSleep(state.weather); }
           else {
-            if (payload.festival) {
+            if (payload.newChapter) {
+              // 章节卡优先于横幅：走进新故事的仪式感大于一切
+              var chTitle = '';
+              for (var sci2 = 0; sci2 < state.storyChapters.length; sci2++) {
+                if (state.storyChapters[sci2].id === payload.newChapter) chTitle = state.storyChapters[sci2].title;
+              }
+              playChapterCard(chTitle || payload.newChapter, '拾光志 · 新章解锁');
+            } else if (payload.festival) {
               showBanner('flag', payload.festival + '灯节开始了！', '今天的种子半价 —— 新一季，从一块新田开始', '', 5200);
             } else {
               showBanner('flag', '第 ' + state.calendar.day + ' 天的晨光',
@@ -9323,6 +9442,7 @@
       refreshWallet();
       refreshStory();
       refreshMeets();
+      refreshGoal();
       applyMeteor(data.meteor);
 
       state.ready = true;
