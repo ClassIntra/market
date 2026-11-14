@@ -1752,6 +1752,47 @@
   margin-top: 1px;
 }
 
+/* ---------------- v4.6 城镇与学元 ---------------- */
+
+.sg-clock-xy-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--sg-ink-3);
+}
+
+.sg-clock-xy-label {
+  color: var(--sg-amber, #ffd060);
+  margin-right: 4px;
+}
+
+.sg-clock-xy {
+  font-variant-numeric: tabular-nums;
+}
+
+.sg-pm-xy {
+  display: flex;
+  margin-top: 6px;
+}
+
+.sg-pm-xy .sg-set-action + .sg-set-action {
+  margin-left: 6px;
+}
+
+.sg-talk-shop {
+  display: inline-block;
+  margin: 8px 14px 10px;
+  padding: 7px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 226, 158, 0.5);
+  background: rgba(255, 226, 158, 0.14);
+  color: var(--sg-ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
 /* ---------------- v4.5 星露谷骨架 UI ---------------- */
 
 /* 右上时钟面板：表盘 + 时间 + 日期 + 天气 + 金钱 */

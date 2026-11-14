@@ -17,7 +17,12 @@
 //      全部是确定性坐标（客户端绘制），石碑另有服务端激活状态。
 'use strict';
 
-var SIZE = 160;
+// 开放大世界：240×240 = 57600 格（160 的 2.25 倍）。跨班同服 100+ 人也够舒展。
+// 所有布局坐标仍是「160 基准」写成的 —— 统一乘 SCALE 变换到 240，
+// 岛屿/云桥/码头/石板路/地标/石碑全部保持原有的相对构图。
+var SIZE = 240;
+var WORLD_SCALE = SIZE / 160;
+function sc(v) { return Math.round(v * WORLD_SCALE); }
 
 // 地形编码：与前端渲染一一对应，改这里必须同步改 frontend/entry.js 的 TILE 常量
 var CLOUD = 0;   // 云海，不可通行
@@ -247,6 +252,8 @@ function inLake(x, y, island) {
 // 上一版 10% 的沙环在 24 格半径上是 2.4 格宽，走起来像「一圈白色跑道」。
 var SAND_DEPTH = 0.13;
 
+scaleWorldBase();
+
 (function buildDocksAndPaths() {
   function key2(x, y) { return x + ',' + y; }
 
@@ -322,6 +329,7 @@ var SAND_DEPTH = 0.13;
   PATHS.push({ ax: 73, ay: 84, bx: 64, by: 80, isle: 0 });
   PATHS.push({ ax: 80, ay: 88, bx: 89, by: 92, isle: 0 });   // 东南支路
   PATHS.push({ ax: 89, ay: 92, bx: 99, by: 95, isle: 0 });
+  scaleWorldPaths();
 })();
 
 // 单格地形。纯函数，无副作用，可被反复调用。
@@ -467,6 +475,48 @@ function walkableInRadius(cx, cy, r) {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 世界缩放：把 160 基准的所有布局数据统一变换到 SIZE。
+// 必须放在所有表定义之后、任何使用者之前 —— tileAt/dockMap/PATHS 距离场
+// 都是模块加载时算好的，缩放必须发生在它们之前；因此这个 IIFE 只改
+// 「坐标数据」，路径距离场与码头扫描都在其后定义，天然安全。
+// PATHS 的主岛大道硬编码段（80,81→80,88→…）同样在此缩放。
+// ---------------------------------------------------------------------------
+// 缩放分两段：岛表/桥/出生点/地标/石碑必须在码头扫描与路径距离场
+// 计算之前完成（否则栈道按 160 世界贴岸、放回 240 网格就悬空）；
+// PATHS 在 buildDocksAndPaths 里生成（码头主路 + 主岛大道），随后统一缩放。
+function scaleWorldBase() {
+  for (var i = 0; i < ISLANDS.length; i++) {
+    ISLANDS[i].cx = sc(ISLANDS[i].cx);
+    ISLANDS[i].cy = sc(ISLANDS[i].cy);
+    ISLANDS[i].r = Math.round(ISLANDS[i].r * WORLD_SCALE);
+  }
+  for (var b = 0; b < BRIDGES.length; b++) {
+    BRIDGES[b] = [
+      [sc(BRIDGES[b][0][0]), sc(BRIDGES[b][0][1])],
+      [sc(BRIDGES[b][1][0]), sc(BRIDGES[b][1][1])]
+    ];
+  }
+  SPAWN.x = sc(SPAWN.x);
+  SPAWN.y = sc(SPAWN.y);
+  for (var lm = 0; lm < LANDMARKS.length; lm++) {
+    LANDMARKS[lm].x = sc(LANDMARKS[lm].x);
+    LANDMARKS[lm].y = sc(LANDMARKS[lm].y);
+  }
+  for (var st = 0; st < STELES.length; st++) {
+    STELES[st].x = sc(STELES[st].x);
+    STELES[st].y = sc(STELES[st].y);
+  }
+}
+function scaleWorldPaths() {
+  for (var pi = 0; pi < PATHS.length; pi++) {
+    PATHS[pi].ax = sc(PATHS[pi].ax);
+    PATHS[pi].ay = sc(PATHS[pi].ay);
+    PATHS[pi].bx = sc(PATHS[pi].bx);
+    PATHS[pi].by = sc(PATHS[pi].by);
+  }
 }
 
 module.exports = {

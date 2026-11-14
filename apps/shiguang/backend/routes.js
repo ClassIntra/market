@@ -18,7 +18,9 @@
 
 var express = require('express');
 var path = require('path');
-var router = express.Router();
+var router = require('express').Router();
+// v4.6 学元体系：经宿主登记的受控面（app-api）读写赠送学元
+var hostLedger = require('_sdk/backend/host').ledger;
 var db = require('_sdk/backend/host').db;
 var auth = require('_sdk/backend/host').auth;
 var realtimeBus = require('_sdk/backend/host').realtimeBus;
@@ -90,8 +92,17 @@ var NPCS = [
   { id: 'npc_li',   name: '守灯人·栗', role: '守着启明岛灯塔的人', isle: 0, hx: 76, hy: 92, hat: '1', lantern: '0', sprite: 87 },
   { id: 'npc_yao',  name: '观星·遥',   role: '在星坠岛记天的人',   isle: 2, hx: 126, hy: 32, hat: '5', lantern: '1', sprite: 85 },
   { id: 'npc_lu',   name: '泽畔·芦',   role: '拾贝岛码头的渔人',   isle: 4, hx: 56, hy: 128, hat: '2', lantern: '2', sprite: 111 },
-  { id: 'npc_lang', name: '花匠·榔',   role: '霜屿上种光花的人',   isle: 5, hx: 110, hy: 72, hat: '4', lantern: '3', sprite: 88 }
+  { id: 'npc_lang', name: '花匠·榔',   role: '霜屿上种光花的人',   isle: 5, hx: 110, hy: 72, hat: '4', lantern: '3', sprite: 88 },
+  // v4.6 拾光镇三店主：城镇商店街（锚点在大道旁，走近对话开店）
+  { id: 'npc_seed',  name: '种子铺·穗', role: '拾光镇的种子商人',   isle: 0, hx: 84, hy: 90, hat: '2', lantern: '2', sprite: 111, shop: 'seed' },
+  { id: 'npc_attire', name: '衣帽店·帛', role: '拾光镇的裁缝与帽匠', isle: 0, hx: 77, hy: 90, hat: '4', lantern: '4', sprite: 85, shop: 'wardrobe' },
+  { id: 'npc_bank',  name: '钱庄·算',   role: '管学元账本的人',     isle: 0, hx: 80, hy: 91, hat: '1', lantern: '3', sprite: 87, shop: 'bank' }
 ];
+// 240 世界：NPC 锚点与玩家坐标一样走世界缩放
+for (var _nsc = 0; _nsc < NPCS.length; _nsc++) {
+  NPCS[_nsc].hx = Math.round(NPCS[_nsc].hx * 1.5);
+  NPCS[_nsc].hy = Math.round(NPCS[_nsc].hy * 1.5);
+}
 var NPC_BY_ID = {};
 for (var _ni = 0; _ni < NPCS.length; _ni++) NPC_BY_ID[NPCS[_ni].id] = NPCS[_ni];
 var NPC_WANDER_MS = 2200;       // 游荡节拍
@@ -588,7 +599,8 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, d
     last_emote_at: 'INTEGER NOT NULL DEFAULT 0',
     last_plant_at: 'INTEGER NOT NULL DEFAULT 0',
     combo: 'INTEGER NOT NULL DEFAULT 0',
-    combo_at: 'INTEGER NOT NULL DEFAULT 0'
+    combo_at: 'INTEGER NOT NULL DEFAULT 0',
+    house_slot: 'INTEGER NOT NULL DEFAULT -1'
   };
   try {
     var cols = {};
@@ -1139,6 +1151,41 @@ var sweepTimer = setInterval(function () {
 }, 15000);
 if (sweepTimer.unref) sweepTimer.unref();
 
+// ---------------- v4.6 宅基地：每个走进群岛的人都有自己的房子 ----------------
+// 宅基地沿主岛南岸与西岸排开（160 基准坐标，走世界缩放前的同款布局逻辑）。
+// 分配 = 玩家序号对宅基地数取模：稳定、无需额外存储、永不重叠。
+var HOUSE_PLOTS_160 = [];
+(function buildHousePlots() {
+  // 主岛南岸一排（村口大道两侧）
+  for (var hx = 70; hx <= 90; hx += 4) HOUSE_PLOTS_160.push({ x: hx, y: 104, gate: { x: hx, y: 106 } });
+  for (hx = 72; hx <= 88; hx += 4) HOUSE_PLOTS_160.push({ x: hx, y: 108, gate: { x: hx, y: 106 } });
+  // 西岸一排
+  for (var hy = 92; hy <= 108; hy += 4) HOUSE_PLOTS_160.push({ x: 66, y: hy, gate: { x: 68, y: hy } });
+})();
+var HOUSE_PLOTS = HOUSE_PLOTS_160.map(function (h) {
+  return { x: Math.round(h.x * 1.5), y: Math.round(h.y * 1.5), gate: { x: Math.round(h.gate.x * 1.5), y: Math.round(h.gate.y * 1.5) } };
+});
+
+function houseSlotFor(userId) {
+  // 用 user_id 数字尾数的稳定哈希（跨天/跨设备不变）
+  var h = 0;
+  var uid = String(userId);
+  for (var i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) | 0;
+  return Math.abs(h) % HOUSE_PLOTS.length;
+}
+
+function houseHolders() {
+  var out = [];
+  try {
+    var rows = db.prepare('SELECT p.user_id AS user_id, COALESCE(u.real_name, u.net_name) AS name, p.house_slot AS house_slot FROM shiguang_players p LEFT JOIN users u ON u.user_id = p.user_id WHERE p.house_slot >= 0').all();
+    for (var i = 0; i < rows.length; i++) {
+      var plot = HOUSE_PLOTS[rows[i].house_slot] || HOUSE_PLOTS[0];
+      out.push({ user_id: rows[i].user_id, name: rows[i].name, x: plot.x, y: plot.y });
+    }
+  } catch (e) {}
+  return out;
+}
+
 // NPC 游荡：每 2.2s 一拍，60% 概率走一步，活动范围锁在锚点附近的岛上。
 var npcTimer = setInterval(function () {
   if (disabled || online.size === 0) return;
@@ -1292,7 +1339,7 @@ router.post('/enter', requireAuth, function (req, res) {
   // NPC 行者：进世界就能看见。sprite 是 Kenney 精灵索引（客户端 img/dungeon.png）。
   var npcs = [];
   npcState.forEach(function (n, nid) {
-    npcs.push({ id: nid, name: n.def.name, x: n.x, y: n.y, dir: n.dir, hat: n.def.hat, lantern: n.def.lantern, sprite: n.def.sprite });
+    npcs.push({ id: nid, name: n.def.name, x: n.x, y: n.y, dir: n.dir, hat: n.def.hat, lantern: n.def.lantern, sprite: n.def.sprite, shop: n.def.shop || '', role: n.def.role || '' });
   });
 
   // 石碑唤醒状态：activated 的有 by/at
@@ -1349,10 +1396,24 @@ router.post('/enter', requireAuth, function (req, res) {
   } catch (e) {}
   try { achCount = db.prepare('SELECT COUNT(*) AS c FROM shiguang_achievements WHERE user_id = ?').get(userId).c; } catch (e) {}
 
+  // 宅基地：首次进入即分配（house_slot 默认 -1 → 补记）
+  try {
+    if (!(row.house_slot >= 0)) {
+      var slot = houseSlotFor(userId);
+      db.prepare('UPDATE shiguang_players SET house_slot = ? WHERE user_id = ?').run(slot, userId);
+      row.house_slot = slot;
+    }
+  } catch (e) {}
+
   res.json({
     code: 200,
     data: {
       me: playerPublic(row),
+      house: (function () {
+        var plot = HOUSE_PLOTS[row.house_slot >= 0 ? row.house_slot : houseSlotFor(userId)] || HOUSE_PLOTS[0];
+        return { x: plot.x, y: plot.y, gate: plot.gate };
+      })(),
+      houses: houseHolders(),
       explored: bits.join(''),
       lamps: lamps,
       flowers: flowers,
@@ -1977,6 +2038,7 @@ router.post('/npc/talk', requireAuth, function (req, res) {
       npc: nid,
       name: n.def.name,
       role: n.def.role || '岛民',
+      shop: n.def.shop || '',
       lines: got.lines,
       fixed: got.fixed,
       said: got.said
@@ -2475,6 +2537,77 @@ router.post('/farm/till', requireAuth, function (req, res) {
   pendingPlants.push([x, y, -1, userId]);
   broadcast('shiguang.world.crops', { op: 'till', x: x, y: y, species: -1 });
   res.json({ code: 200, data: { x: x, y: y, tilled: true } });
+});
+
+// ---------------- 学元体系（赠送学元通道） ----------------
+// 拾光群岛的礼物可以直接落在同学的学元账户里：
+// GRANT 资产可转账、不可购买（平台 I9 不变式），无真钱风险 —— 免支付密码，
+// 但单笔 ≤2 学元、每日 ≤10 学元，且必须面对面（6 格内）。
+
+var giftDaily = {};   // uid -> { day: 'YYYY-M-D', cent: n }（进程内限额，重启清零可接受）
+
+function todayKey() {
+  var d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+router.get('/wallet', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var v = null;
+  try { v = hostLedger.accountView('shiguang', userId); } catch (e) { v = { grant: 0, exists: false }; }
+  res.json({
+    code: 200,
+    data: {
+      grant: v.grant || 0,
+      exists: v.exists,
+      note: v.exists ? '' : '还没有学元账户 —— 去学元钱包应用开一个就能收礼物'
+    }
+  });
+});
+
+router.post('/gift_xy', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var body = req.body || {};
+  var to = String(body.to || '');
+  var amount = Number(body.amount || 0);
+  if (!(amount > 0) || amount > 2) return res.json({ code: 200, data: { rejected: 'amount' } });
+  var cent = Math.round(amount * 100);
+  if (to === userId) return res.json({ code: 200, data: { rejected: 'self' } });
+  if (String(to).indexOf('npc_') === 0) return res.json({ code: 200, data: { rejected: 'who' } });
+  var target = null;
+  online.forEach(function (p, uid) { if (uid === to) target = p; });
+  if (!target) return res.json({ code: 200, data: { rejected: 'offline' } });
+  if (Math.abs(target.x - row.x) > 6 || Math.abs(target.y - row.y) > 6) {
+    return res.json({ code: 200, data: { rejected: 'far' } });
+  }
+  // 每日限额
+  var tk = todayKey();
+  var rec = giftDaily[userId];
+  if (!rec || rec.day !== tk) { rec = { day: tk, cent: 0 }; giftDaily[userId] = rec; }
+  if (rec.cent + cent > 1000) {
+    return res.json({ code: 200, data: { rejected: 'daily', left: Math.max(0, (1000 - rec.cent) / 100) } });
+  }
+  var r = null;
+  try {
+    r = hostLedger.giftGrant('shiguang', userId, to, cent, { ref: Date.now() });
+  } catch (e) {
+    var msg = (e && e.message) || '赠送失败';
+    return res.json({ code: 200, data: { rejected: 'ledger', message: msg } });
+  }
+  rec.cent += cent;
+  broadcast('shiguang.you.gift_xy', {
+    from: userId, fromName: userName(userId),
+    to: to, toName: userName(to),
+    amount: amount
+  }, [userId, to]);
+  var v = null;
+  try { v = hostLedger.accountView('shiguang', userId); } catch (e) {}
+  res.json({
+    code: 200,
+    data: { to: to, amount: amount, grant: (v && v.grant) || 0, tx_id: r && r.tx_id }
+  });
 });
 
 router.get('/rank', requireAuth, function (req, res) {

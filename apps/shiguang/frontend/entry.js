@@ -6,7 +6,7 @@
  *   - 不用 CSS gap / backdrop-filter 作为布局前提（84+），降级要能看
  *   - 一切订阅 / 计时器 / 监听都登记到 context.app.onDestroy
  *
- * v3 = 160×160 八岛大世界 + Kenney 像素素材层（CC0）+ Unifont EX 画布像素字：
+ * v4.6 = 240×240 开放大世界（八岛 ×1.5）+ Kenney 像素素材层（CC0）+ Unifont EX 画布像素字：
  *   八座生态岛屿（草地/雾林/星岩/沙滩/沼泽/花谷/珊瑚/霜屿）、石板路网、
  *   地标（灯塔旋转光束/星陨坑/巨树/萤光环/贝壳拱门/望潮池/风车/霜岩）、
  *   NPC 行者（游荡 + 台词）、五座石碑（全班唤醒 → 秘境）、纸鸢快线跨岛飞行、
@@ -299,7 +299,7 @@
 
     // ---------- 世界状态 ----------
     var state = {
-      size: 160,
+      size: 240,
       cells: '',
       nodes: '',
       explored: null,
@@ -316,6 +316,9 @@
       surge: null,            // 暗涌事件 { active, until }
       calendar: { day: 1, endsAt: 0 },   // 全班的游戏日历（星露谷的一天）
       weather: 'sun',           // 今天的天气（sun / rain）
+      xyGrant: 0,               // 我的赠送学元余额（平台学元体系）
+      house: null,              // 我的宅基地 { x, y, gate }
+      houses: [],               // 全班已认领的宅基地 [{ user_id, name, x, y }]
       speechFx: [],           // NPC 台词气泡 { uid, idx, at }
       steles: {},             // 'x,y' -> { name, rune, by, at }
       stage: 0,
@@ -944,10 +947,10 @@
     minimap.setAttribute('aria-label', '小地图，点按放大');
     var mmBase = document.createElement('canvas');
     mmBase.className = 'sg-mm-canvas sg-mm-base';
-    mmBase.width = 160; mmBase.height = 160;
+    mmBase.width = 240; mmBase.height = 240;
     var mmDots = document.createElement('canvas');
     mmDots.className = 'sg-mm-canvas sg-mm-dots';
-    mmDots.width = 160; mmDots.height = 160;
+    mmDots.width = 240; mmDots.height = 240;
     var mmLabel = el('div', 'sg-mm-label', '');
     minimap.appendChild(mmBase);
     minimap.appendChild(mmDots);
@@ -1116,9 +1119,13 @@
     var clockMoneyVal = el('b', null, '0');
     clockMoney.appendChild(clockMoneyVal);
     clockMoney.appendChild(el('span', 'sg-clock-g', 'g'));
+    var clockXy = el('div', 'sg-clock-xy-row');
+    clockXy.appendChild(el('span', 'sg-clock-xy-label', '学元'));
+    clockXy.appendChild(el('span', 'sg-clock-xy', '0.00 学元'));
     clockPanel.appendChild(clockFace);
     clockPanel.appendChild(clockDate);
     clockPanel.appendChild(clockMoney);
+    clockPanel.appendChild(clockXy);
     root.appendChild(clockPanel);
 
     var staminaBox = el('div', 'sg-stamina');
@@ -5225,6 +5232,9 @@
       drawLightRing(ox + (state.me.x + 0.5) * t, oy + (state.me.y + 0.5) * t, t, now);
       drawVeil(now);
 
+      // v4.6 宅基地牌子：每个走进群岛的人都有自己的农舍
+      drawHouseSigns(ox, oy, t, now);
+
       // 界标与罗盘画在浮字之前：两者都是「发光的信使」，
       // 必须盖过黑暗层才成立（和雾灵同理）。
       drawWorldEdge(ox, oy, t, now);
@@ -5245,6 +5255,42 @@
 
       // 浮字放在最后：它必须比暗角更亮，否则「+1」会被压成一块灰
       drawFloats(ox, oy, t);
+    }
+
+    // ---------- v4.6 宅基地牌子 ----------
+    // 木牌 + 名字 + 暖光。它是「这个世界记得你」的实体化：
+    // 走过任何一块牌子，都知道这里住着一位同学。
+    function drawHouseSigns(ox, oy, t, now) {
+      var hs = state.houses || [];
+      var mine = state.house;
+      ctx.textAlign = 'center';
+      for (var i = 0; i < hs.length; i++) {
+        var h = hs[i];
+        var hx = ox + (h.x + 0.5) * t;
+        var hy = oy + (h.y + 0.5) * t;
+        if (hx < -t || hx > view.w + t || hy < -t || hy > view.h + t) continue;
+        var isMine = mine && h.user_id === myId;
+        // 牌柱
+        ctx.strokeStyle = 'rgba(120, 92, 60, 0.95)';
+        ctx.lineWidth = Math.max(1.5, t * 0.05);
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(hx, hy - t * 0.42);
+        ctx.stroke();
+        // 牌面
+        ctx.fillStyle = isMine ? 'rgba(255, 214, 130, 0.95)' : 'rgba(196, 162, 110, 0.92)';
+        ctx.fillRect(hx - t * 0.36, hy - t * 0.62, t * 0.72, t * 0.24);
+        ctx.strokeStyle = 'rgba(90, 66, 40, 0.9)';
+        ctx.lineWidth = Math.max(1, t * 0.025);
+        ctx.strokeRect(hx - t * 0.36, hy - t * 0.62, t * 0.72, t * 0.24);
+        // 名字
+        if (t >= 26) {
+          ctx.fillStyle = 'rgba(50, 34, 16, 0.95)';
+          ctx.font = Math.max(9, Math.round(t * 0.20)) + 'px sans-serif';
+          ctx.fillText(isMine ? '你的农舍' : (h.name || '同学') + ' 的农舍', hx, hy - t * 0.45);
+        }
+      }
+      ctx.textAlign = 'left';
     }
 
     // ---------- 世界的边缘 ----------
@@ -5709,6 +5755,17 @@
       var v = lightState ? clamp(lightState.v, 0, LIGHT_MAX) : 100;
       staminaFill.style.height = Math.round((v / LIGHT_MAX) * 100) + '%';
       staminaBox.className = 'sg-stamina' + (v < LIGHT_MAX * 0.3 ? ' is-low' : '');
+    }
+
+    // ---------- v4.6 学元余额 ----------
+    function refreshWallet() {
+      http('get', '/shiguang/wallet').then(function(d) {
+        if (d && !d.rejected) {
+          state.xyGrant = d.grant || 0;
+          var elx = document.querySelector('.sg-clock-xy');
+          if (elx) elx.textContent = (state.xyGrant).toFixed(2) + ' 学元';
+        }
+      }).catch(function() {});
     }
 
     // ---------- v4.5 锄地：星露谷的第一件农活 ----------
@@ -7626,7 +7683,39 @@
         });
       });
       body.appendChild(giveBtn);
-      body.appendChild(el('div', 'sg-tip', '跟随会被任何移动打断；送出的星屑会化作 TA 身边的一圈金光。'));
+
+      // v4.6 与别人交易：赠送学元（平台学元体系，GRANT 通道免密、单次 ≤2、每日 ≤10）
+      var xyRow = el('div', 'sg-pm-xy');
+      [1, 2].forEach(function(amt) {
+        var b = el('button', 'sg-set-action');
+        b.type = 'button';
+        b.appendChild(svgIcon('star'));
+        b.appendChild(el('span', null, '赠 ' + amt + ' 学元（面对面 · 今日限 10）'));
+        b.addEventListener('click', function() {
+          http('post', '/shiguang/gift_xy', { to: p.id, amount: amt }).then(function(d) {
+            if (d && d.rejected) {
+              if (d.rejected === 'far') toast('走近一点再送（6 格内）');
+              else if (d.rejected === 'offline') toast('TA 已经不在岛上了');
+              else if (d.rejected === 'daily') toast('今天的赠礼额度用完了　明天再来');
+              else if (d.rejected === 'ledger') toast((d.message || '赠送失败'));
+              else toast('送不出去');
+              return;
+            }
+            state.xyGrant = d.grant;
+            sfx.award();
+            toast('送出 ' + amt + ' 学元给 ' + p.name, 'warm');
+            var elx = document.querySelector('.sg-clock-xy');
+            if (elx) elx.textContent = (state.xyGrant).toFixed(2) + ' 学元';
+            closeSheet();
+          }).catch(function(err) {
+            toast((err && err.message) || '赠送失败');
+          });
+        });
+        xyRow.appendChild(b);
+      });
+      body.appendChild(xyRow);
+
+      body.appendChild(el('div', 'sg-tip', '跟随会被任何移动打断；送出的星屑会化作 TA 身边的一圈金光；学元直接落进 TA 的学元钱包。'));
     }
 
     // ---------- 漂流瓶 ----------
@@ -7771,7 +7860,7 @@
       });
       sheetBody.appendChild(tRow);
 
-      sheetBody.appendChild(el('div', 'sg-tip', '拾光群岛 v3.0 · 160×160 八岛大世界 · 素材致谢 Kenney（CC0）· 世界状态由服务端权威保存'));
+      sheetBody.appendChild(el('div', 'sg-tip', '拾光群岛 · 240×240 开放大世界（跨班同服） · 素材致谢 Kenney（CC0）· 世界状态由服务端权威保存'));
     }
 
     btnMap.addEventListener('click', openWorldMap);
@@ -8372,7 +8461,7 @@
     // 收到 2 格：必须真的走到人家跟前才会开口，同时保留「走近就有人说话」的设计。
     var TALK_RADIUS = 2;
     var TALK_TYPE_MS = 34;
-    var talk = { npc: null, lines: [], idx: 0, full: '', shown: 0, tick: 0, seen: {} };
+    var talk = { npc: null, lines: [], idx: 0, full: '', shown: 0, tick: 0, seen: {}, shop: '' };
 
     function talkIsOpen() { return talkBox.hidden === false; }
 
@@ -8435,10 +8524,18 @@
         if (talk.npc !== null) return;   // 期间已经开了别的对话
         talk.npc = npcId;
         talk.lines = data.lines;
+        talk.shop = data.shop || '';
         var nm = String(data.name || '岛民');
         talkFace.textContent = nm.charAt(nm.length - 1) || '?';
         talkName.textContent = nm;
         talkRole.textContent = (data.role || '岛民') + (data.fixed ? '' : ' · 他还有话说');
+        // v4.6 拾光镇店主：对话里直接给一扇「看看商品」的门
+        talkShopBtn.hidden = !talk.shop;
+        if (talk.shop) {
+          talkShopBtn.textContent = talk.shop === 'seed' ? '看看种子'
+            : talk.shop === 'wardrobe' ? '看看衣帽'
+            : '查查学元';
+        }
         talkBox.hidden = false;
         talkBox.className = 'sg-talk is-on';
         talkShowLine(0);
@@ -8449,6 +8546,35 @@
       e.preventDefault();
       talkNext();
     });
+
+    // v4.6 店主的「看看商品」按钮：种子铺 / 衣帽店 / 钱庄
+    var talkShopBtn = el('button', 'sg-talk-shop');
+    talkShopBtn.type = 'button';
+    talkShopBtn.hidden = true;
+    talkShopBtn.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      var shop = talk.shop;
+      talkShopBtn.hidden = true;
+      talk.npc = null;
+      talkBox.hidden = true;
+      talkBox.className = 'sg-talk';
+      if (shop === 'seed') { openSeedSheet(); }
+      else if (shop === 'wardrobe') { openWardrobe(); }
+      else if (shop === 'bank') {
+        refreshWallet();
+        openSheet('bank', '拾光钱庄');
+        clearNode(sheetBody);
+        var row = el('div', 'sg-sum-row');
+        row.appendChild(el('b', 'sg-sum-key', '学元'));
+        row.appendChild(el('span', 'sg-sum-val',
+          (state.xyGrant || 0).toFixed(2) + ' 学元（赠送学元 · 同学间互赠、不能购买商品）'));
+        sheetBody.appendChild(row);
+        sheetBody.appendChild(el('div', 'sg-tip',
+          '想给同学送学元：走近 TA 点 TA，选「赠学元」。种田卖星屑是岛上的钱，学元是带出群岛的钱。'));
+      }
+    });
+    talkBox.appendChild(talkShopBtn);
 
     var talkTimer = setInterval(function() {
       if (!state.ready || talk.npc !== null) return;
@@ -8593,6 +8719,10 @@
       state.calendar = { day: (data.calendar && data.calendar.day) || 1,
                          endsAt: Date.now() + ((data.calendar && data.calendar.msLeft) || 0) };
       state.weather = (data.calendar && data.calendar.weather) || 'sun';
+      // v4.6 宅基地与学元
+      state.house = data.house || null;
+      state.houses = data.houses || [];
+      refreshWallet();
       applyMeteor(data.meteor);
 
       state.ready = true;
@@ -8608,7 +8738,7 @@
       loadAssets().then(function() {
         return loadTerrain();
       }).then(function(terrain) {
-        state.size = terrain.size || 160;
+        state.size = terrain.size || 240;
         state.cells = terrain.cells || '';
         state.nodes = terrain.nodes || '';
         buildLotusList();   // 湖上的荷灯：地形一到位就定位（确定性哈希）
