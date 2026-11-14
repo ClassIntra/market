@@ -7636,6 +7636,7 @@
       modalCard.appendChild(body);
 
       function renderWorldMap() {
+        try {
         var c = wcv.getContext('2d');
         c.fillStyle = '#0a0f1e';
         c.fillRect(0, 0, wcv.width, wcv.height);
@@ -7658,11 +7659,13 @@
             c.fillRect(x * k, y * k, k, k);
           }
         }
-        // 光花
+        // 光花（翻好的土 species=-1 不算花，跳过）
         for (var fk in state.flowers) {
           if (!Object.prototype.hasOwnProperty.call(state.flowers, fk)) continue;
           var f = state.flowers[fk];
+          if (!f || f.species < 0) continue;
           var fc = FLOWER_COLORS[f.species % FLOWER_COLORS.length];
+          if (!fc) continue;
           c.fillStyle = fc.petal;
           c.fillRect(f.x * k - 1, f.y * k - 1, k + 2, k + 2);
         }
@@ -7709,23 +7712,34 @@
           var pl = state.players[ids[pi]];
           c.fillRect(pl.x * k - 1, pl.y * k - 1, k + 2, k + 2);
         }
-        // 自己（最亮的金点）
+        // 自己：金点 + 双圈光晕（大地图上第一时间找到自己）
+        var myX = (typeof meFx === 'number' && meFx > 0) ? meFx : state.me.x;
+        var myY = (typeof meFy === 'number' && meFy > 0) ? meFy : state.me.y;
+        c.strokeStyle = 'rgba(255, 226, 150, 0.5)';
+        c.lineWidth = 2;
+        c.beginPath();
+        c.arc(myX * k, myY * k, 9, 0, 6.2832);
+        c.stroke();
+        c.strokeStyle = 'rgba(255, 226, 150, 0.25)';
+        c.beginPath();
+        c.arc(myX * k, myY * k, 14, 0, 6.2832);
+        c.stroke();
         c.fillStyle = 'rgba(255, 226, 150, 1)';
-        c.fillRect(state.me.x * k - 2, state.me.y * k - 2, k + 4, k + 4);
+        c.fillRect(myX * k - 2, myY * k - 2, k + 4, k + 4);
         c.fillStyle = '#ffffff';
-        c.fillRect(state.me.x * k, state.me.y * k, k, k);
-        // 岛名
+        c.fillRect(myX * k, myY * k, k, k);
+        // 岛名：跨岛导航的坐标系，必须一眼可读
         var isles = state.catalog.islands || [];
-        c.font = canvasFont(9, false);
+        c.font = canvasFont(12, true);
         c.textAlign = 'center';
         c.textBaseline = 'middle';
         for (var ii = 0; ii < isles.length; ii++) {
           var is = isles[ii];
           var nm = is.name;
           var tw = c.measureText(nm).width;
-          c.fillStyle = 'rgba(6, 10, 20, 0.55)';
-          c.fillRect(is.cx * k - tw / 2 - 3, is.cy * k - 8, tw + 6, 13);
-          c.fillStyle = 'rgba(240, 246, 255, 0.92)';
+          c.fillStyle = 'rgba(4, 8, 18, 0.74)';
+          c.fillRect(is.cx * k - tw / 2 - 5, is.cy * k - 10, tw + 10, 17);
+          c.fillStyle = 'rgba(244, 248, 255, 0.97)';
           c.fillText(nm, is.cx * k, is.cy * k - 1);
         }
         // 探索率
@@ -7739,6 +7753,7 @@
           if (state.explored && state.explored[ci]) seenN++;
         }
         caption.textContent = '已照亮 ' + seenN + ' / ' + landN + ' 格陆地（' + Math.round(seenN * 100 / Math.max(1, landN)) + '%）· 金点=灯柱 · 白点=同学 · 紫标=石碑';
+        } catch (eWmap) { window.__wmapErr = String((eWmap && (eWmap.stack || eWmap.message)) || eWmap); }
       }
       renderWorldMap();
       clearInterval(wmapTimer);
