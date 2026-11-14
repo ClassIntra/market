@@ -320,6 +320,7 @@
       weather: 'sun',           // 今天的天气（sun / rain）
       xyGrant: 0,               // 我的赠送学元余额（平台学元体系）
       bag: {},                  // 我的背包 { cropId|wood|ore: count }
+      tools: {},                // 工具等级 { till|water|chop|mine: 1|2 }
       meets: [],                // 相遇簿 [{ user_id, name, count, last_at }]
       goal: null,               // v4.10 当前目标 { id, title, at }（开场后的「下一步」）
       season: '春',             // 今天的季节
@@ -5973,7 +5974,8 @@
         state.bag = d.bag || state.bag;
         spawnParts((meFx > 0 ? meFx : state.me.x + 0.5), (meFy > 0 ? meFy : state.me.y + 0.5), 5, 9, 0.6, kind === 'tree' ? [110, 160, 96] : [150, 160, 180]);
         audio.blip(kind === 'tree' ? 220 : 320, 0.14, 'square', 0.08, 0);
-        toast((kind === 'tree' ? '砍到云杉木' : '挖到星岩矿') + ' ×' + d.got + '　放进背包了', 'warm');
+        toast((kind === 'tree' ? '砍到云杉木' : '挖到星岩矿') + ' ×' + d.got + '　放进背包了' +
+          ((state.tools || {})[kind === 'tree' ? 'chop' : 'mine'] >= 2 ? '（星辉加成）' : ''), 'warm');
         updateHud();
       }).catch(function() { toast('采集失败，稍后再试'); });
     }
@@ -9287,6 +9289,49 @@
         // v4.7 钱庄收货：背包里的果实/材料在这里变现
         sheetBody.appendChild(sectionTitle('收购行市'));
         renderBag(sheetBody);
+        // v4.11 工具升级：星屑的大额出口 —— 成长曲线的核心
+        sheetBody.appendChild(sectionTitle('工具升级'));
+        var toolNames = { till: '星辉锄头（翻地体力 4→2）', water: '星辉水壶（浇水更省）', chop: '星辉斧头（砍树必得 2 木）', mine: '星辉矿镐（挖矿必得 2 矿）' };
+        var toolCosts = { till: 60, water: 80, chop: 70, mine: 70 };
+        var tIds = Object.keys(toolNames);
+        for (var tix = 0; tix < tIds.length; tix++) {
+          (function(tid) {
+            var lvl = (state.tools || {})[tid] || 1;
+            var cost = toolCosts[tid];
+            var trow = el('div', 'sg-qcard');
+            trow.style.marginBottom = '8px';
+            var thead = el('div', 'sg-bottle-head');
+            thead.appendChild(el('span', 'sg-bottle-name', toolNames[tid]));
+            thead.appendChild(el('span', 'sg-bottle-pos', lvl >= 2 ? '星辉级' : '初始级'));
+            trow.appendChild(thead);
+            if (lvl >= 2) {
+              trow.appendChild(el('div', 'sg-cf-note', '已升至星辉级 —— 谢谢惠顾'));
+            } else {
+              var up = el('button', 'sg-set-action');
+              up.type = 'button';
+              up.appendChild(svgIcon('spark'));
+              up.appendChild(el('span', null, '升到星辉级（' + cost + ' 星屑）'));
+              up.addEventListener('click', function() {
+                http('post', '/shiguang/shop/tools', { tool: tid }).then(function(d) {
+                  if (d && d.rejected) {
+                    if (d.rejected === 'shards') toast('还差 ' + (d.need - (d.have || 0)) + ' 枚星屑');
+                    else if (d.rejected === 'max') toast('已经是星辉级了');
+                    else toast('升不了');
+                    return;
+                  }
+                  state.me.shards = d.shards;
+                  state.tools = d.tools || state.tools;
+                  sfx.award();
+                  toast('「' + d.name + '」升级完成！', 'award');
+                  updateHud();
+                  renderBag(sheetBody);
+                }).catch(function() { toast('升级失败'); });
+              });
+              trow.appendChild(up);
+            }
+            sheetBody.appendChild(trow);
+          })(tIds[tix]);
+        }
       }
     });
     talkBox.appendChild(talkFavor);
@@ -9443,6 +9488,7 @@
       state.house = data.house || null;
       state.houses = data.houses || [];
       state.bag = data.bag || {};
+      state.tools = data.tools || {};
       state.season = (data.calendar && data.calendar.season) || '春';
       refreshWallet();
       refreshStory();

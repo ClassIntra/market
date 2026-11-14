@@ -617,6 +617,48 @@ var MATERIALS = {
   wood: { name: '云杉木', yield: 6 },
   ore:  { name: '星岩矿', yield: 9 }
 };
+
+// ---------------- v4.11 工具升级：成长曲线的核心 ----------------
+// 星屑的大额出口。每个工具两级：星辉工具让对应的农活「更省/更多」。
+// 锄 2：翻地体力 4→2；壶 2：浇水附带半格成长（当天多长半节，凑整天 +1）；
+// 斧 2：砍树必得 2 木；镐 2：挖矿必得 2 矿。
+var TOOLS = {
+  till:  { name: '星辉锄头', cost: 60 },
+  water: { name: '星辉水壶', cost: 80 },
+  chop:  { name: '星辉斧头', cost: 70 },
+  mine:  { name: '星辉矿镐', cost: 70 }
+};
+function toolsOf(row) {
+  try { return JSON.parse(row.tools || '{}') || {}; } catch (e) { return {}; }
+}
+
+// 钱庄工具升级
+router.post('/shop/tools', requireAuth, function (req, res) {
+  var userId = String(req.user.user_id);
+  var row = playerRow(userId);
+  if (!row) return res.status(404).json({ code: 404, message: '尚未进入世界' });
+  var body = req.body || {};
+  var tid = String(body.tool || '');
+  var def = TOOLS[tid];
+  if (!def) return res.json({ code: 200, data: { rejected: 'tool' } });
+  var tools = toolsOf(row);
+  if (tools[tid] >= 2) return res.json({ code: 200, data: { rejected: 'max' } });
+  if (row.shards < def.cost) {
+    return res.json({ code: 200, data: { rejected: 'shards', need: def.cost, have: row.shards } });
+  }
+  tools[tid] = 2;
+  try {
+    var tx = db.transaction(function () {
+      db.prepare('UPDATE shiguang_players SET tools = ?, shards = shards - ?, last_seen = ? WHERE user_id = ?')
+        .run(JSON.stringify(tools), def.cost, Date.now(), userId);
+    });
+    tx();
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '升级失败' });
+  }
+  broadcast('shiguang.world.toolup', { by: userName(userId), tool: tid, name: def.name }, [userId]);
+  res.json({ code: 200, data: { tool: tid, level: 2, tools: tools, shards: row.shards - def.cost, name: def.name } });
+});
 // 兼容旧字段：客户端曾经靠 flowerSpecies 拿花名，现在作物表才是唯一的名字来源
 var FLOWER_SPECIES = CROPS.map(function (c) { return c.name; });
 
@@ -802,7 +844,8 @@ db.exec('CREATE TABLE IF NOT EXISTS shiguang_calendar (id INTEGER PRIMARY KEY, d
     house_slot: 'INTEGER NOT NULL DEFAULT -1',
     bag: "TEXT NOT NULL DEFAULT '{}'",
     favor: "TEXT NOT NULL DEFAULT '{}'",
-    walked: 'INTEGER NOT NULL DEFAULT 0'
+    walked: 'INTEGER NOT NULL DEFAULT 0',
+    tools: "TEXT NOT NULL DEFAULT '{}'"
   };
   try {
     var cols = {};
@@ -1638,6 +1681,7 @@ router.post('/enter', requireAuth, function (req, res) {
       players: players,
       calendar: { day: cal.day, msLeft: Math.max(0, cal.epoch + cal.day * DAY_MS - Date.now()), weather: cal.weather, season: SEASONS[seasonOf(cal.day)] },
       bag: bagOf(row),
+      tools: toolsOf(row),
       stage: stage,
       stageInfo: STAGES[stage],
       lampCount: count,
@@ -2967,7 +3011,11 @@ function gatherRoute(kind, toolVerb) {
     if (ns && now < ns.ready_at) {
       return res.json({ code: 200, data: { rejected: 'cooldown', wait: Math.ceil((ns.ready_at - now) / 1000) } });
     }
-    var got = kind === 'tree' ? (Math.random() < 0.3 ? 2 : 1) : (Math.random() < 0.25 ? 2 : 1);
+    // 星辉工具：2 级必得 2 份（原随机 1~2 保留概率加成到 3）
+    var lvl = toolsOf(row)[kind === 'tree' ? 'chop' : 'mine'] || 1;
+    var got = 1;
+    if (lvl >= 2) got = Math.random() < 0.3 ? 3 : 2;
+    else got = Math.random() < 0.3 ? 2 : 1;
     var bag = bagOf(row);
     var key = kind === 'tree' ? 'wood' : 'ore';
     bag[key] = (bag[key] || 0) + got;
