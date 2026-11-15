@@ -129,6 +129,15 @@ let parsed = null;
 try { parsed = JSON.parse(st.v); } catch (e) {}
 ok(parsed && parsed.lv >= 1 && parsed.hp > 0, '角色数据来自真实后端', parsed);
 
+// 5.1 的内容要真的到了浏览器：支线定义、洞窟口、像素字体
+const extra = await evalJs('JSON.stringify({quests:Object.keys(__sg5.state.questDefs||{}).length, caves:(__sg5.state.caves||[]).length, font:getComputedStyle(document.querySelector(".sg5-root")).fontFamily, panel:!!document.querySelector(".sg5-dockbtn")})');
+console.log('  extra:', extra.v);
+const ex = extra.v ? JSON.parse(extra.v) : {};
+ok(ex.quests === 4, '支线定义已下发', ex.quests);
+ok(ex.caves === 6, '洞窟口已下发', ex.caves);
+ok(ex.font && ex.font.indexOf('SG5Pixel') === 0, '像素字体已生效', ex.font);
+ok(ex.panel, 'HUD hotbar 已渲染');
+
 // 走两步 + 打一下，验证真实 API 链路
 await evalJs('__sg5.attack()');
 await sleep(220);
