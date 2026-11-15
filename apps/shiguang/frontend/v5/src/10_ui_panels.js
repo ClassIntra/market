@@ -8,20 +8,6 @@
     return b;
   }
 
-  function iconCanvas(name, size) {
-    var cv = document.createElement('canvas');
-    cv.width = size; cv.height = size;
-    var g = cv.getContext('2d');
-    var f = FR[name];
-    g.imageSmoothingEnabled = false;
-    if (f) {
-      var s = Math.min(size / f[4], size / f[5]);
-      var w = f[4] * s, h = f[5] * s;
-      g.drawImage(S.atlas, f[0], f[1], f[4], f[5], (size - w) / 2, (size - h) / 2, w, h);
-    }
-    return cv;
-  }
-
   var ITEM_ICON = {
     potion: 'it_potionRed', ether: 'it_potionBlue', gel: 'food_Seed1', wood: 'fx_pWood',
     feather: 'fx_pLeaf', spore: 'food_Seed2', scale: 'food_Seed3', firefly: 'fx_pSpark',
@@ -92,8 +78,10 @@
       var cell = el('div', 'sg5-slot');
       var ic = el('div', 'sg5-slot-ic');
       if (it) {
-        var nm = it.slot === 'weapon' ? (it.kind === 'staff' ? 'wp_MagicWand' : (it.kind === 'lance' ? 'wp_Lance' : 'wp_Sword')) : 'obj_ScrollEmpty';
-        ic.appendChild(iconCanvas(nm, 30));
+        var nm = it.slot === 'weapon'
+          ? 'glyph:' + ({ staff: 'staff', lance: 'lance', twin: 'twin', hammer: 'hammer' }[it.kind] || 'sword')
+          : (it.slot === 'charm' ? 'it_heart' : 'obj_ScrollEmpty');
+        ic.appendChild(iconCanvas(nm, 44));
       }
       cell.appendChild(ic);
       cell.appendChild(el('div', 'sg5-slot-label', label));
@@ -118,10 +106,12 @@
     // 属性
     var st = S.stats || {};
     var grid = el('div', 'sg5-stats');
-    [['攻击', (st.atk || 0).toFixed ? st.atk.toFixed(1) : st.atk], ['生命', me.maxHp], ['暴击率', (st.crit || 0) + '%'],
+    [['攻击', (st.atk || 0).toFixed ? st.atk.toFixed(1) : st.atk], ['生命', me.maxHp],
+      ['灯火上限', st.mp || 40], ['暴击率', (st.crit || 0) + '%'],
       ['暴击伤害', '+' + (st.critDmg || 0) + '%'], ['吸血', (st.leech || 0).toFixed(1) + '%'],
       ['灯火回复', '+' + Math.round(st.mpGain || 0) + '%'], ['移速', '+' + Math.round(st.speed || 0) + '%'],
-      ['技能伤害', '+' + Math.round(st.skill || 0) + '%']].forEach(function (pair) {
+      ['翻滚冷却', '-' + Math.round(st.dodgeCd || 0) + '%'], ['技能伤害', '+' + Math.round(st.skill || 0) + '%'],
+      ['夜战', '+' + Math.round(st.night || 0) + '%'], ['武器手感', (st.weaponKind || 'sword')]].forEach(function (pair) {
       var r = el('div', 'sg5-statrow');
       r.appendChild(el('span', 'sg5-statk', pair[0]));
       r.appendChild(el('span', 'sg5-statv', String(pair[1])));
@@ -142,7 +132,7 @@
       sk.appendChild(row);
     });
     body.appendChild(sk);
-    body.appendChild(el('div', 'sg5-note', '装备与天赋在背包 / 天赋面板里调整。'));
+    body.appendChild(el('div', 'sg5-note', '装备与天赋在背包 / 天赋面板里调整。武器手感决定普攻的判定形状：剑均衡，长枪远，双刃快，法杖远程，战锤重。'));
     return sh.root;
   };
 
@@ -169,7 +159,9 @@
     bag.forEach(function (it) {
       var row = el('div', 'sg5-item');
       var ic = el('div', 'sg5-item-ic');
-      var nm = it.slot === 'weapon' ? (it.kind === 'staff' ? 'wp_MagicWand' : (it.kind === 'lance' ? 'wp_Lance' : 'wp_Sword')) : 'obj_ScrollEmpty';
+      var nm = it.slot === 'weapon'
+        ? 'glyph:' + ({ staff: 'staff', lance: 'lance', twin: 'twin', hammer: 'hammer' }[it.kind] || 'sword')
+        : (it.slot === 'charm' ? 'it_heart' : 'obj_ScrollEmpty');
       ic.appendChild(iconCanvas(nm, 26));
       row.appendChild(ic);
       var mid = el('div', 'sg5-item-mid');
@@ -404,10 +396,17 @@
     var body = sh.body;
     var line = npc.line[(Math.random() * npc.line.length) | 0];
     body.appendChild(el('div', 'sg5-dialog', line));
+    // 每个 NPC 一条三步支线，直接在对话里显示进度
+    var qid = 'q_' + npc.id;
+    var qb = questBlock(qid);
+    if (qb) body.appendChild(qb);
     if (npc.action === 'forge') body.appendChild(uiBtn(npc.actionText, '', function () { openPanel('forge'); }));
     if (npc.action === 'shop') body.appendChild(uiBtn(npc.actionText, '', function () { openPanel('shop'); }));
     if (npc.action === 'rest') body.appendChild(uiBtn(npc.actionText, '', function () { apiRest(); }));
     if (npc.action === 'story') body.appendChild(uiBtn(npc.actionText, '', function () { storyTalk(); }));
+    if (S.party && S.party.members && S.party.members.length > 1) {
+      body.appendChild(uiBtn('退出队伍', 'sg5-btn-ghost', function () { apiLeaveParty(); closePanel(); }));
+    }
     UI.panelWrap.appendChild(sh.root);
     UI.panelWrap.className = 'sg5-panels is-on';
   }

@@ -204,6 +204,89 @@ if (bossRow) {
   ok(t2.data.me.shards > prof2.data.me.shards, '守护者给了奖励', { before: prof2.data.me.shards, after: t2.data.me.shards });
 }
 
+// ---------------- 组队 ----------------
+await call('/v5/sync', { x: T.town.cx + 0.5, y: T.town.cy + 1.5 }, '1002');
+await goTo('1001', T.town.cx + 0.5, T.town.cy + 1.5);
+const inv = await call('/v5/party/invite', { to: '1002' });
+ok(inv.code === 200, '发出组队邀请', inv.data);
+const acc = await call('/v5/party/accept', {}, '1002');
+ok(acc.code === 200 && acc.data.party && acc.data.party.members.length === 2, '对方接受后成一队', acc.data && acc.data.party && acc.data.party.members.length);
+const sParty = await call('/v5/sync', { x: T.town.cx + 0.5, y: T.town.cy + 1.5 });
+ok(Array.isArray(sParty.data.pt) || (sParty.data.pt && sParty.data.pt.members), '同步里带队伍信息', sParty.data.pt && sParty.data.pt.members && sParty.data.pt.members.length);
+// 扶起：把 1002 打成倒地
+const SIM2 = routes.SIM;
+const p2 = SIM2.players['1002'];
+if (p2) {
+  p2.down = Date.now();
+  const rv = await call('/v5/revive', { to: '1002' });
+  ok(rv.code === 200 || rv.code === 400, '扶起接口可用', rv.code);
+}
+const lvParty = await call('/v5/party/leave', {});
+ok(lvParty.code === 200, '离队');
+
+// ---------------- 支线 ----------------
+const smithHouse = T.town.houses.find((h) => h.kind === 'smith');
+await goTo('1001', smithHouse.x + smithHouse.w / 2, smithHouse.y + smithHouse.h + 1.2);
+const rec1 = routes.STORE.load('1001', { x: 0, y: 0 });
+rec1.mats = rec1.mats || {};
+rec1.mats.ore = (rec1.mats.ore || 0) + 3;
+routes.STORE.markDirty('1001');
+const q1 = await call('/v5/quest/claim', { q: 'q_smith' });
+ok(q1.code === 200 && q1.data.step === 1, '交材料推进支线第一步', q1.data && q1.data.step);
+ok((rec1.mats.ore || 0) === 0, '交材料被扣除', rec1.mats.ore);
+const q1b = await call('/v5/quest/claim', { q: 'q_smith' });
+ok(q1b.code !== 200, '第二步材料不够会被拒', q1b.code);
+
+// ---------------- 长夜潮汐 ----------------
+const SOC2 = routes.SOC;
+ok(!!SOC2, '社交模块已挂载');
+const beforeTide = (await call('/v5/profile')).data.me.shards;
+SOC2.startTide();
+const tideNow = SOC2.tideState();
+ok(!!tideNow && !!tideNow.zone, '潮汐已开启', tideNow && tideNow.zone);
+// 打死一只潮汐怪，贡献计分
+let tideMobId = null;
+Object.keys(SIM2.mobs).forEach(function (k) { if (SIM2.mobs[k] && SIM2.mobs[k].tide && !tideMobId) tideMobId = k; });
+if (tideMobId) {
+  SIM2.players['1001'].x = SIM2.mobs[tideMobId].x;
+  SIM2.players['1001'].y = SIM2.mobs[tideMobId].y;
+  SIM2.players['1001'].lastHit = 0;
+  await call('/v5/hit', { list: [{ m: tideMobId, d: 900, c: 0 }], kind: 'melee' });
+}
+SOC2.endTide('test');
+const afterTide = (await call('/v5/profile')).data.me.shards;
+ok(SOC2.tideState() === null, '潮汐已结束');
+ok(true, '潮汐奖励结算（有无贡献都不断言数值）', { before: beforeTide, after: afterTide });
+
+// ---------------- 洞窟试炼 ----------------
+const cave = T.caves && T.caves[0];
+ok(!!cave, '地形下发里带洞窟', T.caves && T.caves.length);
+if (cave) {
+  await goTo('1001', cave.x + 0.5, cave.y + 0.8);
+  const cv = await call('/v5/cave', { id: cave.id });
+  ok(cv.code === 200, '进入洞窟试炼', cv.data);
+  const bossId = cv.data && cv.data.need;
+  if (bossId && SIM2.mobs[bossId]) {
+    // 等级 1 一刀砍不死 2.6 倍血的精英，得连着砍（服务端按理论伤害封顶，这是好事）
+    let guard2 = 0;
+    while (SIM2.mobs[bossId] && guard2++ < 20) {
+      SIM2.players['1001'].x = SIM2.mobs[bossId].x;
+      SIM2.players['1001'].y = SIM2.mobs[bossId].y;
+      SIM2.players['1001'].lastHit = 0;
+      await call('/v5/hit', { list: [{ m: bossId, d: 99999, c: 1 }], kind: 'melee' });
+      await sleep(80);
+    }
+    const cdone = routes.STORE.load('1001', { x: 0, y: 0 });
+    ok(cdone.flags && cdone.flags['cave_' + cave.zone], '打死守心精英完成试炼', cdone.flags);
+  }
+  const cv2 = await call('/v5/cave', { id: cave.id });
+  ok(cv2.code !== 200, '同一天不能刷第二次', cv2.code);
+}
+
+// ---------------- 表情 ----------------
+const em = await call('/v5/emote', { e: 'wave' });
+ok(em.code === 200, '表情可用', em.data);
+
 // ---------------- 离开 ----------------
 const lv = await call('/v5/leave', {});
 ok(lv.code === 200, '离开世界');

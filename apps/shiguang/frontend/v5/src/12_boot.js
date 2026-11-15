@@ -160,6 +160,8 @@
       var k = (e.key || '').toLowerCase();
       if (k === 'escape') { closePanel(); return; }
       if (e.target && e.target.tagName === 'INPUT') return;
+      if (k === 'p') { if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; } return; }
+      if (k === 'g') { apiEmote(EMOTE_SET[Math.floor(Math.random() * EMOTE_SET.length)].id); return; }
       if (k === 'c') openPanel('char');
       else if (k === 'b' || k === 'i') openPanel('bag');
       else if (k === 'm') openPanel('map');
@@ -217,7 +219,9 @@
         return loadAtlas().then(function () { return d; });
       }).then(function (d) {
         applyEnter(d);
+        bindPlayerClick(canvas, root, onDestroy);
         S.ready = true;
+        showIntro();
         loading.className = 'sg5-loading is-done';
         setTimeout(function () { if (loading.parentNode) loading.parentNode.removeChild(loading); }, 420);
         if (syncTimer) clearInterval(syncTimer);
@@ -288,6 +292,18 @@
         lockPhase: function (phase, pf) { S.pfLock = !!phase; if (phase) { S.phase = phase; S.pf = pf == null ? 0.3 : pf; } }
       };
     } catch (e) {}
+  }
+
+  // 开场：2 秒的标题，然后交给世界
+  function showIntro() {
+    var iv = el('div', 'sg5-intro');
+    iv.appendChild(el('div', 'sg5-intro-title', '拾光群岛'));
+    iv.appendChild(el('div', 'sg5-intro-sub', '长 夜'));
+    iv.appendChild(el('div', 'sg5-intro-line'));
+    iv.appendChild(el('div', 'sg5-intro-hint', S.me && S.me.isNew ? '第 一 夜 · 灯 还 亮 着' : '回 到 灯 边'));
+    root.appendChild(iv);
+    setTimeout(function () { iv.className = 'sg5-intro is-out'; }, 1500);
+    setTimeout(function () { if (iv.parentNode) iv.parentNode.removeChild(iv); }, 2600);
   }
 
   function unmount(container) {

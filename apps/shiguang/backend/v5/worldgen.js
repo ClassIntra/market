@@ -127,6 +127,14 @@ function buildLandmarks() {
   L.waystones.push({ id: 'ws_crag', x: polar(325, 64).x, y: polar(325, 64).y, zone: 'crag' });
   L.waystones.push({ id: 'ws_frost', x: polar(45, 64).x, y: polar(45, 64).y, zone: 'frost' });
   L.waystones.push({ id: 'ws_abyss', x: ABYSS.x - 18, y: ABYSS.y + 16, zone: 'abyss' });
+  // 洞窟：每区一处，位置贴着灯塔外侧（玩家打到灯塔时顺路就能看见洞口）
+  var caveAt = {
+    meadow: polar(288, 46), forest: polar(168, 96), swamp: polar(258, 98),
+    crag: polar(338, 96), frost: polar(32, 96), abyss: { x: ABYSS.x + 12, y: ABYSS.y + 10 }
+  };
+  Object.keys(caveAt).forEach(function (z) {
+    L.caves.push({ id: 'cave_' + z, zone: z, x: caveAt[z].x, y: caveAt[z].y });
+  });
   return L;
 }
 
@@ -218,6 +226,7 @@ function generate() {
 
   // 地标周围清出空地
   Object.keys(landmarks.towers).forEach(function (k) { clearArea(grid, landmarks.towers[k].x, landmarks.towers[k].y, 7, zoneFloor(k)); });
+  landmarks.caves.forEach(function (cv) { clearArea(grid, cv.x, cv.y, 4, zoneFloor(cv.zone)); });
   landmarks.waystones.forEach(function (w) { clearArea(grid, w.x, w.y, 2, null); });
 
   // 宝箱、营地：在可走格上按区散布（确定性）

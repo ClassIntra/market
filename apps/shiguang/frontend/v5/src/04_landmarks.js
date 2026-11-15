@@ -468,7 +468,7 @@
     var L = [];
     var me = S.me;
     if (me) {
-      var r = 5.8;
+      var r = 4.6;
       if (S.stats && S.stats.talents && S.stats.talents.nightSight) r *= 1.5;
       L.push({ x: me.x * TILE, y: me.y * TILE, r: r * TILE, warm: 1, flick: 1 });
     }
@@ -518,10 +518,11 @@
       var rr = l.r * S.zoom;
       if (sx + rr < 0 || sy + rr < 0 || sx - rr > w || sy - rr > h) continue;
       var g = g0.createRadialGradient(sx, sy, rr * 0.1, sx, sy, rr);
-      g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(0.42, 'rgba(0,0,0,0.9)');
-      g.addColorStop(0.68, 'rgba(0,0,0,0.62)');
-      g.addColorStop(0.86, 'rgba(0,0,0,0.26)');
+      // 中心只挖到 0.72：留一点夜色，雪地上才不会「爆白」
+      g.addColorStop(0, 'rgba(0,0,0,0.72)');
+      g.addColorStop(0.40, 'rgba(0,0,0,0.62)');
+      g.addColorStop(0.66, 'rgba(0,0,0,0.42)');
+      g.addColorStop(0.86, 'rgba(0,0,0,0.18)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       g0.fillStyle = g;
       g0.beginPath();
@@ -540,8 +541,8 @@
       var qx = w2sX(q.x), qy = w2sY(q.y), qr = q.r * S.zoom * 0.8;
       if (qx + qr < 0 || qy + qr < 0 || qx - qr > w || qy - qr > h) continue;
       var g2 = ctx.createRadialGradient(qx, qy, qr * 0.1, qx, qy, qr);
-      g2.addColorStop(0, 'rgba(255,176,96,' + (0.11 * a * q.warm).toFixed(3) + ')');
-      g2.addColorStop(0.6, 'rgba(255,150,70,' + (0.05 * a * q.warm).toFixed(3) + ')');
+      g2.addColorStop(0, 'rgba(255,170,90,' + (0.07 * a * q.warm).toFixed(3) + ')');
+      g2.addColorStop(0.6, 'rgba(255,140,60,' + (0.03 * a * q.warm).toFixed(3) + ')');
       g2.addColorStop(1, 'rgba(255,150,70,0)');
       ctx.fillStyle = g2;
       ctx.fillRect(qx - qr, qy - qr, qr * 2, qr * 2);

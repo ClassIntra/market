@@ -45,6 +45,10 @@ for (const k of Object.keys(world.landmarks.towers)) {
 ok(Object.keys(world.landmarks.towers).length === 6, '6 座区域灯塔');
 ok(world.landmarks.chests.length >= 40, '宝箱数量', world.landmarks.chests.length);
 ok(world.landmarks.waystones.length === 7, '传送石 7 块', world.landmarks.waystones.length);
+ok(world.landmarks.caves.length === 6, '洞窟 6 处', world.landmarks.caves.length);
+world.landmarks.caves.forEach(function (cv) {
+  ok(!W.isBlocked(world, cv.x + 0.5, cv.y + 0.5), '洞窟口可站 ' + cv.id);
+});
 
 // ---- 连通性：从镇门能走到的可走格比例 ----
 function flood(sx, sy) {
@@ -78,6 +82,9 @@ for (const k of Object.keys(world.landmarks.towers)) {
 }
 for (const w of world.landmarks.waystones) {
   ok(fl.seen[Math.floor(w.y) * 256 + Math.floor(w.x)] === 1, '传送石 ' + w.id + ' 可达');
+}
+for (const cv of world.landmarks.caves) {
+  ok(fl.seen[Math.floor(cv.y) * 256 + Math.floor(cv.x)] === 1, '洞窟 ' + cv.id + ' 可达');
 }
 let chestReach = 0;
 for (const c of world.landmarks.chests) if (fl.seen[c.y * 256 + c.x] === 1) chestReach++;

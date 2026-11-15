@@ -413,6 +413,7 @@
       }
     }
     drawShots();
+    drawEmotes();
     drawFx(dt);
     drawNight(ctx, S.view.w, S.view.h);
     drawAtmosphere(ctx, S.view.w, S.view.h);

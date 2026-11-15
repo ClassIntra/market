@@ -652,6 +652,8 @@ var MUSIC = {
     };
     S.chests = {};
     S.waystones = data.waystones;
+    S.questDefs = data.quests || {};
+    S.caves = data.caves || [];
     chunks = {};
     chunkOrder = [];
     buildTextures();
@@ -1750,7 +1752,7 @@ var MUSIC = {
     var L = [];
     var me = S.me;
     if (me) {
-      var r = 5.8;
+      var r = 4.6;
       if (S.stats && S.stats.talents && S.stats.talents.nightSight) r *= 1.5;
       L.push({ x: me.x * TILE, y: me.y * TILE, r: r * TILE, warm: 1, flick: 1 });
     }
@@ -1800,10 +1802,11 @@ var MUSIC = {
       var rr = l.r * S.zoom;
       if (sx + rr < 0 || sy + rr < 0 || sx - rr > w || sy - rr > h) continue;
       var g = g0.createRadialGradient(sx, sy, rr * 0.1, sx, sy, rr);
-      g.addColorStop(0, 'rgba(0,0,0,1)');
-      g.addColorStop(0.42, 'rgba(0,0,0,0.9)');
-      g.addColorStop(0.68, 'rgba(0,0,0,0.62)');
-      g.addColorStop(0.86, 'rgba(0,0,0,0.26)');
+      // 中心只挖到 0.72：留一点夜色，雪地上才不会「爆白」
+      g.addColorStop(0, 'rgba(0,0,0,0.72)');
+      g.addColorStop(0.40, 'rgba(0,0,0,0.62)');
+      g.addColorStop(0.66, 'rgba(0,0,0,0.42)');
+      g.addColorStop(0.86, 'rgba(0,0,0,0.18)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
       g0.fillStyle = g;
       g0.beginPath();
@@ -1822,8 +1825,8 @@ var MUSIC = {
       var qx = w2sX(q.x), qy = w2sY(q.y), qr = q.r * S.zoom * 0.8;
       if (qx + qr < 0 || qy + qr < 0 || qx - qr > w || qy - qr > h) continue;
       var g2 = ctx.createRadialGradient(qx, qy, qr * 0.1, qx, qy, qr);
-      g2.addColorStop(0, 'rgba(255,176,96,' + (0.11 * a * q.warm).toFixed(3) + ')');
-      g2.addColorStop(0.6, 'rgba(255,150,70,' + (0.05 * a * q.warm).toFixed(3) + ')');
+      g2.addColorStop(0, 'rgba(255,170,90,' + (0.07 * a * q.warm).toFixed(3) + ')');
+      g2.addColorStop(0.6, 'rgba(255,140,60,' + (0.03 * a * q.warm).toFixed(3) + ')');
       g2.addColorStop(1, 'rgba(255,150,70,0)');
       ctx.fillStyle = g2;
       ctx.fillRect(qx - qr, qy - qr, qr * 2, qr * 2);
@@ -2946,6 +2949,7 @@ var MUSIC = {
       }
     }
     drawShots();
+    drawEmotes();
     drawFx(dt);
     drawNight(ctx, S.view.w, S.view.h);
     drawAtmosphere(ctx, S.view.w, S.view.h);
@@ -3185,19 +3189,162 @@ var MUSIC = {
 
   // ======================== 09_ui_hud.js ========================
   // ---------------- §15 HUD ----------------
-  // HUD 全部是 DOM：数字要清晰、要能被 CSS 主题影响，画在 canvas 上就糊了。
+  // HUD 全是 DOM：数字要清晰、要能被主题影响。但视觉上它必须像「游戏里的木牌」，
+  // 而不是网页卡片 —— 厚边、方角、点阵字、分段条。样式见 style.css 的 .sg5-frame。
   var UI = {};
+
+  // 把图集里的一帧画进小 canvas（HUD 图标统一走这里，风格才一致）
+  function iconCanvas(name, size) {
+    var cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    cv.setAttribute('data-icon', name);
+    paintIcon(cv, name, size);
+    return cv;
+  }
+  function paintIcon(cv, name, size) {
+    var g = cv.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, size, size);
+    if (name.indexOf('glyph:') === 0) { paintGlyph(g, name.slice(6), size); return; }
+    var f = FR[name];
+    if (!f || !S.atlas) return;
+    var s = Math.min(size / f[4], size / f[5]);
+    var w = Math.round(f[4] * s), h = Math.round(f[5] * s);
+    var dx = Math.round((size - w) / 2), dy = Math.round((size - h) / 2);
+    g.drawImage(S.atlas, f[0], f[1], f[4], f[5], dx, dy, w, h);
+    // 素材里有一部分帧用「品红」当透明底。不去掉的话图标会顶着一块洋红。
+    try {
+      var img = g.getImageData(dx, dy, w, h);
+      var d = img.data;
+      for (var i = 0; i < d.length; i += 4) {
+        if (d[i] > 190 && d[i + 2] > 190 && d[i + 1] < 90) d[i + 3] = 0;
+      }
+      g.putImageData(img, dx, dy);
+    } catch (e) {}
+  }
+
+  // 程序化像素字形：图集里没有的图标（齿轮 / 手 / 靴子）用 1px 方格拼出来，
+  // 和素材的风格一致，也不用再往包里塞图。
+  var GLYPH = {
+    gear: [
+      '..##..##..',
+      '..######..',
+      '.########.',
+      '.###..###.',
+      '####..####',
+      '####..####',
+      '.###..###.',
+      '.########.',
+      '..######..',
+      '..##..##..'
+    ],
+    // 剑：竖刃 + 十字护手 + 柄，12×14，38px 下也一眼能认出
+    sword: [
+      '.....##.....',
+      '....####....',
+      '....####....',
+      '....####....',
+      '....####....',
+      '....####....',
+      '....####....',
+      '..########..',
+      '....####....',
+      '.....##.....',
+      '.....##.....',
+      '.....##.....',
+      '....####....',
+      '.....##.....'
+    ],
+    lance: [
+      '.........##.',
+      '........####',
+      '.......####.',
+      '......####..',
+      '.....####...',
+      '....####....',
+      '...####.....',
+      '..####......',
+      '.##.........',
+      '##..........'
+    ],
+    twin: [
+      '..##....##..',
+      '..##....##..',
+      '..##....##..',
+      '..##....##..',
+      '...##..##...',
+      '....####....',
+      '.....##.....',
+      '....####....',
+      '...##..##...',
+      '..##....##..'
+    ],
+    staff: [
+      '.....###....',
+      '....#####...',
+      '...###.###..',
+      '....#####...',
+      '.....###....',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....'
+    ],
+    hammer: [
+      '...######...',
+      '...######...',
+      '...######...',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....',
+      '......#.....'
+    ],
+    // 翻滚：一个侧翻的弧线 + 箭头（读作「往那边滚」）
+    roll: [
+      '...#####....',
+      '..##...##...',
+      '.##.....##..',
+      '.##.........',
+      '.##.........',
+      '.##.....##..',
+      '..##...##...',
+      '...#####..##',
+      '..........##',
+      '..........#.'
+    ]
+  };
+
+  function paintGlyph(g, kind, size) {
+    var rows = GLYPH[kind];
+    if (!rows) return;
+    var h = rows.length, w = rows[0].length;
+    var s = Math.max(1, Math.floor(size / (w + 2)));
+    var ox = Math.round((size - w * s) / 2), oy = Math.round((size - h * s) / 2);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (rows[y].charAt(x) !== '#') continue;
+        // 上亮下暗，做出金属感
+        var tone = y < h * 0.45 ? '#e8dcc0' : (y < h * 0.75 ? '#b9a988' : '#8b7c60');
+        g.fillStyle = tone;
+        g.fillRect(ox + x * s, oy + y * s, s, s);
+      }
+    }
+  }
 
   function uiBuild(root) {
     var hud = el('div', 'sg5-hud');
     root.appendChild(hud);
     UI.hud = hud;
 
-    // ---- 左上 生命 / 灯火 / 经验 ----
-    var status = el('div', 'sg5-status');
+    // ---- 左上 角色牌 ----
+    var status = el('div', 'sg5-status sg5-frame');
     var face = el('div', 'sg5-face');
     var faceCv = document.createElement('canvas');
-    faceCv.width = 48; faceCv.height = 48;
+    faceCv.width = 52; faceCv.height = 52;
     faceCv.className = 'sg5-facecv';
     face.appendChild(faceCv);
     UI.faceCv = faceCv;
@@ -3215,27 +3362,32 @@ var MUSIC = {
     status.appendChild(bars);
     hud.appendChild(status);
 
-    // ---- 右上 小地图 + 时钟 ----
+    // ---- 右上 小地图 + 日晷 ----
     var tr = el('div', 'sg5-topright');
-    var mini = document.createElement('div');
-    mini.className = 'sg5-mini';
+    var mini = el('div', 'sg5-mini sg5-frame');
     var miniCv = document.createElement('canvas');
-    miniCv.width = 108; miniCv.height = 108;
+    miniCv.width = 124; miniCv.height = 124;
     miniCv.className = 'sg5-minicv';
     mini.appendChild(miniCv);
+    mini.appendChild(el('div', 'sg5-compass', 'N'));
     UI.miniCv = miniCv;
     UI.miniCtx = miniCv.getContext('2d');
+    UI.zoneLabel = el('div', 'sg5-zonelabel', '拾光镇');
+    mini.appendChild(UI.zoneLabel);
     tr.appendChild(mini);
-    var clock = el('div', 'sg5-clock');
+
+    var clock = el('div', 'sg5-clock sg5-frame');
     UI.phaseEl = el('div', 'sg5-phase', '白天');
     UI.clockEl = el('div', 'sg5-ctime', '12:00');
-    UI.shardEl = el('div', 'sg5-shards');   // 注意：不要在这里塞初始文字，下面还会 append span
-    var shardIcon = svgIcon(ICONS.star, 12);
-    shardIcon.setAttribute('class', 'sg5-ic');
-    UI.shardEl.insertBefore(shardIcon, UI.shardEl.firstChild);
-    var shardTxt = el('span', null, '0');
-    UI.shardEl.appendChild(shardTxt);
-    UI.shardTxt = shardTxt;
+    UI.shardEl = el('div', 'sg5-shards');
+    var coin = document.createElement('canvas');
+    coin.width = 16; coin.height = 16;
+    coin.className = 'sg5-ic';
+    coin.setAttribute('data-icon', 'it_coin');
+    UI.coinCv = coin;
+    UI.shardEl.appendChild(coin);
+    UI.shardTxt = el('span', null, '0');
+    UI.shardEl.appendChild(UI.shardTxt);
     clock.appendChild(UI.phaseEl);
     clock.appendChild(UI.clockEl);
     clock.appendChild(UI.shardEl);
@@ -3249,7 +3401,7 @@ var MUSIC = {
     hud.appendChild(UI.goalEl);
 
     // ---- Boss 血条 ----
-    var boss = el('div', 'sg5-boss');
+    var boss = el('div', 'sg5-boss sg5-frame');
     UI.bossName = el('div', 'sg5-bossname', '');
     var bb = el('div', 'sg5-bossbar');
     UI.bossFill = el('i');
@@ -3259,6 +3411,19 @@ var MUSIC = {
     UI.bossEl = boss;
     hud.appendChild(boss);
 
+    // ---- 队伍 ----
+    UI.partyEl = el('div', 'sg5-party');
+    hud.appendChild(UI.partyEl);
+
+    // ---- 潮汐横幅 ----
+    var tide = el('div', 'sg5-tide sg5-frame');
+    UI.tideName = el('div', 'sg5-tide-name', '');
+    UI.tideSub = el('div', 'sg5-tide-sub', '');
+    tide.appendChild(UI.tideName);
+    tide.appendChild(UI.tideSub);
+    UI.tideEl = tide;
+    hud.appendChild(tide);
+
     // ---- 摇杆 ----
     var joy = el('div', 'sg5-joy');
     var knob = el('div', 'sg5-knob');
@@ -3266,22 +3431,24 @@ var MUSIC = {
     hud.appendChild(joy);
     UI.joy = joy;
 
-    // ---- 动作按钮 ----
+    // ---- 动作键 ----
     var acts = el('div', 'sg5-actions');
-    UI.btnAtk = actionBtn(acts, 'attack', ICONS.sword, '攻击', 'J');
-    UI.btnRoll = actionBtn(acts, 'roll', ICONS.roll, '翻滚', 'K');
-    UI.btnSkill = actionBtn(acts, 'skill', ICONS.spark, '技能', 'L');
-    UI.btnUse = actionBtn(acts, 'use', ICONS.hand, '交互', 'E');
+    UI.btnAtk = actionBtn(acts, 'attack', 'glyph:sword', '攻击', 'J', 40);
+    UI.btnRoll = actionBtn(acts, 'roll', 'glyph:roll', '翻滚', 'K', 30);
+    UI.btnSkill = actionBtn(acts, 'skill', 'fx_energy', '技能', 'L', 28);
+    UI.btnUse = actionBtn(acts, 'use', 'it_key', '交互', 'E', 24);
+    UI.skillCd = el('i', 'sg5-cd');
+    UI.btnSkill.appendChild(UI.skillCd);
     hud.appendChild(acts);
 
-    // ---- 侧边功能 ----
+    // ---- 底部功能槽 ----
     var dock = el('div', 'sg5-dock');
-    dockBtn(dock, 'char', ICONS.user, '角色', 'C');
-    dockBtn(dock, 'bag', ICONS.bag, '背包', 'B');
-    dockBtn(dock, 'map', ICONS.map, '地图', 'M');
-    dockBtn(dock, 'dex', ICONS.book, '图鉴', 'V');
-    dockBtn(dock, 'talent', ICONS.star, '天赋', 'T');
-    dockBtn(dock, 'help', ICONS.gear, '设置', 'Esc');
+    dockBtn(dock, 'char', 'face_NinjaBlue', '角色', 'C');
+    dockBtn(dock, 'bag', 'it_chest', '背包', 'B');
+    dockBtn(dock, 'map', 'obj_ScrollEmpty', '地图', 'M');
+    dockBtn(dock, 'dex', 'obj_Letter', '图鉴', 'V');
+    dockBtn(dock, 'talent', 'it_heart', '天赋', 'T');
+    dockBtn(dock, 'help', 'glyph:gear', '设置', 'Esc');
     hud.appendChild(dock);
     UI.dock = dock;
 
@@ -3295,7 +3462,7 @@ var MUSIC = {
     UI.panelWrap = el('div', 'sg5-panels');
     hud.appendChild(UI.panelWrap);
 
-    // ---- 死亡遮罩 ----
+    // ---- 死亡 ----
     var dead = el('div', 'sg5-dead');
     dead.appendChild(el('div', 'sg5-dead-title', '你倒下了'));
     dead.appendChild(el('div', 'sg5-dead-sub', '长夜没有结束 —— 回到灯边，再来一次。'));
@@ -3328,13 +3495,11 @@ var MUSIC = {
     return { wrap: w, fill: fill, txt: txt };
   }
 
-  function actionBtn(parent, name, icon, label, key) {
+  function actionBtn(parent, name, icon, label, key, size) {
     var b = el('button', 'sg5-act sg5-act-' + name);
     b.type = 'button';
     b.setAttribute('data-act', name);
-    var svg = svgIcon(icon, 24);
-    svg.setAttribute('class', 'sg5-actic');
-    b.appendChild(svg);
+    b.appendChild(iconCanvas(icon, size));
     b.appendChild(el('span', 'sg5-actkey', key));
     b.setAttribute('aria-label', label);
     parent.appendChild(b);
@@ -3345,23 +3510,19 @@ var MUSIC = {
     var b = el('button', 'sg5-dockbtn');
     b.type = 'button';
     b.setAttribute('data-panel', name);
-    var svg = svgIcon(icon, 17);
-    svg.setAttribute('class', 'sg5-dockic');
-    b.appendChild(svg);
-    b.appendChild(el('span', 'sg5-docklabel', label));
+    b.appendChild(iconCanvas(icon, 24));
+    b.appendChild(el('span', 'sg5-dockkey', key));
     b.setAttribute('title', label + '（' + key + '）');
     parent.appendChild(b);
     return b;
   }
 
-  // 按钮按住就连续触发（普攻连段靠这个）
   function bindButtons(acts, dock) {
-    var downAt = {};
     function press(name, e) {
-      if (name === 'attack') { IN.attack = 1; }
-      else if (name === 'roll') { IN.roll = 1; }
-      else if (name === 'skill') { IN.skill = 1; }
-      else if (name === 'use') { IN.use = 1; }
+      if (name === 'attack') IN.attack = 1;
+      else if (name === 'roll') IN.roll = 1;
+      else if (name === 'skill') IN.skill = 1;
+      else if (name === 'use') IN.use = 1;
       if (e && e.preventDefault) e.preventDefault();
       auResume();
     }
@@ -3391,24 +3552,71 @@ var MUSIC = {
     var hpF = clamp(me.hp / (me.maxHp || 1), 0, 1);
     var mpF = clamp((me.mp || 0) / (me.maxMp || 1), 0, 1);
     var xpF = clamp((me.xp || 0) / (me.xpNext || 1), 0, 1);
-    UI.hpBar.fill.style.width = (hpF * 100).toFixed(1) + '%';
-    UI.mpBar.fill.style.width = (mpF * 100).toFixed(1) + '%';
-    UI.xpBar.fill.style.width = (xpF * 100).toFixed(1) + '%';
-    setText(UI.hpBar.txt, Math.round(me.hp) + ' / ' + Math.round(me.maxHp));
+    UI.hpBar.fill.style.transform = 'scaleX(' + hpF.toFixed(3) + ')';
+    UI.mpBar.fill.style.transform = 'scaleX(' + mpF.toFixed(3) + ')';
+    UI.xpBar.fill.style.transform = 'scaleX(' + xpF.toFixed(3) + ')';
+    setText(UI.hpBar.txt, Math.round(me.hp) + '/' + Math.round(me.maxHp));
     setText(UI.lvEl, 'Lv.' + (me.lv || 1));
     setText(UI.nameEl, me.name || '旅人');
     setText(UI.shardTxt, fmt(me.shards));
 
-    // 时钟：游戏内一天 12 分钟，映射到 24 小时
     var hh = Math.floor(S.pf * 24), mm = Math.floor((S.pf * 24 - hh) * 60);
     setText(UI.clockEl, pad2(hh) + ':' + pad2(mm));
     var pname = { day: '白天', dusk: '黄昏', night: '长夜', dawn: '黎明' }[S.phase] || '白天';
     setText(UI.phaseEl, pname);
     UI.phaseEl.className = 'sg5-phase sg5-phase-' + S.phase;
-    UI.zoneEl.className = 'sg5-zone sg5-z-' + S.zone;
+    setText(UI.zoneLabel, ZONE_NAMES[S.zone] || '拾光群岛');
+
+    // 技能冷却遮罩（从下往上退）
+    if (me.skillCdUntil && S.time < me.skillCdUntil) {
+      var left = (me.skillCdUntil - S.time) / 6;
+      UI.skillCd.style.height = (clamp(left, 0, 1) * 100).toFixed(0) + '%';
+    } else if (UI.skillCd.style.height && UI.skillCd.style.height !== '0%') {
+      UI.skillCd.style.height = '0%';
+    }
+    uiParty();
+    uiTide();
   }
 
   function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  // ---- 队伍面板 ----
+  function uiParty() {
+    if (!UI.partyEl) return;
+    var pt = S.party;
+    if (!pt || !pt.members || pt.members.length < 2) {
+      if (UI.partyEl.childNodes.length) clearNode(UI.partyEl);
+      return;
+    }
+    clearNode(UI.partyEl);
+    for (var i = 0; i < pt.members.length; i++) {
+      var m = pt.members[i];
+      if (m[0] === S.myId) continue;
+      var row = el('div', 'sg5-pt' + (m[4] ? ' is-down' : ''));
+      row.appendChild(el('span', 'sg5-pt-name', m[1]));
+      var bar2 = el('div', 'sg5-pt-bar');
+      var fill = el('i');
+      fill.style.transform = 'scaleX(' + clamp(m[2] / (m[3] || 1), 0, 1).toFixed(3) + ')';
+      bar2.appendChild(fill);
+      row.appendChild(bar2);
+      if (m[4]) row.appendChild(el('span', 'sg5-pt-tag', '倒地'));
+      UI.partyEl.appendChild(row);
+    }
+  }
+
+  // ---- 潮汐横幅 ----
+  function uiTide() {
+    if (!UI.tideEl) return;
+    var t = S.tideInfo;
+    if (!t) {
+      if (UI.tideEl.className.indexOf('is-on') >= 0) UI.tideEl.className = 'sg5-tide sg5-frame';
+      return;
+    }
+    var left = Math.max(0, Math.round((t.until - Date.now()) / 1000));
+    UI.tideEl.className = 'sg5-tide sg5-frame is-on';
+    setText(UI.tideName, '长夜潮汐 · ' + (ZONE_NAMES[t.zone] || t.zone));
+    setText(UI.tideSub, '第 ' + (t.wave || 0) + ' 波 · 还剩 ' + pad2(Math.floor(left / 60)) + ':' + pad2(left % 60) + ' · 到场就有份');
+  }
 
   // ---- toast ----
   var toastTimer = 0;
@@ -3422,7 +3630,7 @@ var MUSIC = {
     }, 1900);
   }
 
-  // ---- 世界频道（点灯 / 首杀 / 传说） ----
+  // ---- 世界频道 ----
   function feedPush(text, kind) {
     S.feed.unshift({ text: text, kind: kind || '', at: Date.now() });
     if (S.feed.length > 6) S.feed.pop();
@@ -3433,12 +3641,10 @@ var MUSIC = {
     clearNode(UI.feedEl);
     for (var i = 0; i < S.feed.length && i < 5; i++) {
       var f = S.feed[i];
-      var row = el('div', 'sg5-feedrow' + (f.kind ? ' sg5-feed-' + f.kind : ''), f.text);
-      UI.feedEl.appendChild(row);
+      UI.feedEl.appendChild(el('div', 'sg5-feedrow' + (f.kind ? ' sg5-feed-' + f.kind : ''), f.text));
     }
   }
 
-  // ---- 区域名横幅 ----
   function showZone(name) {
     if (!UI.zoneEl) return;
     UI.zoneEl.textContent = name;
@@ -3448,7 +3654,6 @@ var MUSIC = {
     }, 2600);
   }
 
-  // ---- 目标指引 ----
   function uiGoal() {
     if (!UI.goalEl) return;
     var g = S.goal;
@@ -3463,7 +3668,6 @@ var MUSIC = {
     UI.goalEl.className = 'sg5-goal';
   }
 
-  // ---- 章节卡 ----
   function showChapter(idx) {
     var c = CHAPTERS[idx];
     if (!c || !UI.chEl) return;
@@ -3471,25 +3675,32 @@ var MUSIC = {
     UI.chText.textContent = c.text;
     UI.chEl.className = 'sg5-chapter is-on';
     auSfx('success', 0.5, 1);
-    setTimeout(function () {
-      UI.chEl.className = 'sg5-chapter';
-    }, 5200);
+    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 5200);
   }
 
-  // ---- 头像（从图集里裁一张脸） ----
   function drawFace(look) {
     var f = FR['face_' + look] || FR['face_NinjaBlue'];
     if (!f || !UI.faceCv) return;
     var g = UI.faceCv.getContext('2d');
     g.imageSmoothingEnabled = false;
-    g.clearRect(0, 0, 48, 48);
-    g.drawImage(S.atlas, f[0], f[1], f[4], f[5], 0, 0, 48, 48);
+    g.clearRect(0, 0, 52, 52);
+    g.drawImage(S.atlas, f[0], f[1], f[4], f[5], 0, 0, 52, 52);
   }
 
-  // ---- 小地图每帧 ----
   function uiMini() {
     if (!UI.miniCtx || !MINI.base || !S.me) return;
-    drawMiniMap(UI.miniCtx, 0, 0, 108, 26);
+    drawMiniMap(UI.miniCtx, 0, 0, 124, 30);
+  }
+
+  // 图集到位后补画图标（uiBuild 早于 atlas 加载）
+  function uiPaintIcons() {
+    if (!S.atlas || !UI.hud) return;
+    var list = UI.hud.getElementsByTagName('canvas');
+    for (var i = 0; i < list.length; i++) {
+      var nm = list[i].getAttribute('data-icon');
+      if (nm) paintIcon(list[i], nm, list[i].width);
+    }
+    if (UI.coinCv) paintIcon(UI.coinCv, 'it_coin', 16);
   }
 
 
@@ -3502,20 +3713,6 @@ var MUSIC = {
     b.type = 'button';
     b.addEventListener('click', function (e) { e.stopPropagation(); fn(); }, false);
     return b;
-  }
-
-  function iconCanvas(name, size) {
-    var cv = document.createElement('canvas');
-    cv.width = size; cv.height = size;
-    var g = cv.getContext('2d');
-    var f = FR[name];
-    g.imageSmoothingEnabled = false;
-    if (f) {
-      var s = Math.min(size / f[4], size / f[5]);
-      var w = f[4] * s, h = f[5] * s;
-      g.drawImage(S.atlas, f[0], f[1], f[4], f[5], (size - w) / 2, (size - h) / 2, w, h);
-    }
-    return cv;
   }
 
   var ITEM_ICON = {
@@ -3588,8 +3785,10 @@ var MUSIC = {
       var cell = el('div', 'sg5-slot');
       var ic = el('div', 'sg5-slot-ic');
       if (it) {
-        var nm = it.slot === 'weapon' ? (it.kind === 'staff' ? 'wp_MagicWand' : (it.kind === 'lance' ? 'wp_Lance' : 'wp_Sword')) : 'obj_ScrollEmpty';
-        ic.appendChild(iconCanvas(nm, 30));
+        var nm = it.slot === 'weapon'
+          ? 'glyph:' + ({ staff: 'staff', lance: 'lance', twin: 'twin', hammer: 'hammer' }[it.kind] || 'sword')
+          : (it.slot === 'charm' ? 'it_heart' : 'obj_ScrollEmpty');
+        ic.appendChild(iconCanvas(nm, 44));
       }
       cell.appendChild(ic);
       cell.appendChild(el('div', 'sg5-slot-label', label));
@@ -3614,10 +3813,12 @@ var MUSIC = {
     // 属性
     var st = S.stats || {};
     var grid = el('div', 'sg5-stats');
-    [['攻击', (st.atk || 0).toFixed ? st.atk.toFixed(1) : st.atk], ['生命', me.maxHp], ['暴击率', (st.crit || 0) + '%'],
+    [['攻击', (st.atk || 0).toFixed ? st.atk.toFixed(1) : st.atk], ['生命', me.maxHp],
+      ['灯火上限', st.mp || 40], ['暴击率', (st.crit || 0) + '%'],
       ['暴击伤害', '+' + (st.critDmg || 0) + '%'], ['吸血', (st.leech || 0).toFixed(1) + '%'],
       ['灯火回复', '+' + Math.round(st.mpGain || 0) + '%'], ['移速', '+' + Math.round(st.speed || 0) + '%'],
-      ['技能伤害', '+' + Math.round(st.skill || 0) + '%']].forEach(function (pair) {
+      ['翻滚冷却', '-' + Math.round(st.dodgeCd || 0) + '%'], ['技能伤害', '+' + Math.round(st.skill || 0) + '%'],
+      ['夜战', '+' + Math.round(st.night || 0) + '%'], ['武器手感', (st.weaponKind || 'sword')]].forEach(function (pair) {
       var r = el('div', 'sg5-statrow');
       r.appendChild(el('span', 'sg5-statk', pair[0]));
       r.appendChild(el('span', 'sg5-statv', String(pair[1])));
@@ -3638,7 +3839,7 @@ var MUSIC = {
       sk.appendChild(row);
     });
     body.appendChild(sk);
-    body.appendChild(el('div', 'sg5-note', '装备与天赋在背包 / 天赋面板里调整。'));
+    body.appendChild(el('div', 'sg5-note', '装备与天赋在背包 / 天赋面板里调整。武器手感决定普攻的判定形状：剑均衡，长枪远，双刃快，法杖远程，战锤重。'));
     return sh.root;
   };
 
@@ -3665,7 +3866,9 @@ var MUSIC = {
     bag.forEach(function (it) {
       var row = el('div', 'sg5-item');
       var ic = el('div', 'sg5-item-ic');
-      var nm = it.slot === 'weapon' ? (it.kind === 'staff' ? 'wp_MagicWand' : (it.kind === 'lance' ? 'wp_Lance' : 'wp_Sword')) : 'obj_ScrollEmpty';
+      var nm = it.slot === 'weapon'
+        ? 'glyph:' + ({ staff: 'staff', lance: 'lance', twin: 'twin', hammer: 'hammer' }[it.kind] || 'sword')
+        : (it.slot === 'charm' ? 'it_heart' : 'obj_ScrollEmpty');
       ic.appendChild(iconCanvas(nm, 26));
       row.appendChild(ic);
       var mid = el('div', 'sg5-item-mid');
@@ -3900,10 +4103,17 @@ var MUSIC = {
     var body = sh.body;
     var line = npc.line[(Math.random() * npc.line.length) | 0];
     body.appendChild(el('div', 'sg5-dialog', line));
+    // 每个 NPC 一条三步支线，直接在对话里显示进度
+    var qid = 'q_' + npc.id;
+    var qb = questBlock(qid);
+    if (qb) body.appendChild(qb);
     if (npc.action === 'forge') body.appendChild(uiBtn(npc.actionText, '', function () { openPanel('forge'); }));
     if (npc.action === 'shop') body.appendChild(uiBtn(npc.actionText, '', function () { openPanel('shop'); }));
     if (npc.action === 'rest') body.appendChild(uiBtn(npc.actionText, '', function () { apiRest(); }));
     if (npc.action === 'story') body.appendChild(uiBtn(npc.actionText, '', function () { storyTalk(); }));
+    if (S.party && S.party.members && S.party.members.length > 1) {
+      body.appendChild(uiBtn('退出队伍', 'sg5-btn-ghost', function () { apiLeaveParty(); closePanel(); }));
+    }
     UI.panelWrap.appendChild(sh.root);
     UI.panelWrap.className = 'sg5-panels is-on';
   }
@@ -3980,7 +4190,7 @@ var MUSIC = {
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 5 && cached.cells && cached.size === 256) {
+    if (cached && cached.version === 6 && cached.cells && cached.size === 256) {
       return Promise.resolve(cached);
     }
     return apiGet('/shiguang/v5/terrain').then(function (data) {
@@ -4002,6 +4212,10 @@ var MUSIC = {
     S.phase = d.phase ? d.phase.name : 'day';
     S.pf = d.phase ? d.phase.f : 0;
     S.feed = (d.feed || []).map(function (f) { return { text: f.text, kind: f.kind }; });
+    S.party = d.party || null;
+    S.quests = d.quests || {};
+    S.tideInfo = d.tide || null;
+    S.caves = d.caves || [];
     // 相机先对上，否则第一帧会从 (0,0) 飞过来
     S.cam.x = me.x * TILE;
     S.cam.y = me.y * TILE;
@@ -4018,6 +4232,7 @@ var MUSIC = {
     }
     applyPlayers(d.players || []);
     renderFeed();
+    uiPaintIcons();
     drawFace(me.look);
     uiUpdate();
     uiGoal();
@@ -4107,6 +4322,9 @@ var MUSIC = {
       S.phase = d.ph || S.phase;
       S.pf = d.pf != null ? d.pf : S.pf;
     }
+    S.party = d.pt || null;
+    if (d.td) S.tideInfo = { zone: d.td[0], until: d.td[1], wave: d.td[2] };
+    else S.tideInfo = null;
     applyMobs(d.m || []);
     applyPlayers(d.p || []);
     applyShots(d.s || []);
@@ -4183,6 +4401,43 @@ var MUSIC = {
       case 'revived':
         toast('被 ' + e.by + ' 扶了起来', 'good');
         break;
+      case 'party':
+        toast(e.n || '队伍有变动');
+        break;
+      case 'invite':
+        toast(e.n + ' 邀请你组队 —— 按 P 接受', 'good');
+        S.pendingInvite = e.from;
+        break;
+      case 'invited':
+        toast('邀请已发给 ' + e.n);
+        break;
+      case 'reviving':
+        toast('正在扶起…', 'good');
+        break;
+      case 'being-revived':
+        toast(e.n + ' 正在扶起你…', 'good');
+        break;
+      case 'quest':
+        if (e.done) {
+          toast('支线完成：' + e.n, 'good');
+          if (e.item) setTimeout(function () { toast('获得「' + e.item.name + '」', 'good'); }, 900);
+        } else {
+          toast('「' + e.n + '」下一步：' + e.next);
+        }
+        S.quests = S.quests || {};
+        break;
+      case 'quest-ready':
+        toast('支线可交付：' + e.n, 'good');
+        break;
+      case 'tide-reward':
+        toast('守夜奖励：' + e.shards + ' 星屑（第 ' + e.rank + ' 名）', 'good');
+        break;
+      case 'cave':
+        if (e.fail) toast('洞窟里的东西退回去了', 'warn');
+        break;
+      case 'cave-done':
+        toast('洞窟清空：+' + e.shards + ' 星屑', 'good');
+        break;
     }
   }
 
@@ -4222,7 +4477,7 @@ var MUSIC = {
     var name = boss.name || '守护者';
     setText(UI.bossName, name + '  Lv.' + boss.lv);
     var f = clamp(boss.hp / (boss.maxHp || 1), 0, 1);
-    UI.bossFill.style.width = (f * 100).toFixed(1) + '%';
+    UI.bossFill.style.transform = 'scaleX(' + f.toFixed(3) + ')';
   }
   var auBossPlaying = 0;
 
@@ -4246,7 +4501,19 @@ var MUSIC = {
     var off2 = rt.subscribe('shiguang5.boss', function (p) {
       if (p && p.by) toast(p.by + ' 惊醒了' + ZONE_NAMES[p.z] + '的守护者', 'warn');
     });
-    S.onDestroyAll.push(off1, off2);
+    var off3 = rt.subscribe('shiguang5.tide', function (p) {
+      if (!p) return;
+      if (p.phase === 'start') {
+        showChapterTide(p.n, p.boss);
+        toast('长夜潮汐：' + p.n + ' —— 去守灯！', 'warn');
+      } else if (p.phase === 'end') {
+        toast(p.n + '的潮汐退了');
+      }
+    });
+    var off4 = rt.subscribe('shiguang5.emote', function (p) {
+      if (p && p.e) showEmote(p);
+    });
+    S.onDestroyAll.push(off1, off2, off3, off4);
   }
 
   // ---------------- §18 动作接口 ----------------
@@ -4373,6 +4640,52 @@ var MUSIC = {
       S.me.look = look;
       drawFace(look);
     }, function () {});
+  }
+
+  function apiInvite(to) {
+    apiPost('/shiguang/v5/party/invite', { to: to }).then(function () {
+      toast('邀请已发出');
+    }, function (err) { toast(err.message || '邀请失败', 'warn'); });
+  }
+  function apiAcceptInvite() {
+    apiPost('/shiguang/v5/party/accept').then(function (d) {
+      S.party = d.party;
+      toast('加入队伍', 'good');
+      uiParty();
+    }, function (err) { toast(err.message || '没有邀请', 'warn'); });
+  }
+  function apiLeaveParty() {
+    apiPost('/shiguang/v5/party/leave', {}).then(function () {
+      S.party = null;
+      toast('已离队');
+      uiParty();
+    }, function () {});
+  }
+  function apiRevive(to) {
+    apiPost('/shiguang/v5/revive', { to: to }).then(function () {
+      toast('正在扶起…', 'good');
+    }, function (err) { toast(err.message || '扶不起来', 'warn'); });
+  }
+  function apiQuest(q) {
+    apiPost('/shiguang/v5/quest/claim', { q: q }).then(function (d) {
+      S.quests = d.quests;
+      if (d.reward) {
+        toast('支线完成：+' + d.reward.shards + ' 星屑', 'good');
+        if (d.reward.item) setTimeout(function () { toast('获得「' + d.reward.item.name + '」', 'good'); }, 800);
+      } else {
+        toast('交好了，他还有下文');
+      }
+      refreshPanel(curPanel);
+    }, function (err) { toast(err.message || '交不了', 'warn'); });
+  }
+  function apiCave(id) {
+    apiPost('/shiguang/v5/cave', { id: id }).then(function (d) {
+      toast('洞窟试炼开始 —— 打倒守心的精英', 'warn');
+      auSfx('alert', 0.5, 1);
+    }, function (err) { toast(err.message || '进不去', 'warn'); });
+  }
+  function apiEmote(e) {
+    apiPost('/shiguang/v5/emote', { e: e }).then(null, function () {});
   }
 
   function apiLeave() {
@@ -4543,6 +4856,8 @@ var MUSIC = {
       var k = (e.key || '').toLowerCase();
       if (k === 'escape') { closePanel(); return; }
       if (e.target && e.target.tagName === 'INPUT') return;
+      if (k === 'p') { if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; } return; }
+      if (k === 'g') { apiEmote(EMOTE_SET[Math.floor(Math.random() * EMOTE_SET.length)].id); return; }
       if (k === 'c') openPanel('char');
       else if (k === 'b' || k === 'i') openPanel('bag');
       else if (k === 'm') openPanel('map');
@@ -4600,7 +4915,9 @@ var MUSIC = {
         return loadAtlas().then(function () { return d; });
       }).then(function (d) {
         applyEnter(d);
+        bindPlayerClick(canvas, root, onDestroy);
         S.ready = true;
+        showIntro();
         loading.className = 'sg5-loading is-done';
         setTimeout(function () { if (loading.parentNode) loading.parentNode.removeChild(loading); }, 420);
         if (syncTimer) clearInterval(syncTimer);
@@ -4673,10 +4990,187 @@ var MUSIC = {
     } catch (e) {}
   }
 
+  // 开场：2 秒的标题，然后交给世界
+  function showIntro() {
+    var iv = el('div', 'sg5-intro');
+    iv.appendChild(el('div', 'sg5-intro-title', '拾光群岛'));
+    iv.appendChild(el('div', 'sg5-intro-sub', '长 夜'));
+    iv.appendChild(el('div', 'sg5-intro-line'));
+    iv.appendChild(el('div', 'sg5-intro-hint', S.me && S.me.isNew ? '第 一 夜 · 灯 还 亮 着' : '回 到 灯 边'));
+    root.appendChild(iv);
+    setTimeout(function () { iv.className = 'sg5-intro is-out'; }, 1500);
+    setTimeout(function () { if (iv.parentNode) iv.parentNode.removeChild(iv); }, 2600);
+  }
+
   function unmount(container) {
     if (!container) return;
     while (container.firstChild) container.removeChild(container.firstChild);
     try { if (window.__sg5) delete window.__sg5; } catch (e) {}
+  }
+
+
+  // ======================== 13_social.js ========================
+  // ---------------- §15.5 社交层（点人 / 表情 / 潮汐卡） ----------------
+  // 校园里最重要的一步是「看见同班同学」。所以：点一下同学就能邀请组队、扶起、发表情。
+
+  S.emotes = [];
+  S.party = null;
+  S.quests = {};
+  S.tideInfo = null;
+  S.pendingInvite = '';
+
+  var EMOTE_SET = [
+    { id: 'wave', ch: '👋', name: '打招呼' },
+    { id: 'heart', ch: '❤', name: '比心' },
+    { id: 'note', ch: '♪', name: '来首歌' },
+    { id: 'zzz', ch: 'Zz', name: '困了' },
+    { id: 'spark', ch: '✦', name: '好耶' },
+    { id: 'ask', ch: '?', name: '救命' }
+  ];
+
+  function showEmote(p) {
+    var found = null;
+    for (var i = 0; i < EMOTE_SET.length; i++) if (EMOTE_SET[i].id === p.e) found = EMOTE_SET[i];
+    if (!found) return;
+    S.emotes.push({ x: p.x, y: p.y, ch: found.ch, id: p.e, until: S.time + 2.4 });
+    if (S.emotes.length > 12) S.emotes.shift();
+  }
+
+  function drawEmotes() {
+    if (!S.emotes.length) return;
+    var ctx = S.ctx;
+    for (var i = S.emotes.length - 1; i >= 0; i--) {
+      var e = S.emotes[i];
+      if (S.time > e.until) { S.emotes.splice(i, 1); continue; }
+      var k = (e.until - S.time) / 2.4;
+      var x = w2sX(e.x * TILE), y = w2sY(e.y * TILE) - 34 - (1 - k) * 14;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, k * 2.2);
+      ctx.font = Math.round(18 * (S.zoom / 3)) + 'px system-ui,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillText(e.ch, x + 1, y + 1);
+      ctx.fillStyle = '#fff2c8';
+      ctx.fillText(e.ch, x, y);
+      ctx.restore();
+    }
+  }
+
+  // ---- 点同学：一个小的上下文菜单（DOM，跟着屏幕坐标走） ----
+  var pmenuEl = null;
+  function closePlayerMenu() {
+    if (pmenuEl && pmenuEl.parentNode) pmenuEl.parentNode.removeChild(pmenuEl);
+    pmenuEl = null;
+  }
+
+  function openPlayerMenu(p, sx, sy) {
+    closePlayerMenu();
+    var box = el('div', 'sg5-pmenu sg5-frame');
+    box.appendChild(el('div', 'sg5-pmenu-name', p.name || '旅人'));
+    var inParty = S.party && S.party.members && S.party.members.some(function (m) { return m[0] === p.id; });
+
+    if (!inParty) {
+      box.appendChild(uiBtn('邀请组队', 'sg5-btn-sm', function () {
+        apiInvite(p.id); closePlayerMenu();
+      }));
+    }
+    if (p.down && inParty) {
+      box.appendChild(uiBtn('扶起他', 'sg5-btn-sm', function () {
+        apiRevive(p.id); closePlayerMenu();
+      }));
+    }
+    var row = el('div', 'sg5-pmenu-emotes');
+    EMOTE_SET.forEach(function (e) {
+      var b = el('button', 'sg5-emote-btn', e.ch);
+      b.type = 'button';
+      b.setAttribute('title', e.name);
+      b.addEventListener('click', function () { apiEmote(e.id); closePlayerMenu(); }, false);
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+    if (S.party && inParty) {
+      box.appendChild(uiBtn('退出队伍', 'sg5-btn-sm sg5-btn-ghost', function () {
+        apiLeaveParty(); closePlayerMenu();
+      }));
+    }
+    UI.hud.appendChild(box);
+    var w = 190;
+    var left = clamp(sx - w / 2, 8, S.view.w - w - 8);
+    var top = clamp(sy - 10, 8, S.view.h - 180);
+    box.style.left = left + 'px';
+    box.style.top = top + 'px';
+    pmenuEl = box;
+  }
+
+  function hitPlayer(sx, sy) {
+    var wx = s2wX(sx) / TILE, wy = s2wY(sy) / TILE;
+    var best = null, bd = 1.2;
+    for (var id in S.players) {
+      var p = S.players[id];
+      var d = dist(wx, wy, p.x, p.y + 0.4);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  function bindPlayerClick(canvas, root, onDestroy) {
+    var onTap = function (e) {
+      var rect = canvas.getBoundingClientRect();
+      var sx, sy;
+      if (e.changedTouches && e.changedTouches.length) {
+        sx = e.changedTouches[0].clientX - rect.left;
+        sy = e.changedTouches[0].clientY - rect.top;
+      } else {
+        sx = e.clientX - rect.left;
+        sy = e.clientY - rect.top;
+      }
+      var p = hitPlayer(sx, sy);
+      if (p) openPlayerMenu(p, sx, sy);
+      else closePlayerMenu();
+    };
+    canvas.addEventListener('click', onTap, false);
+    onDestroy(function () { canvas.removeEventListener('click', onTap); });
+  }
+
+  // ---- 潮汐开场卡 ----
+  function showChapterTide(zoneName, boss) {
+    if (!UI.chEl) return;
+    UI.chTitle.textContent = '长夜潮汐 · ' + zoneName;
+    UI.chText.textContent = '雾从地面翻上来，比夜更黑。' +
+      (boss ? '「' + boss + '」走在最前面 —— 它身后是整片长夜。' : '') +
+      '到场的人一起守灯，撑到最后的人按贡献分星屑。灯灭之前，别退。';
+    UI.chEl.className = 'sg5-chapter is-on';
+    auSfx('alert', 0.55, 0.9);
+    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 5200);
+  }
+
+  // ---- 支线面板（NPC 对话里展开） ----
+  function questBlock(qid) {
+    var q = (S.questDefs || {})[qid];
+    var st = (S.quests || {})[qid];
+    if (!q || !st) return null;
+    var box = el('div', 'sg5-quest');
+    var head = el('div', 'sg5-quest-head');
+    head.appendChild(el('span', 'sg5-quest-name', q.name));
+    head.appendChild(el('span', 'sg5-quest-step', '第 ' + Math.min(st.step + 1, q.steps.length) + ' / ' + q.steps.length + ' 步'));
+    box.appendChild(head);
+    if (st.done) {
+      box.appendChild(el('div', 'sg5-quest-say', '「这条线走完了。你比我想的能扛。」'));
+    } else {
+      var step = q.steps[st.step];
+      box.appendChild(el('div', 'sg5-quest-say', '「' + step.say + '」'));
+      var prog = el('div', 'sg5-quest-prog');
+      var fill = el('i');
+      var f = clamp(st.prog / (st.need || 1), 0, 1);
+      fill.style.transform = 'scaleX(' + f.toFixed(3) + ')';
+      prog.appendChild(fill);
+      box.appendChild(prog);
+      box.appendChild(el('div', 'sg5-quest-num', st.prog + ' / ' + st.need + (step.type === 'mats' ? '（材料）' : (step.type === 'kill' ? '（击杀）' : '（灯塔）'))));
+      var b = uiBtn(st.ready ? '交付' : '还差一点', 'sg5-btn-sm', function () { apiQuest(qid); });
+      b.disabled = !st.ready;
+      box.appendChild(b);
+    }
+    return box;
   }
 
   window.ClassIntraMarket.define({ name: NAME, mount: mount, unmount: unmount });

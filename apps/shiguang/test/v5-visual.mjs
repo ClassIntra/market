@@ -26,7 +26,7 @@ const RUN_TOKEN = 'run' + Date.now();
 // 于是新一轮抓到的 console 里全是别人的 ERR_CONNECTION_REFUSED。
 // 只杀「命令行里带本套件 profile 路径」的 chrome，不碰用户自己开的浏览器。
 // 不主动杀进程：每轮用随机 CDP 端口 + 随机活动令牌，天然隔离上一轮残留。
-const VW = 1180, VH = 760;
+const VW = Number(process.env.SG5_VW) || 1180, VH = Number(process.env.SG5_VH) || 760;
 
 const express = require(NM + 'express');
 const routes = require(SRC + 'routes.js');

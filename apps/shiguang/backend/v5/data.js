@@ -185,6 +185,61 @@ var TALENTS = {
   ] }
 };
 
+
+// ---------------- 支线（每个 NPC 一条三步小故事）----------------
+// 不做「接任务 / 交任务」两段式：走到人面前，条件满足就能交 —— 校园里没人记得住任务日志。
+// need.type：mats（交材料，交付时扣除） / kill（在某区击杀数，累计） / tower（点亮灯塔座数）
+var QUESTS = {
+  q_smith: {
+    npc: 'smith', name: '炉火不熄', color: '#ffb066',
+    intro: '阿岩把一块烧红的铁按进水里，白雾腾起来：「想让我打点真东西？先证明你搬得动料。」',
+    steps: [
+      { type: 'mats', id: 'ore', n: 3, say: '三块星岩矿。别问我为什么不用便宜的 —— 便宜的会断。' },
+      { type: 'mats', id: 'ice', n: 2, say: '永冻晶，两块。霜屿的冰，敲下来还会自己长回去。' },
+      { type: 'kill', zone: 'crag', n: 12, say: '去星坠岩，把那群守岩的骷髅揍服帖。十二个，我数着。' }
+    ],
+    reward: { shards: 260, item: { minRarity: 2, slot: 'weapon' }, text: '阿岩给你打了一把刀' }
+  },
+  q_shop: {
+    npc: 'shop', name: '夜里的货单', color: '#8fd6ff',
+    intro: '阿禾正在关窗：「天快黑了。你要是顺路，帮我个忙？」',
+    steps: [
+      { type: 'kill', zone: 'meadow', n: 6, say: '草原上那几只史莱姆，把我要的灯芯吃了。六只。' },
+      { type: 'mats', id: 'firefly', n: 3, say: '萤火虫，三只。装在瓶子里就行，别捏死它们。' },
+      { type: 'mats', id: 'feather', n: 4, say: '夜枭的羽毛，四根。有人订了一把扇子。' }
+    ],
+    reward: { shards: 200, item: { minRarity: 1, slot: 'charm' }, text: '阿禾塞给你一件压箱底的护符' }
+  },
+  q_inn: {
+    npc: 'inn', name: '客栈的灯', color: '#e0b6ff',
+    intro: '阿灯把最后一盏灯芯拨亮：「这店开了很久了，灯从没同时灭过。」',
+    steps: [
+      { type: 'mats', id: 'wood', n: 6, say: '灵竹六根。灯架该修了，晃得慌。' },
+      { type: 'kill', zone: 'forest', n: 10, say: '雾隐林那边最近不干净。你去清一清，十只。' },
+      { type: 'tower', n: 1, say: '点亮一座灯塔吧。灯这东西，多一盏，夜里就长一寸。' }
+    ],
+    reward: { shards: 240, item: { minRarity: 2, slot: 'cape' }, text: '阿灯把一条旧披风叠好递给你' }
+  },
+  q_hall: {
+    npc: 'hall', name: '她在数灯', color: '#ffd98a',
+    intro: '栗站在门口，望着镇外：「你听见了吗？长夜在数我们的灯。」',
+    steps: [
+      { type: 'kill', zone: 'swamp', n: 14, say: '萤火泽的蛇最近爬得太近了。十四只，让它们退回去。' },
+      { type: 'mats', id: 'ember', n: 2, say: '长夜余烬，两块。黑色的火，还热着的那种。' },
+      { type: 'tower', n: 3, say: '点亮三座灯塔。点亮第三座的时候，你会明白我在说什么。' }
+    ],
+    reward: { shards: 520, item: { minRarity: 3, slot: 'weapon' }, text: '栗把一柄旧剑交给你：「先行者的。」' }
+  }
+};
+
+// 潮汐：全班共享的世界事件（每 30~45 分钟一次，持续 3 分钟）
+var TIDE = {
+  waves: 5,
+  perWave: 4,
+  bossMul: 1.8,
+  reward: [260, 180, 120, 80, 60]
+};
+
 // ---------------- 材料与消耗品 ----------------
 var ITEMS = {
   shard:   { name: '星屑',     icon: 'Coin',       desc: '通用货币。' },
@@ -214,6 +269,8 @@ var ZONE_MATS = {
 };
 
 module.exports = {
+  QUESTS: QUESTS,
+  TIDE: TIDE,
   ZONES: ZONES,
   MONSTERS: MONSTERS,
   BOSSES: BOSSES,

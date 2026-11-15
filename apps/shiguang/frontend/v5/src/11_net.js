@@ -32,7 +32,7 @@
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 5 && cached.cells && cached.size === 256) {
+    if (cached && cached.version === 6 && cached.cells && cached.size === 256) {
       return Promise.resolve(cached);
     }
     return apiGet('/shiguang/v5/terrain').then(function (data) {
@@ -54,6 +54,10 @@
     S.phase = d.phase ? d.phase.name : 'day';
     S.pf = d.phase ? d.phase.f : 0;
     S.feed = (d.feed || []).map(function (f) { return { text: f.text, kind: f.kind }; });
+    S.party = d.party || null;
+    S.quests = d.quests || {};
+    S.tideInfo = d.tide || null;
+    S.caves = d.caves || [];
     // 相机先对上，否则第一帧会从 (0,0) 飞过来
     S.cam.x = me.x * TILE;
     S.cam.y = me.y * TILE;
@@ -70,6 +74,7 @@
     }
     applyPlayers(d.players || []);
     renderFeed();
+    uiPaintIcons();
     drawFace(me.look);
     uiUpdate();
     uiGoal();
@@ -159,6 +164,9 @@
       S.phase = d.ph || S.phase;
       S.pf = d.pf != null ? d.pf : S.pf;
     }
+    S.party = d.pt || null;
+    if (d.td) S.tideInfo = { zone: d.td[0], until: d.td[1], wave: d.td[2] };
+    else S.tideInfo = null;
     applyMobs(d.m || []);
     applyPlayers(d.p || []);
     applyShots(d.s || []);
@@ -235,6 +243,43 @@
       case 'revived':
         toast('被 ' + e.by + ' 扶了起来', 'good');
         break;
+      case 'party':
+        toast(e.n || '队伍有变动');
+        break;
+      case 'invite':
+        toast(e.n + ' 邀请你组队 —— 按 P 接受', 'good');
+        S.pendingInvite = e.from;
+        break;
+      case 'invited':
+        toast('邀请已发给 ' + e.n);
+        break;
+      case 'reviving':
+        toast('正在扶起…', 'good');
+        break;
+      case 'being-revived':
+        toast(e.n + ' 正在扶起你…', 'good');
+        break;
+      case 'quest':
+        if (e.done) {
+          toast('支线完成：' + e.n, 'good');
+          if (e.item) setTimeout(function () { toast('获得「' + e.item.name + '」', 'good'); }, 900);
+        } else {
+          toast('「' + e.n + '」下一步：' + e.next);
+        }
+        S.quests = S.quests || {};
+        break;
+      case 'quest-ready':
+        toast('支线可交付：' + e.n, 'good');
+        break;
+      case 'tide-reward':
+        toast('守夜奖励：' + e.shards + ' 星屑（第 ' + e.rank + ' 名）', 'good');
+        break;
+      case 'cave':
+        if (e.fail) toast('洞窟里的东西退回去了', 'warn');
+        break;
+      case 'cave-done':
+        toast('洞窟清空：+' + e.shards + ' 星屑', 'good');
+        break;
     }
   }
 
@@ -274,7 +319,7 @@
     var name = boss.name || '守护者';
     setText(UI.bossName, name + '  Lv.' + boss.lv);
     var f = clamp(boss.hp / (boss.maxHp || 1), 0, 1);
-    UI.bossFill.style.width = (f * 100).toFixed(1) + '%';
+    UI.bossFill.style.transform = 'scaleX(' + f.toFixed(3) + ')';
   }
   var auBossPlaying = 0;
 
@@ -298,7 +343,19 @@
     var off2 = rt.subscribe('shiguang5.boss', function (p) {
       if (p && p.by) toast(p.by + ' 惊醒了' + ZONE_NAMES[p.z] + '的守护者', 'warn');
     });
-    S.onDestroyAll.push(off1, off2);
+    var off3 = rt.subscribe('shiguang5.tide', function (p) {
+      if (!p) return;
+      if (p.phase === 'start') {
+        showChapterTide(p.n, p.boss);
+        toast('长夜潮汐：' + p.n + ' —— 去守灯！', 'warn');
+      } else if (p.phase === 'end') {
+        toast(p.n + '的潮汐退了');
+      }
+    });
+    var off4 = rt.subscribe('shiguang5.emote', function (p) {
+      if (p && p.e) showEmote(p);
+    });
+    S.onDestroyAll.push(off1, off2, off3, off4);
   }
 
   // ---------------- §18 动作接口 ----------------
@@ -425,6 +482,52 @@
       S.me.look = look;
       drawFace(look);
     }, function () {});
+  }
+
+  function apiInvite(to) {
+    apiPost('/shiguang/v5/party/invite', { to: to }).then(function () {
+      toast('邀请已发出');
+    }, function (err) { toast(err.message || '邀请失败', 'warn'); });
+  }
+  function apiAcceptInvite() {
+    apiPost('/shiguang/v5/party/accept').then(function (d) {
+      S.party = d.party;
+      toast('加入队伍', 'good');
+      uiParty();
+    }, function (err) { toast(err.message || '没有邀请', 'warn'); });
+  }
+  function apiLeaveParty() {
+    apiPost('/shiguang/v5/party/leave', {}).then(function () {
+      S.party = null;
+      toast('已离队');
+      uiParty();
+    }, function () {});
+  }
+  function apiRevive(to) {
+    apiPost('/shiguang/v5/revive', { to: to }).then(function () {
+      toast('正在扶起…', 'good');
+    }, function (err) { toast(err.message || '扶不起来', 'warn'); });
+  }
+  function apiQuest(q) {
+    apiPost('/shiguang/v5/quest/claim', { q: q }).then(function (d) {
+      S.quests = d.quests;
+      if (d.reward) {
+        toast('支线完成：+' + d.reward.shards + ' 星屑', 'good');
+        if (d.reward.item) setTimeout(function () { toast('获得「' + d.reward.item.name + '」', 'good'); }, 800);
+      } else {
+        toast('交好了，他还有下文');
+      }
+      refreshPanel(curPanel);
+    }, function (err) { toast(err.message || '交不了', 'warn'); });
+  }
+  function apiCave(id) {
+    apiPost('/shiguang/v5/cave', { id: id }).then(function (d) {
+      toast('洞窟试炼开始 —— 打倒守心的精英', 'warn');
+      auSfx('alert', 0.5, 1);
+    }, function (err) { toast(err.message || '进不去', 'warn'); });
+  }
+  function apiEmote(e) {
+    apiPost('/shiguang/v5/emote', { e: e }).then(null, function () {});
   }
 
   function apiLeave() {

@@ -61,6 +61,15 @@ function zoneName(id) {
 }
 function walkable(x, y) { return !W.isBlocked(world, x, y); }
 
+// NPC 站在自家门口（与客户端同一套算法，服务端用来校验交互距离）
+function npcPos(kind) {
+  var hs = world.town.houses;
+  for (var i = 0; i < hs.length; i++) {
+    if (hs[i].kind === kind) return { x: hs[i].x + hs[i].w / 2, y: hs[i].y + hs[i].h + 0.7 };
+  }
+  return null;
+}
+
 // 找最近的可走格：站在墙里时（地图改版、异常写入）先把人救出来，
 // 否则客户端每一步都被拒绝，摇杆拖到底也一动不动。
 function nearestWalkable(x, y) {
@@ -232,8 +241,30 @@ function grantKill(m, shares, killer, night) {
     S.markDirty(id);
   });
 
-  // 守护者：点亮灯塔（全服进度）
-  if (m.boss && m.bossZone) {
+  // 潮汐里击杀记个人贡献（世界 Boss 也一样，按贡献分奖励）
+  if (m.tide) { list.forEach(function (id) { SOC.tideScore(id, m.boss ? 40 : 1); }); }
+  // 洞窟试炼：打死守心的精英才算通关
+  if (m.caveBoss && m.caveOwner) {
+    var owner = m.caveOwner;
+    var cv = caveTrials[owner];
+    stopCave(owner);
+    var crec = S.load(owner, TOWN_SPAWN);
+    crec.flags = crec.flags || {};
+    var d2 = new Date();
+    crec.flags['cave_' + (cv ? cv.zone : m.zone)] = d2.getFullYear() + '-' + (d2.getMonth() + 1) + '-' + d2.getDate();
+    var gift = 80 + Math.round(m.lv * 8);
+    crec.shards = (crec.shards || 0) + gift;
+    var cit = L.rollItem(Math.max(3, m.lv), { minRarity: 2 });
+    bagAdd(crec, cit);
+    S.markDirty(owner);
+    push(owner, { k: 'cave-done', shards: gift, item: cit, n: zoneName(cv ? cv.zone : m.zone) });
+    S.feed('cave', owner, S.userName(owner) + ' 清空了' + zoneName(cv ? cv.zone : m.zone) + '的洞窟');
+  }
+  // 支线进度（在某区打 N 只）
+  if (SOC) SOC.onKill(m, list, killer, night);
+
+  // 守护者：点亮灯塔（全服进度）。世界 Boss（潮汐首领）不点灯 —— 那是反扑，不是守护者。
+  if (m.boss && m.bossZone && !m.world) {
     var first = S.lightTower(m.bossZone, killer || list[0] || '');
     var nm = S.userName(killer || list[0] || '');
     var zn = zoneName(m.bossZone);
@@ -287,12 +318,46 @@ try { refreshLights(); } catch (e) {}
 (function () {
   var G = global.__shiguang5drain || (global.__shiguang5drain = {});
   if (G.timer) { try { clearInterval(G.timer); } catch (e) {} }
-  G.timer = setInterval(function () { try { SIM.drainEvents(); } catch (e) {} }, 1500);
+  G.timer = setInterval(function () {
+    try { SIM.drainEvents(); } catch (e) {}
+    try { SOC.tick(); } catch (e) { console.error('[shiguang5] social tick', e.message); }
+  }, 2000);
   if (G.timer.unref) G.timer.unref();
 })();
 
+// ---------------- 一起玩：组队 / 支线 / 潮汐 / 洞窟 ----------------
+var caveTrials = {};        // uid -> { zone, at, mobs: [], bossId, timer }
+var caveDoneToday = {};     // uid -> { zone: day }
+
+function caveBusy(id) { return !!caveTrials[id]; }
+function startCave(id, zone, mobs, bossId) {
+  if (caveTrials[id]) stopCave(id);
+  caveTrials[id] = { zone: zone, at: nowMs(), mobs: mobs, bossId: bossId };
+  // 3 分钟没人打完就撤（否则洞里会堆一地没人管的怪）
+  caveTrials[id].timer = setTimeout(function () {
+    if (caveTrials[id]) { stopCave(id); push(id, { k: 'cave', n: zoneName(zone), left: 0, fail: 1 }); }
+  }, 180000);
+  if (caveTrials[id].timer.unref) caveTrials[id].timer.unref();
+}
+function stopCave(id) {
+  var t = caveTrials[id];
+  if (!t) return;
+  if (t.timer) clearTimeout(t.timer);
+  (t.mobs || []).forEach(function (mid) { var m = SIM.mobs[mid]; if (m) SIM.killMob(m, null, true); });
+  delete caveTrials[id];
+}
+
+var SOC = require('./social')({
+  router: router, S: S, SIM: SIM, world: world, requireAuth: requireAuth,
+  uidOf: uid, ok: ok, fail: fail, nowMs: nowMs, broadcast: broadcast, onlineIds: onlineIds,
+  push: push, bagAdd: bagAdd, xpAdd: xpAdd, zoneAt: zoneAt, zoneName: zoneName,
+  TOWN_SPAWN: TOWN_SPAWN, meta: meta,
+  npcPos: npcPos, caveBusy: caveBusy, startCave: startCave,
+  isBlockedWorld: function (x, y) { return W.isBlocked(world, x, y); }
+});
+
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 5;
+var TERRAIN_VERSION = 6;   // 5.1：地形包里加了洞窟与支线定义，旧缓存必须失效
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
     version: TERRAIN_VERSION,
@@ -303,7 +368,9 @@ router.get('/v5/terrain', function (req, res) {
     towers: world.landmarks.towers,
     waystones: world.landmarks.waystones,
     chests: world.landmarks.chests,
+    caves: world.landmarks.caves,
     zonesMeta: D.ZONES,
+    quests: D.QUESTS,
     tile: W.TILE,
     dayMs: C.DAY_MS,
     lights: S.towers()
@@ -364,6 +431,10 @@ router.post('/v5/enter', requireAuth, function (req, res) {
     towers: towers,
     chests: S.openedChests(id),
     feed: S.recentFeed(20),
+    party: SOC.partyPayload(id),
+    quests: SOC.questState(id),
+    tide: SOC.tideState(),
+    caves: world.landmarks.caves,
     goal: goal,
     phase: SIM.dayPhase(),
     serverNow: nowMs()
@@ -453,6 +524,7 @@ router.post('/v5/sync', requireAuth, function (req, res) {
   });
 
   var ph = SIM.dayPhase();
+  var tideNow = SOC.tideState();
   var out = {
     t: t,
     ph: ph.name,
@@ -463,6 +535,8 @@ router.post('/v5/sync', requireAuth, function (req, res) {
     m: snap.mobs,
     s: snap.shots,
     p: players,
+    pt: SOC.partyPayload(id),
+    td: tideNow ? [tideNow.zone, tideNow.until, tideNow.wave] : null,
     ev: drain(id),
     c: corrected
   };
@@ -812,7 +886,8 @@ router.get('/v5/profile', requireAuth, function (req, res) {
   var used = 0;
   (function () { Object.keys(rec.talents || {}).forEach(function (k) { used += rec.talents[k] || 0; }); })();
   ok(res, {
-    me: rec, stats: st, xpNext: L.xpToNext(rec.level),
+    me: rec, stats: st, xpNext: L.xpToNext(rec.level), quests: SOC.questState(id),
+    party: SOC.partyPayload(id), tide: SOC.tideState(),
     talentLeft: Math.max(0, total - used),
     towers: S.towers(),
     chestTotal: world.landmarks.chests.length,
@@ -826,6 +901,7 @@ router.get('/v5/feed', function (req, res) {
 
 router.post('/v5/leave', requireAuth, function (req, res) {
   var id = uid(req);
+  try { SOC.partyMembers(id); } catch (e) {}
   S.flush(id);
   SIM.removePlayer(id);
   delete pending[id];
@@ -835,3 +911,7 @@ router.post('/v5/leave', requireAuth, function (req, res) {
 
 module.exports = router;
 module.exports.APP = APP;
+// 测试钩子：潮汐/洞窟是「定时器 + 世界事件」，验收时需要能手动触发一次
+module.exports.SOC = SOC;
+module.exports.SIM = SIM;
+module.exports.STORE = S;

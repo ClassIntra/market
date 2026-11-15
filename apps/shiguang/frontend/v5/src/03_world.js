@@ -47,6 +47,8 @@
     };
     S.chests = {};
     S.waystones = data.waystones;
+    S.questDefs = data.quests || {};
+    S.caves = data.caves || [];
     chunks = {};
     chunkOrder = [];
     buildTextures();
