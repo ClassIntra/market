@@ -402,6 +402,8 @@
   bottom: 24px;
   width: 176px;
   height: 176px;
+  /* 压过农场条(z7)：矮视口下两者可能几何相邻，动作键必须永远可点 */
+  z-index: 8;
 }
 .sg5-act {
   position: absolute;
@@ -488,7 +490,8 @@
   position: absolute;
   right: 2px;
   bottom: 0;
-  font-size: 9px;
+  font-size: 16px;
+  line-height: 1;
   color: rgba(255, 236, 200, 0.45);
 }
 .sg5-docklabel { display: none; }
@@ -693,12 +696,15 @@
   align-items: center;
   justify-content: center;
   background: rgba(4, 3, 2, 0.62);
+  /* 遮罩只负责变暗，不截获点击：面板外的动作键 / dock / 世界照常可点 */
+  pointer-events: none;
 }
 .sg5-panels.is-on { display: flex; }
 .sg5-panel {
   width: 92%;
   max-width: 760px;
   max-height: 86%;
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   background:
@@ -726,8 +732,8 @@
   padding: 0;
   right: 10px;
   top: 10px;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   font-size: 18px;
   line-height: 1;
   color: var(--px-ink-2);
@@ -743,7 +749,7 @@
   flex: 1 1 auto;
 }
 .sg5-sect {
-  font-size: 12px;
+  font-size: 16px;
   letter-spacing: 0.18em;
   color: var(--px-gold);
   margin: 18px 0 8px;
@@ -751,13 +757,13 @@
   border-bottom: 1px solid rgba(255, 210, 140, 0.2);
 }
 .sg5-sect::before { content: '◆ '; color: var(--px-gold-2); }
-.sg5-note { font-size: 15px; line-height: 1.9; color: var(--px-ink-3); margin-top: 10px; }
+.sg5-note { font-size: 16px; line-height: 1.9; color: var(--px-ink-3); margin-top: 10px; }
 .sg5-credit { font-size: 10px; color: rgba(255, 255, 255, 0.25); }
 .sg5-empty { font-size: 16px; color: var(--px-ink-3); padding: 26px 0; text-align: center; }
 
 .sg5-btn {
   padding: 6px 16px 8px;
-  font-size: 14px;
+  font-size: 16px;
   color: #ffe6b8;
   border: 2px solid var(--px-line);
   border-radius: var(--radius-xs);
@@ -768,7 +774,7 @@
 }
 .sg5-btn:active { transform: translateY(2px); }
 .sg5-btn-ghost { background: linear-gradient(180deg, #3a3128, #241d15); color: var(--px-ink-2); }
-.sg5-btn-sm { padding: 3px 10px 5px; font-size: 12px; }
+.sg5-btn-sm { padding: 8px 12px; font-size: 16px; }
 .sg5-btn:disabled { opacity: 0.35; }
 
 /* 装备槽 */
@@ -1090,9 +1096,11 @@
 
 
 /* 面板滚动条：细一点、暗一点，别破坏像素感 */
-.sg5-pbody::-webkit-scrollbar { width: 10px; }
-.sg5-pbody::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.35); }
-.sg5-pbody::-webkit-scrollbar-thumb {
+/* v5.3：农场条不再自滚，.sg5-pbody 是唯一滚动容器；两条选择器都留着兜底，
+ * 万一以后某个容器又自己滚起来，也不会冒出亮白的系统滚动条。 */
+.sg5-pbody::-webkit-scrollbar, .sg5-farm-cont::-webkit-scrollbar { width: 10px; }
+.sg5-pbody::-webkit-scrollbar-track, .sg5-farm-cont::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.35); }
+.sg5-pbody::-webkit-scrollbar-thumb, .sg5-farm-cont::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, #5a4832, #33271b);
   border: 2px solid var(--px-line);
   border-radius: 0;
@@ -1179,10 +1187,11 @@
 .sg5-invite-ops .sg5-btn { flex: 1 1 auto; margin-right: 0; text-align: center; }
 
 /* ---- 面板 tab ---- */
-.sg5-tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 2px solid var(--px-line); padding-bottom: 8px; }
+/* Chrome 80 不支持 flex gap，页签间距改用 margin-right（grid gap 不受影响） */
+.sg5-tabs { display: flex; margin: 0 0 12px; border-bottom: 2px solid var(--px-line); padding-bottom: 8px; }
 .sg5-tab {
-  padding: 5px 14px 7px;
-  font-size: 14px;
+  min-width: 96px; padding: 6px 12px 8px; margin-right: 6px;
+  font-size: 16px;
   color: var(--px-ink-3);
   border: 2px solid var(--px-line);
   border-radius: var(--radius-xs);
@@ -1196,7 +1205,7 @@
   background: linear-gradient(180deg, #6a4d2d, #3a2918);
   box-shadow: inset 0 2px 0 rgba(255,236,190,0.22), 0 3px 0 rgba(0,0,0,0.4);
 }
-.sg5-tab.is-on::before { content: '◆ '; color: var(--px-gold); font-size: 10px; vertical-align: 2px; }
+.sg5-tab.is-on::before { content: '◆ '; color: var(--px-gold); font-size: 16px; vertical-align: 2px; }
 
 /* ---- 人列表 ---- */
 .sg5-personlist { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
@@ -1320,157 +1329,253 @@
 
 
 /* ==================== v5.3 农场经营 / 小镇 / 钓鱼 ==================== */
-/* 沿用 .sg5-frame 的木石质感与米色点阵字，不引入新的圆角或玻璃拟态。 */
+/* 沿用 .sg5-frame 的木石质感与米色点阵字，不引入新的圆角或玻璃拟态。
+ * v5.3 段内色值全部归并到 .sg5-root 的 --px-* 调色板；中文点阵字一律 ≥16px。 */
 
 .sg5-farmbar {
   position: absolute; right: 18px; top: 224px; width: 220px;
-  padding: 7px 8px 8px; background: #241d17;
-  border: 2px solid #0d0a08;
-  box-shadow: inset 0 2px 0 rgba(255,236,196,.14), inset 0 -2px 0 rgba(0,0,0,.42), 0 3px 0 rgba(0,0,0,.35);
+  padding: 8px;
   pointer-events: auto; z-index: 7; font-size: 16px;
 }
 .sg5-farmbar-top { display: flex; flex-wrap: wrap; margin-bottom: 6px; }
 .sg5-farm-chip {
-  display: inline-block; padding: 2px 5px; margin: 0 3px 3px 0;
-  color: #f0e2c0; background: #372b21; border: 1px solid #5a4632;
+  display: inline-block; padding: 2px 6px; margin: 0 4px 4px 0;
+  color: var(--px-ink); background: #372b21; border: 1px solid #5a4632;
   font-size: 16px; line-height: 1.25; white-space: nowrap;
 }
-.sg5-farm-clock { color: #ffe1a0; font-weight: bold; }
+.sg5-farm-clock { color: var(--px-gold); font-weight: bold; }
 .sg5-farm-weather { color: #b9d9e6; }
 .sg5-farmbar-row { display: flex; align-items: center; margin-bottom: 6px; }
-.sg5-farm-gold { display: flex; align-items: center; color: #ffd46a; min-width: 78px; }
-.sg5-farm-gold-ch { margin-right: 5px; }
+.sg5-farm-gold { display: flex; align-items: center; color: var(--px-gold); min-width: 78px; }
+.sg5-farm-gold-ch { margin-right: 4px; }
 .sg5-farm-gold-tx { font-weight: bold; }
 .sg5-farm-energy {
   flex: 1; height: 12px; background: #17120e;
-  border: 1px solid #5a4632; overflow: hidden;
+  border: 2px solid var(--px-line); overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,.6);
 }
 .sg5-farm-energy-fill {
   height: 100%; width: 100%;
-  background: linear-gradient(180deg, #ffd46a 0%, #e59a3c 55%, #b5602a 100%);
-  transform-origin: left center; transition: width 180ms linear;
+  background: linear-gradient(180deg, var(--px-gold) 0%, #e59a3c 55%, #b5602a 100%);
+  transform-origin: left center; transform: scaleX(0);
+  transition: transform 180ms linear;
 }
-.sg5-farm-energy-fill.is-low { background: linear-gradient(180deg, #ff8a72, #c33f36); animation: sg5-farm-pulse 900ms infinite alternate; }
+.sg5-farm-energy-fill.is-low { background: linear-gradient(180deg, #ff7a55, var(--px-hp)); animation: sg5-farm-pulse 1200ms infinite alternate; }
 @keyframes sg5-farm-pulse { from { opacity: .65; } to { opacity: 1; } }
 .sg5-farm-tools { display: flex; flex-wrap: wrap; }
 .sg5-farm-tool {
-  position: relative; width: 28px; height: 30px; margin: 0 2px 3px 0;
-  background: #3a2d21; border: 2px solid #6b543c; color: #f0e2c0;
+  position: relative; width: 44px; height: 44px; margin: 0 8px 8px 0;
+  background: #3a2d21; border: 2px solid #6b543c; color: var(--px-ink);
   cursor: pointer; font-family: inherit; line-height: 1;
 }
 .sg5-farm-tool:hover { background: #4d3b2a; border-color: #b09063; }
-.sg5-farm-tool.is-on { background: #7a5a30; border-color: #ffd46a; box-shadow: inset 0 0 0 2px rgba(255,220,150,.25); }
-.sg5-farm-tool-ch { display: block; font-size: 17px; margin-top: 3px; }
-.sg5-farm-tool-key { position: absolute; right: 1px; bottom: 0; font-size: 9px; color: #c9b48d; }
-.sg5-farm-seedrow { margin-top: 3px; padding-top: 4px; border-top: 1px solid #4a3828; }
+.sg5-farm-tool.is-on { background: #7a5a30; border-color: var(--px-gold-2); transform: translateY(2px); }
+.sg5-farm-tool-ch { display: block; font-size: 17px; margin-top: 4px; }
+.sg5-farm-tool-key { position: absolute; right: 2px; bottom: 0; font-size: 16px; line-height: 1; color: var(--px-ink-2); }
+.sg5-farm-tool-next { margin-top: 2px; color: var(--px-ink-2); font-size: 16px; line-height: 1.5; }
+.sg5-farm-seedrow { margin-top: 4px; padding-top: 4px; border-top: 1px solid #4a3828; }
 .sg5-farm-seedlabel { color: #a8d69a; font-size: 16px; }
 .sg5-farm-festival {
-  margin-top: 5px; padding: 3px 5px; background: #5c2f46;
+  margin-top: 4px; padding: 4px 6px; background: #5c2f46;
   border: 1px solid #a7657f; color: #ffd8e6; font-size: 16px;
 }
 
 .sg5-panel-farm { max-width: 940px; }
-.sg5-farm-cont { max-height: 500px; overflow-y: auto; padding-right: 4px; }
-.sg5-farm-h { color: #ffe1a0; font-size: 18px; margin: 4px 0 6px; }
-.sg5-farm-summary { display: flex; flex-wrap: wrap; margin-bottom: 9px; }
+.sg5-farm-cont { max-height: none; overflow: visible; padding-right: 0; }
+.sg5-farm-h { color: var(--px-gold); font-size: 18px; margin: 4px 0 6px; }
+.sg5-farm-summary { display: flex; flex-wrap: wrap; margin-bottom: 8px; }
 .sg5-farm-sum {
-  padding: 3px 8px; margin: 0 6px 5px 0; background: #32271d;
-  border: 1px solid #5a4632; color: #f0e2c0; font-size: 16px;
+  padding: 4px 8px; margin: 0 6px 4px 0; background: #32271d;
+  border: 1px solid #4a3828; color: var(--px-ink); font-size: 16px;
 }
 .sg5-farm-ops { display: flex; flex-wrap: wrap; margin: 5px 0 9px; }
 .sg5-farm-ops .sg5-btn, .sg5-farm-ops .sg5-btn-sm { margin: 0 6px 6px 0; }
 .sg5-farm-grid {
   display: grid; grid-template-columns: repeat(var(--farm-cols, 12), 1fr);
-  gap: 2px; margin: 6px 0; padding: 5px; background: #2a2018; border: 2px solid #0d0a08;
+  gap: 2px; margin: 6px 0; padding: 5px; background: #2a2018; border: 2px solid var(--px-line);
 }
 .sg5-farm-cell {
-  min-height: 34px; padding: 0; background: #43553a; color: #9db78c;
+  position: relative; min-height: 44px; padding: 0; background: #43553a; color: #9db78c;
   border: 2px solid #2c3a25; border-bottom-color: #2c3a25;
-  cursor: pointer; font-family: inherit; font-size: 14px; line-height: 1;
+  cursor: pointer; font-family: inherit; font-size: 16px; line-height: 1;
+  text-align: center;
 }
-.sg5-farm-cell:hover { outline: 2px solid #ffd46a; outline-offset: -2px; }
+.sg5-farm-cell:hover { outline: 2px solid var(--px-gold); outline-offset: -2px; }
 .sg5-farm-cell.is-tilled { background: #6b4c32; border-color: #4b3527; color: #d8bd94; }
 .sg5-farm-cell.is-watered { background: #4b3527; color: #cfe2ee; }
+/* 灰度可辨：已浇水除底色外，右上角再加一枚实心方点 */
+.sg5-farm-cell.is-watered::after {
+  content: ''; position: absolute; right: 3px; top: 3px;
+  width: 6px; height: 6px; background: #8fc4d8;
+}
 .sg5-farm-cell.is-growing { background: #3f5a38; color: #e8e2c0; }
-.sg5-farm-cell.is-ready, .sg5-farm-cell.is-star { background: #6b5a2c; color: #ffe9a0; border-color: #a4893f; }
+.sg5-farm-cell.is-ready, .sg5-farm-cell.is-star { background: #6b5a2c; color: var(--px-gold); border-color: var(--px-gold-2); }
 .sg5-farm-cell.is-star { animation: sg5-farm-star 1.2s infinite alternate; }
-@keyframes sg5-farm-star { from { box-shadow: inset 0 0 0 rgba(255,220,120,0); } to { box-shadow: inset 0 0 8px rgba(255,220,120,.55); } }
-.sg5-farm-legend { display: flex; flex-wrap: wrap; color: #b5a385; font-size: 16px; }
+@keyframes sg5-farm-star { from { opacity: .65; } to { opacity: 1; } }
+.sg5-farm-legend { display: flex; flex-wrap: wrap; color: var(--px-ink-2); font-size: 16px; }
 .sg5-farm-legend span { margin-right: 14px; }
 .sg5-farm-list { margin: 5px 0; }
 .sg5-farm-row, .sg5-farm-skill {
   display: flex; align-items: center; flex-wrap: wrap;
-  padding: 5px 7px; margin-bottom: 4px; background: #2c231b;
+  padding: 6px 8px; margin-bottom: 4px; background: #2c231b;
   border: 1px solid #4a3828; font-size: 16px;
 }
-.sg5-farm-rowname { min-width: 118px; color: #f0e2c0; margin-right: 8px; }
-.sg5-farm-rowname.is-unknown { color: #776b58; }
-.sg5-farm-rowsub { flex: 1; color: #b5a385; margin-right: 8px; }
+.sg5-farm-rowname { min-width: 118px; color: var(--px-ink); margin-right: 8px; }
+.sg5-farm-rowname.is-unknown { color: var(--px-ink-3); }
+.sg5-farm-rowsub { flex: 1; color: var(--px-ink-2); margin-right: 8px; }
 .sg5-farm-row .sg5-btn-sm { margin: 1px 4px 1px 0; }
-.sg5-farm-big { color: #ffe1a0; font-size: 20px; margin: 6px 0 9px; }
+.sg5-farm-big { color: var(--px-gold); font-size: 20px; margin: 6px 0 9px; }
 .sg5-farm-inv { display: flex; flex-wrap: wrap; margin: 6px 0; }
 .sg5-farm-item {
-  position: relative; width: 112px; min-height: 66px; margin: 0 5px 5px 0;
-  padding: 5px; background: #32271d; border: 2px solid #5a4632;
-  color: #f0e2c0; cursor: pointer; font-family: inherit; text-align: left;
+  position: relative; width: 112px; min-height: 66px; margin: 0 6px 6px 0;
+  padding: 6px; background: #32271d; border: 2px solid #5a4632;
+  color: var(--px-ink); cursor: pointer; font-family: inherit; text-align: left;
 }
 .sg5-farm-item:hover { background: #463526; border-color: #b09063; }
-.sg5-farm-item.is-on { border-color: #ffd46a; box-shadow: inset 0 0 0 2px rgba(255,220,150,.22); }
+.sg5-farm-item.is-on { border-color: var(--px-gold-2); transform: translateY(2px); }
+.sg5-farm-item:disabled, div.sg5-farm-item { cursor: default; opacity: 1; }
 .sg5-farm-swatch {
-  display: block; width: 17px; height: 17px; margin-bottom: 3px;
+  display: block; width: 17px; height: 17px; margin-bottom: 4px;
   border: 2px solid #e8d7a8; background: #c8b48a;
 }
+/* 品质四档边框：普通 / 银星 / 金星 / 铱星，灰度下也能分辨 */
+.sg5-farm-swatch.is-have { border-color: #d8dee6; }
+.sg5-farm-swatch.is-ready { border-color: var(--px-gold); }
+.sg5-farm-swatch.is-star { border-color: #b9e6e2; }
 .sg5-farm-itemname { display: block; font-size: 16px; line-height: 1.25; }
-.sg5-farm-itemnum { position: absolute; right: 5px; top: 5px; color: #ffe1a0; font-size: 16px; }
-.sg5-farm-itemprice { display: block; color: #ffd46a; font-size: 16px; }
-.sg5-farm-sel { margin: 7px 0; padding: 7px; background: #3a2d21; border: 2px solid #6b543c; }
-.sg5-farm-selname { color: #ffe1a0; font-size: 18px; margin-bottom: 4px; }
-.sg5-farm-xpbar { width: 130px; height: 11px; background: #17120e; border: 1px solid #5a4632; margin-right: 9px; }
-.sg5-farm-xpfill { height: 100%; background: linear-gradient(180deg, #9fd27f, #4d8a48); }
+.sg5-farm-itemnum { position: absolute; right: 6px; top: 6px; color: var(--px-gold); font-size: 16px; }
+.sg5-farm-itemprice { display: block; color: var(--px-ink); font-size: 16px; }
+.sg5-farm-sel { margin: 8px 0; padding: 8px; background: #3a2d21; border: 2px solid #6b543c; }
+.sg5-farm-selname { color: var(--px-gold); font-size: 18px; margin-bottom: 4px; }
+.sg5-farm-xpbar {
+  width: 130px; height: 12px; background: #17120e;
+  border: 2px solid var(--px-line); overflow: hidden; margin-right: 8px;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,.6);
+}
+.sg5-farm-xpfill {
+  height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0);
+  background: linear-gradient(180deg, #9fd27f, #4d8a48);
+}
 .sg5-farm-skill .sg5-btn-sm { margin: 3px 5px 0 0; }
 .sg5-farm-cal { padding: 8px; background: #32271d; border: 1px solid #5a4632; }
-.sg5-farm-calclock { color: #ffe1a0; font-size: 30px; margin-bottom: 6px; }
+.sg5-farm-calclock { color: var(--px-ink); font-size: 30px; margin-bottom: 6px; }
 
 /* ---- 小镇：好感 / 献祭 / 动物 ---- */
 .sg5-rel-card { padding: 8px; margin: 0 0 8px; background: #2c231b; border: 2px solid #4a3828; }
 .sg5-rel-head { display: flex; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
-.sg5-rel-name { color: #ffe1a0; font-size: 18px; margin-right: 10px; }
-.sg5-rel-sub { color: #b5a385; font-size: 16px; }
-.sg5-rel-hearts { letter-spacing: 2px; margin-bottom: 5px; }
-.sg5-rel-heart { color: #5a4638; }
-.sg5-rel-heart.is-on { color: #e8788c; }
+.sg5-rel-name { color: var(--px-ink); font-size: 18px; margin-right: 10px; }
+.sg5-rel-sub { color: var(--px-ink-2); font-size: 16px; }
+.sg5-rel-heartrow { display: flex; align-items: center; margin-bottom: 4px; }
+.sg5-rel-hearts { font-size: 16px; line-height: 16px; letter-spacing: 0; }
+.sg5-rel-heart {
+  display: inline-block; width: 16px; height: 16px; text-align: center; margin-right: 2px;
+  color: var(--px-ink-3);
+}
+.sg5-rel-heart.is-on { color: var(--px-gold); }
+.sg5-rel-hearts-num { font-size: 16px; line-height: 16px; color: var(--px-ink-2); margin-left: 8px; }
 .sg5-rel-gifts { margin-top: 6px; padding-top: 6px; border-top: 1px solid #4a3828; }
 .sg5-rel-gifts .sg5-farm-item { width: 98px; min-height: 58px; }
 .sg5-bundle-needs { display: flex; flex-wrap: wrap; }
 .sg5-bundle-need {
-  padding: 3px 7px; margin: 0 5px 5px 0; background: #3a2d21;
-  border: 1px solid #5a4632; color: #8d8069; font-size: 16px;
+  padding: 4px 8px; margin: 0 6px 6px 0; background: #3a2d21;
+  border: 1px solid #5a4632; color: var(--px-ink-3); font-size: 16px;
 }
-.sg5-bundle-need.is-have { color: #c9e0a8; border-color: #6c8c50; }
-.sg5-bundle-need.is-done { color: #ffe1a0; border-color: #c9a34f; background: #5a4626; }
+.sg5-bundle-need.is-off { border: 1px dashed var(--px-ink-3); font-weight: normal; }
+.sg5-bundle-need.is-have { border: 1px solid #6c8c50; color: #c9e0a8; font-weight: normal; }
+.sg5-bundle-need.is-done {
+  border: 2px solid var(--px-gold-2); background: #241d15;
+  color: var(--px-jade); font-weight: bold;
+}
+.sg5-bundle-mark { margin-right: 2px; }
+/* 全班同学名单：只展开一位的礼物选择器，不再每人一份背包 */
+.sg5-classmates { display: flex; flex-wrap: wrap; margin: 6px 0 10px; }
+.sg5-classmate {
+  display: block; width: 150px; margin: 0 8px 8px 0; padding: 6px 8px;
+  background: #2c231b; border: 2px solid #4a3828; color: var(--px-ink);
+  text-align: left; font-size: 16px; font-family: inherit; cursor: pointer;
+}
+.sg5-classmate[aria-pressed="true"] { border-color: var(--px-gold-2); background: #3a2d21; }
+.sg5-classmate-name { display: block; font-size: 16px; }
+.sg5-classmate-sub { display: block; font-size: 16px; color: var(--px-ink-2); margin-top: 2px; }
+.sg5-rel-giftpick { padding: 8px; margin: 6px 0; background: #2c231b; border: 2px solid #4a3828; }
+
+/* ---- 载入 / 操作失败：深色木石错误条，不复用 .sg5-empty ---- */
+.sg5-farm-err {
+  display: flex; align-items: center; flex-wrap: wrap;
+  padding: 8px; margin: 0 0 10px;
+  background: #241d17; border: 2px solid var(--px-line);
+  color: var(--px-ink); font-size: 16px;
+}
+.sg5-farm-err-tx { margin-right: 8px; line-height: 1.5; }
+.sg5-farm-err .sg5-btn { margin: 4px 0 0; }
 
 /* ---- 钓鱼绿条 ---- */
-.sg5-qte { display: flex; align-items: stretch; margin: 8px 0; }
+.sg5-qte { display: flex; align-items: stretch; margin: 8px 0; touch-action: none; }
 .sg5-qte-track {
   position: relative; width: 74px; height: 240px; margin-right: 14px;
-  background: #1d3540; border: 2px solid #0d0a08; overflow: hidden; flex: none;
+  background:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.018) 0 2px, rgba(0,0,0,.02) 2px 4px),
+    var(--px-stone-3);
+  border: 2px solid var(--px-line); overflow: hidden; flex: none;
 }
 .sg5-qte-zone {
   position: absolute; left: 0; right: 0; top: 30%; height: 34%;
-  background: linear-gradient(90deg, rgba(104,190,110,.35), rgba(140,220,130,.6), rgba(104,190,110,.35));
-  border-top: 2px solid #a6e39a; border-bottom: 2px solid #a6e39a;
+  background: #3f6b3a;
+  border-top: 2px solid #8fd06a; border-bottom: 2px solid #8fd06a;
 }
 .sg5-qte-fish {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  color: #f0e2c0; font-size: 22px; text-shadow: 0 0 6px rgba(0,0,0,.8); pointer-events: none;
+  color: var(--px-ink); font-size: 22px; text-shadow: 0 1px 0 #000; pointer-events: none;
 }
 .sg5-qte-cursor {
-  position: absolute; left: 4px; right: 4px; top: 50%; height: 15px;
-  margin-top: -7px; background: #f4d98a; border: 2px solid #6b4b24;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset; pointer-events: none;
+  position: absolute; left: 4px; right: 4px; top: 50%; height: 16px;
+  margin-top: -8px; background: #f4d98a; border: 2px solid #6b4b24;
+  pointer-events: none;
 }
 .sg5-qte-side { flex: 1; min-width: 180px; }
-.sg5-qte-title { color: #ffe1a0; font-size: 20px; margin-bottom: 4px; }
+.sg5-qte-title { color: var(--px-gold); font-size: 20px; margin-bottom: 4px; }
 .sg5-qte-name { color: #c9e0a8; font-size: 16px; margin-bottom: 8px; }
-.sg5-qte-bar { height: 20px; margin: 8px 0; background: #17120e; border: 2px solid #5a4632; }
-.sg5-qte-fill { height: 100%; width: 30%; background: linear-gradient(180deg, #9fd27f, #4d8a48); }
+.sg5-qte-bar {
+  height: 20px; margin: 8px 0; background: #17120e;
+  border: 2px solid var(--px-line); overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,.6);
+}
+.sg5-qte-fill {
+  height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0.3);
+  background: linear-gradient(180deg, #9fd27f, #4d8a48);
+}
+
+/* ---- dock 分组：1-5 冒险 / 6-7 系统 / 8-10 生活（不改顺序 / 尺寸 / z-index） ---- */
+.sg5-dockbtn:nth-child(5), .sg5-dockbtn:nth-child(7) { margin-right: 14px; }
+.sg5-dockbtn:nth-child(5)::after, .sg5-dockbtn:nth-child(7)::after {
+  content: ''; position: absolute; right: -8px; top: 8px; bottom: 8px;
+  width: 2px; background: var(--px-line);
+}
+
+/* ---- 键盘焦点：Chrome 80 没有 :focus-visible ---- */
+.sg5-root :focus { outline: 2px solid var(--px-gold); outline-offset: 2px; }
+/* .sg5-input 有自己的 focus 补偿，别再叠一层 outline */
+.sg5-root .sg5-input:focus { outline: none; }
+
+/* ---- 响应式：只命中 v5.3 三个面板，HUD 一律不动 ---- */
+@media (max-height: 800px) {
+  .sg5-panel-farm { max-height: calc(100vh - 96px); }
+  .sg5-farm-grid .sg5-farm-cell { min-height: 44px; }
+}
+@media (max-width: 1100px) {
+  .sg5-panel-farm { max-width: calc(100vw - 84px); }
+  .sg5-farm-summary { flex-wrap: wrap; }
+}
+
+
+
+/* ==================== v5.3.1 平板 / 矮视口适配 ==================== */
+/* 真机平板带浏览器 UI 时可视高度常只有 620~700px：农场条固定 top:224 会顶进右下动作区。
+   矮视口下整体上移并收起次要行，把下方空间还给动作键。 */
+@media (max-height: 720px) {
+  .sg5-farmbar { top: 180px; }
+  .sg5-farmbar-top { flex-wrap: nowrap; overflow: hidden; }
+  .sg5-farm-festival, .sg5-farm-tool-next { display: none; }
+}
+/* 44px dock 里 24px 图标与 16px 键位徽标轻微叠压：图标整体上移，给键位让出下缘 */
+.sg5-dockbtn canvas { margin-top: -4px; }

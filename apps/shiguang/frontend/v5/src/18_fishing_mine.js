@@ -6,11 +6,16 @@
   var MINE_TABS = [['fish', '钓鱼'], ['mine', '矿洞'], ['dex', '图鉴']];
   function mineTabs(body) {
     var tabs = el('div', 'sg5-tabs');
+    tabs.setAttribute('role', 'tablist');
     (function () {
       for (var i = 0; i < MINE_TABS.length; i++) {
         (function (t) {
-          var b = el('button', 'sg5-tab' + (S.farm.mineTab === t[0] ? ' is-on' : ''), t[1]);
+          var on = S.farm.mineTab === t[0];
+          var b = el('button', 'sg5-tab' + (on ? ' is-on' : ''), t[1]);
           b.type = 'button';
+          b.setAttribute('role', 'tab');
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+          b.setAttribute('data-focus-key', 'mtab:' + t[0]);
           b.addEventListener('click', function () {
             S.farm.mineTab = t[0]; refreshPanel('mine'); auSfx('menu', 0.2, 1.1);
           }, false);
@@ -21,16 +26,27 @@
     body.appendChild(tabs);
   }
   function qteClamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
-
+  function qteEditable() {
+    var ae = document.activeElement;
+    if (!ae) return false;
+    var tag = ae.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || !!ae.isContentEditable;
+  }
   function qteDown(e) {
+    if (qteEditable()) return;
     var q = S.farm.qte; if (!q) return;
     if (e && (e.code === 'Space' || e.key === ' ' || e.type === 'mousedown' || e.type === 'touchstart')) {
       q.hold = true; if (e.preventDefault) e.preventDefault();
     }
   }
   function qteUp(e) {
+    if (qteEditable()) return;
     var q = S.farm.qte; if (!q) return;
-    if (e && (e.code === 'Space' || e.key === ' ' || e.type === 'mouseup' || e.type === 'touchend')) q.hold = false;
+    if (e && (e.code === 'Space' || e.key === ' ' || e.type === 'mouseup' || e.type === 'touchend')) {
+      q.hold = false;
+      // 空格抬起会触发聚焦按钮的 click，补一个 preventDefault 免得误点
+      if ((e.code === 'Space' || e.key === ' ') && e.preventDefault) e.preventDefault();
+    }
   }
   function qtePaint() {
     var q = S.farm.qte; if (!q) return;
@@ -38,12 +54,25 @@
     var cur = root.querySelector('.sg5-qte-cursor');
     var zone = root.querySelector('.sg5-qte-zone');
     var fill = root.querySelector('.sg5-qte-fill');
-    if (cur) cur.style.top = Math.round((1 - q.y) * 100) + '%';
+    var track = root.querySelector('.sg5-qte-track');
+    var pb = root.querySelector('.sg5-qte-bar');
+    var H = (track && track.clientHeight) || 240;
+    function px(v) { return Math.round(v / 2) * 2; }
+    // v5.3：top/height 一律整数像素且取 2 的倍数，避免小数像素把点阵边糊掉
+    if (cur) cur.style.top = px((1 - q.y) * H) + 'px';
     if (zone) {
-      zone.style.height = Math.round(q.green * 100) + '%';
-      zone.style.top = Math.round((1 - q.targetY - q.green / 2) * 100) + '%';
+      zone.style.height = px(q.green * H) + 'px';
+      zone.style.top = px((1 - q.targetY - q.green / 2) * H) + 'px';
     }
-    if (fill) fill.style.width = Math.round(q.progress * 100) + '%';
+    if (fill) fill.style.transform = 'scaleX(' + q.progress + ')';
+    // 读屏播报只在 ±10% 档位变化时才改，别每 30ms 刷屏
+    if (pb && pb.setAttribute) {
+      var step = Math.round(q.progress * 10) * 10;
+      if (q.ariaStep !== step) {
+        q.ariaStep = step;
+        pb.setAttribute('aria-valuetext', '进度 ' + step + '%');
+      }
+    }
   }
   function qteCleanup() {
     var q = S.farm.qte;
@@ -68,7 +97,20 @@
       } else {
         farmToast((d && d.reason) || '鱼跑了', 'warn');
       }
-    }, function (e) { farmToast(e.message || '鱼跑了', 'warn'); });
+      focusCast();
+    }, function (e) {
+      farmToast(e.message || '鱼跑了', 'warn');
+      focusCast();
+    });
+  }
+  // 结算后面板已经重建回「甩竿」态，把键盘焦点送回甩竿按钮
+  function focusCast() {
+    setTimeout(function () {
+      try {
+        var b = document.querySelector('[data-focus-key="op:cast"]');
+        if (b) b.focus();
+      } catch (e) {}
+    }, 0);
   }
   function qteStart(d) {
     qteCleanup();
@@ -117,7 +159,7 @@
             if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
             else farmToast('这会儿没鱼咬钩', 'warn');
           }, function (e) { farmToast(e.message, 'warn'); });
-        }, 'sg5-btn-primary'],
+        }, 'sg5-btn-primary', null, 'op:cast'],
         ['按 H 收起', function () { closePanel(); }]
       ]);
       var caught = 0;
@@ -136,6 +178,10 @@
       side.appendChild(el('div', 'sg5-qte-name', '???（钓上来才知道）'));
       side.appendChild(el('div', 'sg5-note', '难度 ' + q.diff + ' · 绿条 ' + Math.round(q.green * 100) + '%'));
       var pb = el('div', 'sg5-qte-bar');
+      pb.setAttribute('role', 'progressbar');
+      pb.setAttribute('aria-valuemin', '0');
+      pb.setAttribute('aria-valuemax', '100');
+      pb.setAttribute('aria-valuetext', '进度 30%');
       pb.appendChild(el('div', 'sg5-qte-fill'));
       side.appendChild(pb);
       side.appendChild(el('div', 'sg5-note', '按住 = 上浮，松开 = 下沉'));
@@ -195,7 +241,7 @@
       var base = String(k).split('_q')[0];
       for (var i = 0; i < (D.ORES || []).length; i++) if (D.ORES[i].id === base) inv[k] = P.inv[k];
     }
-    ore.appendChild(farmInvGrid(P, inv, null, function () {}));
+    ore.appendChild(farmInvGrid(P, inv, null, function () {}, true));
     body.appendChild(ore);
   }
 
@@ -240,6 +286,8 @@
     var P = farmP();
     var sh = panelShell('钓鱼 / 矿洞', P ? ('Lv.' + ((P.levels || {}).fishing || 0) + ' 渔夫 · 第 ' + (P.mineBest || 0) + ' 层') : '正在载入…');
     sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    var errBlock = farmErrBlock();
+    if (errBlock) sh.body.appendChild(errBlock);
     mineTabs(sh.body);
     var cont = el('div', 'sg5-farm-cont');
     if (!P) cont.appendChild(el('div', 'sg5-empty', '还没载入…'));

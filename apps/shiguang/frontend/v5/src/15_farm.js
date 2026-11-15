@@ -5,7 +5,8 @@
   S.farm = {
     p: null, data: null, tool: 'hoe', seed: '', tab: 'field',
     lastPoll: 0, epoch: 0, dirty: 0, rtBound: 0, qte: null,
-    relationTab: 'villagers', mineTab: 'mine', sel: null, bagSel: null
+    relationTab: 'villagers', mineTab: 'fish', sel: null, bagSel: null,
+    loadState: 'loading', lastError: '', relGiftTo: ''
   };
 
   function farmClock(progress) {
@@ -68,6 +69,8 @@
       S.farm.seed = seeds.length ? seeds[0] : '';
     }
     S.farm.dirty = 0;
+    S.farm.loadState = 'ok';
+    S.farm.lastError = '';
     if (UI.farmClock) farmHudPaint();
   }
   function farmSeedList() {
@@ -80,23 +83,42 @@
     return out;
   }
   function farmState() {
+    S.farm.loadState = 'loading';
     return apiGet('/shiguang/v5/farm/state').then(function (d) {
       if (d && d.farm) farmApply(d.farm);
+      else S.farm.loadState = 'ok';
       return d;
-    }, function () { return null; });
+    }, function (e) {
+      // v5.3：失败也绝不把 S.farm.p 清成 null —— 面板继续显示上一次的旧数据，
+      // 不渲染「正在载入…」空态。错误条由 farmErrBlock 负责，还能点「重新载入」。
+      S.farm.loadState = 'error';
+      S.farm.lastError = (e && e.message) || '农场数据没能载入';
+      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+      return null;
+    });
   }
   function farmAct(path, body) {
     return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
       if (d && d.farm) farmApply(d.farm);
+      S.farm.lastError = '';
       if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
       return d;
+    }, function (e) {
+      S.farm.lastError = (e && e.message) || '操作没能完成';
+      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+      throw e;   // 保留调用方原有的 toast(err.message,'warn') 失败分支
     });
   }
   function lifeAct(path, body) {
     return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
       if (d && d.farm) farmApply(d.farm);
+      S.farm.lastError = '';
       if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
       return d;
+    }, function (e) {
+      S.farm.lastError = (e && e.message) || '操作没能完成';
+      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+      throw e;
     });
   }
   function farmToast(text, kind) { toast(text, kind || ''); auSfx('menu', 0.2, 1.1); }
@@ -119,14 +141,25 @@
     if (UI.farmGold) setText(UI.farmGold, String(P.gold) + 'g');
     if (UI.farmEnergy) {
       var pct = Math.max(0, Math.min(1, P.energy / (P.maxEnergy || 100)));
-      UI.farmEnergy.style.width = Math.round(pct * 100) + '%';
+      // v5.3：血条只动 transform，不碰 width（和 09_ui_hud 的 scaleX 一个口径）
+      UI.farmEnergy.style.transform = 'scaleX(' + pct.toFixed(3) + ')';
       UI.farmEnergy.className = 'sg5-farm-energy-fill' + (pct < 0.3 ? ' is-low' : '');
+      var enWrap = UI.farmEnergy.parentNode;
+      if (enWrap && enWrap.setAttribute) {
+        enWrap.setAttribute('aria-valuenow', String(Math.round(pct * 100)));
+        enWrap.setAttribute('aria-label', pct < 0.3 ? '体力偏低' : '体力');
+      }
     }
     if (UI.farmToolBtns) {
       for (var i = 0; i < UI.farmToolBtns.length; i++) {
         var b = UI.farmToolBtns[i], on = b.getAttribute('data-tool') === S.farm.tool;
         b.className = 'sg5-farm-tool' + (on ? ' is-on' : '');
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
       }
+    }
+    if (UI.farmToolNext) {
+      var nx = farmNextAction();
+      setText(UI.farmToolNext, nx ? 'E：' + nx : '');
     }
     if (UI.farmSeedLabel) {
       setText(UI.farmSeedLabel, S.farm.seed ? farmItemName(S.farm.seed) : '没种子了');
@@ -142,7 +175,7 @@
   uiBuild = function (root) {
     var r = _uiBuildFarm(root);
     var hud = UI.hud;
-    var bar = el('div', 'sg5-farmbar');
+    var bar = el('div', 'sg5-frame sg5-farmbar');
     var left = el('div', 'sg5-farmbar-top');
     left.appendChild(el('span', 'sg5-farm-chip sg5-farm-clock', ''));
     left.appendChild(el('span', 'sg5-farm-chip sg5-farm-date', ''));
@@ -156,6 +189,11 @@
     UI.farmGold = gold.childNodes[1];
     row.appendChild(gold);
     var en = el('div', 'sg5-farm-energy');
+    en.setAttribute('role', 'progressbar');
+    en.setAttribute('aria-valuemin', '0');
+    en.setAttribute('aria-valuemax', '100');
+    en.setAttribute('aria-valuenow', '0');
+    en.setAttribute('aria-label', '体力');
     var fill = el('div', 'sg5-farm-energy-fill');
     UI.farmEnergy = fill; en.appendChild(fill); row.appendChild(en);
     bar.appendChild(row);
@@ -169,10 +207,15 @@
         b.appendChild(el('span', 'sg5-farm-tool-ch', t.ch));
         b.appendChild(el('span', 'sg5-farm-tool-key', t.key));
         b.setAttribute('title', t.name + '（' + t.key + '）');
+        b.setAttribute('aria-label', t.name + '（' + t.key + '）');
+        b.setAttribute('aria-pressed', 'false');
         tools.appendChild(b); UI.farmToolBtns.push(b);
       }
     })();
     bar.appendChild(tools);
+    var nextTip = el('div', 'sg5-farm-tool-next', '');
+    UI.farmToolNext = nextTip;
+    bar.appendChild(nextTip);
     var seedRow = el('div', 'sg5-farm-seedrow');
     seedRow.appendChild(el('span', 'sg5-farm-seedlabel', ''));
     UI.farmSeedLabel = seedRow.childNodes[0];
@@ -228,11 +271,16 @@
   inputBind = function (root, onDestroy) {
     var r = _inputBindFarm(root, onDestroy);
     function kp(e) {
-      var tag = document.activeElement && document.activeElement.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      var ae = document.activeElement;
+      var tag = ae && ae.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (ae && ae.isContentEditable)) return;
       var k = String(e.key || '').toLowerCase();
-      if (k >= '1' && k <= '6') { farmSetTool(FARM_TOOLS[Number(k) - 1].id); e.preventDefault(); return; }
-      if (k === 'q') { farmCycleSeed(); e.preventDefault(); return; }
+      // v5.3：面板打开时 1–6 / Q 不生效（按 1 不换农具、按 Q 不弹 toast）；
+      // N / R / H 仍允许切面板。输入态统一用 activeElement 判定。
+      if (curPanel === '') {
+        if (k >= '1' && k <= '6') { farmSetTool(FARM_TOOLS[Number(k) - 1].id); e.preventDefault(); return; }
+        if (k === 'q') { farmCycleSeed(); e.preventDefault(); return; }
+      }
       if (k === 'n') { openPanel('farm'); e.preventDefault(); return; }
       if (k === 'r') { openPanel('relation'); e.preventDefault(); return; }
       if (k === 'h') { openPanel('mine'); e.preventDefault(); return; }
@@ -410,6 +458,22 @@
     var B = farmBounds(), m = S.me;
     return { r: Math.floor(m.y - B.y), c: Math.floor(m.x - B.x) };
   }
+  // v5.3：只读的「下一步」提示，判定与 farmSmartAction 完全一致，但不发任何请求
+  function farmNextAction() {
+    var P = farmP(), m = S.me;
+    if (!P || !m) return '';
+    var B = farmBounds(), cell = farmCellAtMe();
+    if (cell.r < 0 || cell.c < 0 || cell.r >= B.h || cell.c >= B.w) return '';
+    var p = (P.plots || {})[cell.r + ',' + cell.c];
+    var D = farmD(), def = p && p.crop && D.CROPS[p.crop];
+    var need = def ? Math.max(1, Math.round(def.days * (P.profs && P.profs.indexOf('agriculturist') >= 0 ? 0.9 : 1))) : 0;
+    var ready = def && (p.harvested && def.regrow
+      ? (P.cal.day - (p.regrowDay || P.cal.day) >= def.regrow) : (p.grow || 0) >= need);
+    if (ready) return '收获';
+    if (p && p.crop) return '浇水';
+    if (p && p.tilled) return '播种';
+    return '翻土';
+  }
   function farmSmartAction(r, c) {
     var P = farmP(); if (!P) return;
     var p = (P.plots || {})[r + ',' + c];
@@ -522,6 +586,11 @@
       var c = farmCal(), ms = c.dayMs || 90000;
       setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
     }
+    // 脚下那格会随走动变化，只读提示也跟着走（setText 自带相等判断，不写就零开销）
+    if (UI.farmToolNext) {
+      var nx = farmNextAction();
+      setText(UI.farmToolNext, nx ? 'E：' + nx : '');
+    }
     // 低频：面板开着或有待办时 6 秒拉一次；平时 15 秒，别给 5Hz 同步添负担
     var interval = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') ? 6 : 15;
     if (t - S.farm.lastPoll >= interval) {
@@ -550,6 +619,7 @@
     // 只重置瞬时量：p/data 由随后的 applyEnter 覆盖，提前清空反而会丢首帧
     S.farm.lastPoll = 0; S.farm.rtBound = 0; S.farm.qte = null;
     S.farm.sel = null; S.farm.bagSel = null; S.farm.tool = 'hoe';
+    S.farm.relGiftTo = ''; S.farm.loadState = 'loading'; S.farm.lastError = '';
     if (window.__sg5) {
       window.__sg5.farm = {
         state: function () {

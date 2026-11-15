@@ -6,11 +6,16 @@
   ];
   function relTabs(body) {
     var tabs = el('div', 'sg5-tabs');
+    tabs.setAttribute('role', 'tablist');
     (function () {
       for (var i = 0; i < REL_TABS.length; i++) {
         (function (t) {
-          var b = el('button', 'sg5-tab' + (S.farm.relationTab === t[0] ? ' is-on' : ''), t[1]);
+          var on = S.farm.relationTab === t[0];
+          var b = el('button', 'sg5-tab' + (on ? ' is-on' : ''), t[1]);
           b.type = 'button';
+          b.setAttribute('role', 'tab');
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+          b.setAttribute('data-focus-key', 'rtab:' + t[0]);
           b.addEventListener('click', function () {
             S.farm.relationTab = t[0]; refreshPanel('relation'); auSfx('menu', 0.2, 1.1);
           }, false);
@@ -36,12 +41,32 @@
         (function (k) {
           var b = el('button', 'sg5-farm-item');
           b.type = 'button';
-          var sw = el('span', 'sg5-farm-swatch');
-          sw.style.background = farmItemColor(k); sw.style.borderColor = farmQualityColor(k);
+          b.setAttribute('data-focus-key', 'gift:' + k);
+          var qc = farmQualityClass(k);
+          var sw = el('span', 'sg5-farm-swatch' + (qc ? ' ' + qc : ''));
+          sw.style.background = farmItemColor(k);
           b.appendChild(sw);
           b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
           b.appendChild(el('span', 'sg5-farm-itemnum', '×' + P.inv[k]));
-          b.addEventListener('click', function () { onSend(k); }, false);
+          // 两步确认：第一次点击只在原地换成「确定 / 取消」，不发任何请求
+          b.addEventListener('click', function () {
+            var parent = grid;
+            if (!parent || b.parentNode !== parent) return;
+            var next = b.nextSibling;
+            var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () { onSend(k); });
+            var no = uiBtn('取消', 'sg5-btn-sm sg5-btn-ghost', function () {
+              if (yes.parentNode) yes.parentNode.removeChild(yes);
+              if (no.parentNode) no.parentNode.removeChild(no);
+              if (!b.parentNode) {
+                if (next && next.parentNode === parent) parent.insertBefore(b, next);
+                else parent.appendChild(b);
+              }
+            });
+            parent.insertBefore(yes, b);
+            parent.insertBefore(no, b);
+            parent.removeChild(b);
+            try { yes.focus(); } catch (e) {}
+          }, false);
           grid.appendChild(b);
         })(k);
       }
@@ -53,11 +78,19 @@
   function relHearts(pts, P) {
     var per = (P && P.heartPts) || 250;
     var h = Math.max(0, Math.min(10, Math.floor(pts / per)));
+    var row = el('div', 'sg5-rel-heartrow');
     var box = el('div', 'sg5-rel-hearts');
+    box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', '好感 ' + h + ' / 10 颗心');
     for (var i = 0; i < 10; i++) {
-      box.appendChild(el('span', 'sg5-rel-heart' + (i < h ? ' is-on' : ''), i < h ? '♥' : '♡'));
+      var sp = el('span', 'sg5-rel-heart' + (i < h ? ' is-on' : ''), i < h ? '♥' : '♡');
+      sp.setAttribute('aria-hidden', 'true');
+      box.appendChild(sp);
     }
-    return box;
+    row.appendChild(box);
+    // 容器外的静态文本，读屏除了 img 标签之外也有明确的数字
+    row.appendChild(el('span', 'sg5-rel-hearts-num', h + '/10'));
+    return row;
   }
 
   function relVillagers(body) {
@@ -90,11 +123,11 @@
             [r.bouquet ? '已送花束' : '送花束（200g）', function () {
               lifeAct('bouquet', { npc: k }).then(function () { farmToast('她收下了花束'); },
                 function (e) { farmToast(e.message, 'warn'); });
-            }],
+            }, 'sg5-btn-sm', true],
             [P.spouse === k ? '已成家' : '求婚（1500g）', function () {
               lifeAct('marry', { npc: k }).then(function (d) { farmToast('♥ 和' + d.name + '成家了'); },
                 function (e) { farmToast(e.message, 'warn'); });
-            }]
+            }, 'sg5-btn-sm', true]
           ]);
           card.appendChild(relGiftRow(k, function (item) {
             lifeAct('gift', { npc: k, item: item }).then(function (d) {
@@ -126,26 +159,44 @@
     var s = farmSection(body, '班里的同学', '送出背包里的一样东西，对方会立刻收到提醒。好友与羁绊沿用「一起玩」的名单。');
     var list = (S.friends || []).slice(0, 24);
     if (!list.length) s.appendChild(el('div', 'sg5-empty', '还没有好友。先在「一起玩」里加个同学吧。'));
+    // v5.3：24 人 × 整份背包会把 DOM 撑爆，改成点名字选中一人、只展开一份礼物选择器
+    var wrap = el('div', 'sg5-classmates');
+    var names = {};
     (function () {
       for (var i = 0; i < list.length; i++) {
         (function (p) {
           var uid = String(p.id || p.uid || p.userId || '');
           var nm = p.name || p.n || (typeof nameOf === 'function' ? nameOf(uid) : uid);
+          names[uid] = nm;
           var bond = (S.bonds || {})[uid] || (P.relations && P.relations[uid] && P.relations[uid].pts) || 0;
-          var card = el('div', 'sg5-rel-card');
-          var head = el('div', 'sg5-rel-head');
-          head.appendChild(el('span', 'sg5-rel-name', nm));
-          head.appendChild(el('span', 'sg5-rel-sub', (p.online ? '在线' : '离线') + ' · 羁绊 ' + bond));
-          card.appendChild(head);
-          card.appendChild(relGiftRow(uid, function (item) {
-            lifeAct('playergift', { to: uid, item: item }).then(function () {
-              farmToast('送给了 ' + nm + ' 一份' + farmItemName(item));
-            }, function (e) { farmToast(e.message, 'warn'); });
-          }));
-          s.appendChild(card);
+          var sel = S.farm.relGiftTo === uid;
+          var row = el('button', 'sg5-classmate');
+          row.type = 'button';
+          row.setAttribute('data-focus-key', 'classmate:' + uid);
+          row.setAttribute('aria-pressed', sel ? 'true' : 'false');
+          row.appendChild(el('span', 'sg5-classmate-name', nm));
+          row.appendChild(el('span', 'sg5-classmate-sub', (p.online ? '在线' : '离线') + ' · 羁绊 ' + bond));
+          row.addEventListener('click', function () {
+            S.farm.relGiftTo = (S.farm.relGiftTo === uid) ? '' : uid;
+            refreshPanel('relation');
+          }, false);
+          wrap.appendChild(row);
         })(list[i]);
       }
     })();
+    s.appendChild(wrap);
+    if (S.farm.relGiftTo) {
+      var to = S.farm.relGiftTo;
+      var toName = names[to] || to;
+      var box = el('div', 'sg5-rel-giftpick');
+      box.appendChild(el('div', 'sg5-note', '给 ' + toName + ' 选一样礼物：'));
+      box.appendChild(relGiftRow(to, function (item) {
+        lifeAct('playergift', { to: to, item: item }).then(function () {
+          farmToast('送给了 ' + toName + ' 一份' + farmItemName(item));
+        }, function (e) { farmToast(e.message, 'warn'); });
+      }));
+      s.appendChild(box);
+    }
     body.appendChild(s);
   }
 
@@ -172,8 +223,13 @@
                 var needId = n.indexOf('gold_') === 0 ? n.slice(5) + '_q2' : n;
                 var have = (P.inv || {})[needId] > 0;
                 var got = !!slot.items[n];
-                row.appendChild(el('span', 'sg5-bundle-need' + (got ? ' is-done' : have ? ' is-have' : ''),
-                  (got ? '✓ ' : have ? '+ ' : '· ') + farmItemName(needId)));
+                var state = got ? 'is-done' : (have ? 'is-have' : 'is-off');
+                var cell = el('span', 'sg5-bundle-need ' + state);
+                var mark = el('span', 'sg5-bundle-mark', got ? '✓ ' : (have ? '+ ' : '· '));
+                mark.setAttribute('aria-hidden', 'true');
+                cell.appendChild(mark);
+                cell.appendChild(el('span', null, farmItemName(needId)));
+                row.appendChild(cell);
               })(b.need[j]);
             }
           })();
@@ -189,7 +245,7 @@
               lifeAct('bundle', { id: b.id, items: items }).then(function (d) {
                 farmToast(d.reward ? '交齐了！领到 ' + d.reward : '交上去 ' + d.moved + ' 样，还差 ' + d.left + ' 样');
               }, function (e) { farmToast(e.message, 'warn'); });
-            }]]);
+            }, 'sg5-btn-sm', true]]);
           }
           s.appendChild(card);
         })(D.BUNDLES[i]);
@@ -240,6 +296,8 @@
     var P = farmP();
     var sh = panelShell('小镇', P ? (P.cal.seasonName + ' · ' + (P.spouse ? '已安家' : '一个人住')) : '正在载入…');
     sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    var errBlock = farmErrBlock();
+    if (errBlock) sh.body.appendChild(errBlock);
     relTabs(sh.body);
     var cont = el('div', 'sg5-farm-cont');
     if (!P) cont.appendChild(el('div', 'sg5-empty', '小镇还没载入…'));

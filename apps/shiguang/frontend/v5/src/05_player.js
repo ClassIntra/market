@@ -20,6 +20,8 @@
       };
       var name = map[code];
       if (!name) return;
+      // v5.3：钓鱼 QTE 期间空格归绿条用，不置 IN.attack、也不 preventDefault
+      if (code === 32 && S.farm && S.farm.qte) return;
       if (down && keys[name]) return;
       keys[name] = down ? 1 : 0;
       if (down) {

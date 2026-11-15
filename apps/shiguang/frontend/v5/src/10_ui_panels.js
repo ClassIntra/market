@@ -60,9 +60,39 @@
     if (id && id !== curPanel) return;
     var build = PANELS[curPanel];
     if (!build) return;
+    // v5.3：面板重建会把 .sg5-pbody 的滚动位置和键盘焦点一起丢掉。
+    // 只在农场三件套里做还原；v5.2 面板走原来的最短路径，一点都不碰。
+    // 整段还原逻辑都包在 try/catch 里，任何异常都绝不能挡住下面的 build。
+    var restore = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine');
+    var oldScroll = 0, focusKey = '';
+    if (restore) {
+      try {
+        var oldBody = UI.panelWrap.querySelector('.sg5-pbody');
+        if (oldBody) oldScroll = oldBody.scrollTop || 0;
+        var ae = document.activeElement;
+        if (ae && ae.getAttribute) focusKey = ae.getAttribute('data-focus-key') || '';
+      } catch (e) { restore = false; }
+    }
     clearNode(UI.panelWrap);
     var p = build();
     if (p) UI.panelWrap.appendChild(p);
+    if (restore) {
+      try {
+        // 顺序要紧：先还焦点再还滚动位置 —— .focus() 会把焦点元素滚进视野，
+        // 若先设 scrollTop 会被它清零。
+        if (focusKey) {
+          var nodes = UI.panelWrap.querySelectorAll('[data-focus-key]');
+          for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].getAttribute('data-focus-key') === focusKey) { nodes[i].focus(); break; }
+          }
+        }
+        var newBody = UI.panelWrap.querySelector('.sg5-pbody');
+        if (newBody) {
+          // 读一次 scrollHeight 强制排版：新建节点未排版时 scrollTop 会被夹到 0
+          if (newBody.scrollHeight >= 0) newBody.scrollTop = oldScroll;
+        }
+      } catch (e) {}
+    }
   }
 
   // ---------- 角色 ----------

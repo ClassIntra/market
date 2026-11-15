@@ -333,9 +333,12 @@
     var b = el('button', 'sg5-dockbtn');
     b.type = 'button';
     b.setAttribute('data-panel', name);
+    b.setAttribute('data-focus-key', 'dock:' + name);
     b.appendChild(iconCanvas(icon, 24));
     b.appendChild(el('span', 'sg5-dockkey', key));
     b.setAttribute('title', label + '（' + key + '）');
+    // 读屏名别只念一个字母的 sg5-dockkey，把标签和键位一起念出来
+    b.setAttribute('aria-label', label + '（' + key + '）');
     parent.appendChild(b);
     return b;
   }
@@ -445,6 +448,9 @@
   var toastTimer = 0;
   function toast(text, kind) {
     if (!text || !UI.toastEl) return;
+    // 读屏播报：普通提示是 status，警告是 alert（先设角色再换文本）
+    UI.toastEl.setAttribute('role', kind === 'warn' ? 'alert' : 'status');
+    UI.toastEl.setAttribute('aria-live', 'polite');
     UI.toastEl.textContent = text;
     UI.toastEl.className = 'sg5-toast is-on' + (kind ? ' sg5-toast-' + kind : '');
     if (toastTimer) clearTimeout(toastTimer);

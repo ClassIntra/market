@@ -38,13 +38,67 @@
     ['field', '田地'], ['shop', '商店'], ['bag', '背包'],
     ['ship', '出货箱'], ['skill', '技能'], ['calendar', '日历']
   ];
+
+  // v5.3：面板会被 refreshPanel 整棵重建，操作按钮带一个稳定的 data-focus-key，
+  // 重建后 refreshPanel 才能把键盘焦点放回同名按钮（值只由可见文本决定，不带随机 id）。
+  function opBtn(text, cls, fn) {
+    var b = uiBtn(text, cls, fn);
+    b.setAttribute('data-focus-key', 'op:' + text);
+    return b;
+  }
+
+  // v5.3：载入/操作失败时在内容区顶部给一条可重试的错误块。
+  // 不复用 .sg5-empty、不写「正在载入…」；S.farm.p 保留着，下面照常渲染旧数据。
+  function farmErrBlock() {
+    if (S.farm.loadState !== 'error' && !S.farm.lastError) return null;
+    var box = el('div', 'sg5-farm-err');
+    box.appendChild(el('span', 'sg5-farm-err-tx', S.farm.lastError || '农场数据没能载入，下面是上次的内容。'));
+    box.appendChild(opBtn('重新载入', 'sg5-btn-sm', farmState));
+    return box;
+  }
+
+  // v5.3：品质四档改由 CSS 的 swatch 状态类表达，不再往元素上写内联边框色
+  function farmQualityClass(id) {
+    var q = Number(String(id || '').split('_q')[1] || 0);
+    return q >= 3 ? 'is-star' : (q === 2 ? 'is-ready' : (q === 1 ? 'is-have' : ''));
+  }
+
+  // v5.3：不可逆 / 批量操作两步确认。第一次点击不发任何请求，只把原按钮换成
+  // 内联的「确定 / 取消」；点确定才执行原回调，点取消恢复原按钮，全程不碰 apiPost。
+  function confirmOps(host, label, onYes, cls) {
+    var orig = uiBtn(label, cls || 'sg5-btn-sm', function () {
+      var parent = orig.parentNode;
+      if (!parent) return;
+      var next = orig.nextSibling;
+      var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () { onYes(); });
+      var no = uiBtn('取消', 'sg5-btn-sm sg5-btn-ghost', function () {
+        if (yes.parentNode) yes.parentNode.removeChild(yes);
+        if (no.parentNode) no.parentNode.removeChild(no);
+        if (!orig.parentNode) {
+          if (next && next.parentNode === parent) parent.insertBefore(orig, next);
+          else parent.appendChild(orig);
+        }
+      });
+      parent.insertBefore(yes, orig);
+      parent.insertBefore(no, orig);
+      parent.removeChild(orig);
+      try { yes.focus(); } catch (e) {}
+    });
+    if (host) host.appendChild(orig);
+    return orig;
+  }
   function farmTabs(body) {
     var tabs = el('div', 'sg5-tabs');
+    tabs.setAttribute('role', 'tablist');
     (function () {
       for (var i = 0; i < FARM_TABS.length; i++) {
         (function (t) {
-          var b = el('button', 'sg5-tab' + (S.farm.tab === t[0] ? ' is-on' : ''), t[1]);
+          var on = S.farm.tab === t[0];
+          var b = el('button', 'sg5-tab' + (on ? ' is-on' : ''), t[1]);
           b.type = 'button';
+          b.setAttribute('role', 'tab');
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+          b.setAttribute('data-focus-key', 'tab:' + t[0]);
           b.addEventListener('click', function () {
             S.farm.tab = t[0]; refreshPanel('farm'); auSfx('menu', 0.2, 1.1);
           }, false);
@@ -65,7 +119,11 @@
     (function () {
       for (var i = 0; i < items.length; i++) {
         (function (it) {
-          var b = uiBtn(it[0], it[2] || 'sg5-btn-sm', it[1]);
+          // it[3] 为真 → 两步确认；it[4] 可覆盖稳定焦点键（如甩竿用 op:cast）
+          var b = it[3]
+            ? confirmOps(null, it[0], it[1], it[2] || 'sg5-btn-sm')
+            : opBtn(it[0], it[2] || 'sg5-btn-sm', it[1]);
+          if (it[4]) b.setAttribute('data-focus-key', it[4]);
           row.appendChild(b);
         })(items[i]);
       }
@@ -127,7 +185,13 @@
             }
             var b = el('button', cls, label);
             b.type = 'button';
-            b.setAttribute('title', '第 ' + r + ' 行 ' + cc + ' 列 · ' + tip);
+            b.setAttribute('data-r', String(r));
+            b.setAttribute('data-c', String(cc));
+            b.setAttribute('data-focus-key', 'cell:' + r + ',' + cc);
+            var act = ready ? '收获' : (p && p.crop ? '浇水' : (p && p.tilled ? '播种' : '翻土'));
+            var desc = '第 ' + r + ' 行 ' + cc + ' 列 · ' + tip + ' · 点击将：' + act;
+            b.setAttribute('title', desc);
+            b.setAttribute('aria-label', desc);
             if (def) b.style.borderBottomColor = def.col;
             b.addEventListener('click', function () {
               // 记住最后碰过的格子：背包里的肥料 / 洒水器要往这儿放
@@ -161,7 +225,7 @@
           row.appendChild(el('span', 'sg5-farm-rowname', D.TOOL_NAMES[k] + ' · ' + (lv ? D.TOOL_UPGRADES[lv - 1].name : '基础')));
           row.appendChild(el('span', 'sg5-farm-rowsub', up ? (up.cost + 'g + ' + up.bars + ' ' + farmItemName(up.bar)) : '已满级'));
           if (up && !P.toolOrder) {
-            var b = uiBtn('升级', 'sg5-btn-sm', function () {
+            var b = opBtn('升级', 'sg5-btn-sm', function () {
               farmAct('tool', { tool: k }).then(function () { farmToast('送去升级了'); },
                 function (e) { farmToast(e.message, 'warn'); });
             });
@@ -200,11 +264,11 @@
           row.appendChild(nm);
           row.appendChild(el('span', 'sg5-farm-rowsub', def.days + '天 · 售 ' + def.sell + 'g' +
             (def.regrow ? ' · 每' + def.regrow + '天复收' : '') + (def.yield > 1 ? ' · 一次' + def.yield + '个' : '')));
-          var b1 = uiBtn(def.seed + 'g', 'sg5-btn-sm', function () {
+          var b1 = opBtn(def.seed + 'g', 'sg5-btn-sm', function () {
             farmAct('buy', { kind: 'seed', id: 'seed_' + k, n: 1 }).then(function () { farmToast('买了 1 包' + def.name + '种子'); },
               function (e) { farmToast(e.message, 'warn'); });
           });
-          var b5 = uiBtn('×5', 'sg5-btn-sm', function () {
+          var b5 = opBtn('×5', 'sg5-btn-sm', function () {
             farmAct('buy', { kind: 'seed', id: 'seed_' + k, n: 5 }).then(function () { farmToast('买了 5 包' + def.name + '种子'); },
               function (e) { farmToast(e.message, 'warn'); });
           });
@@ -226,7 +290,7 @@
           var row = el('div', 'sg5-farm-row');
           row.appendChild(el('span', 'sg5-farm-rowname', a.name));
           row.appendChild(el('span', 'sg5-farm-rowsub', a.cost + 'g · 产 ' + farmItemName(a.product) + '（' + a.sell + 'g）'));
-          row.appendChild(uiBtn('买', 'sg5-btn-sm', function () {
+          row.appendChild(opBtn('买', 'sg5-btn-sm', function () {
             farmAct('buy', { kind: 'animal', id: k }).then(function () { farmToast(a.name + '住进棚里了'); },
               function (e) { farmToast(e.message, 'warn'); });
           }));
@@ -262,7 +326,7 @@
   }
 
   // ---------- 背包 / 箱子 ----------
-  function farmInvGrid(P, items, picked, onPick) {
+  function farmInvGrid(P, items, picked, onPick, readOnly) {
     var g = el('div', 'sg5-farm-inv');
     var any = false;
     (function () {
@@ -271,16 +335,21 @@
         if (!items[k]) continue;
         any = true;
         (function (k) {
-          var b = el('button', 'sg5-farm-item' + (picked === k ? ' is-on' : ''));
-          b.type = 'button';
-          var sw = el('span', 'sg5-farm-swatch');
+          // 只读清单：出货箱 / 矿石清单只是展示，用 div 而不是 button，
+          // 免得键盘 Tab 停在一堆没有任何行为的按钮上
+          var b = el(readOnly ? 'div' : 'button', 'sg5-farm-item' + (picked === k ? ' is-on' : ''));
+          if (!readOnly) {
+            b.type = 'button';
+            b.setAttribute('data-focus-key', 'item:' + k);
+          }
+          var qc = farmQualityClass(k);
+          var sw = el('span', 'sg5-farm-swatch' + (qc ? ' ' + qc : ''));
           sw.style.background = farmItemColor(k);
-          sw.style.borderColor = farmQualityColor(k);
           b.appendChild(sw);
           b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
           b.appendChild(el('span', 'sg5-farm-itemnum', '×' + items[k]));
           if (P.prices && P.prices[k]) b.appendChild(el('span', 'sg5-farm-itemprice', P.prices[k] + 'g'));
-          b.addEventListener('click', function () { onPick(k); }, false);
+          if (!readOnly) b.addEventListener('click', function () { onPick(k); }, false);
           g.appendChild(b);
         })(k);
       }
@@ -308,17 +377,17 @@
           var it = {}; it[sel] = P.inv[sel] || 0;
           farmAct('sell', { items: it }).then(function (d) { farmToast('卖了 ' + d.gold + 'g'); },
             function (e) { farmToast(e.message, 'warn'); });
-        }],
+        }, 'sg5-btn-sm', true],
         ['放进出货箱', function () {
           var it = {}; it[sel] = P.inv[sel] || 0;
           farmAct('ship', { items: it }).then(function () { farmToast('明天早上结账'); },
             function (e) { farmToast(e.message, 'warn'); });
-        }],
+        }, 'sg5-btn-sm', true],
         ['存进箱子', function () {
           var it = {}; it[sel] = P.inv[sel] || 0;
           farmAct('chest', { mode: 'put', items: it }).then(function () { farmToast('收进箱子了'); },
             function (e) { farmToast(e.message, 'warn'); });
-        }],
+        }, 'sg5-btn-sm', true],
         ['施肥 / 洒水器', function () {
           if (!S.farm.sel) { farmToast('先在「田地」里点一格', 'warn'); return; }
           farmAct('fertilize', { r: S.farm.sel.r, c: S.farm.sel.c, fert: sel }).then(function () { farmToast('施好了'); },
@@ -347,7 +416,7 @@
       total += (P.prices && P.prices[k] ? P.prices[k] : 0) * P.ship[k];
     }
     s.appendChild(el('div', 'sg5-farm-big', '明早预计进账 ' + total + 'g'));
-    s.appendChild(farmInvGrid(P, P.ship || {}, null, function () {}));
+    s.appendChild(farmInvGrid(P, P.ship || {}, null, function () {}, true));
     body.appendChild(s);
     var st = farmSection(body, '账本', '');
     st.appendChild(el('div', 'sg5-farm-big', '累计出货 ' + (P.shipTotal || 0) + 'g'));
@@ -374,7 +443,7 @@
           row.appendChild(el('span', 'sg5-farm-rowname', D.SKILL_NAMES[sk] + ' Lv.' + lv));
           var bar = el('div', 'sg5-farm-xpbar');
           var fill = el('div', 'sg5-farm-xpfill');
-          fill.style.width = Math.round(pct * 100) + '%';
+          fill.style.transform = 'scaleX(' + pct.toFixed(3) + ')';
           bar.appendChild(fill); row.appendChild(bar);
           row.appendChild(el('span', 'sg5-farm-rowsub', lv >= 10 ? '满级' : xp + ' / ' + D.SKILL_XP[lv] + '（还差 ' + next + '）'));
           var tier = lv >= 10 ? 10 : lv >= 5 ? 5 : 0;
@@ -383,7 +452,7 @@
             for (var j = 0; j < opts.length; j++) {
               (function (o) {
                 var chosen = P.profs && P.profs.indexOf(o[0]) >= 0;
-                var b = uiBtn(chosen ? '✓ ' + o[1] : o[1], chosen ? 'sg5-btn-sm sg5-btn-primary' : 'sg5-btn-sm', function () {
+                var b = opBtn(chosen ? '✓ ' + o[1] : o[1], chosen ? 'sg5-btn-sm sg5-btn-primary' : 'sg5-btn-sm', function () {
                   if (chosen) return;
                   farmAct('profession', { skill: sk, id: o[0] }).then(function () { farmToast('选了「' + o[1] + '」'); },
                     function (e) { farmToast(e.message, 'warn'); });
@@ -413,7 +482,7 @@
     big.appendChild(el('div', 'sg5-farm-calclock', c.clock));
     var pct = Math.round(c.dayInSeason / D.SEASON_DAYS * 100);
     var bar = el('div', 'sg5-farm-xpbar');
-    var fill = el('div', 'sg5-farm-xpfill'); fill.style.width = pct + '%';
+    var fill = el('div', 'sg5-farm-xpfill'); fill.style.transform = 'scaleX(' + (pct / 100).toFixed(3) + ')';
     bar.appendChild(fill); big.appendChild(bar);
     big.appendChild(el('div', 'sg5-note', '本季已过 ' + pct + '% · 今天 ' +
       (c.weather === 'rain' ? '下雨（不用浇水）' : c.weather === 'snow' ? '下雪（不用浇水）' : '晴天')));
@@ -429,7 +498,7 @@
           row.appendChild(el('span', 'sg5-farm-rowname', D.SEASONS[f.day[0]] + ' ' + f.day[1] + '日 · ' + f.name));
           row.appendChild(el('span', 'sg5-farm-rowsub', f.desc));
           if (f.day[0] === c.season && f.day[1] === c.dayInSeason) {
-            row.appendChild(uiBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
+            row.appendChild(opBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
               lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
                 function (e) { farmToast(e.message, 'warn'); });
             }));
@@ -465,6 +534,8 @@
     var P = farmP();
     var sh = panelShell('农场', P ? (P.cal.seasonName + ' ' + P.cal.dayInSeason + '日 · ' + P.gold + 'g') : '正在载入…');
     sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    var errBlock = farmErrBlock();
+    if (errBlock) sh.body.appendChild(errBlock);
     farmTabs(sh.body);
     var cont = el('div', 'sg5-farm-cont');
     if (!P) cont.appendChild(el('div', 'sg5-empty', '农场还没载入，稍等一下…'));
