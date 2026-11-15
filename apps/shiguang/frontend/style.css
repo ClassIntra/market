@@ -1317,3 +1317,160 @@
 }
 .sg5-chapter::before { left: 8px; top: 8px; border-right: 0; border-bottom: 0; }
 .sg5-chapter::after { right: 8px; bottom: 8px; border-left: 0; border-top: 0; }
+
+
+/* ==================== v5.3 农场经营 / 小镇 / 钓鱼 ==================== */
+/* 沿用 .sg5-frame 的木石质感与米色点阵字，不引入新的圆角或玻璃拟态。 */
+
+.sg5-farmbar {
+  position: absolute; right: 18px; top: 224px; width: 220px;
+  padding: 7px 8px 8px; background: #241d17;
+  border: 2px solid #0d0a08;
+  box-shadow: inset 0 2px 0 rgba(255,236,196,.14), inset 0 -2px 0 rgba(0,0,0,.42), 0 3px 0 rgba(0,0,0,.35);
+  pointer-events: auto; z-index: 7; font-size: 16px;
+}
+.sg5-farmbar-top { display: flex; flex-wrap: wrap; margin-bottom: 6px; }
+.sg5-farm-chip {
+  display: inline-block; padding: 2px 5px; margin: 0 3px 3px 0;
+  color: #f0e2c0; background: #372b21; border: 1px solid #5a4632;
+  font-size: 16px; line-height: 1.25; white-space: nowrap;
+}
+.sg5-farm-clock { color: #ffe1a0; font-weight: bold; }
+.sg5-farm-weather { color: #b9d9e6; }
+.sg5-farmbar-row { display: flex; align-items: center; margin-bottom: 6px; }
+.sg5-farm-gold { display: flex; align-items: center; color: #ffd46a; min-width: 78px; }
+.sg5-farm-gold-ch { margin-right: 5px; }
+.sg5-farm-gold-tx { font-weight: bold; }
+.sg5-farm-energy {
+  flex: 1; height: 12px; background: #17120e;
+  border: 1px solid #5a4632; overflow: hidden;
+}
+.sg5-farm-energy-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(180deg, #ffd46a 0%, #e59a3c 55%, #b5602a 100%);
+  transform-origin: left center; transition: width 180ms linear;
+}
+.sg5-farm-energy-fill.is-low { background: linear-gradient(180deg, #ff8a72, #c33f36); animation: sg5-farm-pulse 900ms infinite alternate; }
+@keyframes sg5-farm-pulse { from { opacity: .65; } to { opacity: 1; } }
+.sg5-farm-tools { display: flex; flex-wrap: wrap; }
+.sg5-farm-tool {
+  position: relative; width: 28px; height: 30px; margin: 0 2px 3px 0;
+  background: #3a2d21; border: 2px solid #6b543c; color: #f0e2c0;
+  cursor: pointer; font-family: inherit; line-height: 1;
+}
+.sg5-farm-tool:hover { background: #4d3b2a; border-color: #b09063; }
+.sg5-farm-tool.is-on { background: #7a5a30; border-color: #ffd46a; box-shadow: inset 0 0 0 2px rgba(255,220,150,.25); }
+.sg5-farm-tool-ch { display: block; font-size: 17px; margin-top: 3px; }
+.sg5-farm-tool-key { position: absolute; right: 1px; bottom: 0; font-size: 9px; color: #c9b48d; }
+.sg5-farm-seedrow { margin-top: 3px; padding-top: 4px; border-top: 1px solid #4a3828; }
+.sg5-farm-seedlabel { color: #a8d69a; font-size: 16px; }
+.sg5-farm-festival {
+  margin-top: 5px; padding: 3px 5px; background: #5c2f46;
+  border: 1px solid #a7657f; color: #ffd8e6; font-size: 16px;
+}
+
+.sg5-panel-farm { max-width: 940px; }
+.sg5-farm-cont { max-height: 500px; overflow-y: auto; padding-right: 4px; }
+.sg5-farm-h { color: #ffe1a0; font-size: 18px; margin: 4px 0 6px; }
+.sg5-farm-summary { display: flex; flex-wrap: wrap; margin-bottom: 9px; }
+.sg5-farm-sum {
+  padding: 3px 8px; margin: 0 6px 5px 0; background: #32271d;
+  border: 1px solid #5a4632; color: #f0e2c0; font-size: 16px;
+}
+.sg5-farm-ops { display: flex; flex-wrap: wrap; margin: 5px 0 9px; }
+.sg5-farm-ops .sg5-btn, .sg5-farm-ops .sg5-btn-sm { margin: 0 6px 6px 0; }
+.sg5-farm-grid {
+  display: grid; grid-template-columns: repeat(var(--farm-cols, 12), 1fr);
+  gap: 2px; margin: 6px 0; padding: 5px; background: #2a2018; border: 2px solid #0d0a08;
+}
+.sg5-farm-cell {
+  min-height: 34px; padding: 0; background: #43553a; color: #9db78c;
+  border: 2px solid #2c3a25; border-bottom-color: #2c3a25;
+  cursor: pointer; font-family: inherit; font-size: 14px; line-height: 1;
+}
+.sg5-farm-cell:hover { outline: 2px solid #ffd46a; outline-offset: -2px; }
+.sg5-farm-cell.is-tilled { background: #6b4c32; border-color: #4b3527; color: #d8bd94; }
+.sg5-farm-cell.is-watered { background: #4b3527; color: #cfe2ee; }
+.sg5-farm-cell.is-growing { background: #3f5a38; color: #e8e2c0; }
+.sg5-farm-cell.is-ready, .sg5-farm-cell.is-star { background: #6b5a2c; color: #ffe9a0; border-color: #a4893f; }
+.sg5-farm-cell.is-star { animation: sg5-farm-star 1.2s infinite alternate; }
+@keyframes sg5-farm-star { from { box-shadow: inset 0 0 0 rgba(255,220,120,0); } to { box-shadow: inset 0 0 8px rgba(255,220,120,.55); } }
+.sg5-farm-legend { display: flex; flex-wrap: wrap; color: #b5a385; font-size: 16px; }
+.sg5-farm-legend span { margin-right: 14px; }
+.sg5-farm-list { margin: 5px 0; }
+.sg5-farm-row, .sg5-farm-skill {
+  display: flex; align-items: center; flex-wrap: wrap;
+  padding: 5px 7px; margin-bottom: 4px; background: #2c231b;
+  border: 1px solid #4a3828; font-size: 16px;
+}
+.sg5-farm-rowname { min-width: 118px; color: #f0e2c0; margin-right: 8px; }
+.sg5-farm-rowname.is-unknown { color: #776b58; }
+.sg5-farm-rowsub { flex: 1; color: #b5a385; margin-right: 8px; }
+.sg5-farm-row .sg5-btn-sm { margin: 1px 4px 1px 0; }
+.sg5-farm-big { color: #ffe1a0; font-size: 20px; margin: 6px 0 9px; }
+.sg5-farm-inv { display: flex; flex-wrap: wrap; margin: 6px 0; }
+.sg5-farm-item {
+  position: relative; width: 112px; min-height: 66px; margin: 0 5px 5px 0;
+  padding: 5px; background: #32271d; border: 2px solid #5a4632;
+  color: #f0e2c0; cursor: pointer; font-family: inherit; text-align: left;
+}
+.sg5-farm-item:hover { background: #463526; border-color: #b09063; }
+.sg5-farm-item.is-on { border-color: #ffd46a; box-shadow: inset 0 0 0 2px rgba(255,220,150,.22); }
+.sg5-farm-swatch {
+  display: block; width: 17px; height: 17px; margin-bottom: 3px;
+  border: 2px solid #e8d7a8; background: #c8b48a;
+}
+.sg5-farm-itemname { display: block; font-size: 16px; line-height: 1.25; }
+.sg5-farm-itemnum { position: absolute; right: 5px; top: 5px; color: #ffe1a0; font-size: 16px; }
+.sg5-farm-itemprice { display: block; color: #ffd46a; font-size: 16px; }
+.sg5-farm-sel { margin: 7px 0; padding: 7px; background: #3a2d21; border: 2px solid #6b543c; }
+.sg5-farm-selname { color: #ffe1a0; font-size: 18px; margin-bottom: 4px; }
+.sg5-farm-xpbar { width: 130px; height: 11px; background: #17120e; border: 1px solid #5a4632; margin-right: 9px; }
+.sg5-farm-xpfill { height: 100%; background: linear-gradient(180deg, #9fd27f, #4d8a48); }
+.sg5-farm-skill .sg5-btn-sm { margin: 3px 5px 0 0; }
+.sg5-farm-cal { padding: 8px; background: #32271d; border: 1px solid #5a4632; }
+.sg5-farm-calclock { color: #ffe1a0; font-size: 30px; margin-bottom: 6px; }
+
+/* ---- 小镇：好感 / 献祭 / 动物 ---- */
+.sg5-rel-card { padding: 8px; margin: 0 0 8px; background: #2c231b; border: 2px solid #4a3828; }
+.sg5-rel-head { display: flex; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.sg5-rel-name { color: #ffe1a0; font-size: 18px; margin-right: 10px; }
+.sg5-rel-sub { color: #b5a385; font-size: 16px; }
+.sg5-rel-hearts { letter-spacing: 2px; margin-bottom: 5px; }
+.sg5-rel-heart { color: #5a4638; }
+.sg5-rel-heart.is-on { color: #e8788c; }
+.sg5-rel-gifts { margin-top: 6px; padding-top: 6px; border-top: 1px solid #4a3828; }
+.sg5-rel-gifts .sg5-farm-item { width: 98px; min-height: 58px; }
+.sg5-bundle-needs { display: flex; flex-wrap: wrap; }
+.sg5-bundle-need {
+  padding: 3px 7px; margin: 0 5px 5px 0; background: #3a2d21;
+  border: 1px solid #5a4632; color: #8d8069; font-size: 16px;
+}
+.sg5-bundle-need.is-have { color: #c9e0a8; border-color: #6c8c50; }
+.sg5-bundle-need.is-done { color: #ffe1a0; border-color: #c9a34f; background: #5a4626; }
+
+/* ---- 钓鱼绿条 ---- */
+.sg5-qte { display: flex; align-items: stretch; margin: 8px 0; }
+.sg5-qte-track {
+  position: relative; width: 74px; height: 240px; margin-right: 14px;
+  background: #1d3540; border: 2px solid #0d0a08; overflow: hidden; flex: none;
+}
+.sg5-qte-zone {
+  position: absolute; left: 0; right: 0; top: 30%; height: 34%;
+  background: linear-gradient(90deg, rgba(104,190,110,.35), rgba(140,220,130,.6), rgba(104,190,110,.35));
+  border-top: 2px solid #a6e39a; border-bottom: 2px solid #a6e39a;
+}
+.sg5-qte-fish {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  color: #f0e2c0; font-size: 22px; text-shadow: 0 0 6px rgba(0,0,0,.8); pointer-events: none;
+}
+.sg5-qte-cursor {
+  position: absolute; left: 4px; right: 4px; top: 50%; height: 15px;
+  margin-top: -7px; background: #f4d98a; border: 2px solid #6b4b24;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset; pointer-events: none;
+}
+.sg5-qte-side { flex: 1; min-width: 180px; }
+.sg5-qte-title { color: #ffe1a0; font-size: 20px; margin-bottom: 4px; }
+.sg5-qte-name { color: #c9e0a8; font-size: 16px; margin-bottom: 8px; }
+.sg5-qte-bar { height: 20px; margin: 8px 0; background: #17120e; border: 2px solid #5a4632; }
+.sg5-qte-fill { height: 100%; width: 30%; background: linear-gradient(180deg, #9fd27f, #4d8a48); }

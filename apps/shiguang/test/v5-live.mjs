@@ -142,7 +142,7 @@ ok(ex.panel, 'HUD hotbar 已渲染');
 const instRes = await fetch(BASE + '/api/market/installed', { headers: { Authorization: 'Bearer ' + token } });
 const instJson = await instRes.json();
 const inst = ((instJson.data && instJson.data.apps) || []).filter(function (a) { return a.name === 'shiguang'; })[0];
-ok(inst && inst.version === '5.2.0', '宿主已安装版本 5.2.0', inst && inst.version);
+ok(inst && inst.version === '5.3.0', '宿主已安装版本 5.3.0', inst && inst.version);
 
 const v52 = await evalJs('JSON.stringify({acts:Object.keys(__sg5.state.acts||{}).length,friends:Array.isArray(__sg5.state.friends),nearby:Array.isArray(__sg5.state.nearby),bonds:!!__sg5.state.bonds,soc:__sg5.social(),socialBtn:!!document.querySelector(".sg5-dockbtn[data-panel=social]"),dock:[].slice.call(document.querySelectorAll(".sg5-dockbtn")).map(function(b){return b.getAttribute("data-panel")+":"+b.getAttribute("title")})})');
 console.log('  v5.2:', v52.v);
@@ -158,6 +158,35 @@ const prodEntry = readFileSync(REPO + '/market-apps/shiguang/frontend/entry.js',
 ok(prodEntry.indexOf('function roofSlope') >= 0
   && prodEntry.indexOf('function drawStructureShadows') >= 0
   && prodEntry.indexOf('function houseGeom') >= 0, '四坡屋顶 / 地面阴影 / 体积几何已在生产包');
+
+// ===== v5.3 生产验收：农场数据表 / 后端路由 / 面板 / 世界层 =====
+const farmRes = await fetch(BASE + '/api/shiguang/v5/farm/state', { headers: { Authorization: 'Bearer ' + token } });
+const farmJson = await farmRes.json();
+ok(farmJson && farmJson.code === 200 && farmJson.data && farmJson.data.farm
+  && farmJson.data.farm.gold >= 0, '生产后端农场路由已热重载', farmJson && farmJson.code);
+
+const f53 = await evalJs('JSON.stringify({farm:__sg5.farm?__sg5.farm.state():null,'
+  + 'tools:document.querySelectorAll(".sg5-farm-tool").length,'
+  + 'crops:__sg5.state.farm&&__sg5.state.farm.data?Object.keys(__sg5.state.farm.data.CROPS).length:0})');
+let sf = {}; try { sf = JSON.parse(f53.v || '{}'); } catch (e) {}
+console.log('  v5.3:', f53.v);
+ok(sf.crops >= 30, '33 种作物数据表已进生产前端', sf.crops);
+ok(sf.tools === 6, '农场 HUD 六件农具已渲染', sf.tools);
+ok(sf.farm && sf.farm.gold >= 0 && sf.farm.day >= 1, '农场存档来自真实后端', sf.farm);
+ok(prodEntry.indexOf('function farmDrawCrop') >= 0 && prodEntry.indexOf('function qteStart') >= 0,
+  '农田渲染与钓鱼绿条已在生产包');
+
+await evalJs('__sg5.panel("farm")');
+await sleep(500);
+const fp = await evalJs('JSON.stringify({grid:!!document.querySelector(".sg5-farm-grid"),tabs:document.querySelectorAll(".sg5-tab").length})');
+let sfp = {}; try { sfp = JSON.parse(fp.v || '{}'); } catch (e) {}
+ok(sfp.grid === true && sfp.tabs >= 6, '生产实例里农场面板可打开', sfp);
+await shot('live-07-farm');
+await evalJs('__sg5.panel("")');
+
+await evalJs('__sg5.farm.act("goto",{}).then(function(d){if(d&&d.x!=null)__sg5.teleport(d.x,d.y);return 1})');
+await sleep(780);
+await shot('live-08-farm-world');
 
 // 走两步 + 打一下，验证真实 API 链路
 await evalJs('__sg5.attack()');

@@ -32,7 +32,7 @@
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 6 && cached.cells && cached.size === 256) {
+    if (cached && cached.version === 7 && cached.cells && cached.size === 256) {
       return Promise.resolve(cached);
     }
     return apiGet('/shiguang/v5/terrain').then(function (data) {

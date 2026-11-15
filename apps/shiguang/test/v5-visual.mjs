@@ -246,6 +246,50 @@ for (const p of ['char', 'bag', 'map', 'dex', 'talent', 'help', 'social']) {
 }
 await evalJs('__sg5.panel("")');
 
+// ---------- v5.3 农场经营 / 小镇 / 钓鱼绿条 ----------
+const fstate = await evalJs('JSON.stringify(window.__sg5 && window.__sg5.farm ? window.__sg5.farm.state() : null)');
+console.log('  farm:', fstate.v);
+ok(fstate.v && JSON.parse(fstate.v).crops >= 30, '作物数据表已下发到浏览器', fstate.v);
+
+// 先造一块有苗的田，面板和世界层截图才不是空的
+await evalJs('__sg5.farm.act("buy",{kind:"seed",id:"seed_parsnip",n:5})'
+  + '.then(function(){return __sg5.farm.act("till",{r:1,c:1})})'
+  + '.then(function(){return __sg5.farm.act("plant",{r:1,c:1,seed:"seed_parsnip"})})'
+  + '.then(function(){return __sg5.farm.act("water",{r:1,c:1})}).then(function(){return 1})');
+await sleep(520);
+for (const p of ['farm', 'relation', 'mine']) {
+  await evalJs('__sg5.panel("' + p + '")');
+  await sleep(460);
+  await shot('13-panel-' + p);
+}
+await evalJs('__sg5.panel("")');
+const farmHud = await evalJs('JSON.stringify({tools:document.querySelectorAll(".sg5-farm-tool").length,bar:!!document.querySelector(".sg5-farmbar")})');
+ok(farmHud.v && JSON.parse(farmHud.v).tools === 6, '农场 HUD 六件工具齐全', farmHud.v);
+
+// 世界层农田：走服务端权威 goto，不能只靠前端 teleport（会被 sync 拉回）
+await evalJs('__sg5.farm.act("goto",{}).then(function(d){if(d&&d.x!=null)__sg5.teleport(d.x,d.y);return d&&d.x})');
+await sleep(820);
+await shot('14-farm-world');
+
+// 钓鱼 QTE：点「甩竿」后应出现绿条轨道
+await evalJs('__sg5.panel("mine")');
+await sleep(240);
+await evalJs('(function(){var t=document.querySelectorAll(".sg5-tab");for(var i=0;i<t.length;i++){if(t[i].textContent==="钓鱼"){t[i].click();return 1}}return 0})()');
+await sleep(320);
+await evalJs('(function(){var b=document.querySelectorAll(".sg5-btn-primary");for(var i=0;i<b.length;i++){if(b[i].textContent==="甩竿"){b[i].click();return 1}}return 0})()');
+await sleep(680);
+const qte = await evalJs('!!document.querySelector(".sg5-qte")');
+ok(qte.v === true, '钓鱼绿条小游戏已启动', qte.v);
+await shot('15-fishing-qte');
+await evalJs('__sg5.panel("")');
+// 农场 goto 改的是真实存档，后面的「出生在拾光镇」断言要先把人送回来
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ x: world.town.cx + 0.5, y: world.town.cy + 0.2 })
+});
+await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
+await sleep(320);
+
 // ---------- 邀请卡 / 双人互动特效 ----------
 await evalJs('__sg5.card()');
 await sleep(520);

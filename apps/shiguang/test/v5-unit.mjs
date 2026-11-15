@@ -101,6 +101,22 @@ const zoneSpread = {};
 world.spawns.forEach(s => { zoneSpread[s.zone] = (zoneSpread[s.zone] || 0) + 1; });
 ok(Object.keys(zoneSpread).length >= 5, '刷怪点覆盖 5 个以上区域', JSON.stringify(zoneSpread));
 
+// ---- v5.3 农场空地：树石清空、可走、不刷怪 ----
+const FD = require(B + 'farmdata.js');
+const FA = FD.DATA;
+let farmBlocked = 0, farmSpawns = 0;
+for (let y = FA.FARM_Y; y < FA.FARM_Y + FA.FARM_H; y++) {
+  for (let x = FA.FARM_X; x < FA.FARM_X + FA.FARM_W; x++) {
+    if (W.isBlocked(world, x + 0.5, y + 0.5)) farmBlocked++;
+  }
+}
+world.spawns.forEach(s => {
+  if (s.x >= FA.FARM_X - 1 && s.x <= FA.FARM_X + FA.FARM_W + 1 &&
+      s.y >= FA.FARM_Y - 1 && s.y <= FA.FARM_Y + FA.FARM_H + 1) farmSpawns++;
+});
+ok(farmBlocked === 0, '农场 ' + FA.FARM_W + '×' + FA.FARM_H + ' 格全部可走', farmBlocked);
+ok(farmSpawns === 0, '自家田里不刷怪', farmSpawns);
+
 // ---- 数据完整性 ----
 for (const k of Object.keys(D.MONSTERS)) {
   const m = D.MONSTERS[k];

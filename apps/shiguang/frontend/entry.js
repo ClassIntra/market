@@ -4838,7 +4838,7 @@ var MUSIC = {
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 6 && cached.cells && cached.size === 256) {
+    if (cached && cached.version === 7 && cached.cells && cached.size === 256) {
       return Promise.resolve(cached);
     }
     return apiGet('/shiguang/v5/terrain').then(function (data) {
@@ -6461,6 +6461,1579 @@ var MUSIC = {
       chatBody(body, S.partyChat, '', function (v) { apiPartySay(v); }, '对队友说…');
     }
     return sh.root;
+  };
+
+
+  // ======================== 15_farm.js ========================
+  // ---------------- §16 农场经营：状态 / 网络 / 世界层 ----------------
+  // 扩展方式：只追加文件、不改旧文件。所有既有函数都用「保存原引用 → 重新赋值」包装，
+  // 多次包装自动成链，一定先调 _orig 再干自己的事，避免吞掉 13/14 号文件的逻辑。
+
+  S.farm = {
+    p: null, data: null, tool: 'hoe', seed: '', tab: 'field',
+    lastPoll: 0, epoch: 0, dirty: 0, rtBound: 0, qte: null,
+    relationTab: 'villagers', mineTab: 'mine', sel: null, bagSel: null
+  };
+
+  function farmClock(progress) {
+    var mins = 6 * 60 + Math.floor(Math.max(0, Math.min(1, progress)) * 20 * 60);
+    var h24 = Math.floor(mins / 60) % 24, m = mins % 60;
+    return (h24 < 10 ? '0' : '') + h24 + ':' + (m < 10 ? '0' : '') + m;
+  }
+  function farmP() { return S.farm.p; }
+  function farmD() { return S.farm.data || {}; }
+  function farmCal() { return (S.farm.p && S.farm.p.cal) || {}; }
+  function farmItemName(id) {
+    var P = farmP();
+    if (P && P.prices && typeof P.prices[id] !== 'undefined') { /* 名称本地算，价格用服务端 */ }
+    var parts = String(id || '').split('_q'), base = parts[0], q = parts[1] ? Number(parts[1]) : 0;
+    var D = farmD(), n = '';
+    if (base.indexOf('seed_') === 0) n = (D.CROPS[base.slice(5)] ? D.CROPS[base.slice(5)].name : base.slice(5)) + '种子';
+    else if (D.CROPS && D.CROPS[base]) n = D.CROPS[base].name;
+    else if (D.ANIMALS && D.ANIMALS[base]) n = D.ANIMALS[base].name;
+    else {
+      var FIX = { egg: '鸡蛋', big_egg: '大鸡蛋', duck_egg: '鸭蛋', duck_feather: '鸭毛',
+        milk: '牛奶', big_milk: '大牛奶', goat_milk: '羊奶', big_goat_milk: '大瓶羊奶',
+        wool: '羊毛', big_wool: '优质羊毛', truffle: '松露', hay: '干草', wood: '木材',
+        stone: '石头', coal: '煤', copper: '铜矿石', iron: '铁矿石', gold: '金矿石',
+        iridium: '铱矿石', gem: '宝石', speedgro: '生长激素', quality_fert: '高级肥料',
+        sprinkler: '洒水器', bait: '鱼饵', rod: '鱼竿', furnace: '熔炉', seeds: '混合种子',
+        skull_key: '头骨钥匙' };
+      var F = D.FISH || [], O = D.ORES || [];
+      for (var i = 0; i < F.length; i++) if (F[i].id === base) n = F[i].name;
+      if (!n) for (var j = 0; j < O.length; j++) if (O[j].id === base) n = O[j].name;
+      if (!n) n = FIX[base] || base;
+    }
+    return n + (q ? ' ' + (D.QUALITY && D.QUALITY[q] ? D.QUALITY[q].name : '★' + q) : '');
+  }
+  function farmItemColor(id) {
+    var base = String(id || '').split('_q')[0], D = farmD();
+    if (base.indexOf('seed_') === 0) base = base.slice(5);
+    if (D.CROPS && D.CROPS[base]) return D.CROPS[base].col;
+    var F = D.FISH || [];
+    for (var i = 0; i < F.length; i++) if (F[i].id === base) return '#8fc4d8';
+    var O = D.ORES || [];
+    for (var j = 0; j < O.length; j++) if (O[j].id === base) return '#a9a29a';
+    var M = { hay: '#d8c27a', wood: '#a9814f', coal: '#4a4a52', copper: '#c98452',
+      iron: '#c8cdd4', gold: '#e5c45c', iridium: '#b9e6e2', gem: '#b58ad8',
+      egg: '#f2e7c8', milk: '#eef1f4', wool: '#f0eade', truffle: '#8b6b52' };
+    return M[base] || '#c8b48a';
+  }
+  function farmQualityColor(id) {
+    var q = Number(String(id || '').split('_q')[1] || 0), D = farmD();
+    return (D.QUALITY && D.QUALITY[q] && D.QUALITY[q].col) || '#e8d7a8';
+  }
+
+  // ---------- 后端字段 → 客户端状态 ----------
+  function farmApply(p) {
+    if (!p) return;
+    S.farm.p = p;
+    S.farm.data = p.data || S.farm.data;
+    S.farm.epoch = Date.now() - (p.cal.progress || 0) * (p.cal.dayMs || 90000);
+    if (!S.farm.seed) {
+      var seeds = farmSeedList();
+      S.farm.seed = seeds.length ? seeds[0] : '';
+    }
+    S.farm.dirty = 0;
+    if (UI.farmClock) farmHudPaint();
+  }
+  function farmSeedList() {
+    var D = farmD(), P = farmP(), out = [], inv = (P && P.inv) || {};
+    for (var k in inv) {
+      if (!Object.prototype.hasOwnProperty.call(inv, k)) continue;
+      if (k.indexOf('seed_') === 0 && inv[k] > 0) out.push(k);
+    }
+    out.sort();
+    return out;
+  }
+  function farmState() {
+    return apiGet('/shiguang/v5/farm/state').then(function (d) {
+      if (d && d.farm) farmApply(d.farm);
+      return d;
+    }, function () { return null; });
+  }
+  function farmAct(path, body) {
+    return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
+      if (d && d.farm) farmApply(d.farm);
+      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+      return d;
+    });
+  }
+  function lifeAct(path, body) {
+    return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
+      if (d && d.farm) farmApply(d.farm);
+      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+      return d;
+    });
+  }
+  function farmToast(text, kind) { toast(text, kind || ''); auSfx('menu', 0.2, 1.1); }
+
+  // ---------- HUD：星露谷同款的时钟 / 季节 / 金币 / 体力 / 工具栏 ----------
+  var FARM_TOOLS = [
+    { id: 'hoe', name: '锄头', ch: '⊐', key: '1' },
+    { id: 'watercan', name: '水壶', ch: '◔', key: '2' },
+    { id: 'seed', name: '种子', ch: '✿', key: '3' },
+    { id: 'sickle', name: '镰刀', ch: '⌁', key: '4' },
+    { id: 'rod', name: '鱼竿', ch: '⌇', key: '5' },
+    { id: 'pickaxe', name: '矿镐', ch: '⛏', key: '6' }
+  ];
+  function farmHudPaint() {
+    var P = farmP(); if (!P) return;
+    var c = farmCal();
+    if (UI.farmClock) setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / (c.dayMs || 90000)));
+    if (UI.farmDate) setText(UI.farmDate, c.seasonName + ' ' + c.dayInSeason + '日 · ' + (c.year || 1) + '年');
+    if (UI.farmWeather) setText(UI.farmWeather, c.weather === 'rain' ? '☂ 雨' : c.weather === 'snow' ? '❄ 雪' : '☀ 晴');
+    if (UI.farmGold) setText(UI.farmGold, String(P.gold) + 'g');
+    if (UI.farmEnergy) {
+      var pct = Math.max(0, Math.min(1, P.energy / (P.maxEnergy || 100)));
+      UI.farmEnergy.style.width = Math.round(pct * 100) + '%';
+      UI.farmEnergy.className = 'sg5-farm-energy-fill' + (pct < 0.3 ? ' is-low' : '');
+    }
+    if (UI.farmToolBtns) {
+      for (var i = 0; i < UI.farmToolBtns.length; i++) {
+        var b = UI.farmToolBtns[i], on = b.getAttribute('data-tool') === S.farm.tool;
+        b.className = 'sg5-farm-tool' + (on ? ' is-on' : '');
+      }
+    }
+    if (UI.farmSeedLabel) {
+      setText(UI.farmSeedLabel, S.farm.seed ? farmItemName(S.farm.seed) : '没种子了');
+    }
+    if (UI.farmFestival) {
+      var fes = c.festival;
+      UI.farmFestival.style.display = fes ? '' : 'none';
+      if (fes) setText(UI.farmFestival, '✦ ' + fes.name);
+    }
+  }
+
+  var _uiBuildFarm = uiBuild;
+  uiBuild = function (root) {
+    var r = _uiBuildFarm(root);
+    var hud = UI.hud;
+    var bar = el('div', 'sg5-farmbar');
+    var left = el('div', 'sg5-farmbar-top');
+    left.appendChild(el('span', 'sg5-farm-chip sg5-farm-clock', ''));
+    left.appendChild(el('span', 'sg5-farm-chip sg5-farm-date', ''));
+    left.appendChild(el('span', 'sg5-farm-chip sg5-farm-weather', ''));
+    UI.farmClock = left.childNodes[0]; UI.farmDate = left.childNodes[1]; UI.farmWeather = left.childNodes[2];
+    bar.appendChild(left);
+    var row = el('div', 'sg5-farmbar-row');
+    var gold = el('div', 'sg5-farm-gold');
+    gold.appendChild(el('span', 'sg5-farm-gold-ch', '●'));
+    gold.appendChild(el('span', 'sg5-farm-gold-tx', ''));
+    UI.farmGold = gold.childNodes[1];
+    row.appendChild(gold);
+    var en = el('div', 'sg5-farm-energy');
+    var fill = el('div', 'sg5-farm-energy-fill');
+    UI.farmEnergy = fill; en.appendChild(fill); row.appendChild(en);
+    bar.appendChild(row);
+    var tools = el('div', 'sg5-farm-tools');
+    UI.farmToolBtns = [];
+    (function () {
+      for (var i = 0; i < FARM_TOOLS.length; i++) {
+        var t = FARM_TOOLS[i];
+        var b = el('button', 'sg5-farm-tool');
+        b.type = 'button'; b.setAttribute('data-tool', t.id);
+        b.appendChild(el('span', 'sg5-farm-tool-ch', t.ch));
+        b.appendChild(el('span', 'sg5-farm-tool-key', t.key));
+        b.setAttribute('title', t.name + '（' + t.key + '）');
+        tools.appendChild(b); UI.farmToolBtns.push(b);
+      }
+    })();
+    bar.appendChild(tools);
+    var seedRow = el('div', 'sg5-farm-seedrow');
+    seedRow.appendChild(el('span', 'sg5-farm-seedlabel', ''));
+    UI.farmSeedLabel = seedRow.childNodes[0];
+    bar.appendChild(seedRow);
+    var fes = el('div', 'sg5-farm-festival');
+    fes.style.display = 'none'; UI.farmFestival = fes;
+    bar.appendChild(fes);
+    hud.appendChild(bar);
+    UI.farmBar = bar;
+
+    // dock：多两个入口。bindButtons 的 click 委托读 data-panel，无需改动。
+    if (UI.dock) {
+      dockBtn(UI.dock, 'farm', 'glyph:hoe', '农场', 'N');
+      dockBtn(UI.dock, 'relation', 'glyph:heart', '小镇', 'R');
+      dockBtn(UI.dock, 'mine', 'glyph:pick', '钓鱼 / 矿洞', 'H');
+    }
+    tools.addEventListener('click', function (e) {
+      var t = e.target;
+      while (t && t !== tools && !t.getAttribute('data-tool')) t = t.parentNode;
+      if (!t || t === tools) return;
+      farmSetTool(t.getAttribute('data-tool'));
+    }, false);
+    return r;
+  };
+
+  function farmSetTool(id) {
+    S.farm.tool = id;
+    if (id === 'seed') {
+      var seeds = farmSeedList();
+      if (!seeds.length) { farmToast('先去商店买包种子', 'warn'); return; }
+      if (seeds.indexOf(S.farm.seed) < 0) S.farm.seed = seeds[0];
+      farmToast('手上拿着 ' + farmItemName(S.farm.seed));
+    } else if (id === 'rod') { farmToast('走到水边按 E 甩竿'); }
+    else if (id === 'pickaxe') { farmToast('按 H 打开矿洞'); }
+    else {
+      var nm = '';
+      for (var i = 0; i < FARM_TOOLS.length; i++) if (FARM_TOOLS[i].id === id) nm = FARM_TOOLS[i].name;
+      farmToast('换上了' + nm);
+    }
+    farmHudPaint();
+  }
+  function farmCycleSeed() {
+    var seeds = farmSeedList();
+    if (!seeds.length) { farmToast('背包里没有种子', 'warn'); return; }
+    var i = seeds.indexOf(S.farm.seed);
+    S.farm.seed = seeds[(i + 1 + seeds.length) % seeds.length];
+    farmToast('种子 → ' + farmItemName(S.farm.seed));
+    farmHudPaint();
+  }
+
+  // ---------- 输入：数字键切工具 / N R H 开面板 ----------
+  var _inputBindFarm = inputBind;
+  inputBind = function (root, onDestroy) {
+    var r = _inputBindFarm(root, onDestroy);
+    function kp(e) {
+      var tag = document.activeElement && document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      var k = String(e.key || '').toLowerCase();
+      if (k >= '1' && k <= '6') { farmSetTool(FARM_TOOLS[Number(k) - 1].id); e.preventDefault(); return; }
+      if (k === 'q') { farmCycleSeed(); e.preventDefault(); return; }
+      if (k === 'n') { openPanel('farm'); e.preventDefault(); return; }
+      if (k === 'r') { openPanel('relation'); e.preventDefault(); return; }
+      if (k === 'h') { openPanel('mine'); e.preventDefault(); return; }
+    }
+    document.addEventListener('keydown', kp, false);
+    onDestroy(function () { document.removeEventListener('keydown', kp, false); });
+    return r;
+  };
+
+  // ---------- 世界层：耕地、洒水器、作物 ----------
+  function farmBounds() {
+    var D = farmD();
+    return { x: D.FARM_X || 112, y: D.FARM_Y || 142, w: D.FARM_W || 12, h: D.FARM_H || 8 };
+  }
+  function farmDrawGround(ctx, vr) {
+    var P = farmP(); if (!P || !P.plots) return;
+    var B = farmBounds(), u = TILE * S.zoom;
+    var c0 = Math.max(0, vr.x0 - B.x), c1 = Math.min(B.w - 1, vr.x1 - B.x);
+    var r0 = Math.max(0, vr.y0 - B.y), r1 = Math.min(B.h - 1, vr.y1 - B.y);
+    if (c1 < c0 || r1 < r0) return;
+    // 整片田的基底：略暖的土色 + 一圈木栅栏，先告诉玩家「这里能种」
+    var px0 = w2sX(B.x * TILE), py0 = w2sY(B.y * TILE);
+    ctx.fillStyle = 'rgba(94,72,48,0.16)';
+    ctx.fillRect(px0, py0, B.w * u, B.h * u);
+    ctx.strokeStyle = 'rgba(74,54,34,0.75)'; ctx.lineWidth = Math.max(2, S.zoom);
+    ctx.strokeRect(px0 - 2, py0 - 2, B.w * u + 4, B.h * u + 4);
+    ctx.fillStyle = '#8a6a42';
+    for (var fx = 0; fx <= B.w; fx++) {
+      var wx = Math.round(px0 + fx * u);
+      ctx.fillRect(wx - 1, Math.round(py0 - u * 0.22), Math.max(2, S.zoom), Math.round(u * 0.32));
+    }
+    for (var r = r0; r <= r1; r++) {
+      for (var c = c0; c <= c1; c++) {
+        var p = P.plots[r + ',' + c];
+        var x = Math.round(w2sX((B.x + c) * TILE)), y = Math.round(w2sY((B.y + r) * TILE));
+        if (p && p.tilled) {
+          ctx.fillStyle = p.watered ? '#4b3527' : '#6b4c32';
+          ctx.fillRect(x + 1, y + 1, Math.round(u) - 2, Math.round(u) - 2);
+          ctx.strokeStyle = p.watered ? 'rgba(22,16,12,0.7)' : 'rgba(48,32,20,0.6)';
+          ctx.lineWidth = 1;
+          for (var g = 1; g < 4; g++) {
+            var gy = Math.round(y + u * g / 4);
+            ctx.beginPath(); ctx.moveTo(x + 2, gy); ctx.lineTo(x + u - 2, gy); ctx.stroke();
+          }
+          if (p.watered) {
+            ctx.fillStyle = 'rgba(96,150,180,0.22)';
+            ctx.fillRect(x + 2, y + Math.round(u * 0.72), Math.round(u) - 4, Math.round(u * 0.2));
+          }
+          if (p.fert) {
+            ctx.fillStyle = p.fert === 'quality_fert' ? 'rgba(240,206,110,0.55)' : 'rgba(150,214,120,0.5)';
+            ctx.fillRect(x + 3, y + 3, 3, 3);
+          }
+          if (P.sprinklers && P.sprinklers[r + ',' + c]) {
+            ctx.fillStyle = '#9fb6c4';
+            ctx.fillRect(x + u * 0.38, y + u * 0.3, Math.max(3, u * 0.24), Math.max(3, u * 0.24));
+            ctx.fillStyle = 'rgba(140,210,230,0.8)';
+            ctx.fillRect(x + u * 0.46, y + u * 0.16, 2, 3);
+          }
+        } else {
+          ctx.strokeStyle = 'rgba(120,96,62,0.35)'; ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, Math.round(u) - 1, Math.round(u) - 1);
+        }
+      }
+    }
+  }
+
+  function farmDrawCrop(ctx, p) {
+    var u = TILE * S.zoom;
+    var sx = w2sX(p.x * TILE + TILE * 0.5);
+    var sy = w2sY(p.y * TILE + TILE);
+    var D = farmD(), def = (D.CROPS && D.CROPS[p.crop]) || { col: '#8db36a', shape: 'leaf' };
+    var g = Math.max(0.3, Math.min(1, p.grow));
+    var h = u * (0.2 + 0.48 * g);
+    var col = def.col || '#8db36a';
+    ctx.save();
+    // 脚底接触阴影
+    ctx.fillStyle = 'rgba(30,22,16,0.24)';
+    ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.22, u * 0.075, 0, 0, Math.PI * 2); ctx.fill();
+    // 茎
+    ctx.strokeStyle = '#4b7a3e'; ctx.lineWidth = Math.max(2, Math.round(u * 0.07));
+    ctx.beginPath(); ctx.moveTo(sx, sy - u * 0.06); ctx.lineTo(sx, sy - h); ctx.stroke();
+    var top = sy - h;
+    // 还没熟：两片带描边的嫩叶，一眼就能看出「这儿种了东西」
+    if (!p.ready) {
+      ctx.fillStyle = '#8fd06a'; ctx.strokeStyle = '#37632c'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(sx - u * 0.14, top + u * 0.03, u * 0.15, u * 0.075, -0.5, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(sx + u * 0.14, top - u * 0.04, u * 0.15, u * 0.075, 0.5, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    // 成熟：按形状结果 / 开花
+    if (def.shape === 'flower') {
+      ctx.fillStyle = col;
+      for (var a = 0; a < 5; a++) {
+        var ang = a * Math.PI * 2 / 5;
+        ctx.beginPath();
+        ctx.arc(sx + Math.cos(ang) * u * 0.11, top + Math.sin(ang) * u * 0.11, u * 0.085, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#f2d878'; ctx.beginPath(); ctx.arc(sx, top, u * 0.07, 0, Math.PI * 2); ctx.fill();
+    } else if (def.shape === 'berry' || def.shape === 'round' || def.shape === 'root') {
+      ctx.fillStyle = '#5f9149';
+      ctx.fillRect(sx - u * 0.24, top - u * 0.02, u * 0.48, u * 0.1);
+      if (p.ready) {
+        ctx.fillStyle = col; ctx.strokeStyle = 'rgba(38,28,20,0.75)'; ctx.lineWidth = 1;
+        var rr = def.shape === 'root' ? u * 0.14 : u * 0.17;
+        ctx.beginPath(); ctx.arc(sx, top + u * 0.1, rr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillRect(sx - rr * 0.45, top + u * 0.02, Math.max(2, rr * 0.4), Math.max(2, rr * 0.35));
+      } else {
+        ctx.fillStyle = '#79a95c';
+        ctx.fillRect(sx - u * 0.16, top - u * 0.04, u * 0.32, u * 0.1);
+      }
+    } else {
+      ctx.fillStyle = col;
+      ctx.fillRect(sx - u * 0.2, top, u * 0.4, h * 0.45);
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(sx - u * 0.2, top, u * 0.12, h * 0.45);
+      if (p.ready) {
+        ctx.fillStyle = '#f0d27a';
+        ctx.fillRect(sx - u * 0.08, top - u * 0.1, u * 0.16, u * 0.12);
+      }
+    }
+    if (p.ready) {
+      // 成熟提示：小小的金星在头顶一闪一闪
+      var tw = 0.55 + 0.45 * Math.sin(S.time * 4 + p.x + p.y);
+      ctx.globalAlpha = tw; ctx.fillStyle = '#ffe9a0';
+      ctx.fillRect(sx + u * 0.22, top - u * 0.32, 3, 3);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  var _dssFarm = drawStructureShadows;
+  drawStructureShadows = function (ctx, vr) {
+    farmDrawGround(ctx, vr);
+    return _dssFarm(ctx, vr);
+  };
+  var _collectFarm = collectProps;
+  collectProps = function (vr) {
+    _collectFarm(vr);
+    var P = farmP(); if (!P || !P.plots || !farmD().CROPS) return;
+    var B = farmBounds();
+    var c0 = Math.max(0, vr.x0 - B.x), c1 = Math.min(B.w - 1, vr.x1 - B.x);
+    var r0 = Math.max(0, vr.y0 - B.y), r1 = Math.min(B.h - 1, vr.y1 - B.y);
+    for (var r = r0; r <= r1; r++) {
+      for (var c = c0; c <= c1; c++) {
+        var p = P.plots[r + ',' + c];
+        if (!p || !p.crop) continue;
+        var def = farmD().CROPS[p.crop]; if (!def) continue;
+        var need = Math.max(1, Math.round(def.days * (P.profs && P.profs.indexOf('agriculturist') >= 0 ? 0.9 : 1)));
+        var ready = p.harvested && def.regrow
+          ? (P.cal.day - (p.regrowDay || P.cal.day) >= def.regrow)
+          : (p.grow || 0) >= need;
+        PROPS.push({ k: 'farmcrop', x: B.x + c, y: B.y + r, s: (r * 31 + c * 17) % 7,
+          crop: p.crop, grow: Math.min(1, (p.grow || 0) / need), ready: ready });
+      }
+    }
+  };
+  var _drawPropFarm = drawProp;
+  drawProp = function (ctx, p) {
+    if (p && p.k === 'farmcrop') { farmDrawCrop(ctx, p); return; }
+    return _drawPropFarm(ctx, p);
+  };
+
+  // ---------- 交互：站在田里按 E，按当前工具干活 ----------
+  function farmNear() {
+    var B = farmBounds(), m = S.me;
+    if (!m) return false;
+    return m.x >= B.x - 1 && m.x <= B.x + B.w + 1 && m.y >= B.y - 1 && m.y <= B.y + B.h + 1;
+  }
+  function farmCellAtMe() {
+    var B = farmBounds(), m = S.me;
+    return { r: Math.floor(m.y - B.y), c: Math.floor(m.x - B.x) };
+  }
+  function farmSmartAction(r, c) {
+    var P = farmP(); if (!P) return;
+    var p = (P.plots || {})[r + ',' + c];
+    var D = farmD(), def = p && p.crop && D.CROPS[p.crop];
+    var need = def ? Math.max(1, Math.round(def.days * (P.profs && P.profs.indexOf('agriculturist') >= 0 ? 0.9 : 1))) : 0;
+    var ready = def && (p.harvested && def.regrow
+      ? (P.cal.day - (p.regrowDay || P.cal.day) >= def.regrow) : (p.grow || 0) >= need);
+    if (ready) {
+      farmAct('harvest', { r: r, c: c }).then(function (d) {
+        farmToast('收了 ' + (d && d.got ? d.got.length : 0) + ' 个' + (def ? def.name : '作物'));
+      }, function (e) { farmToast(e.message, 'warn'); });
+    } else if (p && p.crop) {
+      farmAct('water', { r: r, c: c }).then(function (d) { farmToast('浇好了'); },
+        function (e) { farmToast(e.message, 'warn'); });
+    } else if (p && p.tilled) {
+      if (!S.farm.seed || !(P.inv[S.farm.seed] > 0)) { farmCycleSeed(); return; }
+      farmAct('plant', { r: r, c: c, seed: S.farm.seed }).then(function (d) {
+        farmToast('种下了 ' + (d && d.name ? d.name : '种子'));
+      }, function (e) { farmToast(e.message, 'warn'); });
+    } else {
+      farmAct('till', { r: r, c: c }).then(function () { farmToast('翻好了一块地'); },
+        function (e) { farmToast(e.message, 'warn'); });
+    }
+  }
+  // 世界里按 E：严格按手上拿的工具干活（原作手感）；面板里点格子才走智能动作
+  function farmWorldAction() {
+    var B = farmBounds(), cell = farmCellAtMe();
+    if (cell.r < 0 || cell.c < 0 || cell.r >= B.h || cell.c >= B.w) return false;
+    if (S.farm.tool === 'rod' || S.farm.tool === 'pickaxe') { openPanel('mine'); return true; }
+    var body = { r: cell.r, c: cell.c }, path = '';
+    if (S.farm.tool === 'hoe') path = 'till';
+    else if (S.farm.tool === 'watercan') path = 'water';
+    else if (S.farm.tool === 'seed') {
+      if (!S.farm.seed) { farmCycleSeed(); return true; }
+      path = 'plant'; body.seed = S.farm.seed;
+    } else path = 'harvest';
+    farmAct(path, body).then(function (d) {
+      var msg = path === 'till' ? '翻好了一块地' : path === 'water' ? '浇好了'
+        : path === 'plant' ? '种下了 ' + (d && d.name ? d.name : '种子')
+        : '收了 ' + (d && d.got ? d.got.length : 0) + ' 个';
+      farmToast(msg);
+    }, function (e) { farmToast(e.message || '这会儿干不了', 'warn'); });
+    return true;
+  }
+  var _doInteractFarm = doInteract;
+  doInteract = function (t) {
+    if (farmP() && farmNear() && farmWorldAction()) return;
+    return _doInteractFarm(t);
+  };
+
+  // ---------- 事件 / 实时广播 / 轮询 ----------
+  function farmEvent(e) {
+    if (!e) return false;
+    var k = e.k;
+    if (k === 'farm-dawn') {
+      farmToast('第 ' + e.day + ' 天的晨光 · ' + (e.msg || '田里的东西长了一节'));
+      farmState(); return true;
+    }
+    if (k === 'farm-level') {
+      var D = farmD();
+      farmToast((D.SKILL_NAMES ? D.SKILL_NAMES[e.skill] : e.skill) + '升到 ' + e.lv + ' 级！');
+      farmState(); return true;
+    }
+    if (k === 'relation-heart') {
+      farmToast('♥ ' + e.name + ' · ' + e.heart + ' 颗心：' + e.text);
+      return true;
+    }
+    if (k === 'farm-gift') { farmToast('有人送了你 ' + (e.name || '一份礼物')); farmState(); return true; }
+    if (k === 'farm-bundle') { farmToast('献祭包完成：' + e.name + ' → ' + e.reward); farmState(); return true; }
+    if (k === 'farm-greenhouse' || k === 'farm-mine-bottom') { farmToast(e.text); farmState(); return true; }
+    if (k === 'farm-elevator') { farmToast('矿洞电梯：第 ' + e.floor + ' 层'); return true; }
+    if (k === 'farm-sleep') { farmToast('一觉睡到天亮，体力回满了'); return true; }
+    return false;
+  }
+  var _handleEventFarm = handleEvent;
+  handleEvent = function (e) {
+    if (farmEvent(e)) return;
+    return _handleEventFarm(e);
+  };
+
+  var _bindRealtimeFarm = bindRealtime;
+  bindRealtime = function () {
+    _bindRealtimeFarm();
+    if (!S.farm.rtBound && S.realtime && S.onDestroyAll) {
+      S.farm.rtBound = 1;
+      var rt = S.realtime;
+      function sub(name, fn) {
+        try { var off = rt.subscribe('shiguang5.' + name, fn); if (off) S.onDestroyAll.push(off); } catch (e) {}
+      }
+      sub('farm-dawn', function (p) {
+        if (p) farmToast('第 ' + p.day + ' 天 · ' + p.season + (p.festival ? ' · ' + p.festival : ''));
+        farmState();
+      });
+      sub('farm-rare', function (p) { if (p) farmToast('有人钓上了 ' + p.fish + '！'); });
+      sub('farm-marry', function (p) { if (p) farmToast(p.name + ' 和班里的同学成家了 ♥'); });
+    }
+  };
+
+  var _applyEnterFarm = applyEnter;
+  applyEnter = function (d) {
+    _applyEnterFarm(d);
+    if (d.farm) farmApply(d.farm);
+  };
+
+  var _socialTickFarm = socialTick;
+  socialTick = function (t) {
+    _socialTickFarm(t);
+    if (!S.ready || !farmP()) return;
+    if (UI.farmClock) {
+      var c = farmCal(), ms = c.dayMs || 90000;
+      setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
+    }
+    // 低频：面板开着或有待办时 6 秒拉一次；平时 15 秒，别给 5Hz 同步添负担
+    var interval = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') ? 6 : 15;
+    if (t - S.farm.lastPoll >= interval) {
+      S.farm.lastPoll = t;
+      farmState();
+    }
+  };
+
+  // 面板打开时收起右侧农场条：它压在宽面板上会挡住标题与滚动条
+  var _openPanelFarm = openPanel;
+  openPanel = function (id) {
+    var r = _openPanelFarm(id);
+    if (UI.farmBar) UI.farmBar.style.display = curPanel ? 'none' : '';
+    return r;
+  };
+  var _closePanelFarm = closePanel;
+  closePanel = function () {
+    var r = _closePanelFarm();
+    if (UI.farmBar) UI.farmBar.style.display = '';
+    return r;
+  };
+
+  var _mountFarm = mount;
+  mount = function (container, context) {
+    _mountFarm(container, context);
+    // 只重置瞬时量：p/data 由随后的 applyEnter 覆盖，提前清空反而会丢首帧
+    S.farm.lastPoll = 0; S.farm.rtBound = 0; S.farm.qte = null;
+    S.farm.sel = null; S.farm.bagSel = null; S.farm.tool = 'hoe';
+    if (window.__sg5) {
+      window.__sg5.farm = {
+        state: function () {
+          var P = farmP();
+          return { gold: P && P.gold, energy: P && P.energy, plots: P ? Object.keys(P.plots || {}).length : 0,
+            crops: farmD().CROPS ? Object.keys(farmD().CROPS).length : 0,
+            day: P && P.cal && P.cal.day, season: P && P.cal && P.cal.seasonName,
+            tools: P && P.tools, skills: P && P.levels, spouse: P && P.spouse };
+        },
+        setDay: function (n) { return farmState(); },
+        act: function (p, b) { return farmAct(p, b); },
+        life: function (p, b) { return lifeAct(p, b); },
+        tool: function (id) { farmSetTool(id); },
+        teleportFarm: function () {
+          var B = farmBounds();
+          if (window.__sg5.teleport) window.__sg5.teleport(B.x + B.w / 2, B.y + B.h / 2);
+        }
+      };
+    }
+  };
+
+
+  // ======================== 16_farm_ui.js ========================
+  // ---------------- §17 农场面板：田地 / 商店 / 背包 / 出货 / 技能 / 日历 ----------------
+
+  GLYPH.hoe = [
+    '.........##.',
+    '........###.',
+    '.......###..',
+    '......###...',
+    '.....###....',
+    '....###.....',
+    '...###......',
+    '..###.......',
+    '.##.........'
+  ];
+  GLYPH.heart = [
+    '..###..###..',
+    '.#####.#####',
+    '############',
+    '############',
+    '.##########.',
+    '..########..',
+    '...######...',
+    '....####....',
+    '.....##.....'
+  ];
+  GLYPH.pick = [
+    '....###.....',
+    '..#######...',
+    '.#########..',
+    '....###.....',
+    '....###.....',
+    '...###......',
+    '..###.......',
+    '.###........',
+    '.##.........'
+  ];
+
+  var FARM_TABS = [
+    ['field', '田地'], ['shop', '商店'], ['bag', '背包'],
+    ['ship', '出货箱'], ['skill', '技能'], ['calendar', '日历']
+  ];
+  function farmTabs(body) {
+    var tabs = el('div', 'sg5-tabs');
+    (function () {
+      for (var i = 0; i < FARM_TABS.length; i++) {
+        (function (t) {
+          var b = el('button', 'sg5-tab' + (S.farm.tab === t[0] ? ' is-on' : ''), t[1]);
+          b.type = 'button';
+          b.addEventListener('click', function () {
+            S.farm.tab = t[0]; refreshPanel('farm'); auSfx('menu', 0.2, 1.1);
+          }, false);
+          tabs.appendChild(b);
+        })(FARM_TABS[i]);
+      }
+    })();
+    body.appendChild(tabs);
+  }
+  function farmSection(body, title, sub) {
+    var s = el('div', 'sg5-sect');
+    s.appendChild(el('div', 'sg5-farm-h', title));
+    if (sub) s.appendChild(el('div', 'sg5-note', sub));
+    return s;
+  }
+  function farmBtnRow(parent, items) {
+    var row = el('div', 'sg5-farm-ops');
+    (function () {
+      for (var i = 0; i < items.length; i++) {
+        (function (it) {
+          var b = uiBtn(it[0], it[2] || 'sg5-btn-sm', it[1]);
+          row.appendChild(b);
+        })(items[i]);
+      }
+    })();
+    parent.appendChild(row);
+    return row;
+  }
+  function farmNeed(P, need) {
+    var inv = P.inv || {};
+    return (inv[need] || 0) >= 1;
+  }
+
+  // ---------- 田地 ----------
+  function farmFieldBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), B = farmBounds(), c = P.cal;
+    var head = el('div', 'sg5-farm-summary');
+    head.appendChild(el('span', 'sg5-farm-sum', c.seasonName + ' ' + c.dayInSeason + '日 · ' + c.clock + ' · ' +
+      (c.weather === 'rain' ? '下雨' : c.weather === 'snow' ? '下雪' : '晴')));
+    head.appendChild(el('span', 'sg5-farm-sum', '● ' + P.gold + 'g'));
+    head.appendChild(el('span', 'sg5-farm-sum', '体力 ' + P.energy + '/' + P.maxEnergy));
+    head.appendChild(el('span', 'sg5-farm-sum', '工具 ' + (D.TOOL_NAMES[S.farm.tool] || S.farm.tool)));
+    body.appendChild(head);
+    farmBtnRow(body, [
+      ['回自家田里', function () {
+        farmAct('goto', {}).then(function (d) {
+          if (d && d.x != null && window.__sg5 && window.__sg5.teleport) window.__sg5.teleport(d.x, d.y);
+          farmToast('回到了田里');
+        }, function (e) { farmToast(e.message, 'warn'); });
+      }, 'sg5-btn-primary'],
+      ['收工睡觉', function () {
+        farmAct('sleep', {}).then(function () { farmToast('睡到天亮，体力回满'); }, function (e) { farmToast(e.message, 'warn'); });
+      }],
+      ['切换种子（Q）', function () { farmCycleSeed(); refreshPanel('farm'); }],
+      ['小镇 / 献祭', function () { S.farm.tab = 'field'; openPanel('relation'); }]
+    ]);
+
+    var wrap = farmSection(body, '我的田 · ' + B.w + '×' + B.h,
+      '点格子会自动判断：空地翻土 → 播种 → 浇水 → 收获。世界里站在田上按 E 则严格按手上的工具干活。');
+    var grid = el('div', 'sg5-farm-grid');
+    grid.style.setProperty('--farm-cols', String(B.w));
+    (function () {
+      for (var r = 0; r < B.h; r++) {
+        for (var cc = 0; cc < B.w; cc++) {
+          (function (r, cc) {
+            var p = (P.plots || {})[r + ',' + cc];
+            var cls = 'sg5-farm-cell', label = '·', tip = '空地';
+            if (p && p.tilled) { cls += ' is-tilled'; label = '▤'; tip = '翻好的土'; }
+            if (p && p.watered) { cls += ' is-watered'; }
+            var def = p && p.crop && D.CROPS[p.crop];
+            if (def) {
+              var need = Math.max(1, Math.round(def.days * (P.profs && P.profs.indexOf('agriculturist') >= 0 ? 0.9 : 1)));
+              var ready = p.harvested && def.regrow
+                ? (P.cal.day - (p.regrowDay || P.cal.day) >= def.regrow) : (p.grow || 0) >= need;
+              cls += ready ? ' is-ready' : ' is-growing';
+              label = ready ? '★' : String(Math.floor(p.grow || 0)) + '/' + need;
+              tip = def.name + (ready ? '（可收）' : ' · 还差 ' + Math.max(1, need - Math.floor(p.grow || 0)) + ' 天');
+              if (ready) cls += ' is-star';
+            }
+            var b = el('button', cls, label);
+            b.type = 'button';
+            b.setAttribute('title', '第 ' + r + ' 行 ' + cc + ' 列 · ' + tip);
+            if (def) b.style.borderBottomColor = def.col;
+            b.addEventListener('click', function () {
+              // 记住最后碰过的格子：背包里的肥料 / 洒水器要往这儿放
+              S.farm.sel = { r: r, c: cc };
+              farmSmartAction(r, cc);
+            }, false);
+            grid.appendChild(b);
+          })(r, cc);
+        }
+      }
+    })();
+    wrap.appendChild(grid);
+    var legend = el('div', 'sg5-farm-legend');
+    legend.appendChild(el('span', '', '▤ 已翻地'));
+    legend.appendChild(el('span', '', '蓝色 已浇水'));
+    legend.appendChild(el('span', '', '★ 可收获'));
+    legend.appendChild(el('span', '', '数字 生长天数'));
+    wrap.appendChild(legend);
+    body.appendChild(wrap);
+
+    // 工具升级区
+    var tools = farmSection(body, '农具铺', '升级要金币 + 矿石锭，阿岩隔天打好送到手上。');
+    var tl = el('div', 'sg5-farm-list');
+    (function () {
+      for (var k in D.TOOL_NAMES) {
+        if (!Object.prototype.hasOwnProperty.call(D.TOOL_NAMES, k)) continue;
+        (function (k) {
+          var lv = (P.tools || {})[k] || 0;
+          var up = lv < 4 ? D.TOOL_UPGRADES[lv] : null;
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname', D.TOOL_NAMES[k] + ' · ' + (lv ? D.TOOL_UPGRADES[lv - 1].name : '基础')));
+          row.appendChild(el('span', 'sg5-farm-rowsub', up ? (up.cost + 'g + ' + up.bars + ' ' + farmItemName(up.bar)) : '已满级'));
+          if (up && !P.toolOrder) {
+            var b = uiBtn('升级', 'sg5-btn-sm', function () {
+              farmAct('tool', { tool: k }).then(function () { farmToast('送去升级了'); },
+                function (e) { farmToast(e.message, 'warn'); });
+            });
+            row.appendChild(b);
+          }
+          tl.appendChild(row);
+        })(k);
+      }
+    })();
+    if (P.toolOrder) {
+      tl.appendChild(el('div', 'sg5-note', '正在打造：' + D.TOOL_NAMES[P.toolOrder.tool] + ' → ' +
+        P.toolOrder.name + '，第 ' + P.toolOrder.readyDay + ' 天取。'));
+    }
+    tools.appendChild(tl);
+    body.appendChild(tools);
+  }
+
+  // ---------- 商店 ----------
+  function farmShopBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), c = P.cal;
+    var seeds = farmSection(body, '种子铺 · ' + c.seasonName,
+      P.greenhouse ? '温室已解锁，四季种子都能买。' : '只卖当季种子；过季种下的作物会在换季时枯掉。');
+    var list = el('div', 'sg5-farm-list');
+    (function () {
+      for (var k in D.CROPS) {
+        if (!Object.prototype.hasOwnProperty.call(D.CROPS, k)) continue;
+        (function (k) {
+          var def = D.CROPS[k];
+          if (def.seed <= 0) return;
+          if (!P.greenhouse && def.s.length && def.s.indexOf(c.season) < 0) return;
+          if (k === 'strawberry' && !(c.festival && c.festival.perk === 'strawberry')) return;
+          var row = el('div', 'sg5-farm-row');
+          var nm = el('span', 'sg5-farm-rowname', def.name);
+          nm.style.color = def.col;
+          row.appendChild(nm);
+          row.appendChild(el('span', 'sg5-farm-rowsub', def.days + '天 · 售 ' + def.sell + 'g' +
+            (def.regrow ? ' · 每' + def.regrow + '天复收' : '') + (def.yield > 1 ? ' · 一次' + def.yield + '个' : '')));
+          var b1 = uiBtn(def.seed + 'g', 'sg5-btn-sm', function () {
+            farmAct('buy', { kind: 'seed', id: 'seed_' + k, n: 1 }).then(function () { farmToast('买了 1 包' + def.name + '种子'); },
+              function (e) { farmToast(e.message, 'warn'); });
+          });
+          var b5 = uiBtn('×5', 'sg5-btn-sm', function () {
+            farmAct('buy', { kind: 'seed', id: 'seed_' + k, n: 5 }).then(function () { farmToast('买了 5 包' + def.name + '种子'); },
+              function (e) { farmToast(e.message, 'warn'); });
+          });
+          row.appendChild(b1); row.appendChild(b5);
+          list.appendChild(row);
+        })(k);
+      }
+    })();
+    seeds.appendChild(list);
+    body.appendChild(seeds);
+
+    var animals = farmSection(body, '畜牧棚', '每天喂一次干草、摸一摸，好感高了会出大号产物。');
+    var al = el('div', 'sg5-farm-list');
+    (function () {
+      for (var k in D.ANIMALS) {
+        if (!Object.prototype.hasOwnProperty.call(D.ANIMALS, k)) continue;
+        (function (k) {
+          var a = D.ANIMALS[k];
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname', a.name));
+          row.appendChild(el('span', 'sg5-farm-rowsub', a.cost + 'g · 产 ' + farmItemName(a.product) + '（' + a.sell + 'g）'));
+          row.appendChild(uiBtn('买', 'sg5-btn-sm', function () {
+            farmAct('buy', { kind: 'animal', id: k }).then(function () { farmToast(a.name + '住进棚里了'); },
+              function (e) { farmToast(e.message, 'warn'); });
+          }));
+          al.appendChild(row);
+        })(k);
+      }
+    })();
+    animals.appendChild(al);
+    if (P.animals && P.animals.length) {
+      animals.appendChild(el('div', 'sg5-note', '棚里：' + P.animals.length + ' 只 · 在「小镇」面板里喂食 / 收取'));
+    }
+    body.appendChild(animals);
+
+    var goods = farmSection(body, '资材与服务', '洒水器放在一格上，那格每天自动浇水；肥料要在播种前施。');
+    farmBtnRow(goods, [
+      ['干草 50g', function () { farmAct('buy', { kind: 'hay', n: 5 }); }],
+      ['木材 10g', function () { farmAct('buy', { kind: 'wood', n: 5 }); }],
+      ['生长激素 100g', function () { farmAct('buy', { kind: 'fert', id: 'speedgro', n: 1 }); }],
+      ['高级肥料 150g', function () { farmAct('buy', { kind: 'fert', id: 'quality_fert', n: 1 }); }],
+      ['洒水器 400g', function () { farmAct('buy', { kind: 'fert', id: 'sprinkler', n: 1 }); }]
+    ]);
+    farmBtnRow(goods, [
+      ['背包扩容 ' + (P.backpack >= 24 ? '10000' : '2000') + 'g', function () {
+        farmAct('buy', { kind: 'backpack' }).then(function (d) { farmToast('背包扩到 ' + d.backpack + ' 格'); },
+          function (e) { farmToast(e.message, 'warn'); });
+      }],
+      ['扩建房子 ' + (P.houseLv ? '50000' : '10000') + 'g', function () {
+        farmAct('buy', { kind: 'house' }).then(function (d) { farmToast('房子升到 ' + d.houseLv + ' 级'); },
+          function (e) { farmToast(e.message, 'warn'); });
+      }]
+    ]);
+    body.appendChild(goods);
+  }
+
+  // ---------- 背包 / 箱子 ----------
+  function farmInvGrid(P, items, picked, onPick) {
+    var g = el('div', 'sg5-farm-inv');
+    var any = false;
+    (function () {
+      for (var k in items) {
+        if (!Object.prototype.hasOwnProperty.call(items, k)) continue;
+        if (!items[k]) continue;
+        any = true;
+        (function (k) {
+          var b = el('button', 'sg5-farm-item' + (picked === k ? ' is-on' : ''));
+          b.type = 'button';
+          var sw = el('span', 'sg5-farm-swatch');
+          sw.style.background = farmItemColor(k);
+          sw.style.borderColor = farmQualityColor(k);
+          b.appendChild(sw);
+          b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
+          b.appendChild(el('span', 'sg5-farm-itemnum', '×' + items[k]));
+          if (P.prices && P.prices[k]) b.appendChild(el('span', 'sg5-farm-itemprice', P.prices[k] + 'g'));
+          b.addEventListener('click', function () { onPick(k); }, false);
+          g.appendChild(b);
+        })(k);
+      }
+    })();
+    if (!any) g.appendChild(el('div', 'sg5-empty', '空的。去田里收点东西吧。'));
+    return g;
+  }
+  function farmBagBody(body) {
+    var P = farmP(); if (!P) return;
+    var cap = farmSection(body, '背包 ' + P.invCount + '/' + P.backpack, '点一样东西，再选要拿它做什么。种子按半价回收。');
+    cap.appendChild(farmInvGrid(P, P.inv || {}, S.farm.bagSel, function (k) {
+      S.farm.bagSel = k; refreshPanel('farm');
+    }));
+    if (S.farm.bagSel) {
+      var sel = S.farm.bagSel;
+      var ops = el('div', 'sg5-farm-sel');
+      ops.appendChild(el('div', 'sg5-farm-selname', farmItemName(sel) + ' ×' + (P.inv[sel] || 0)));
+      farmBtnRow(ops, [
+        ['卖 1 个', function () {
+          var it = {}; it[sel] = 1;
+          farmAct('sell', { items: it }).then(function (d) { farmToast('卖了 ' + d.gold + 'g'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['全部卖掉', function () {
+          var it = {}; it[sel] = P.inv[sel] || 0;
+          farmAct('sell', { items: it }).then(function (d) { farmToast('卖了 ' + d.gold + 'g'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['放进出货箱', function () {
+          var it = {}; it[sel] = P.inv[sel] || 0;
+          farmAct('ship', { items: it }).then(function () { farmToast('明天早上结账'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['存进箱子', function () {
+          var it = {}; it[sel] = P.inv[sel] || 0;
+          farmAct('chest', { mode: 'put', items: it }).then(function () { farmToast('收进箱子了'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['施肥 / 洒水器', function () {
+          if (!S.farm.sel) { farmToast('先在「田地」里点一格', 'warn'); return; }
+          farmAct('fertilize', { r: S.farm.sel.r, c: S.farm.sel.c, fert: sel }).then(function () { farmToast('施好了'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['送给镇上的人', function () { S.farm.relationTab = 'villagers'; openPanel('relation'); }]
+      ]);
+      cap.appendChild(ops);
+    }
+    body.appendChild(cap);
+    var chest = farmSection(body, '家里的箱子', '箱子不占背包格。点一下取回一格堆叠。');
+    chest.appendChild(farmInvGrid(P, P.chest || {}, null, function (k) {
+      var it = {}; it[k] = (P.chest || {})[k] || 1;
+      farmAct('chest', { mode: 'take', items: it }).then(function () { farmToast('取回来了'); },
+        function (e) { farmToast(e.message, 'warn'); });
+    }));
+    body.appendChild(chest);
+  }
+
+  // ---------- 出货箱 ----------
+  function farmShipBody(body) {
+    var P = farmP(); if (!P) return;
+    var s = farmSection(body, '出货箱', '放进去的东西在第二天清晨一起结账 —— 和原作一样，不点即时到账。');
+    var total = 0;
+    for (var k in (P.ship || {})) if (Object.prototype.hasOwnProperty.call(P.ship, k)) {
+      total += (P.prices && P.prices[k] ? P.prices[k] : 0) * P.ship[k];
+    }
+    s.appendChild(el('div', 'sg5-farm-big', '明早预计进账 ' + total + 'g'));
+    s.appendChild(farmInvGrid(P, P.ship || {}, null, function () {}));
+    body.appendChild(s);
+    var st = farmSection(body, '账本', '');
+    st.appendChild(el('div', 'sg5-farm-big', '累计出货 ' + (P.shipTotal || 0) + 'g'));
+    st.appendChild(el('div', 'sg5-note', '收获 ' + (P.stats.harvest || 0) + ' 次 · 钓到 ' + (P.stats.fish || 0) +
+      ' 条 · 挖到 ' + (P.stats.ore || 0) + ' 块矿 · 送过 ' + (P.stats.gift || 0) + ' 份礼 · 昏厥 ' + (P.faint || 0) + ' 次'));
+    body.appendChild(st);
+  }
+
+  // ---------- 技能 ----------
+  function farmSkillBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD();
+    var s = farmSection(body, '五项技能', '收获、钓鱼、挖矿、送礼都会涨经验；5 级与 10 级各选一次职业，选了不能改。');
+    var list = el('div', 'sg5-farm-list');
+    (function () {
+      for (var i = 0; i < D.SKILLS.length; i++) {
+        (function (sk) {
+          var xp = (P.skills || {})[sk] || 0, lv = (P.levels || {})[sk] || 0;
+          var next = (P.nextLevelXp || {})[sk] || 0;
+          var prev = lv > 0 ? D.SKILL_XP[lv - 1] : 0;
+          var span = lv >= 10 ? 1 : (D.SKILL_XP[lv] - prev);
+          var pct = lv >= 10 ? 1 : Math.max(0, Math.min(1, (xp - prev) / (span || 1)));
+          var row = el('div', 'sg5-farm-skill');
+          row.appendChild(el('span', 'sg5-farm-rowname', D.SKILL_NAMES[sk] + ' Lv.' + lv));
+          var bar = el('div', 'sg5-farm-xpbar');
+          var fill = el('div', 'sg5-farm-xpfill');
+          fill.style.width = Math.round(pct * 100) + '%';
+          bar.appendChild(fill); row.appendChild(bar);
+          row.appendChild(el('span', 'sg5-farm-rowsub', lv >= 10 ? '满级' : xp + ' / ' + D.SKILL_XP[lv] + '（还差 ' + next + '）'));
+          var tier = lv >= 10 ? 10 : lv >= 5 ? 5 : 0;
+          if (tier && D.PROFESSIONS[sk] && D.PROFESSIONS[sk][tier]) {
+            var opts = D.PROFESSIONS[sk][tier];
+            for (var j = 0; j < opts.length; j++) {
+              (function (o) {
+                var chosen = P.profs && P.profs.indexOf(o[0]) >= 0;
+                var b = uiBtn(chosen ? '✓ ' + o[1] : o[1], chosen ? 'sg5-btn-sm sg5-btn-primary' : 'sg5-btn-sm', function () {
+                  if (chosen) return;
+                  farmAct('profession', { skill: sk, id: o[0] }).then(function () { farmToast('选了「' + o[1] + '」'); },
+                    function (e) { farmToast(e.message, 'warn'); });
+                });
+                row.appendChild(b);
+              })(opts[j]);
+            }
+          }
+          list.appendChild(row);
+        })(D.SKILLS[i]);
+      }
+    })();
+    s.appendChild(list);
+    body.appendChild(s);
+    if (P.profs && P.profs.length) {
+      body.appendChild(el('div', 'sg5-note', '已选职业：' + P.profs.join(' / ')));
+    }
+  }
+
+  // ---------- 日历 ----------
+  function farmCalendarBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), c = P.cal;
+    var s = farmSection(body, '第 ' + c.year + ' 年 · ' + c.seasonName + ' 第 ' + c.dayInSeason + ' 天',
+      '一季 ' + D.SEASON_DAYS + ' 天，四季轮转。全班共用同一本日历，谁也不会被时间落下。');
+    var big = el('div', 'sg5-farm-cal');
+    big.appendChild(el('div', 'sg5-farm-calclock', c.clock));
+    var pct = Math.round(c.dayInSeason / D.SEASON_DAYS * 100);
+    var bar = el('div', 'sg5-farm-xpbar');
+    var fill = el('div', 'sg5-farm-xpfill'); fill.style.width = pct + '%';
+    bar.appendChild(fill); big.appendChild(bar);
+    big.appendChild(el('div', 'sg5-note', '本季已过 ' + pct + '% · 今天 ' +
+      (c.weather === 'rain' ? '下雨（不用浇水）' : c.weather === 'snow' ? '下雪（不用浇水）' : '晴天')));
+    s.appendChild(big);
+    body.appendChild(s);
+
+    var fes = farmSection(body, '今年的节日', '节日当天来领礼，商店与好感还会有临时加成。');
+    var fl = el('div', 'sg5-farm-list');
+    (function () {
+      for (var i = 0; i < D.FESTIVALS.length; i++) {
+        (function (f) {
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname', D.SEASONS[f.day[0]] + ' ' + f.day[1] + '日 · ' + f.name));
+          row.appendChild(el('span', 'sg5-farm-rowsub', f.desc));
+          if (f.day[0] === c.season && f.day[1] === c.dayInSeason) {
+            row.appendChild(uiBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
+              lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
+                function (e) { farmToast(e.message, 'warn'); });
+            }));
+          }
+          fl.appendChild(row);
+        })(D.FESTIVALS[i]);
+      }
+    })();
+    fes.appendChild(fl); body.appendChild(fes);
+
+    var bday = farmSection(body, '镇上人的生日', '生日送礼好感 ×8 —— 一年里最划算的一天。');
+    var bl = el('div', 'sg5-farm-list');
+    (function () {
+      for (var k in D.VILLAGERS) {
+        if (!Object.prototype.hasOwnProperty.call(D.VILLAGERS, k)) continue;
+        (function (k) {
+          var v = D.VILLAGERS[k];
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname', v.name));
+          row.appendChild(el('span', 'sg5-farm-rowsub', D.SEASONS[v.birthday[0]] + ' ' + v.birthday[1] + '日'));
+          bl.appendChild(row);
+        })(k);
+      }
+    })();
+    bday.appendChild(bl); body.appendChild(bday);
+    farmBtnRow(body, [
+      ['去社区中心交献祭包', function () { S.farm.relationTab = 'bundles'; openPanel('relation'); }],
+      ['看看镇上的人', function () { S.farm.relationTab = 'villagers'; openPanel('relation'); }]
+    ]);
+  }
+
+  PANELS.farm = function () {
+    var P = farmP();
+    var sh = panelShell('农场', P ? (P.cal.seasonName + ' ' + P.cal.dayInSeason + '日 · ' + P.gold + 'g') : '正在载入…');
+    sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    farmTabs(sh.body);
+    var cont = el('div', 'sg5-farm-cont');
+    if (!P) cont.appendChild(el('div', 'sg5-empty', '农场还没载入，稍等一下…'));
+    else if (S.farm.tab === 'field') farmFieldBody(cont);
+    else if (S.farm.tab === 'shop') farmShopBody(cont);
+    else if (S.farm.tab === 'bag') farmBagBody(cont);
+    else if (S.farm.tab === 'ship') farmShipBody(cont);
+    else if (S.farm.tab === 'skill') farmSkillBody(cont);
+    else farmCalendarBody(cont);
+    sh.body.appendChild(cont);
+    return sh.root;
+  };
+
+
+  // ======================== 17_relation.js ========================
+  // ---------------- §18 小镇：村民好感 / 同学送礼 / 献祭包 / 畜牧棚 ----------------
+
+  var REL_TABS = [
+    ['villagers', '镇上的人'], ['classmates', '班里同学'],
+    ['bundles', '社区中心'], ['animals', '畜牧棚']
+  ];
+  function relTabs(body) {
+    var tabs = el('div', 'sg5-tabs');
+    (function () {
+      for (var i = 0; i < REL_TABS.length; i++) {
+        (function (t) {
+          var b = el('button', 'sg5-tab' + (S.farm.relationTab === t[0] ? ' is-on' : ''), t[1]);
+          b.type = 'button';
+          b.addEventListener('click', function () {
+            S.farm.relationTab = t[0]; refreshPanel('relation'); auSfx('menu', 0.2, 1.1);
+          }, false);
+          tabs.appendChild(b);
+        })(REL_TABS[i]);
+      }
+    })();
+    body.appendChild(tabs);
+  }
+
+  // 送礼选择器：把背包里能送的东西平铺出来，点一样就送
+  function relGiftRow(npc, onSend) {
+    var P = farmP(); if (!P) return el('div', 'sg5-empty', '背包还没载入');
+    var box = el('div', 'sg5-rel-gifts');
+    box.appendChild(el('div', 'sg5-note', '选一样东西送出去（金星品质、生日、最爱都会放大好感）：'));
+    var grid = el('div', 'sg5-farm-inv');
+    var any = false;
+    (function () {
+      for (var k in (P.inv || {})) {
+        if (!Object.prototype.hasOwnProperty.call(P.inv, k)) continue;
+        if (!P.inv[k]) continue;
+        any = true;
+        (function (k) {
+          var b = el('button', 'sg5-farm-item');
+          b.type = 'button';
+          var sw = el('span', 'sg5-farm-swatch');
+          sw.style.background = farmItemColor(k); sw.style.borderColor = farmQualityColor(k);
+          b.appendChild(sw);
+          b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
+          b.appendChild(el('span', 'sg5-farm-itemnum', '×' + P.inv[k]));
+          b.addEventListener('click', function () { onSend(k); }, false);
+          grid.appendChild(b);
+        })(k);
+      }
+    })();
+    if (!any) grid.appendChild(el('div', 'sg5-empty', '背包空空的，先去田里收点东西。'));
+    box.appendChild(grid);
+    return box;
+  }
+  function relHearts(pts, P) {
+    var per = (P && P.heartPts) || 250;
+    var h = Math.max(0, Math.min(10, Math.floor(pts / per)));
+    var box = el('div', 'sg5-rel-hearts');
+    for (var i = 0; i < 10; i++) {
+      box.appendChild(el('span', 'sg5-rel-heart' + (i < h ? ' is-on' : ''), i < h ? '♥' : '♡'));
+    }
+    return box;
+  }
+
+  function relVillagers(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), c = P.cal;
+    var s = farmSection(body, '镇上的四个人',
+      '每天说一句话 +20，每周最多送两次礼；最爱 +80、喜欢 +45、讨厌 −40。8 心后送花束才能继续到 10 心。');
+    (function () {
+      for (var k in D.VILLAGERS) {
+        if (!Object.prototype.hasOwnProperty.call(D.VILLAGERS, k)) continue;
+        (function (k) {
+          var v = D.VILLAGERS[k];
+          var r = (P.relations || {})[k] || { pts: 0, gifts: {}, bouquet: 0, seen: [] };
+          var card = el('div', 'sg5-rel-card');
+          var head = el('div', 'sg5-rel-head');
+          head.appendChild(el('span', 'sg5-rel-name', v.name));
+          var bd = (v.birthday[0] === c.season && v.birthday[1] === c.dayInSeason);
+          head.appendChild(el('span', 'sg5-rel-sub', D.SEASONS[v.birthday[0]] + ' ' + v.birthday[1] + '日' + (bd ? ' · 今天生日！' : '')));
+          card.appendChild(head);
+          card.appendChild(relHearts(r.pts || 0, P));
+          card.appendChild(el('div', 'sg5-note', '最爱：' + farmTasteName(v.love) + '　喜欢：' + farmTasteName(v.like) +
+            '　讨厌：' + farmTasteName(v.hate) + '　好感 ' + (r.pts || 0)));
+          var hearts = Math.floor((r.pts || 0) / (P.heartPts || 250));
+          farmBtnRow(card, [
+            ['说句话', function () {
+              lifeAct('talk', { npc: k }).then(function (d) {
+                farmToast(d.talked ? '聊了几句，好感 +20' : '今天已经聊过了');
+              }, function (e) { farmToast(e.message, 'warn'); });
+            }],
+            [r.bouquet ? '已送花束' : '送花束（200g）', function () {
+              lifeAct('bouquet', { npc: k }).then(function () { farmToast('她收下了花束'); },
+                function (e) { farmToast(e.message, 'warn'); });
+            }],
+            [P.spouse === k ? '已成家' : '求婚（1500g）', function () {
+              lifeAct('marry', { npc: k }).then(function (d) { farmToast('♥ 和' + d.name + '成家了'); },
+                function (e) { farmToast(e.message, 'warn'); });
+            }]
+          ]);
+          card.appendChild(relGiftRow(k, function (item) {
+            lifeAct('gift', { npc: k, item: item }).then(function (d) {
+              farmToast(v.name + (d.pts >= 0 ? '收下了' : '不太喜欢') + '：' + d.pts + ' 好感' + (d.birthday ? '（生日 ×8）' : ''));
+            }, function (e) { farmToast(e.message, 'warn'); });
+          }));
+          s.appendChild(card);
+        })(k);
+      }
+    })();
+    body.appendChild(s);
+    if (P.spouse) {
+      body.appendChild(el('div', 'sg5-note', '家里有人在等：' + (D.VILLAGERS[P.spouse] ? D.VILLAGERS[P.spouse].name : P.spouse)));
+      farmBtnRow(body, [['和家里人说说话', function () {
+        lifeAct('spouse', {}).then(function (d) { farmToast(d.spouse ? '家里暖暖的' : '还没成家'); });
+      }]]);
+    }
+  }
+  function farmTasteName(arr) {
+    if (!arr || !arr.length) return '—';
+    var M = { crop: '作物', flower: '花', fish: '鱼', ore: '矿石', gem: '宝石', animal: '畜产', food: '食物' };
+    var out = [];
+    for (var i = 0; i < arr.length; i++) out.push(M[arr[i]] || arr[i]);
+    return out.join(' / ');
+  }
+
+  function relClassmates(body) {
+    var P = farmP(); if (!P) return;
+    var s = farmSection(body, '班里的同学', '送出背包里的一样东西，对方会立刻收到提醒。好友与羁绊沿用「一起玩」的名单。');
+    var list = (S.friends || []).slice(0, 24);
+    if (!list.length) s.appendChild(el('div', 'sg5-empty', '还没有好友。先在「一起玩」里加个同学吧。'));
+    (function () {
+      for (var i = 0; i < list.length; i++) {
+        (function (p) {
+          var uid = String(p.id || p.uid || p.userId || '');
+          var nm = p.name || p.n || (typeof nameOf === 'function' ? nameOf(uid) : uid);
+          var bond = (S.bonds || {})[uid] || (P.relations && P.relations[uid] && P.relations[uid].pts) || 0;
+          var card = el('div', 'sg5-rel-card');
+          var head = el('div', 'sg5-rel-head');
+          head.appendChild(el('span', 'sg5-rel-name', nm));
+          head.appendChild(el('span', 'sg5-rel-sub', (p.online ? '在线' : '离线') + ' · 羁绊 ' + bond));
+          card.appendChild(head);
+          card.appendChild(relGiftRow(uid, function (item) {
+            lifeAct('playergift', { to: uid, item: item }).then(function () {
+              farmToast('送给了 ' + nm + ' 一份' + farmItemName(item));
+            }, function (e) { farmToast(e.message, 'warn'); });
+          }));
+          s.appendChild(card);
+        })(list[i]);
+      }
+    })();
+    body.appendChild(s);
+  }
+
+  function relBundles(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD();
+    var done = 0;
+    for (var z = 0; z < D.BUNDLES.length; z++) if (P.bundles[D.BUNDLES[z].id] && P.bundles[D.BUNDLES[z].id].done) done++;
+    var s = farmSection(body, '社区中心 · 献祭包 ' + done + '/' + D.BUNDLES.length,
+      P.greenhouse ? '全部交齐了：温室已修好，冬天也能种地。' : '交齐一整间房就修好一部分；全部交齐解锁温室（四季可种）。');
+    (function () {
+      for (var i = 0; i < D.BUNDLES.length; i++) {
+        (function (b) {
+          var slot = (P.bundles || {})[b.id] || { items: {}, done: 0 };
+          var card = el('div', 'sg5-rel-card');
+          var head = el('div', 'sg5-rel-head');
+          head.appendChild(el('span', 'sg5-rel-name', b.name + (slot.done ? ' ✓' : '')));
+          head.appendChild(el('span', 'sg5-rel-sub', b.room + ' · 奖励 ' + b.reward.n + ' ' + farmItemName(b.reward.id)));
+          card.appendChild(head);
+          var row = el('div', 'sg5-bundle-needs');
+          (function () {
+            for (var j = 0; j < b.need.length; j++) {
+              (function (n) {
+                var needId = n.indexOf('gold_') === 0 ? n.slice(5) + '_q2' : n;
+                var have = (P.inv || {})[needId] > 0;
+                var got = !!slot.items[n];
+                row.appendChild(el('span', 'sg5-bundle-need' + (got ? ' is-done' : have ? ' is-have' : ''),
+                  (got ? '✓ ' : have ? '+ ' : '· ') + farmItemName(needId)));
+              })(b.need[j]);
+            }
+          })();
+          card.appendChild(row);
+          if (!slot.done) {
+            farmBtnRow(card, [['交上背包里已有的', function () {
+              var items = {};
+              for (var j = 0; j < b.need.length; j++) {
+                var n = b.need[j];
+                var needId = n.indexOf('gold_') === 0 ? n.slice(5) + '_q2' : n;
+                if (!slot.items[n] && (P.inv || {})[needId] > 0) items[n] = 1;
+              }
+              lifeAct('bundle', { id: b.id, items: items }).then(function (d) {
+                farmToast(d.reward ? '交齐了！领到 ' + d.reward : '交上去 ' + d.moved + ' 样，还差 ' + d.left + ' 样');
+              }, function (e) { farmToast(e.message, 'warn'); });
+            }]]);
+          }
+          s.appendChild(card);
+        })(D.BUNDLES[i]);
+      }
+    })();
+    body.appendChild(s);
+  }
+
+  function relAnimals(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD();
+    var s = farmSection(body, '畜牧棚 ' + ((P.animals || []).length) + ' 只',
+      '每天喂一次干草（杂货铺 50g）、摸一摸，第二天早上就有产出；好感越高越容易出大号产物。');
+    if (!(P.animals || []).length) s.appendChild(el('div', 'sg5-empty', '棚里还空着。去「农场 → 商店」领一只回来。'));
+    (function () {
+      for (var i = 0; i < (P.animals || []).length; i++) {
+        (function (a) {
+          var def = D.ANIMALS[a.kind] || { name: a.kind };
+          var card = el('div', 'sg5-rel-card');
+          var head = el('div', 'sg5-rel-head');
+          head.appendChild(el('span', 'sg5-rel-name', a.name));
+          head.appendChild(el('span', 'sg5-rel-sub', '好感 ' + a.love + '/1000' +
+            (P.cal.day < a.matureDay ? ' · 还要 ' + (a.matureDay - P.cal.day) + ' 天长大' : ' · 已成年')));
+          card.appendChild(head);
+          farmBtnRow(card, [
+            ['喂干草', function () {
+              lifeAct('animal', { mode: 'feed', uid: a.uid }).then(function () { farmToast(a.name + '吃得很香'); },
+                function (e) { farmToast(e.message, 'warn'); });
+            }],
+            ['摸一摸', function () {
+              lifeAct('animal', { mode: 'pet', uid: a.uid }).then(function () { farmToast(a.name + '蹭了蹭你'); },
+                function (e) { farmToast(e.message, 'warn'); });
+            }],
+            [a.product && !a.collected ? '收取 ' + farmItemName(a.product) : '今天没有产出', function () {
+              lifeAct('animal', { mode: 'collect', uid: a.uid }).then(function (d) {
+                farmToast('收到了 ' + d.name);
+              }, function (e) { farmToast(e.message, 'warn'); });
+            }]
+          ]);
+          s.appendChild(card);
+        })(P.animals[i]);
+      }
+    })();
+    body.appendChild(s);
+  }
+
+  PANELS.relation = function () {
+    var P = farmP();
+    var sh = panelShell('小镇', P ? (P.cal.seasonName + ' · ' + (P.spouse ? '已安家' : '一个人住')) : '正在载入…');
+    sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    relTabs(sh.body);
+    var cont = el('div', 'sg5-farm-cont');
+    if (!P) cont.appendChild(el('div', 'sg5-empty', '小镇还没载入…'));
+    else if (S.farm.relationTab === 'villagers') relVillagers(cont);
+    else if (S.farm.relationTab === 'classmates') relClassmates(cont);
+    else if (S.farm.relationTab === 'bundles') relBundles(cont);
+    else relAnimals(cont);
+    sh.body.appendChild(cont);
+    return sh.root;
+  };
+
+
+  // ======================== 18_fishing_mine.js ========================
+  // ---------------- §19 钓鱼小游戏 / 矿洞 / 图鉴 ----------------
+  //
+  // 钓鱼是原作那根「绿条」：按住让游标上浮、松开下沉，把鱼压在绿条里进度才涨。
+  // 鱼由服务端在甩竿那一刻决定，客户端只负责把「贴合得有多好」交回去，刷不出稀有鱼。
+
+  var MINE_TABS = [['fish', '钓鱼'], ['mine', '矿洞'], ['dex', '图鉴']];
+  function mineTabs(body) {
+    var tabs = el('div', 'sg5-tabs');
+    (function () {
+      for (var i = 0; i < MINE_TABS.length; i++) {
+        (function (t) {
+          var b = el('button', 'sg5-tab' + (S.farm.mineTab === t[0] ? ' is-on' : ''), t[1]);
+          b.type = 'button';
+          b.addEventListener('click', function () {
+            S.farm.mineTab = t[0]; refreshPanel('mine'); auSfx('menu', 0.2, 1.1);
+          }, false);
+          tabs.appendChild(b);
+        })(MINE_TABS[i]);
+      }
+    })();
+    body.appendChild(tabs);
+  }
+  function qteClamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  function qteDown(e) {
+    var q = S.farm.qte; if (!q) return;
+    if (e && (e.code === 'Space' || e.key === ' ' || e.type === 'mousedown' || e.type === 'touchstart')) {
+      q.hold = true; if (e.preventDefault) e.preventDefault();
+    }
+  }
+  function qteUp(e) {
+    var q = S.farm.qte; if (!q) return;
+    if (e && (e.code === 'Space' || e.key === ' ' || e.type === 'mouseup' || e.type === 'touchend')) q.hold = false;
+  }
+  function qtePaint() {
+    var q = S.farm.qte; if (!q) return;
+    var root = document.querySelector('.sg5-qte'); if (!root) return;
+    var cur = root.querySelector('.sg5-qte-cursor');
+    var zone = root.querySelector('.sg5-qte-zone');
+    var fill = root.querySelector('.sg5-qte-fill');
+    if (cur) cur.style.top = Math.round((1 - q.y) * 100) + '%';
+    if (zone) {
+      zone.style.height = Math.round(q.green * 100) + '%';
+      zone.style.top = Math.round((1 - q.targetY - q.green / 2) * 100) + '%';
+    }
+    if (fill) fill.style.width = Math.round(q.progress * 100) + '%';
+  }
+  function qteCleanup() {
+    var q = S.farm.qte;
+    if (q && q.timer) { try { clearInterval(q.timer); } catch (e) {} }
+    document.removeEventListener('keydown', qteDown, false);
+    document.removeEventListener('keyup', qteUp, false);
+    document.removeEventListener('mouseup', qteUp, false);
+    S.farm.qte = null;
+  }
+  function qteStop(success) {
+    var q = S.farm.qte; if (!q) return;
+    var ratio = q.hit / Math.max(1, q.frames);
+    var score = success ? qteClamp(0.6 + 0.4 * ratio, 0, 1) : 0.2;
+    if (q.timer) { try { clearInterval(q.timer); } catch (e) {} }
+    document.removeEventListener('keydown', qteDown, false);
+    document.removeEventListener('keyup', qteUp, false);
+    document.removeEventListener('mouseup', qteUp, false);
+    S.farm.qte = null;
+    lifeAct('fish/result', { score: score }).then(function (d) {
+      if (d && d.caught) {
+        farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g');
+      } else {
+        farmToast((d && d.reason) || '鱼跑了', 'warn');
+      }
+    }, function (e) { farmToast(e.message || '鱼跑了', 'warn'); });
+  }
+  function qteStart(d) {
+    qteCleanup();
+    S.farm.qte = {
+      fish: d.fish, name: d.name, diff: d.diff || 30, green: d.green || 0.35,
+      y: 0.5, targetY: 0.28 + Math.random() * 0.44,
+      targetVy: (Math.random() - 0.5) * 0.006,
+      vy: 0, hold: false, progress: 0.3, hit: 0, frames: 0, timer: null
+    };
+    var q = S.farm.qte;
+    document.addEventListener('keydown', qteDown, false);
+    document.addEventListener('keyup', qteUp, false);
+    document.addEventListener('mouseup', qteUp, false);
+    q.timer = setInterval(function () {
+      if (!S.farm.qte || curPanel !== 'mine') { qteCleanup(); return; }
+      q.frames++;
+      q.targetY += q.targetVy * (1 + q.diff / 75);
+      if (q.targetY < 0.12 || q.targetY > 0.88) q.targetVy *= -1;
+      q.targetY = qteClamp(q.targetY, 0.12, 0.88);
+      q.vy += (q.hold ? 0.0023 : -0.0027);
+      q.vy = qteClamp(q.vy, -0.022, 0.022);
+      q.y += q.vy;
+      if (q.y < 0.03) { q.y = 0.03; q.vy = 0; }
+      if (q.y > 0.97) { q.y = 0.97; q.vy = 0; }
+      var inZone = Math.abs(q.y - q.targetY) <= q.green / 2;
+      if (inZone) { q.progress += 0.007; q.hit++; }
+      else q.progress -= 0.005;
+      q.progress = qteClamp(q.progress, 0, 1);
+      qtePaint();
+      if (q.progress >= 1) qteStop(true);
+      else if (q.progress <= 0 || q.frames > 520) qteStop(false);
+    }, 30);
+  }
+
+  function fishBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), q = S.farm.qte;
+    var s = farmSection(body, '水边', '按住空格（或按住鼠标）让游标上浮，松开下沉。把鱼留在绿条里，进度满就上钩。');
+    if (!q) {
+      s.appendChild(el('div', 'sg5-note', '鱼竿等级 ' + ((P.tools || {}).rod || 0) +
+        ' · 钓鱼 Lv.' + ((P.levels || {}).fishing || 0) + ' · 今天 ' + P.cal.weather +
+        ' · 甩一次竿花 ' + (D.TOOL_ENERGY ? D.TOOL_ENERGY.fish : 8) + ' 体力'));
+      farmBtnRow(s, [
+        ['甩竿', function () {
+          lifeAct('fish/start', {}).then(function (d) {
+            if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
+            else farmToast('这会儿没鱼咬钩', 'warn');
+          }, function (e) { farmToast(e.message, 'warn'); });
+        }, 'sg5-btn-primary'],
+        ['按 H 收起', function () { closePanel(); }]
+      ]);
+      var caught = 0;
+      for (var k in (P.fishCaught || {})) if (Object.prototype.hasOwnProperty.call(P.fishCaught, k)) caught += P.fishCaught[k];
+      s.appendChild(el('div', 'sg5-note', '已经钓上 ' + caught + ' 条鱼 · 图鉴见隔壁'));
+    } else {
+      var box = el('div', 'sg5-qte');
+      var track = el('div', 'sg5-qte-track');
+      track.appendChild(el('div', 'sg5-qte-zone'));
+      var fish = el('div', 'sg5-qte-fish', '◆');
+      track.appendChild(fish);
+      track.appendChild(el('div', 'sg5-qte-cursor'));
+      box.appendChild(track);
+      var side = el('div', 'sg5-qte-side');
+      side.appendChild(el('div', 'sg5-qte-title', '咬钩了！'));
+      side.appendChild(el('div', 'sg5-qte-name', '???（钓上来才知道）'));
+      side.appendChild(el('div', 'sg5-note', '难度 ' + q.diff + ' · 绿条 ' + Math.round(q.green * 100) + '%'));
+      var pb = el('div', 'sg5-qte-bar');
+      pb.appendChild(el('div', 'sg5-qte-fill'));
+      side.appendChild(pb);
+      side.appendChild(el('div', 'sg5-note', '按住 = 上浮，松开 = 下沉'));
+      box.appendChild(side);
+      box.addEventListener('mousedown', qteDown, false);
+      box.addEventListener('mouseup', qteUp, false);
+      box.addEventListener('touchstart', qteDown, false);
+      box.addEventListener('touchend', qteUp, false);
+      s.appendChild(box);
+    }
+    body.appendChild(s);
+  }
+
+  function mineBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), m = P.mineRun;
+    var s = farmSection(body, '矿洞 · 最深 ' + D.MINE_MAX + ' 层',
+      '每 5 层有电梯，下次可直接下到那一层。镐子等级越高，一铲子能敲出越多矿石。');
+    s.appendChild(el('div', 'sg5-farm-big', m ? '当前第 ' + m.floor + ' 层' : '还没下矿'));
+    s.appendChild(el('div', 'sg5-note', '最深到过 ' + (P.mineBest || 0) + ' 层 · 电梯已通到第 ' + (P.elevator || 0) + ' 层 · 体力 ' + P.energy));
+    if (!m) {
+      var btns = [];
+      var elev = Math.max(0, P.elevator || 0);
+      for (var f = 0; f <= elev; f += 5) {
+        (function (floor) { btns.push(['第 ' + floor + ' 层', function () {
+          lifeAct('mine/enter', { floor: floor }).then(function () { farmToast('下到第 ' + floor + ' 层'); },
+            function (e) { farmToast(e.message, 'warn'); });
+        }]); })(Math.max(1, f));
+      }
+      if (!btns.length) btns.push(['从 1 层开始', function () {
+        lifeAct('mine/enter', { floor: 1 }).then(function () { farmToast('下矿了'); },
+          function (e) { farmToast(e.message, 'warn'); });
+      }]);
+      farmBtnRow(s, btns);
+    } else {
+      s.appendChild(el('div', 'sg5-note', '洞里体力 ' + m.hp + ' · 挖了 ' + m.digs + ' 铲 · ' + (m.stair ? '找到楼梯了' : '还没找到楼梯')));
+      farmBtnRow(s, [
+        ['挖一铲', function () {
+          lifeAct('mine/dig', {}).then(function (d) {
+            if (d && d.down) farmToast('被打晕送回镇上，花了 ' + d.loss + 'g', 'warn');
+            else if (d && d.got && d.got.length) farmToast('敲出 ' + d.got.length + ' 块矿');
+          }, function (e) { farmToast(e.message, 'warn'); });
+        }, 'sg5-btn-primary'],
+        [m.stair ? '往下一层' : '继续找楼梯', function () {
+          lifeAct('mine/stair', {}).then(function (d) {
+            farmToast(d.bottom ? '到矿洞最底了' : '下到第 ' + d.mine.floor + ' 层');
+          }, function (e) { farmToast(e.message, 'warn'); });
+        }],
+        ['离开矿洞', function () { lifeAct('mine/leave', {}).then(function () { farmToast('回到地面上了'); }); }]
+      ]);
+    }
+    body.appendChild(s);
+    var ore = farmSection(body, '背上的矿石', '铁矿 40 层起、金矿 80 层起、铱矿 110 层起。工具升级要的就是这些。');
+    var inv = {};
+    for (var k in (P.inv || {})) {
+      if (!Object.prototype.hasOwnProperty.call(P.inv, k)) continue;
+      var base = String(k).split('_q')[0];
+      for (var i = 0; i < (D.ORES || []).length; i++) if (D.ORES[i].id === base) inv[k] = P.inv[k];
+    }
+    ore.appendChild(farmInvGrid(P, inv, null, function () {}));
+    body.appendChild(ore);
+  }
+
+  function dexBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD();
+    var f = farmSection(body, '鱼类图鉴', '季节、天气、时间都会改变能钓到什么。');
+    var l1 = el('div', 'sg5-farm-list');
+    (function () {
+      for (var i = 0; i < (D.FISH || []).length; i++) {
+        (function (fish) {
+          var got = (P.fishCaught || {})[fish.id] || 0;
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname' + (got ? '' : ' is-unknown'), got ? fish.name : '？？？'));
+          row.appendChild(el('span', 'sg5-farm-rowsub', got ? (fish.sell + 'g · 钓到 ' + got + ' 条 · 难度 ' + fish.diff)
+            : (D.SEASONS[fish.s[0]] + ' · 难度 ' + fish.diff)));
+          l1.appendChild(row);
+        })(D.FISH[i]);
+      }
+    })();
+    f.appendChild(l1); body.appendChild(f);
+
+    var c = farmSection(body, '作物图鉴', '收过一次就会记下来。');
+    var l2 = el('div', 'sg5-farm-list');
+    (function () {
+      for (var k in (D.CROPS || {})) {
+        if (!Object.prototype.hasOwnProperty.call(D.CROPS, k)) continue;
+        (function (k) {
+          var def = D.CROPS[k], got = (P.cropsGrown || {})[k] || 0;
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(el('span', 'sg5-farm-rowname' + (got ? '' : ' is-unknown'), got ? def.name : '？？？'));
+          row.appendChild(el('span', 'sg5-farm-rowsub', got ? ('收过 ' + got + ' 次 · ' + def.days + '天 · ' + def.sell + 'g')
+            : (def.s.length ? D.SEASONS[def.s[0]] + '季' : '温室')));
+          l2.appendChild(row);
+        })(k);
+      }
+    })();
+    c.appendChild(l2); body.appendChild(c);
+  }
+
+  PANELS.mine = function () {
+    var P = farmP();
+    var sh = panelShell('钓鱼 / 矿洞', P ? ('Lv.' + ((P.levels || {}).fishing || 0) + ' 渔夫 · 第 ' + (P.mineBest || 0) + ' 层') : '正在载入…');
+    sh.root.className = 'sg5-panel sg5-panel-wide sg5-panel-farm';
+    mineTabs(sh.body);
+    var cont = el('div', 'sg5-farm-cont');
+    if (!P) cont.appendChild(el('div', 'sg5-empty', '还没载入…'));
+    else if (S.farm.mineTab === 'fish') fishBody(cont);
+    else if (S.farm.mineTab === 'mine') mineBody(cont);
+    else dexBody(cont);
+    sh.body.appendChild(cont);
+    return sh.root;
+  };
+
+  // QTE 的定时器与按键监听必须随应用卸载一起走，热挂载才不会留下幽灵循环
+  var _mountQte = mount;
+  mount = function (container, context) {
+    _mountQte(container, context);
+    if (S.onDestroyAll) S.onDestroyAll.push(function () { qteCleanup(); });
   };
 
   window.ClassIntraMarket.define({ name: NAME, mount: mount, unmount: unmount });

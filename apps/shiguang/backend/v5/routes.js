@@ -323,6 +323,8 @@ try { refreshLights(); } catch (e) {}
   G.timer = setInterval(function () {
     try { SIM.drainEvents(); } catch (e) {}
     try { SOC.tick(); } catch (e) { console.error('[shiguang5] social tick', e.message); }
+    // 全班共享的农场日历：跨日只广播一次「晨光」，作物生长由玩家动作 lazy 补算
+    try { if (FARM) FARM.tick(); } catch (e) { console.error('[shiguang5] farm tick', e.message); }
   }, 2000);
   if (G.timer.unref) G.timer.unref();
 })();
@@ -358,8 +360,20 @@ var SOC = require('./social')({
   isBlockedWorld: function (x, y) { return W.isBlocked(world, x, y); }
 });
 
+// ---------------- v5.3 农场经营：核心循环 + 生活系统 ----------------
+// 两块共用 rec.flags.farm 这一份 JSON，零改表。FARM 先建，LIFE 拿它做存档与动作包装。
+var FARM = require('./farm')({
+  router: router, S: S, SIM: SIM, world: world, requireAuth: requireAuth,
+  uidOf: uid, ok: ok, fail: fail, nowMs: nowMs, broadcast: broadcast,
+  onlineIds: onlineIds, push: push, TOWN_SPAWN: TOWN_SPAWN
+});
+var LIFE = require('./life')({
+  router: router, FARM: FARM, requireAuth: requireAuth, uidOf: uid,
+  ok: ok, fail: fail, nowMs: nowMs
+});
+
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 6;   // 5.1：地形包里加了洞窟与支线定义，旧缓存必须失效
+var TERRAIN_VERSION = 7;   // 5.3：清出农场空地并移走田里的刷怪点，旧缓存必须失效
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
     version: TERRAIN_VERSION,
@@ -442,6 +456,7 @@ router.post('/v5/enter', requireAuth, function (req, res) {
     bonds: SOC.bondsOf(id),
     nearby: SOC.nearbyList(id, 20),
     acts: SOC.ACTS,
+    farm: FARM.payload(id, FARM.of(id)),
     goal: goal,
     phase: SIM.dayPhase(),
     serverNow: nowMs()
@@ -923,3 +938,5 @@ module.exports.APP = APP;
 module.exports.SOC = SOC;
 module.exports.SIM = SIM;
 module.exports.STORE = S;
+module.exports.FARM = FARM;
+module.exports.LIFE = LIFE;

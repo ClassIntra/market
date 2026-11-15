@@ -229,11 +229,26 @@ function generate() {
   landmarks.caves.forEach(function (cv) { clearArea(grid, cv.x, cv.y, 4, zoneFloor(cv.zone)); });
   landmarks.waystones.forEach(function (w) { clearArea(grid, w.x, w.y, 2, null); });
 
+  // v5.3 农场：每人一块 12×8 的地，必须先清成「能走、没有树石」的空地。
+  // meadow 的树墙会把整片田盖得只剩树林，玩家从世界层根本看不见自己种的东西。
+  // 放在道路与地标清场之后，保证田里不会再横穿一条土路。
+  var FD = require('./farmdata');
+  var FA = FD.DATA;
+  for (var fy = FA.FARM_Y - 1; fy <= FA.FARM_Y + FA.FARM_H; fy++) {
+    for (var fx = FA.FARM_X - 1; fx <= FA.FARM_X + FA.FARM_W; fx++) {
+      if (fx < 0 || fy < 0 || fx >= SIZE || fy >= SIZE) continue;
+      grid[fy * SIZE + fx] = TILE.GRASS;
+    }
+  }
+
   // 宝箱、营地：在可走格上按区散布（确定性）
   scatterChests(grid, zones, landmarks);
 
-  // 刷怪点
-  var spawns = buildSpawns(grid, zones, landmarks);
+  // 刷怪点：自家田里不该刷怪，种地不是打怪
+  var spawns = buildSpawns(grid, zones, landmarks).filter(function (s) {
+    return !(s.x >= FA.FARM_X - 1 && s.x <= FA.FARM_X + FA.FARM_W + 1 &&
+      s.y >= FA.FARM_Y - 1 && s.y <= FA.FARM_Y + FA.FARM_H + 1);
+  });
 
   return { size: SIZE, grid: grid, zones: zones, landmarks: landmarks, spawns: spawns };
 }
