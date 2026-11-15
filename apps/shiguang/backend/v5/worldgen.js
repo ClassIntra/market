@@ -58,7 +58,7 @@ function fbm(x, y, s, oct) {
 
 // ---------------- 区域布局 ----------------
 var CX = SIZE / 2, CY = SIZE / 2;
-var TOWN_R = 12;        // 镇子半径（20 格见方：3 倍缩放下正好一屏，一个「家」该看得全）
+var TOWN_R = 10;        // 镇子半径（17 格见方：一屏能看全，这是「家」的最低要求）
 var MEADOW_R = 50;      // 草原外沿
 // 外环四个扇区（角度：0 = 东，逆时针为正 —— 屏幕坐标 y 向下，所以 atan2(-dy, dx)）
 // 长夜之心不在扇区里，是东北角的一块飞地，从霜屿与星坠岩之间的峡谷进入。
@@ -286,10 +286,10 @@ function stampTown(grid) {
 // 房子离广场近一点：26×26 的镇子如果房子贴着墙，玩家出生时四栋楼全在屏幕外，
 // 「镇子」就变成了「一片空地」。±8 的方阵在 3 倍缩放下刚好一屏能看全。
 var TOWN_HOUSES = [
-  { id: 'smith',  kind: 'smith',  x: CX - 8, y: CY - 7, w: 5, h: 4, name: '铁匠铺' },
-  { id: 'shop',   kind: 'shop',   x: CX + 3, y: CY - 7, w: 5, h: 4, name: '杂货铺' },
-  { id: 'inn',    kind: 'inn',    x: CX - 8, y: CY + 3, w: 5, h: 4, name: '灯火客栈' },
-  { id: 'hall',   kind: 'hall',   x: CX + 3, y: CY + 3, w: 5, h: 4, name: '守灯人之家' }
+  { id: 'smith',  kind: 'smith',  x: CX - 7, y: CY - 5, w: 4, h: 3, name: '铁匠铺' },
+  { id: 'shop',   kind: 'shop',   x: CX + 3, y: CY - 5, w: 4, h: 3, name: '杂货铺' },
+  { id: 'inn',    kind: 'inn',    x: CX - 7, y: CY + 2, w: 4, h: 3, name: '灯火客栈' },
+  { id: 'hall',   kind: 'hall',   x: CX + 3, y: CY + 2, w: 4, h: 3, name: '守灯人之家' }
 ];
 
 // 镇中央的大灯（永远亮着，是安全区的象征）

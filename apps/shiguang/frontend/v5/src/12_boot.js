@@ -47,6 +47,7 @@
       }
       camUpdate(dt);
       renderWorld(freeze ? 0 : dt);
+      socialTick(S.time);
       // HUD 不需要 60Hz
       if (S.time - hudAt > 0.2) { hudAt = S.time; uiUpdate(); }
       if (S.time - miniAt > 0.12) { miniAt = S.time; uiMini(); }
@@ -69,8 +70,18 @@
   // 环境粒子：每个区域有自己的「空气」
   function ambient(dt) {
     var z = S.zone;
-    if (Math.random() > dt * 8) return;
     var me = S.me;
+    // 夜里的萤火虫：镇上、草原、森林才有。慢、亮、少 —— 多了就成了噪点。
+    if ((S.phase === 'night' || S.phase === 'dusk') &&
+        (z === 'town' || z === 'meadow' || z === 'forest') && me && Math.random() < dt * 3.2) {
+      S.parts.push({
+        x: me.x + (Math.random() - 0.5) * 22, y: me.y + (Math.random() - 0.5) * 14,
+        vx: (Math.random() - 0.5) * 0.35, vy: (Math.random() - 0.5) * 0.25,
+        life: 2.6 + Math.random() * 2.2, max: 4.8,
+        col: 'rgba(226,255,160,', r: 1.5
+      });
+    }
+    if (Math.random() > dt * 8) return;
     var ox = (Math.random() - 0.5) * 26, oy = (Math.random() - 0.5) * 18;
     if (z === 'swamp') {
       S.parts.push({ x: me.x + ox, y: me.y + oy, vx: 0.2, vy: -0.25, life: 2.4, max: 2.4, col: '#d8ff9a', r: 1.1 });
@@ -160,8 +171,16 @@
       var k = (e.key || '').toLowerCase();
       if (k === 'escape') { closePanel(); return; }
       if (e.target && e.target.tagName === 'INPUT') return;
-      if (k === 'p') { if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; } return; }
+      if (k === 'p') {
+        // 有邀请卡就当成「接受」，没有才走旧的按 P 入队
+        if (S.inviteCard && S.inviteCard.node) {
+          var pb = S.inviteCard.node.querySelector('.sg5-btn-primary');
+          if (pb) pb.click();
+        } else if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; }
+        return;
+      }
       if (k === 'g') { apiEmote(EMOTE_SET[Math.floor(Math.random() * EMOTE_SET.length)].id); return; }
+      if (k === 'f') { openPanel('social'); return; }
       if (k === 'c') openPanel('char');
       else if (k === 'b' || k === 'i') openPanel('bag');
       else if (k === 'm') openPanel('map');
@@ -288,8 +307,24 @@
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
         toast: toast,
+        social: function () {
+          return { friends: S.friends.length, nearby: S.nearby.length, acts: Object.keys(S.acts || {}).length,
+            party: !!(S.party && S.party.members && S.party.members.length), bubbles: S.bubbles.length };
+        },
+        card: function () { cardFriendReq({ from: '1002', n: '小明' }); },
+        actfx: function () {
+          spawnActFx({ x: S.me.x, y: S.me.y, a: 'dance', ch: '♪', fn: '我', tn: '小明' });
+          pushBubble(S.myId, '一起跳舞吧！', '#ffe1a6');
+        },
         // 调试用：锁住昼夜（截图/回归时不想等到夜里）
-        lockPhase: function (phase, pf) { S.pfLock = !!phase; if (phase) { S.phase = phase; S.pf = pf == null ? 0.3 : pf; } }
+        lockPhase: function (phase, pf) {
+          S.pfLock = !!phase;
+          if (phase) {
+            S.phase = phase;
+            // 每个时段的默认进度要合理：night + pf=0.3 算出来的暗度只有 0.32，看起来像白天
+            S.pf = pf == null ? (phase === 'night' ? 0.94 : phase === 'dusk' ? 0.68 : 0.3) : pf;
+          }
+        }
       };
     } catch (e) {}
   }

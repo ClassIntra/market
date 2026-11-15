@@ -51,13 +51,19 @@
     S.towers = d.towers || {};
     S.waystones = d.me.waystones || ['ws_town'];
     S.goal = d.goal;
-    S.phase = d.phase ? d.phase.name : 'day';
+    if (!S.pfLock) S.phase = d.phase ? d.phase.name : 'day';
     S.pf = d.phase ? d.phase.f : 0;
     S.feed = (d.feed || []).map(function (f) { return { text: f.text, kind: f.kind }; });
     S.party = d.party || null;
     S.quests = d.quests || {};
     S.tideInfo = d.tide || null;
     S.caves = d.caves || [];
+    S.friends = d.friends || [];
+    S.friendReq = d.friendReq || null;
+    S.bonds = d.bonds || {};
+    S.nearby = d.nearby || [];
+    S.acts = d.acts || S.acts;
+    if (S.friendReq) setTimeout(function () { cardFriendReq(S.friendReq); }, 1800);
     // 相机先对上，否则第一帧会从 (0,0) 飞过来
     S.cam.x = me.x * TILE;
     S.cam.y = me.y * TILE;
@@ -68,8 +74,9 @@
         if (S.map.town.houses[j].kind === NPCS[k].id) h = S.map.town.houses[j];
       }
       if (h) {
-        NPCS[k].x = h.x + h.w / 2;
-        NPCS[k].y = h.y + h.h + 0.7;
+        // 站在门侧、退到墙脚之外：名字牌才不会压在屋檐上，门也能露出来
+        NPCS[k].x = h.x + h.w / 2 + 0.62;
+        NPCS[k].y = h.y + h.h + 1.55;
       }
     }
     applyPlayers(d.players || []);
@@ -161,7 +168,7 @@
     if (me.hp < prevHp - 0.5) hurtFlash();
     // 血量变了要跟服务端对齐（本地预测的伤害不该留在血条上）
     if (!S.pfLock) {
-      S.phase = d.ph || S.phase;
+      if (!S.pfLock) S.phase = d.ph || S.phase;
       S.pf = d.pf != null ? d.pf : S.pf;
     }
     S.party = d.pt || null;
@@ -194,6 +201,8 @@
 
   function handleEvent(e) {
     if (!e || !e.k) return;
+    // 社交层先接：好友申请 / 互动邀请 / 私聊要变成能点的卡片，不是一行 toast
+    if (socialEvent(e)) return;
     switch (e.k) {
       case 'zone':
         S.zone = e.z;
@@ -220,6 +229,17 @@
         toast('升级！ Lv.' + e.lv, 'good');
         auSfx('levelup', 0.5, 1);
         S.rings.push({ x: S.me.x, y: S.me.y, r: 0, max: 3.2, life: 0.7, max2: 0.7, col: '#ffe6a8' });
+        S.rings.push({ x: S.me.x, y: S.me.y, r: 0, max: 1.8, life: 0.5, max2: 0.5, col: '#fff3d0' });
+        // 一束从脚底往上抽的金色光尘：升级要有一点「被世界看见了」的仪式感
+        for (var li = 0; li < 20; li++) {
+          S.parts.push({
+            x: S.me.x + (Math.random() - 0.5) * 0.9, y: S.me.y + 0.35,
+            vx: (Math.random() - 0.5) * 0.7, vy: -1.1 - Math.random() * 1.1,
+            life: 0.85 + Math.random() * 0.55, max: 1.4,
+            col: li % 3 ? 'rgba(255,224,150,' : 'rgba(255,248,214,', r: 1.8
+          });
+        }
+        S.cam.shake = Math.max(S.cam.shake, 1.4);
         if (e.talent) setTimeout(function () { toast('获得 1 点天赋 —— 按 T 分配', 'good'); }, 1200);
         break;
       case 'down':
@@ -355,7 +375,14 @@
     var off4 = rt.subscribe('shiguang5.emote', function (p) {
       if (p && p.e) showEmote(p);
     });
-    S.onDestroyAll.push(off1, off2, off3, off4);
+    // 双人互动是「附近所有人都看得见」的事，走广播而不是个人事件
+    var off5 = rt.subscribe('shiguang5.act', function (p) {
+      if (p && p.a) spawnActFx(p);
+    });
+    var off6 = rt.subscribe('shiguang5.friend', function (p) {
+      if (p && p.an) feedPush(p.an + ' 和 ' + p.bn + ' 成了朋友', 'story');
+    });
+    S.onDestroyAll.push(off1, off2, off3, off4, off5, off6);
   }
 
   // ---------------- §18 动作接口 ----------------

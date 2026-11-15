@@ -183,7 +183,9 @@
       ctx.stroke();
       return;
     }
-    var bob = p.moving ? Math.sin(S.time * 12) * 0.6 : 0;
+    // 站着不动也要「活着」：极轻的呼吸起伏 + 走路时更快的踏步弹性
+    var phase = S.time * 2.05 + (p.x || 0) * 0.7 + (p.y || 0) * 0.3;
+    var bob = p.moving ? Math.sin(S.time * 12) * 0.6 : Math.sin(phase) * 0.55;
     drawCharacter(p.look, x, y + bob, p.face, p.moving, p.animT || 0, 1);
     // 攻击特效
     if (isMe && p.act && p.act.type === 'attack' && p.act.t < p.act.dur * 0.7) {
@@ -341,7 +343,9 @@
     var houses = S.map.town.houses;
     for (i = 0; i < houses.length; i++) {
       var h = houses[i];
-      DRAW.push({ y: (h.y + h.h) * TILE, kind: 'house', ref: h });
+      // 排序锚点是「墙脚」，不是占地南缘 —— 正面墙往下长了 1.18 格，
+      // 站在门口的人必须画在这面墙之后（贴着门），站在屋檐下的人要被墙挡住。
+      DRAW.push({ y: (h.y + h.h + 1.18) * TILE, kind: 'house', ref: h });
     }
     // 灯塔
     for (var z in S.map.towers) {
@@ -392,8 +396,10 @@
     var ctx = S.ctx;
     var vr = viewRange();
     collectProps(vr);
-    drawGround(ctx, vr);
-    drawWater(ctx, vr, S.time);
+    if (!S.dbgNoGround) drawGround(ctx, vr);
+    if (!S.dbgNoGround) drawWater(ctx, vr, S.time);
+    // 大结构的落影必须在实体之前：影子在地上，不能在站在前面的人身上
+    drawStructureShadows(ctx, vr);
     buildDrawList(vr);
     for (var i = 0; i < DRAW.length; i++) {
       var d = DRAW[i];
@@ -414,9 +420,10 @@
     }
     drawShots();
     drawEmotes();
+    drawSocialFx(ctx);
     drawFx(dt);
-    drawNight(ctx, S.view.w, S.view.h);
-    drawAtmosphere(ctx, S.view.w, S.view.h);
+    if (!S.dbgNoNight) drawNight(ctx, S.view.w, S.view.h);
+    if (!S.dbgNoAtmo) drawAtmosphere(ctx, S.view.w, S.view.h);
   }
 
   // 大气层：冷热分层 + 暗角。少了它，再好的像素画也像贴纸贴在屏幕上。
@@ -439,7 +446,10 @@
   function drawNpc(ctx, n) {
     var x = w2sX(n.x * TILE), y = w2sY(n.y * TILE + TILE * 0.4);
     shadow(x, y + 4, 1);
-    drawCharacter(n.look, x, y, 0, false, 0, 1);
+    // NPC 也有呼吸，并且偶尔换个方向看 —— 街上有人才像镇子
+    var idleY = y + Math.sin(S.time * 1.75 + n.x * 0.6) * 0.7;
+    var idleFace = Math.sin(S.time * 0.27 + n.y) > 0.86 ? 3 : 0;
+    drawCharacter(n.look, x, idleY, idleFace, false, 0, 1);
     // 头顶的交互小标
     var bob = Math.sin(S.time * 2.4) * 2;
     ctx.fillStyle = 'rgba(255,225,150,0.95)';

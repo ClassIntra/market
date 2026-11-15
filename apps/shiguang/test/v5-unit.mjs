@@ -30,7 +30,11 @@ const counts = {};
 for (let i = 0; i < world.grid.length; i++) counts[world.grid[i]] = (counts[world.grid[i]] || 0) + 1;
 const water = (counts[W.TILE.WATER] || 0) / world.grid.length;
 ok(water > 0.05 && water < 0.35, '海洋占比合理', (water * 100).toFixed(1) + '%');
-ok((counts[W.TILE.FLOOR] || 0) > 150, '镇内铺地存在', counts[W.TILE.FLOOR]);
+// 5.2 把镇子从 26×26 收到 17×17：铺地总格数降到 150 左右，
+// 断言改成「够铺出一个广场」+「中心确实是铺地」，比盯一个随布局漂移的总数稳。
+ok((counts[W.TILE.FLOOR] || 0) >= 120, '镇内铺地存在', counts[W.TILE.FLOOR]);
+ok(world.grid[Math.floor(world.town.cy) * world.size + Math.floor(world.town.cx)] === W.TILE.FLOOR,
+  '广场中心是铺地', world.grid[Math.floor(world.town.cy) * world.size + Math.floor(world.town.cx)]);
 ok((counts[W.TILE.TREE] || 0) > 2000, '有森林', counts[W.TILE.TREE]);
 
 // ---- 城镇与地标 ----

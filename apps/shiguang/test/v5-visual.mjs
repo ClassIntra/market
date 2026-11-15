@@ -49,8 +49,9 @@ app.use('/api/shiguang', routes);
 
 // 测试专用：把服务端玩家挪到指定坐标（客户端下一次 sync 会被纠正过去）
 app.post('/test/teleport', async (req, res) => {
-  const uid = req.body.uid || '1001';
-  const x = Number(req.body.x), y = Number(req.body.y);
+  const body = req.body || {};
+  const uid = body.uid || '1001';
+  const x = Number(body.x), y = Number(body.y);
   const rec = store.load(uid, { x, y });
   rec.x = x; rec.y = y;
   store.flush(uid);
@@ -60,7 +61,7 @@ app.post('/test/teleport', async (req, res) => {
 });
 // 测试专用：无敌（免得截图时被打死）
 app.post('/test/god', (req, res) => {
-  const uid = req.body.uid || '1001';
+  const uid = (req.body || {}).uid || '1001';
   if (SIM.players[uid]) SIM.players[uid].hp = SIM.players[uid].maxHp;
   res.json({ ok: 1 });
 });
@@ -229,6 +230,34 @@ await shot('01-town');
 await evalJs('(function(){var c=document.querySelector(".sg5-chapter"); if(c) c.className="sg5-chapter"; return 1})()');
 await sleep(1000);
 await shot('01b-town');
+
+// ---------- 面板 ----------
+// 前面打怪/夜景会把角色打倒、把天锁成夜：面板验收必须在「白天 + 站着」下看，
+// 否则死亡遮罩盖住整个面板，截图什么都证明不了。
+await fetch(`http://127.0.0.1:${HTTP_PORT}/api/shiguang/v5/respawn`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-uid': '1001' }, body: '{}' });
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
+await evalJs('__sg5.lockPhase("day", 0.32)');
+await sleep(320);
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/rich`, { method: 'POST' });
+for (const p of ['char', 'bag', 'map', 'dex', 'talent', 'help', 'social']) {
+  await evalJs('__sg5.panel("' + p + '")');
+  await sleep(420);
+  await shot('07-panel-' + p);
+}
+await evalJs('__sg5.panel("")');
+
+// ---------- 邀请卡 / 双人互动特效 ----------
+await evalJs('__sg5.card()');
+await sleep(520);
+await shot('11-invite-card');
+await evalJs('(function(){var c=document.querySelector(".sg5-invite");if(c&&c.parentNode)c.parentNode.removeChild(c);return 1})()');
+await evalJs('__sg5.actfx()');
+await sleep(300);
+await shot('12-act-fx');
+const social = await evalJs('JSON.stringify(__sg5.social())');
+console.log('  social:', social.v);
+ok(social.v && JSON.parse(social.v).acts === 6, '互动动作表已下发', social.v);
+
 console.log('  center:', await evalJs('JSON.stringify({x:Math.round(__sg5.state.me.x*16*3-0)})'));
 console.log('  diag:', await evalJs('JSON.stringify(__sg5.diag())'));
 
@@ -281,19 +310,13 @@ for (const b of biomes) {
   await shot('10-biome-' + b);
 }
 
-// ---------- 夜 ----------
-await evalJs('(function(){var S=__sg5.state; S.pf=0.80; S.phase="night"; return S.pf})()');
+// ---------- 夜（回镇上再拍，才是「拾光镇的夜」而不是随便一片雪地） ----------
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x: world.town.cx + 0.5, y: world.town.cy + 0.2 }) });
+await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
+await sleep(700);
+await evalJs('__sg5.lockPhase("night", 0.94)');
 await sleep(700);
 await shot('06-night');
-
-// ---------- 面板 ----------
-await fetch(`http://127.0.0.1:${HTTP_PORT}/test/rich`, { method: 'POST' });
-for (const p of ['char', 'bag', 'map', 'dex', 'talent', 'help']) {
-  await evalJs('__sg5.panel("' + p + '")');
-  await sleep(420);
-  await shot('07-panel-' + p);
-}
-await evalJs('__sg5.panel("")');
 
 // ---------- 灯塔前 ----------
 const tower = world.landmarks.towers.meadow;

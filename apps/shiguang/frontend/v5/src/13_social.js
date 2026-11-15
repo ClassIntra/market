@@ -30,16 +30,32 @@
     for (var i = S.emotes.length - 1; i >= 0; i--) {
       var e = S.emotes[i];
       if (S.time > e.until) { S.emotes.splice(i, 1); continue; }
-      var k = (e.until - S.time) / 2.4;
-      var x = w2sX(e.x * TILE), y = w2sY(e.y * TILE) - 34 - (1 - k) * 14;
+      var left = (e.until - S.time) / 2.4;          // 剩余比例
+      var age = 2.4 - (e.until - S.time);
+      var pop = clamp(age / 0.28, 0, 1);
+      // 弹出时轻微过冲（像弹簧），随后稳住；再慢慢上飘、淡出
+      var sc = (0.55 + 0.45 * easeOut(pop)) * (1 + 0.18 * Math.sin(pop * Math.PI));
+      var x = w2sX(e.x * TILE);
+      var y = w2sY(e.y * TILE) - 34 - (1 - left) * 16 + Math.sin(S.time * 4.2 + e.x) * 1.1;
+      var bw = Math.round(30 * (S.zoom / 3)), bh = Math.round(26 * (S.zoom / 3));
       ctx.save();
-      ctx.globalAlpha = Math.min(1, k * 2.2);
-      ctx.font = Math.round(18 * (S.zoom / 3)) + 'px system-ui,sans-serif';
+      ctx.globalAlpha = Math.min(1, left * 2.6);
+      ctx.translate(x, y - bh * 0.34);
+      ctx.scale(sc, sc);
+      // 硬边像素气泡：深底 + 暖色上下边 + 一个朝下的小尖
+      ctx.fillStyle = 'rgba(14,11,20,0.90)';
+      ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+      ctx.fillStyle = 'rgba(255,214,140,0.85)';
+      ctx.fillRect(-bw / 2, -bh / 2, bw, 2);
+      ctx.fillRect(-bw / 2, bh / 2 - 2, bw, 2);
+      ctx.fillRect(-3, bh / 2, 6, 2);
+      ctx.fillRect(-1, bh / 2 + 2, 2, 2);
+      ctx.font = Math.round(16 * (S.zoom / 3)) + 'px system-ui,sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillText(e.ch, x + 1, y + 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillText(e.ch, 1, 6 * (S.zoom / 3) + 1);
       ctx.fillStyle = '#fff2c8';
-      ctx.fillText(e.ch, x, y);
+      ctx.fillText(e.ch, 0, 6 * (S.zoom / 3));
       ctx.restore();
     }
   }
@@ -56,9 +72,30 @@
     var box = el('div', 'sg5-pmenu sg5-frame');
     box.appendChild(el('div', 'sg5-pmenu-name', p.name || '旅人'));
     var inParty = S.party && S.party.members && S.party.members.some(function (m) { return m[0] === p.id; });
+    var isFriend = false;
+    for (var fi = 0; fi < (S.friends || []).length; fi++) if (S.friends[fi].u === p.id) isFriend = true;
+    if (isFriend) {
+      var bd = (S.bonds || {})[p.id] || 0;
+      box.appendChild(el('div', 'sg5-pmenu-bond', '✦ 羁绊 ' + bd + ' · ' + bondTierLabel(bd)));
+    }
+
+    var ops = el('div', 'sg5-pmenu-ops');
+    if (!isFriend) {
+      ops.appendChild(uiBtn('加好友', 'sg5-btn-sm sg5-btn-ghost', function () {
+        apiFriend(p.id, 'request'); closePlayerMenu();
+      }));
+    } else {
+      ops.appendChild(uiBtn('悄悄话', 'sg5-btn-sm sg5-btn-ghost', function () {
+        S.chatWith = p.id; S.socialTab = 'chat'; openPanel('social'); closePlayerMenu();
+      }));
+    }
+    ops.appendChild(uiBtn('一起互动', 'sg5-btn-sm', function () {
+      openActPicker(p.id); closePlayerMenu();
+    }));
+    box.appendChild(ops);
 
     if (!inParty) {
-      box.appendChild(uiBtn('邀请组队', 'sg5-btn-sm', function () {
+      box.appendChild(uiBtn('邀请组队', 'sg5-btn-sm sg5-btn-ghost', function () {
         apiInvite(p.id); closePlayerMenu();
       }));
     }
@@ -84,7 +121,7 @@
     UI.hud.appendChild(box);
     var w = 190;
     var left = clamp(sx - w / 2, 8, S.view.w - w - 8);
-    var top = clamp(sy - 10, 8, S.view.h - 180);
+    var top = clamp(sy - 10, 8, S.view.h - 260);
     box.style.left = left + 'px';
     box.style.top = top + 'px';
     pmenuEl = box;

@@ -138,6 +138,27 @@ ok(ex.caves === 6, '洞窟口已下发', ex.caves);
 ok(ex.font && ex.font.indexOf('SG5Pixel') === 0, '像素字体已生效', ex.font);
 ok(ex.panel, 'HUD hotbar 已渲染');
 
+// ===== v5.2 生产验收：版本 / 好友羁绊 / 一起玩入口 =====
+const instRes = await fetch(BASE + '/api/market/installed', { headers: { Authorization: 'Bearer ' + token } });
+const instJson = await instRes.json();
+const inst = ((instJson.data && instJson.data.apps) || []).filter(function (a) { return a.name === 'shiguang'; })[0];
+ok(inst && inst.version === '5.2.0', '宿主已安装版本 5.2.0', inst && inst.version);
+
+const v52 = await evalJs('JSON.stringify({acts:Object.keys(__sg5.state.acts||{}).length,friends:Array.isArray(__sg5.state.friends),nearby:Array.isArray(__sg5.state.nearby),bonds:!!__sg5.state.bonds,soc:__sg5.social(),socialBtn:!!document.querySelector(".sg5-dockbtn[data-panel=social]"),dock:[].slice.call(document.querySelectorAll(".sg5-dockbtn")).map(function(b){return b.getAttribute("data-panel")+":"+b.getAttribute("title")})})');
+console.log('  v5.2:', v52.v);
+let s52 = {}; try { s52 = JSON.parse(v52.v || '{}'); } catch (e) {}
+ok(s52.acts === 6, '双人互动动作表 6 项已下发', s52.acts);
+ok(s52.friends && s52.nearby && s52.bonds, '好友 / 附近 / 羁绊状态已初始化', s52);
+ok(s52.soc && s52.soc.acts === 6, '社交运行时接口可用', s52.soc);
+ok(s52.socialBtn === true && (s52.dock || []).join('').indexOf('social:一起玩') >= 0,
+  '「一起玩」入口已在 HUD', s52.dock);
+
+// 建筑「同一图层」重做确实进了生产静态产物，而不只是源码仓
+const prodEntry = readFileSync(REPO + '/market-apps/shiguang/frontend/entry.js', 'utf8');
+ok(prodEntry.indexOf('function roofSlope') >= 0
+  && prodEntry.indexOf('function drawStructureShadows') >= 0
+  && prodEntry.indexOf('function houseGeom') >= 0, '四坡屋顶 / 地面阴影 / 体积几何已在生产包');
+
 // 走两步 + 打一下，验证真实 API 链路
 await evalJs('__sg5.attack()');
 await sleep(220);
@@ -152,6 +173,29 @@ await evalJs('__sg5.panel("char")');
 await sleep(500);
 await shot('live-03-char');
 await evalJs('__sg5.panel("")');
+
+// 5.2 一起玩面板 / 可点邀请卡 / 世界层互动特效
+await evalJs('__sg5.panel("social")');
+await sleep(520);
+const sp = await evalJs('JSON.stringify({wide:!!document.querySelector(".sg5-panel-wide"),tabs:document.querySelectorAll(".sg5-tab").length})');
+console.log('  social panel:', sp.v);
+let spv = {}; try { spv = JSON.parse(sp.v || '{}'); } catch (e) {}
+ok(spv.wide === true && spv.tabs === 4, '一起玩面板四个页签已渲染', spv);
+await shot('live-04-social');
+await evalJs('__sg5.panel("")');
+
+await evalJs('__sg5.card()');
+await sleep(420);
+const card = await evalJs('!!document.querySelector(".sg5-invite")');
+ok(card.v === true, '右下角可点邀请卡已渲染', card.v);
+await shot('live-05-invite');
+
+await evalJs('__sg5.actfx()');
+await sleep(260);
+const fx = await evalJs('JSON.stringify(__sg5.social())');
+let fxv = {}; try { fxv = JSON.parse(fx.v || '{}'); } catch (e) {}
+ok(fxv.bubbles > 0, '世界层气泡与互动特效已生效', fxv);
+await shot('live-06-actfx');
 
 // /api/market/dev-preview 的 403 是宿主自己的「开发预览未开启」探测，与本应用无关
 const errs = logs.filter((l) => (l.indexOf('[error]') === 0 || l.indexOf('[exception]') === 0)

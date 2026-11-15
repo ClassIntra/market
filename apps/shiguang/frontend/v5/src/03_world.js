@@ -635,18 +635,22 @@
   function drawProp(ctx, p) {
     var sx = w2sX(p.x * TILE + TILE * 0.5), sy = w2sY(p.y * TILE + TILE);
     var z = S.zoom;
+    // 风：树冠与草按各自相位慢摆，影子留在原地不动。
+    // 每格一个相位，看上去才是「一片林子在风里」，而不是整屏一起平移。
+    var sway = Math.sin(S.time * (p.k === 'bush' ? 1.9 : 0.85) + p.x * 0.31 + p.y * 0.17 + p.s * 3)
+      * z * (p.k === 'bush' ? 0.55 : 0.38);
     switch (p.k) {
       case T.TREE:
         propShadow(ctx, sx, sy + z * 1.5, 1.7);
-        blitSprite(ctx, SPR.tree[(p.s * SPR.tree.length) | 0], sx, sy + z * 2, z);
+        blitSprite(ctx, SPR.tree[(p.s * SPR.tree.length) | 0], sx + sway, sy + z * 2, z);
         break;
       case T.PINE:
         propShadow(ctx, sx, sy + z * 1.5, 1.3);
-        blitSprite(ctx, SPR.pine[(p.s * SPR.pine.length) | 0], sx, sy + z * 2, z);
+        blitSprite(ctx, SPR.pine[(p.s * SPR.pine.length) | 0], sx + sway, sy + z * 2, z);
         break;
       case T.DEADTREE:
         propShadow(ctx, sx, sy + z, 1.1);
-        blitSprite(ctx, SPR.dead[(p.s * SPR.dead.length) | 0], sx, sy + z, z);
+        blitSprite(ctx, SPR.dead[(p.s * SPR.dead.length) | 0], sx + sway * 0.6, sy + z, z);
         break;
       case T.ROCK:
         propShadow(ctx, sx, sy + z * 0.6, 1.1);
@@ -656,7 +660,7 @@
         drawCliff(ctx, sx, sy, p.s);
         break;
       case 'bush':
-        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx, sy + z * 0.2, z * 0.8);
+        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx + sway, sy + z * 0.2, z * 0.8);
         break;
     }
   }

@@ -33,7 +33,7 @@ var requireAuth = auth.requireAuth;
 var world = SIM.world;
 var SIZE = world.size;
 // 广场正中（不是门口）：出生就站在空地上，四间房在视野里各占一角
-var TOWN_SPAWN = { x: world.town.cx + 0.5, y: world.town.cy + 1.5 };
+var TOWN_SPAWN = { x: world.town.cx + 0.5, y: world.town.cy + 0.2 };
 
 var APP = 'shiguang';
 var EV = 'shiguang5.';
@@ -65,7 +65,7 @@ function walkable(x, y) { return !W.isBlocked(world, x, y); }
 function npcPos(kind) {
   var hs = world.town.houses;
   for (var i = 0; i < hs.length; i++) {
-    if (hs[i].kind === kind) return { x: hs[i].x + hs[i].w / 2, y: hs[i].y + hs[i].h + 0.7 };
+    if (hs[i].kind === kind) return { x: hs[i].x + hs[i].w / 2 + 0.62, y: hs[i].y + hs[i].h + 1.55 };
   }
   return null;
 }
@@ -309,6 +309,8 @@ SIM.start({
   onRevive: function (id, by) {
     push(id, { k: 'revived', by: S.userName(by) });
     push(by, { k: 'revived-other', n: S.userName(id) });
+    // 被人从地上拉起来，比一起打十只怪更值得记住
+    try { if (SOC) SOC.bondAdd(id, by, 8); } catch (e) {}
   }
 });
 try { refreshLights(); } catch (e) {}
@@ -435,6 +437,11 @@ router.post('/v5/enter', requireAuth, function (req, res) {
     quests: SOC.questState(id),
     tide: SOC.tideState(),
     caves: world.landmarks.caves,
+    friends: SOC.friendList(id),
+    friendReq: SOC.pendingFriendReqs(id),
+    bonds: SOC.bondsOf(id),
+    nearby: SOC.nearbyList(id, 20),
+    acts: SOC.ACTS,
     goal: goal,
     phase: SIM.dayPhase(),
     serverNow: nowMs()
@@ -888,6 +895,7 @@ router.get('/v5/profile', requireAuth, function (req, res) {
   ok(res, {
     me: rec, stats: st, xpNext: L.xpToNext(rec.level), quests: SOC.questState(id),
     party: SOC.partyPayload(id), tide: SOC.tideState(),
+    friends: SOC.friendList(id), bonds: SOC.bondsOf(id), social: SOC.socialState(id),
     talentLeft: Math.max(0, total - used),
     towers: S.towers(),
     chestTotal: world.landmarks.chests.length,

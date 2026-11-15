@@ -30,6 +30,9 @@ module.exports = function createSocial(ctx) {
   var zoneName = ctx.zoneName;
   var TOWN_SPAWN = ctx.TOWN_SPAWN;
 
+  // social.js 不依赖 routes.js 的工具函数：距离自己算，免得跨文件隐式耦合
+  function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+
   // ---------------- 组队 ----------------
   var parties = {};      // pid -> { id, leader, members: [uid], at }
   var partyOf = {};      // uid -> pid
@@ -167,6 +170,294 @@ module.exports = function createSocial(ctx) {
     ok(res, { e: e, near: near.length });
   });
 
+  // ---------------- 好友 / 羁绊 / 悄悄话 / 双人互动 ----------------
+  // 为什么羁绊是数值：班里「认识」和「一起打过」是两回事。把一起扶起、
+  // 一起打怪、一起击掌攒成一条可见的刻度，同学才有理由第二次找同一个人玩。
+  // 存档复用 flags（不新建表）：friends 是 uid 数组，bond 是 { uid: 点数 }。
+  var FRIEND_MAX = 24;
+  var BOND_TIERS = [[0, '初识'], [10, '同行'], [40, '挚友'], [100, '知己'], [240, '莫逆']];
+  var ACTS = {
+    highfive: { name: '击掌', ch: '✋', bond: 3 },
+    hug: { name: '抱一下', ch: '♥', bond: 3 },
+    dance: { name: '一起跳舞', ch: '♪', bond: 4 },
+    cheer: { name: '加油', ch: '✦', bond: 2 },
+    bow: { name: '行个礼', ch: '☺', bond: 2 },
+    star: { name: '一起看星星', ch: '★', bond: 5 }
+  };
+  var friendReqs = {};    // uid -> { from, at }
+  var actInvites = {};    // uid -> { from, a, at }
+  var whisperLog = {};    // uid -> [{ from, to, n, text, at, self }]
+
+  function flagsOf(id) {
+    var rec = S.load(id, TOWN_SPAWN);
+    rec.flags = rec.flags || {};
+    if (!rec.flags.friends) rec.flags.friends = [];
+    if (!rec.flags.bond) rec.flags.bond = {};
+    return rec.flags;
+  }
+  function isFriend(a, b) { return flagsOf(a).friends.indexOf(b) >= 0; }
+  function bondTierName(v) {
+    var name = BOND_TIERS[0][1];
+    for (var i = 0; i < BOND_TIERS.length; i++) if (v >= BOND_TIERS[i][0]) name = BOND_TIERS[i][1];
+    return name;
+  }
+  function bondNext(v) {
+    for (var i = 0; i < BOND_TIERS.length; i++) if (v < BOND_TIERS[i][0]) return BOND_TIERS[i][0];
+    return null;
+  }
+  function bondOf(a, b) { return flagsOf(a).bond[b] || 0; }
+  function bondsOf(id) { return flagsOf(id).bond; }
+
+  // quiet=1 用于「一起打怪」这类高频事件：只在跨过称号时推送，不刷屏。
+  function bondAdd(a, b, n, quiet) {
+    if (!a || !b || a === b || !n) return 0;
+    var fa = flagsOf(a), fb = flagsOf(b);
+    var before = fa.bond[b] || 0;
+    fa.bond[b] = before + n;
+    fb.bond[a] = (fb.bond[a] || 0) + n;
+    S.markDirty(a); S.markDirty(b);
+    var after = fa.bond[b];
+    var crossed = bondTierName(before) !== bondTierName(after);
+    if (!quiet || crossed) {
+      push(a, { k: 'bond', u: b, n: S.userName(b), v: after, tier: bondTierName(after), crossed: crossed ? 1 : 0 });
+      push(b, { k: 'bond', u: a, n: S.userName(a), v: fb.bond[a], tier: bondTierName(fb.bond[a]), crossed: crossed ? 1 : 0 });
+      if (crossed) {
+        S.feed('story', a, S.userName(a) + ' 和 ' + S.userName(b) + ' 成了' + bondTierName(after));
+      }
+    }
+    return after;
+  }
+
+  function pendingFriendReqs(id) {
+    var r = friendReqs[id];
+    if (!r || nowMs() - r.at > 120000) { delete friendReqs[id]; return null; }
+    return { from: r.from, n: S.userName(r.from), left: Math.max(0, Math.round((120000 - (nowMs() - r.at)) / 1000)) };
+  }
+
+  function friendList(id) {
+    var f = flagsOf(id), me = SIM.players[id];
+    var out = [];
+    f.friends.forEach(function (u) {
+      var p = SIM.players[u];
+      var live = !!p && nowMs() - p.seen < C.ONLINE_TTL_MS;
+      var rec = S.load(u, TOWN_SPAWN);
+      var b = f.bond[u] || 0;
+      out.push({
+        u: u, n: S.userName(u), on: live ? 1 : 0, lv: rec.level || 1, look: rec.look || 'NinjaBlue',
+        zone: live ? zoneName(zoneAt(p.x, p.y)) : '', down: live && p.down ? 1 : 0,
+        bond: b, tier: bondTierName(b), next: bondNext(b),
+        d: live && me ? Math.round(dist(me.x, me.y, p.x, p.y) * 10) / 10 : -1
+      });
+    });
+    out.sort(function (a, b) { return (b.on - a.on) || (b.bond - a.bond); });
+    return out;
+  }
+
+  function nearbyList(id, radius) {
+    var me = SIM.players[id];
+    if (!me) return [];
+    var f = flagsOf(id), mates = partyMembers(id), out = [];
+    onlineIds().forEach(function (u) {
+      if (u === id) return;
+      var p = SIM.players[u];
+      if (!p) return;
+      var d = dist(me.x, me.y, p.x, p.y);
+      if (d > radius) return;
+      out.push({
+        u: u, n: p.name || S.userName(u), lv: p.level || 1, look: p.look || 'NinjaBlue',
+        down: p.down ? 1 : 0, fr: f.friends.indexOf(u) >= 0 ? 1 : 0,
+        pt: mates.indexOf(u) >= 0 ? 1 : 0, d: Math.round(d * 10) / 10,
+        zone: zoneName(zoneAt(p.x, p.y))
+      });
+    });
+    out.sort(function (a, b) { return a.d - b.d; });
+    return out;
+  }
+
+  function socialState(id) {
+    return {
+      friends: friendList(id),
+      req: pendingFriendReqs(id),
+      nearby: nearbyList(id, 20),
+      whispers: (whisperLog[id] || []).slice(-30),
+      act: actInvites[id] && nowMs() - actInvites[id].at < 30000
+        ? { from: actInvites[id].from, a: actInvites[id].a, n: S.userName(actInvites[id].from) } : null,
+      invites: Object.keys(actInvites).filter(function (u) { return actInvites[u].from === id; }).length
+    };
+  }
+
+  function whisperPush(id, row) {
+    if (!whisperLog[id]) whisperLog[id] = [];
+    whisperLog[id].push(row);
+    if (whisperLog[id].length > 40) whisperLog[id].shift();
+  }
+  function cleanText(v, max) {
+    var s = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    return s.slice(0, max || 60);
+  }
+  function nearIds(x, y, r) {
+    var out = [];
+    Object.keys(SIM.players).forEach(function (u) {
+      var p = SIM.players[u];
+      if (p && Math.abs(p.x - x) < r && Math.abs(p.y - y) < r) out.push(u);
+    });
+    return out;
+  }
+
+  // ---- 好友：申请 → 同意 → 双向写入。不搞「单向关注」，关系必须对等 ----
+  router.post('/v5/friend/request', requireAuth, function (req, res) {
+    var id = uidOf(req), to = String((req.body && req.body.to) || '');
+    if (!to || to === id) return fail(res, '不能加自己');
+    if (!SIM.players[to] || nowMs() - SIM.players[to].seen > C.ONLINE_TTL_MS) return fail(res, '他不在线，等他回到岛上吧');
+    var f = flagsOf(id), g = flagsOf(to);
+    if (f.friends.indexOf(to) >= 0) return fail(res, '已经是好友了');
+    if (f.friends.length >= FRIEND_MAX || g.friends.length >= FRIEND_MAX) return fail(res, '好友名单满了');
+    var me = SIM.players[id], other = SIM.players[to];
+    if (!me || dist(me.x, me.y, other.x, other.y) > 22) return fail(res, '走近些再打招呼');
+    friendReqs[to] = { from: id, at: nowMs() };
+    push(to, { k: 'friend-req', from: id, n: S.userName(id) });
+    push(id, { k: 'friend-sent', n: S.userName(to) });
+    ok(res, { to: to });
+  });
+
+  router.post('/v5/friend/accept', requireAuth, function (req, res) {
+    var id = uidOf(req), r = friendReqs[id];
+    if (!r) return fail(res, '没有待处理的好友申请');
+    if (nowMs() - r.at > 120000) { delete friendReqs[id]; return fail(res, '申请过期了'); }
+    var from = r.from;
+    delete friendReqs[id];
+    if (!SIM.players[from]) return fail(res, '对方已离线');
+    var f = flagsOf(id), g = flagsOf(from);
+    if (f.friends.length >= FRIEND_MAX || g.friends.length >= FRIEND_MAX) return fail(res, '好友名单满了');
+    if (f.friends.indexOf(from) < 0) f.friends.push(from);
+    if (g.friends.indexOf(id) < 0) g.friends.push(id);
+    S.markDirty(id); S.markDirty(from);
+    push(id, { k: 'friend-add', u: from, n: S.userName(from) });
+    push(from, { k: 'friend-add', u: id, n: S.userName(id) });
+    broadcast('friend', { a: id, b: from, an: S.userName(id), bn: S.userName(from) });
+    S.feed('story', id, S.userName(id) + ' 和 ' + S.userName(from) + ' 成了朋友');
+    bondAdd(id, from, 2);
+    ok(res, { friends: friendList(id) });
+  });
+
+  router.post('/v5/friend/remove', requireAuth, function (req, res) {
+    var id = uidOf(req), to = String((req.body && req.body.to) || '');
+    var f = flagsOf(id), g = flagsOf(to);
+    f.friends = f.friends.filter(function (u) { return u !== to; });
+    g.friends = g.friends.filter(function (u) { return u !== id; });
+    S.markDirty(id); S.markDirty(to);
+    push(to, { k: 'friend-remove', n: S.userName(id) });
+    ok(res, { friends: friendList(id) });
+  });
+
+  // ---- 悄悄话：只送到对方，不进世界频道 ----
+  router.post('/v5/whisper', requireAuth, function (req, res) {
+    var id = uidOf(req), to = String((req.body && req.body.to) || '');
+    var text = cleanText(req.body && req.body.text, 60);
+    if (!to || to === id) return fail(res, '没有收件人');
+    if (!text) return fail(res, '说点什么吧');
+    if (!SIM.players[to] || nowMs() - SIM.players[to].seen > C.ONLINE_TTL_MS) return fail(res, '他不在线');
+    var m = ctx.meta[id] || (ctx.meta[id] = {});
+    if (m.lastWhisper && nowMs() - m.lastWhisper < 900) return fail(res, '慢一点说', 429);
+    m.lastWhisper = nowMs();
+    var at = nowMs(), myName = S.userName(id), toName = S.userName(to);
+    whisperPush(id, { from: id, to: to, n: toName, text: text, at: at, self: 1 });
+    whisperPush(to, { from: id, to: to, n: myName, text: text, at: at, self: 0 });
+    push(to, { k: 'whisper', from: id, n: myName, text: text, at: at });
+    push(id, { k: 'whisper-echo', to: to, n: toName, text: text, at: at });
+    ok(res, { text: text });
+  });
+
+  router.get('/v5/whisper/log', requireAuth, function (req, res) {
+    ok(res, { list: (whisperLog[uidOf(req)] || []).slice(-30) });
+  });
+
+  // ---- 双人互动：先邀请，对方「回应」才成立。一个人单方面击掌不算互动 ----
+  router.post('/v5/social/act', requireAuth, function (req, res) {
+    var id = uidOf(req), b = req.body || {};
+    var to = String(b.to || ''), a = String(b.a || '');
+    if (!ACTS[a]) return fail(res, '没有这个动作');
+
+    // 回应邀请
+    if (b.accept) {
+      var inv = actInvites[id];
+      if (!inv) return fail(res, '邀请已经过去了');
+      if (nowMs() - inv.at > 30000) { delete actInvites[id]; return fail(res, '邀请过期了'); }
+      var from = inv.from, act = inv.a;
+      delete actInvites[id];
+      var me = SIM.players[id], other = SIM.players[from];
+      if (!me || !other) return fail(res, '有人离开了');
+      if (me.down || other.down) return fail(res, '倒着的时候先歇会儿');
+      if (dist(me.x, me.y, other.x, other.y) > 3.2) return fail(res, '走近些再回应');
+      var def = ACTS[act];
+      var mx = (me.x + other.x) / 2, my = (me.y + other.y) / 2;
+      var fn = S.userName(from), tn = S.userName(id);
+      broadcast('act', { a: act, from: from, to: id, fn: fn, tn: tn, ch: def.ch, x: mx, y: my }, nearIds(mx, my, 18));
+      push(from, { k: 'act-done', a: act, n: tn, ch: def.ch });
+      push(id, { k: 'act-done', a: act, n: fn, ch: def.ch });
+      bondAdd(from, id, def.bond);
+      ok(res, { a: act, bond: def.bond });
+      return;
+    }
+    if (b.decline) {
+      var old = actInvites[id];
+      if (old) {
+        delete actInvites[id];
+        push(old.from, { k: 'act-decline', n: S.userName(id) });
+      }
+      ok(res, {});
+      return;
+    }
+
+    // 发起邀请
+    if (!to || to === id) return fail(res, '没有对象');
+    var p = SIM.players[id], q = SIM.players[to];
+    if (!p || !q || nowMs() - q.seen > C.ONLINE_TTL_MS) return fail(res, '他不在线');
+    if (p.down || q.down) return fail(res, '先站起来吧');
+    if (dist(p.x, p.y, q.x, q.y) > 3.2) return fail(res, '走近些再打招呼（3 格内）');
+    var mm = ctx.meta[id] || (ctx.meta[id] = {});
+    if (mm.lastAct && nowMs() - mm.lastAct < 2500) return fail(res, '等一下再邀请', 429);
+    mm.lastAct = nowMs();
+    actInvites[to] = { from: id, a: a, at: nowMs() };
+    push(to, { k: 'act-invite', from: id, n: S.userName(id), a: a, an: ACTS[a].name, ch: ACTS[a].ch });
+    push(id, { k: 'act-wait', to: to, n: S.userName(to), a: a, an: ACTS[a].name });
+    ok(res, { to: to, a: a });
+  });
+
+  // ---- 队伍：说话 + 队长集结 ----
+  router.post('/v5/party/say', requireAuth, function (req, res) {
+    var id = uidOf(req);
+    var mates = partyMembers(id);
+    if (mates.length < 2) return fail(res, '还没有队友');
+    var text = cleanText(req.body && req.body.text, 60);
+    if (!text) return fail(res, '说点什么吧');
+    var m = ctx.meta[id] || (ctx.meta[id] = {});
+    if (m.lastPartySay && nowMs() - m.lastPartySay < 1000) return fail(res, '慢一点说', 429);
+    m.lastPartySay = nowMs();
+    mates.forEach(function (u) { push(u, { k: 'party-chat', from: id, n: S.userName(id), text: text, at: nowMs() }); });
+    ok(res, { text: text });
+  });
+
+  router.post('/v5/party/rally', requireAuth, function (req, res) {
+    var id = uidOf(req);
+    var pid = partyOf[id];
+    if (!pid || !parties[pid] || parties[pid].leader !== id) return fail(res, '只有队长能召集');
+    var p = SIM.players[id];
+    if (!p) return fail(res, '还没进入世界', 409);
+    var mates = partyMembers(id).filter(function (u) { return u !== id; });
+    if (!mates.length) return fail(res, '还没有队友');
+    mates.forEach(function (u) {
+      push(u, { k: 'rally', from: id, n: S.userName(id), x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: zoneName(zoneAt(p.x, p.y)) });
+    });
+    push(id, { k: 'rally-sent', n: mates.length });
+    ok(res, { count: mates.length });
+  });
+
+  router.get('/v5/social/state', requireAuth, function (req, res) {
+    ok(res, socialState(uidOf(req)));
+  });
+
+
   // ---------------- 支线 ----------------
   function questState(id) {
     var rec = S.load(id, TOWN_SPAWN);
@@ -244,6 +535,16 @@ module.exports = function createSocial(ctx) {
     if (!m || m.tide) return;
     var zone = m.zone || '';
     shares.forEach(function (id) {
+    // 一起打过就算一起经历过：好友 / 同队两两攒一点羁绊，安静累加、跨称号才提示
+    var team = shares.slice();
+    if (killer && team.indexOf(killer) < 0) team.push(killer);
+    for (var ba = 0; ba < team.length; ba++) {
+      for (var bb = ba + 1; bb < team.length; bb++) {
+        var u1 = team[ba], u2 = team[bb];
+        if (!u1 || !u2 || u1 === u2) continue;
+        if (isFriend(u1, u2) || (partyOf[u1] && partyOf[u1] === partyOf[u2])) bondAdd(u1, u2, 1, true);
+      }
+    }
       var rec = S.load(id, TOWN_SPAWN);
       rec.quests = rec.quests || {};
       Object.keys(D.QUESTS).forEach(function (qid) {
@@ -426,6 +727,9 @@ module.exports = function createSocial(ctx) {
     if (!tide && nowMs() >= nextTideAt) startTide();
     // 邀请 1 分钟过期
     Object.keys(invites).forEach(function (k) { if (nowMs() - invites[k].at > 60000) delete invites[k]; });
+    // 好友申请 2 分钟、互动邀请 30 秒自动过期
+    Object.keys(friendReqs).forEach(function (k) { if (nowMs() - friendReqs[k].at > 120000) delete friendReqs[k]; });
+    Object.keys(actInvites).forEach(function (k) { if (nowMs() - actInvites[k].at > 30000) delete actInvites[k]; });
   }
 
   return {
@@ -433,6 +737,13 @@ module.exports = function createSocial(ctx) {
     partyMembers: partyMembers,
     questState: questState,
     onKill: onKill,
+    friendList: friendList,
+    socialState: socialState,
+    nearbyList: nearbyList,
+    bondsOf: bondsOf,
+    bondAdd: bondAdd,
+    pendingFriendReqs: pendingFriendReqs,
+    ACTS: ACTS,
     tideState: tideState,
     tideScore: tideScore,
     startTide: startTide,

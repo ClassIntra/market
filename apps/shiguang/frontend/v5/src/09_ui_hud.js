@@ -125,6 +125,18 @@
       '...#####..##',
       '..........##',
       '..........#.'
+    ],
+    // 好友：两个并排的小人（一眼看出「一起玩」，而不是一颗心）
+    friend: [
+      '..###..###..',
+      '.#####.#####',
+      '..###..###..',
+      '...##...##..',
+      '.##########.',
+      '.##########.',
+      '..##.....##.',
+      '.####...####',
+      '.####...####'
     ]
   };
 
@@ -258,6 +270,7 @@
     dockBtn(dock, 'map', 'obj_ScrollEmpty', '地图', 'M');
     dockBtn(dock, 'dex', 'obj_Letter', '图鉴', 'V');
     dockBtn(dock, 'talent', 'it_heart', '天赋', 'T');
+    dockBtn(dock, 'social', 'glyph:friend', '一起玩', 'F');
     dockBtn(dock, 'help', 'glyph:gear', '设置', 'Esc');
     hud.appendChild(dock);
     UI.dock = dock;

@@ -1240,18 +1240,22 @@ var MUSIC = {
   function drawProp(ctx, p) {
     var sx = w2sX(p.x * TILE + TILE * 0.5), sy = w2sY(p.y * TILE + TILE);
     var z = S.zoom;
+    // 风：树冠与草按各自相位慢摆，影子留在原地不动。
+    // 每格一个相位，看上去才是「一片林子在风里」，而不是整屏一起平移。
+    var sway = Math.sin(S.time * (p.k === 'bush' ? 1.9 : 0.85) + p.x * 0.31 + p.y * 0.17 + p.s * 3)
+      * z * (p.k === 'bush' ? 0.55 : 0.38);
     switch (p.k) {
       case T.TREE:
         propShadow(ctx, sx, sy + z * 1.5, 1.7);
-        blitSprite(ctx, SPR.tree[(p.s * SPR.tree.length) | 0], sx, sy + z * 2, z);
+        blitSprite(ctx, SPR.tree[(p.s * SPR.tree.length) | 0], sx + sway, sy + z * 2, z);
         break;
       case T.PINE:
         propShadow(ctx, sx, sy + z * 1.5, 1.3);
-        blitSprite(ctx, SPR.pine[(p.s * SPR.pine.length) | 0], sx, sy + z * 2, z);
+        blitSprite(ctx, SPR.pine[(p.s * SPR.pine.length) | 0], sx + sway, sy + z * 2, z);
         break;
       case T.DEADTREE:
         propShadow(ctx, sx, sy + z, 1.1);
-        blitSprite(ctx, SPR.dead[(p.s * SPR.dead.length) | 0], sx, sy + z, z);
+        blitSprite(ctx, SPR.dead[(p.s * SPR.dead.length) | 0], sx + sway * 0.6, sy + z, z);
         break;
       case T.ROCK:
         propShadow(ctx, sx, sy + z * 0.6, 1.1);
@@ -1261,7 +1265,7 @@ var MUSIC = {
         drawCliff(ctx, sx, sy, p.s);
         break;
       case 'bush':
-        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx, sy + z * 0.2, z * 0.8);
+        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx + sway, sy + z * 0.2, z * 0.8);
         break;
     }
   }
@@ -1284,209 +1288,818 @@ var MUSIC = {
   // ======================== 04_landmarks.js ========================
   // ---------------- §7 地标 / 城镇 / 光照 ----------------
   // 镇上四间房：铁匠铺（锻造）、杂货铺（买药）、灯火客栈（休息回血）、守灯人之家（主线）。
-  // 房子的格子由服务端占位（WALL），外观在这里画 —— 数据是权威，长相是客户端的自由。
+  // 每栋房子的配色：屋顶 / 墙 / 木构 / 招牌。屋顶分成三阶，才有「脊上受光、檐口压暗」。
   var HOUSE_STYLE = {
-    smith: { roof: '#8d4a3a', wall: '#a58a63', sign: '#ffb066', label: '铁匠铺' },
-    shop: { roof: '#3f6d8e', wall: '#9c8a68', sign: '#8fd6ff', label: '杂货铺' },
-    inn: { roof: '#7a5a8e', wall: '#a8916c', sign: '#e0b6ff', label: '灯火客栈' },
-    hall: { roof: '#8e7a3a', wall: '#ad9670', sign: '#ffd98a', label: '守灯人之家' }
+    smith: { roof: '#7d4034', roofHi: '#94513f', roofLo: '#4d241c', wall: '#b3a281', wallHi: '#cbba94', wallLo: '#93825d', timber: '#5f4229', sign: '#ffb066', glow: '#ff9a4a', label: '铁匠铺' },
+    shop: { roof: '#3b5c72', roofHi: '#4e738a', roofLo: '#1e3342', wall: '#ad9e81', wallHi: '#c6b796', wallLo: '#8b7c5e', timber: '#57493a', sign: '#8fd6ff', glow: '#7fc0e8', label: '杂货铺' },
+    inn: { roof: '#4d4259', roofHi: '#635571', roofLo: '#2b2233', wall: '#b5a37c', wallHi: '#cdbb91', wallLo: '#93825d', timber: '#5a442f', sign: '#e0b6ff', glow: '#d0a0f0', label: '灯火客栈' },
+    hall: { roof: '#77652f', roofHi: '#8d7940', roofLo: '#453818', wall: '#baa780', wallHi: '#d2bf94', wallLo: '#97865e', timber: '#624c30', sign: '#ffd98a', glow: '#ffcf70', label: '守灯人之家' }
   };
 
-  function drawHouse(ctx, h, t) {
-    var st = HOUSE_STYLE[h.kind] || HOUSE_STYLE.shop;
-    var z = S.zoom;
-    var x0 = Math.round(w2sX(h.x * TILE));
-    var y0 = Math.round(w2sY(h.y * TILE));
-    var w = Math.round(h.w * TILE * z);
-    var hh = Math.round(h.h * TILE * z);
-    var lit = (S.phase === 'night' || S.phase === 'dusk');
-
-    // 落影
-    ctx.fillStyle = 'rgba(0,0,0,0.20)';
-    ctx.fillRect(x0 - w * 0.04, y0 + hh * 0.93, w * 1.08, hh * 0.10);
-
-    var rH = hh * 0.46;                       // 屋顶占近一半：这一条决定「像不像房子」
-    var wallTop = y0 + rH;
-    var wallH = hh - rH;
-
-    // ---- 墙 ----
-    ctx.fillStyle = st.wall;
-    ctx.fillRect(x0, wallTop, w, wallH);
-    // 木板横纹
-    ctx.fillStyle = 'rgba(60,44,28,0.10)';
-    for (var py2 = 1; py2 < 5; py2++) ctx.fillRect(x0, wallTop + wallH * 0.18 * py2, w, Math.max(1, z * 0.18));
-    // 石基（比墙暗）
-    ctx.fillStyle = 'rgba(40,32,22,0.30)';
-    ctx.fillRect(x0, y0 + hh - wallH * 0.16, w, wallH * 0.16);
-    ctx.fillStyle = '#8b7a5f';
-    for (var b2 = 0; b2 < w; b2 += z * 4) {
-      ctx.fillRect(x0 + b2, y0 + hh - wallH * 0.16, Math.max(1, z * 0.4), wallH * 0.16);
-    }
-    // 两侧与底部描边
-    ctx.fillStyle = 'rgba(30,22,14,0.55)';
-    ctx.fillRect(x0, wallTop, Math.max(1, z * 0.5), wallH);
-    ctx.fillRect(x0 + w - Math.max(1, z * 0.5), wallTop, Math.max(1, z * 0.5), wallH);
-    // 檐下阴影
-    var eg = ctx.createLinearGradient(0, wallTop, 0, wallTop + wallH * 0.3);
-    eg.addColorStop(0, 'rgba(0,0,0,0.34)');
-    eg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = eg;
-    ctx.fillRect(x0, wallTop, w, wallH * 0.3);
-
-    // ---- 屋顶 ----
-    var rX = x0 - w * 0.07, rW = w * 1.14;
-    ctx.fillStyle = st.roof;
-    ctx.fillRect(rX, y0, rW, rH);
-    // 瓦垄（竖纹）
-    ctx.fillStyle = 'rgba(0,0,0,0.13)';
-    for (var rx = rX + z * 2; rx < rX + rW; rx += z * 3.2) ctx.fillRect(Math.round(rx), y0 + rH * 0.12, Math.max(1, z * 0.3), rH * 0.78);
-    // 脊上受光 / 檐口压暗
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fillRect(rX, y0, rW, Math.max(1, rH * 0.10));
-    ctx.fillStyle = 'rgba(0,0,0,0.30)';
-    ctx.fillRect(rX, y0 + rH * 0.84, rW, rH * 0.16);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(rX, y0, rW, Math.max(1, z * 0.4));
-    // 屋脊小装饰
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.fillRect(x0 - w * 0.03, y0 - z * 0.5, w * 0.06, z * 0.5);
-
-    // ---- 门（凹进去的） ----
-    var dw = w * 0.16, dh = wallH * 0.56;
-    var dx = x0 + w * 0.42, dy = y0 + hh - dh;
-    ctx.fillStyle = 'rgba(20,14,8,0.55)';
-    ctx.fillRect(dx - z * 0.5, dy - z * 0.5, dw + z, dh + z * 0.5);
-    ctx.fillStyle = '#4e3721';
-    ctx.fillRect(dx, dy, dw, dh);
-    ctx.fillStyle = '#6f5033';
-    ctx.fillRect(dx + dw * 0.08, dy + dh * 0.06, dw * 0.84, dh * 0.88);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(dx + dw * 0.44, dy + dh * 0.06, Math.max(1, z * 0.2), dh * 0.88);
-    ctx.fillStyle = '#e8c87a';
-    ctx.fillRect(dx + dw * 0.7, dy + dh * 0.5, Math.max(1, z * 0.3), Math.max(1, z * 0.3));
-
-    // ---- 窗 ----
-    var ww = w * 0.12, wh = wallH * 0.26;
-    var wins = [[x0 + w * 0.14, y0 + rH + wallH * 0.22], [x0 + w * 0.74, y0 + rH + wallH * 0.22]];
-    for (var k = 0; k < wins.length; k++) {
-      var wx = wins[k][0], wy = wins[k][1];
-      ctx.fillStyle = 'rgba(20,14,8,0.5)';
-      ctx.fillRect(wx - z * 0.4, wy - z * 0.4, ww + z * 0.8, wh + z * 0.8);
-      ctx.fillStyle = lit ? '#ffd98a' : '#6f97ad';
-      ctx.fillRect(wx, wy, ww, wh);
-      ctx.fillStyle = 'rgba(255,255,255,0.28)';
-      ctx.fillRect(wx, wy, ww, Math.max(1, wh * 0.26));
-      ctx.fillStyle = 'rgba(20,14,8,0.65)';
-      ctx.fillRect(wx + ww * 0.46, wy, Math.max(1, z * 0.22), wh);
-      ctx.fillRect(wx, wy + wh * 0.46, ww, Math.max(1, z * 0.22));
-      if (lit) {
-        ctx.fillStyle = 'rgba(255,206,120,0.16)';
-        ctx.fillRect(wx - ww * 0.5, wy - wh * 0.4, ww * 2, wh * 1.8);
-      }
-    }
-
-    // ---- 招牌 ----
-    ctx.fillStyle = 'rgba(20,14,8,0.45)';
-    ctx.fillRect(x0 + w * 0.05 - z * 0.2, y0 + rH + wallH * 0.06 - z * 0.2, w * 0.16 + z * 0.4, Math.max(2, z * 0.8) + z * 0.4);
-    ctx.fillStyle = st.sign;
-    ctx.fillRect(x0 + w * 0.05, y0 + rH + wallH * 0.06, w * 0.16, Math.max(2, z * 0.8));
+  // ---------------- 建筑：一个图层的前提 ----------------
+  // 每栋房都按同一套顺序落在地上：
+  //   ① 门前石台（地面层，drawStructureShadows 里统一画）
+  //   ② 屋顶压住占地 w×h —— 从斜上方看到的前后两坡瓦面
+  //   ③ 正面墙从占地南缘往下长，门 / 窗 / 招牌都在这面墙上
+  //   ④ 墙脚接触线 + 台阶 + 统一方向（右下）的落影
+  // 旧版把整栋房「立」在占地底边之上，屋顶探出画面、占地却是一块空地砖，
+  // 于是上排看着像俯视、下排看着像正面 —— 这就是「不在一个图层」的根因。
+  function houseGeom(h) {
+    var u = TILE * S.zoom;
+    var W = h.w * u, D = h.h * u;
+    var over = Math.round(u * 0.15);        // 出檐
+    var pad = Math.round(u * 0.62);         // 画布留白（屋脊 / 烟囱 / 挑檐）
+    var wallH = Math.round(u * 1.18);       // 正面墙高
+    var ridgeY = Math.round(D * 0.40);      // 屋脊
+    var H = D + wallH;
+    return {
+      u: u, W: W, D: D, H: H, over: over, pad: pad, wallH: wallH, wallTop: D,
+      ridgeY: ridgeY, roofBack: ridgeY, roofFront: D - ridgeY
+    };
   }
 
-  // 广场上的几件小东西：一眼看去「有人住」，而不是一块空地。
+  // 门 / 窗的坐标只在这里定义一次：预渲染与帧里的窗光、门灯必须严格对齐，
+  // 否则夜里会出现「光飘在墙外」这种一眼假的问题。
+  function houseDoor(G) {
+    var dw = Math.round(G.W * 0.16);
+    var dx = Math.round(G.W * 0.5 - dw / 2);
+    var dy = G.D + G.wallH * 0.36;
+    var dh = G.H - dy - Math.round(G.u * 0.16);
+    return { dw: dw, dx: dx, dy: dy, dh: dh };
+  }
+  function houseWindows(G) {
+    return {
+      ww: Math.round(G.W * 0.132), wh: Math.round(G.u * 0.30),
+      wy: G.D + G.wallH * 0.40,
+      xs: [Math.round(G.W * 0.10), Math.round(G.W * 0.76)]
+    };
+  }
+
+  // 把 #rrggbb 整体加减亮度。叠半透明层会把颜色「洗灰」，
+  // 直接改 RGB 才能得到「同一批瓦、每片深浅不同」的土色。
+  function shadeHex(hex, amt) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = clamp(((n >> 16) & 255) + amt, 0, 255) | 0;
+    var g2 = clamp(((n >> 8) & 255) + amt, 0, 255) | 0;
+    var b = clamp((n & 255) + amt, 0, 255) | 0;
+    return 'rgb(' + r + ',' + g2 + ',' + b + ')';
+  }
+
+  // 稀疏点噪声：给大面积平涂加一点「不是塑料」的颗粒。只在预渲染里跑一次。
+  function speckle(g, x, y, w, h, color, count, seed, sizeMax) {
+    g.fillStyle = color;
+    var sm = sizeMax || 1;
+    for (var i = 0; i < count; i++) {
+      var px2 = x + ((hash2(seed + i, i * 7, 91) * w) | 0);
+      var py2 = y + ((hash2(i * 13, seed + i, 92) * h) | 0);
+      var s = 1 + ((hash2(i, seed, 93) * sm) | 0);
+      g.fillRect(px2, py2, s, s);
+    }
+  }
+
+  // 一坡瓦：逐片铺，每片自带明暗、上沿受光线、下沿暗缝。
+  // 坡面按行推进，行距不同就能表达「后坡被透视压扁、前坡舒展」。
+  // 一坡瓦：逐片铺，每片自带明暗、上沿受光线、下沿暗缝。
+  // off 让四个坡面的瓦缝错开 —— 对齐了会变成横贯屋顶的一条条砖缝。
+  function roofSlope(g, G, st, y0, y1, rows, bright, seed, off) {
+    var u = G.u, tileW = Math.max(5, Math.round(u * 0.19));
+    var rowH = (y1 - y0) / rows;
+    var x0 = -G.over, x1 = G.W + G.over;
+    for (var r = -1; r <= rows; r++) {
+      var ry = y0 + r * rowH + (off || 0);
+      var roff = (r % 2) * tileW * 0.5 + hash2(r, seed, 19) * tileW * 0.3;
+      for (var tx = x0 - tileW; tx < x1 + tileW; tx += tileW) {
+        var tw = Math.round(tileW * (0.84 + hash2(Math.round(tx), r, 23) * 0.3));
+        var hv = hash2(Math.round(tx + tileW * 3), r + 7, 37);
+        g.fillStyle = shadeHex(st.roof, (hv - 0.5) * 42 + bright);
+        g.fillRect(Math.round(tx + roff), Math.round(ry), tw, Math.max(2, Math.round(rowH)));
+        g.fillStyle = 'rgba(255,246,220,0.18)';
+        g.fillRect(Math.round(tx + roff), Math.round(ry), tw, Math.max(1, u * 0.021));
+        g.fillStyle = 'rgba(0,0,0,0.24)';
+        g.fillRect(Math.round(tx + roff), Math.round(ry + rowH - Math.max(1, u * 0.024)), tw, Math.max(1, u * 0.024));
+      }
+      g.fillStyle = 'rgba(0,0,0,0.24)';
+      g.fillRect(x0, Math.round(ry + rowH - Math.max(1, u * 0.012)), x1 - x0, Math.max(2, u * 0.024));
+    }
+  }
+
+  // 把一栋房子的静态结构画进离屏画布。(0,0) = 占地左上角（屋顶后檐），y 向下到墙脚。
+  function paintHouse(g, h, G) {
+    var st = HOUSE_STYLE[h.kind] || HOUSE_STYLE.shop;
+    var u = G.u, W = G.W, D = G.D, H = G.H, over = G.over;
+    var dark = 'rgba(26,18,12,0.92)';
+    var lw = Math.max(1, Math.round(u * 0.045));
+    var door = houseDoor(G), win = houseWindows(G);
+
+    // ---- 1. 四坡屋顶：屋脊是中间一条短线，四条戗脊连到四个檐角 ----
+    // 俯视角下只有把「后坡 / 前坡 / 左坡 / 右坡」画成四个不同明度的面，
+    // 房子才是一个盒子，而不是一块铺了瓦的地毯。这是「在同一图层」的关键。
+    var rl = W * 0.27, rr = W * 0.73, ry = G.ridgeY;
+    var rx0 = -over, rx1 = W + over;
+    g.save();
+    g.beginPath(); g.rect(rx0, 0, rx1 - rx0, D); g.clip();
+    g.fillStyle = st.roof;
+    g.fillRect(rx0, 0, rx1 - rx0, D);
+    var faces = [
+      { p: [[rx0, 0], [rx1, 0], [rr, ry], [rl, ry]], b: 30, rows: 4, seed: 11, off: 0 },
+      { p: [[rl, ry], [rr, ry], [rx1, D], [rx0, D]], b: -18, rows: 7, seed: 29, off: 0 },
+      { p: [[rx0, 0], [rl, ry], [rx0, D]], b: 10, rows: 7, seed: 43, off: u * 0.09 },
+      { p: [[rx1, 0], [rx1, D], [rr, ry]], b: -34, rows: 7, seed: 57, off: u * 0.05 }
+    ];
+    for (var fi = 0; fi < faces.length; fi++) {
+      var fc = faces[fi];
+      g.save();
+      g.beginPath();
+      g.moveTo(fc.p[0][0], fc.p[0][1]);
+      for (var pj = 1; pj < fc.p.length; pj++) g.lineTo(fc.p[pj][0], fc.p[pj][1]);
+      g.closePath(); g.clip();
+      roofSlope(g, G, st, 0, D, fc.rows, fc.b, fc.seed, fc.off);
+      g.restore();
+    }
+    // 天光：后檐亮、前檐暗（四个面共享同一盏灯）
+    var sky = g.createLinearGradient(0, 0, 0, D);
+    sky.addColorStop(0, 'rgba(255,248,224,0.13)');
+    sky.addColorStop(0.45, 'rgba(255,248,224,0)');
+    sky.addColorStop(1, 'rgba(0,0,0,0.20)');
+    g.fillStyle = sky;
+    g.fillRect(rx0, 0, rx1 - rx0, D);
+    g.restore();
+
+    // 戗脊：先压暗、再覆亮，瓦垄才有隆起的厚度
+    var hips = [[rl, ry, rx0, 0], [rr, ry, rx1, 0], [rl, ry, rx0, D], [rr, ry, rx1, D]];
+    for (var hi2 = 0; hi2 < hips.length; hi2++) {
+      var hp = hips[hi2];
+      g.strokeStyle = 'rgba(14,9,7,0.66)';
+      g.lineWidth = Math.max(3, u * 0.105);
+      g.beginPath(); g.moveTo(hp[0], hp[1]); g.lineTo(hp[2], hp[3]); g.stroke();
+      g.strokeStyle = st.roofHi;
+      g.lineWidth = Math.max(2, u * 0.05);
+      g.beginPath(); g.moveTo(hp[0], hp[1] - Math.max(1, u * 0.014)); g.lineTo(hp[2], hp[3] - Math.max(1, u * 0.014)); g.stroke();
+      g.strokeStyle = 'rgba(255,246,220,0.28)';
+      g.lineWidth = Math.max(1, u * 0.018);
+      g.beginPath(); g.moveTo(hp[0], hp[1] - Math.max(2, u * 0.032)); g.lineTo(hp[2], hp[3] - Math.max(2, u * 0.032)); g.stroke();
+    }
+    // 短屋脊：亮带 + 两端翘头 + 下沿压暗
+    var capH = Math.max(3, Math.round(u * 0.11));
+    g.fillStyle = st.roofHi;
+    g.fillRect(rl - u * 0.05, ry - capH * 0.5, rr - rl + u * 0.10, capH);
+    g.fillStyle = 'rgba(255,252,236,0.36)';
+    g.fillRect(rl - u * 0.05, ry - capH * 0.5, rr - rl + u * 0.10, Math.max(1, u * 0.025));
+    g.fillStyle = 'rgba(0,0,0,0.44)';
+    g.fillRect(rl - u * 0.05, ry + capH * 0.5 - Math.max(1, u * 0.02), rr - rl + u * 0.10, Math.max(1, u * 0.02));
+    g.fillStyle = st.roofHi;
+    g.fillRect(rl - u * 0.10, ry - capH * 0.85, u * 0.10, capH * 1.6);
+    g.fillRect(rr, ry - capH * 0.85, u * 0.10, capH * 1.6);
+    // 屋顶外框
+    g.strokeStyle = dark; g.lineWidth = lw;
+    g.strokeRect(rx0, 0, rx1 - rx0, D);
+
+    // 苔痕：老屋顶的绿不是装饰，是「这房子有年头」的唯一证据
+    for (var ms2 = 0; ms2 < 10; ms2++) {
+      var mx2 = rl + hash2(ms2, h.w, 61) * (rr - rl);
+      var my2 = ry + hash2(ms2, h.h, 62) * G.roofFront * 0.82;
+      g.fillStyle = 'rgba(84,110,62,' + (0.08 + hash2(ms2, 9, 63) * 0.15).toFixed(2) + ')';
+      g.fillRect(Math.round(mx2), Math.round(my2), Math.max(3, u * (0.07 + hash2(ms2, 4, 64) * 0.13)), Math.max(2, u * 0.035));
+    }
+
+
+    // ---- 2. 烟囱：坐在后坡上，往上探出屋脊。屋面上的影先画，否则是贴纸 ----
+    var chW = u * 0.42, chX = W * 0.70, chY = G.ridgeY * 0.46, chH = u * 0.86;
+    g.fillStyle = 'rgba(0,0,0,0.24)';
+    g.fillRect(chX + u * 0.10, chY - chH * 0.05, chW + u * 0.10, chH * 0.72);
+    g.fillStyle = '#8d7f68';
+    g.fillRect(chX, chY - chH, chW, chH);
+    g.fillStyle = '#6d6355';
+    g.fillRect(chX, chY - chH, Math.max(1, u * 0.055), chH);
+    g.fillStyle = '#a19684';
+    g.fillRect(chX - u * 0.07, chY - chH - u * 0.10, chW + u * 0.14, u * 0.12);
+    g.fillStyle = 'rgba(0,0,0,0.34)';
+    g.fillRect(chX - u * 0.07, chY - chH, chW + u * 0.14, Math.max(1, u * 0.022));
+    g.fillStyle = 'rgba(40,32,24,0.22)';
+    for (var cb = 1; cb < 4; cb++) g.fillRect(chX, Math.round(chY - chH + chH * 0.22 * cb), chW, Math.max(1, u * 0.016));
+    g.fillStyle = '#5b5245';
+    g.fillRect(chX + u * 0.06, chY - chH - u * 0.16, chW - u * 0.12, u * 0.07);
+    g.fillStyle = 'rgba(16,12,10,0.8)';
+    g.fillRect(chX + u * 0.14, chY - chH - u * 0.15, chW - u * 0.28, u * 0.05);
+    g.strokeStyle = 'rgba(26,18,12,0.75)'; g.lineWidth = lw;
+    g.beginPath();
+    g.moveTo(chX, chY - chH); g.lineTo(chX, chY);
+    g.moveTo(chX + chW, chY - chH); g.lineTo(chX + chW, chY);
+    g.stroke();
+
+    // ---- 3. 檐板 + 椽头：屋顶有厚度，才压得住墙 ----
+    var eaveH = Math.max(3, Math.round(u * 0.11));
+    g.fillStyle = st.roofLo;
+    g.fillRect(-over, D - eaveH * 0.35, W + over * 2, eaveH);
+    g.fillStyle = 'rgba(255,246,220,0.16)';
+    g.fillRect(-over, D - eaveH * 0.35, W + over * 2, Math.max(1, u * 0.022));
+    g.fillStyle = 'rgba(0,0,0,0.5)';
+    g.fillRect(-over, D + eaveH * 0.65 - Math.max(1, u * 0.02), W + over * 2, Math.max(1, u * 0.02));
+    for (var rt = -over + u * 0.08; rt < W + over - u * 0.05; rt += u * 0.22) {
+      g.fillStyle = 'rgba(44,29,16,0.60)';
+      g.fillRect(Math.round(rt), D + eaveH * 0.35, Math.max(2, u * 0.045), Math.max(2, u * 0.065));
+    }
+
+    // ---- 4. 正面墙：灰泥 + 木构，左受光右背光（全场景同一盏灯） ----
+    var plinthH = Math.round(u * 0.16);
+    var wallHH = G.wallH;
+    g.fillStyle = st.wall;
+    g.fillRect(0, D, W, wallHH);
+    var wg = g.createLinearGradient(0, 0, W, 0);
+    wg.addColorStop(0, 'rgba(255,248,224,0.17)');
+    wg.addColorStop(0.22, 'rgba(255,248,224,0)');
+    wg.addColorStop(0.72, 'rgba(30,20,10,0)');
+    wg.addColorStop(1, 'rgba(30,20,10,0.26)');
+    g.fillStyle = wg; g.fillRect(0, D, W, wallHH);
+    speckle(g, 0, D, W, wallHH, 'rgba(70,52,32,0.10)', Math.round(W / 4), 41, 2);
+    speckle(g, 0, D, W, wallHH, 'rgba(255,246,220,0.09)', Math.round(W / 6), 57, 1);
+    // 檐下阴影：屋顶压在墙上，这道渐变是「体块感」的来源
+    var eg = g.createLinearGradient(0, D, 0, D + wallHH * 0.56);
+    eg.addColorStop(0, 'rgba(0,0,0,0.46)');
+    eg.addColorStop(0.55, 'rgba(0,0,0,0.14)');
+    eg.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = eg; g.fillRect(0, D, W, wallHH * 0.56);
+    // 木构：上下横梁 + 立柱 + 两端斜撑
+    g.fillStyle = st.timber;
+    var beam = Math.max(2, Math.round(u * 0.085));
+    g.fillRect(0, D, W, beam);
+    g.fillRect(0, H - plinthH - beam, W, beam);
+    var posts = [0, W * 0.30, W * 0.70, W - beam];
+    for (var pi = 0; pi < posts.length; pi++) g.fillRect(Math.round(posts[pi]), D, beam, wallHH);
+    g.save();
+    g.beginPath();
+    g.moveTo(0, D + beam); g.lineTo(W * 0.30, D + beam); g.lineTo(0, D + wallHH * 0.52); g.closePath();
+    g.fillStyle = 'rgba(107,74,48,0.42)'; g.fill();
+    g.beginPath();
+    g.moveTo(W, D + beam); g.lineTo(W * 0.70, D + beam); g.lineTo(W, D + wallHH * 0.52); g.closePath();
+    g.fill();
+    g.restore();
+    g.fillStyle = 'rgba(255,240,200,0.15)';
+    g.fillRect(0, D, W, Math.max(1, u * 0.025));
+    // 转角石：左右两端各一列，墙才有「折到侧面」的暗示
+    for (var qi = 0; qi < 5; qi++) {
+      g.fillStyle = qi % 2 ? 'rgba(255,248,224,0.14)' : 'rgba(40,28,16,0.16)';
+      g.fillRect(0, D + qi * wallHH / 5, Math.max(2, u * 0.075), wallHH / 5 - 1);
+      g.fillRect(W - Math.max(2, u * 0.075), D + qi * wallHH / 5, Math.max(2, u * 0.075), wallHH / 5 - 1);
+    }
+
+    // ---- 5. 门：凹进门洞 + 双开木门 + 铁件 + 台阶 ----
+    var dx = door.dx, dy = door.dy, dw = door.dw, dh = door.dh;
+    g.fillStyle = 'rgba(24,16,10,0.92)';
+    g.fillRect(dx - u * 0.055, dy - u * 0.06, dw + u * 0.11, dh + u * 0.10);
+    g.fillStyle = st.timber;
+    g.fillRect(dx - u * 0.12, dy - u * 0.14, dw + u * 0.24, u * 0.10);
+    g.fillStyle = '#5b3f27';
+    g.fillRect(dx, dy, dw, dh);
+    g.fillStyle = '#7a5636';
+    g.fillRect(dx + u * 0.03, dy + u * 0.04, dw * 0.46, dh - u * 0.07);
+    g.fillRect(dx + dw * 0.51, dy + u * 0.04, dw * 0.46, dh - u * 0.07);
+    g.fillStyle = 'rgba(40,26,14,0.28)';
+    for (var vg2 = 1; vg2 < 4; vg2++) {
+      g.fillRect(dx + dw * 0.11 * vg2, dy + u * 0.05, Math.max(1, u * 0.018), dh - u * 0.08);
+      g.fillRect(dx + dw * 0.60 + dw * 0.11 * vg2, dy + u * 0.05, Math.max(1, u * 0.018), dh - u * 0.08);
+    }
+    g.fillStyle = '#4a4038';
+    g.fillRect(dx - u * 0.02, dy + dh * 0.20, dw + u * 0.04, Math.max(2, u * 0.05));
+    g.fillRect(dx - u * 0.02, dy + dh * 0.70, dw + u * 0.04, Math.max(2, u * 0.05));
+    g.fillStyle = '#d8b25e';
+    g.fillRect(dx + dw * 0.40, dy + dh * 0.44, Math.max(2, u * 0.042), Math.max(2, u * 0.042));
+    g.fillRect(dx + dw * 0.56, dy + dh * 0.44, Math.max(2, u * 0.042), Math.max(2, u * 0.042));
+    // 台阶：向画面下方伸出来，房子才「踩」在地上
+    var sw = dw + u * 0.48;
+    g.fillStyle = '#9c9080';
+    g.fillRect(dx - u * 0.24, H - plinthH, sw, u * 0.20);
+    g.fillStyle = '#bdb09a';
+    g.fillRect(dx - u * 0.24, H - plinthH, sw, u * 0.045);
+    g.fillStyle = 'rgba(0,0,0,0.30)';
+    g.fillRect(dx - u * 0.24, H - plinthH + u * 0.17, sw, u * 0.04);
+    g.strokeStyle = 'rgba(30,20,12,0.6)'; g.lineWidth = 1;
+    g.strokeRect(dx - u * 0.24, H - plinthH, sw, u * 0.20);
+
+    // 门灯（墙上的一盏小灯，夜里在帧里点亮）
+    var lampX = dx - u * 0.40, lampY = dy + u * 0.02;
+    g.fillStyle = '#3a2c1e';
+    g.fillRect(lampX - u * 0.03, lampY - u * 0.30, u * 0.05, u * 0.30);
+    g.fillRect(lampX - u * 0.02, lampY - u * 0.32, u * 0.16, u * 0.05);
+    g.fillStyle = '#e8c070';
+    g.fillRect(lampX + u * 0.08, lampY - u * 0.32, u * 0.19, u * 0.20);
+    g.fillStyle = '#2a2018';
+    g.fillRect(lampX + u * 0.05, lampY - u * 0.36, u * 0.25, u * 0.05);
+    g.fillRect(lampX + u * 0.05, lampY - u * 0.10, u * 0.25, u * 0.04);
+
+    // ---- 6. 窗：窗框 + 十字棂 + 窗台 + 花箱 ----
+    for (var k = 0; k < win.xs.length; k++) {
+      var wx = win.xs[k], wy = win.wy, ww = win.ww, wh = win.wh;
+      g.fillStyle = 'rgba(26,18,10,0.9)';
+      g.fillRect(wx - u * 0.05, wy - u * 0.05, ww + u * 0.10, wh + u * 0.10);
+      g.fillStyle = '#4a3c2c';
+      g.fillRect(wx - u * 0.02, wy - u * 0.02, ww + u * 0.04, wh + u * 0.04);
+      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.fillRect(wx, wy, ww, wh);
+      // 玻璃颜色交给帧里按昼夜填，这里只画棂
+      g.fillStyle = '#c3b08a';
+      g.fillRect(wx - u * 0.09, wy + wh + u * 0.04, ww + u * 0.18, u * 0.065);
+      g.fillStyle = 'rgba(0,0,0,0.28)';
+      g.fillRect(wx - u * 0.09, wy + wh + u * 0.105, ww + u * 0.18, u * 0.03);
+      // 花箱 + 三朵花
+      g.fillStyle = '#6b4a2e';
+      g.fillRect(wx - u * 0.04, wy + wh + u * 0.13, ww + u * 0.08, u * 0.12);
+      var bloom = ['#e0645a', '#f0c86a', '#d879b0'];
+      for (var bi = 0; bi < 3; bi++) {
+        g.fillStyle = bloom[(bi + k) % 3];
+        g.fillRect(Math.round(wx + u * 0.03 + (ww - u * 0.06) * (bi / 2)), wy + wh + u * 0.06, Math.max(2, u * 0.052), Math.max(2, u * 0.052));
+      }
+      g.fillStyle = '#4f7a38';
+      g.fillRect(wx + u * 0.02, wy + wh + u * 0.11, ww - u * 0.04, u * 0.03);
+    }
+
+    // ---- 7. 招牌：挂在檐板下的横匾 ----
+    var sbW = Math.round(dw * 1.62), sbH = Math.max(7, Math.round(u * 0.26));
+    var sbX = Math.round(W * 0.5 - sbW / 2), sbY = D + eaveH * 0.7;
+    g.fillStyle = '#2f2519';
+    g.fillRect(sbX - u * 0.04, sbY - u * 0.06, u * 0.05, u * 0.10);
+    g.fillRect(sbX + sbW - u * 0.01, sbY - u * 0.06, u * 0.05, u * 0.10);
+    g.fillStyle = '#3a2c1c';
+    g.fillRect(sbX - u * 0.05, sbY - u * 0.04, sbW + u * 0.10, sbH + u * 0.08);
+    g.fillStyle = '#4a3520';
+    g.fillRect(sbX, sbY, sbW, sbH);
+    g.fillStyle = st.sign; g.globalAlpha = 0.40;
+    g.fillRect(sbX + u * 0.03, sbY + u * 0.035, sbW - u * 0.06, sbH - u * 0.07);
+    g.globalAlpha = 1;
+    g.fillStyle = 'rgba(255,255,255,0.13)';
+    g.fillRect(sbX, sbY + sbH - Math.max(1, u * 0.028), sbW, Math.max(1, u * 0.028));
+    // 匾上的记号：锤 / 币 / 杯 / 灯
+    g.fillStyle = 'rgba(40,26,14,0.84)';
+    var icoX = sbX + sbW * 0.5 - u * 0.10, icoY = sbY + sbH * 0.22, ip = Math.max(1, u * 0.032);
+    if (h.kind === 'smith') {
+      g.fillRect(icoX + ip * 2, icoY, ip * 2, ip * 5);
+      g.fillRect(icoX, icoY + ip * 4, ip * 6, ip * 2);
+    } else if (h.kind === 'shop') {
+      g.fillRect(icoX, icoY + ip, ip * 5, ip * 4);
+      g.fillRect(icoX + ip, icoY, ip * 3, ip);
+      g.fillRect(icoX + ip * 2, icoY + ip * 2, ip, ip * 2);
+    } else if (h.kind === 'inn') {
+      g.fillRect(icoX, icoY, ip * 5, ip);
+      g.fillRect(icoX, icoY, ip, ip * 5);
+      g.fillRect(icoX + ip * 4, icoY, ip, ip * 5);
+      g.fillRect(icoX, icoY + ip * 4, ip * 5, ip);
+    } else {
+      g.fillRect(icoX + ip * 2, icoY - ip, ip * 2, ip * 2);
+      g.fillRect(icoX + ip, icoY + ip, ip * 4, ip * 3);
+      g.fillRect(icoX, icoY + ip * 4, ip * 6, ip);
+    }
+    g.strokeStyle = 'rgba(26,18,12,0.9)'; g.lineWidth = 1;
+    g.strokeRect(sbX, sbY, sbW, sbH);
+
+    // ---- 8. 墙脚：石砌台基 + 硬描边（最后压，边才硬） ----
+    g.fillStyle = '#7d7263';
+    g.fillRect(-u * 0.03, H - plinthH, W + u * 0.06, plinthH);
+    g.fillStyle = 'rgba(255,246,220,0.13)';
+    g.fillRect(-u * 0.03, H - plinthH, W + u * 0.06, Math.max(1, u * 0.025));
+    g.fillStyle = 'rgba(0,0,0,0.32)';
+    for (var bx = -u * 0.03; bx < W; bx += u * 0.34) g.fillRect(Math.round(bx), H - plinthH, Math.max(1, u * 0.02), plinthH);
+    g.strokeStyle = dark; g.lineWidth = lw;
+    g.beginPath();
+    g.moveTo(0, D); g.lineTo(0, H); g.lineTo(W, H); g.lineTo(W, D);
+    g.stroke();
+    g.fillStyle = 'rgba(8,10,16,0.55)';
+    g.fillRect(-u * 0.03, H, W + u * 0.06, Math.max(1, u * 0.035));
+  }
+
+  function houseCanvas(h, dark) {
+    if (!S.houseCache) S.houseCache = {};
+    var key = h.kind + '|' + h.w + '|' + h.h + '|' + S.zoom + '|' + dark;
+    if (S.houseCache[key]) return S.houseCache[key];
+    var G = houseGeom(h);
+    var cv = document.createElement('canvas');
+    cv.width = Math.ceil(G.W + G.over * 2 + G.pad * 2);
+    cv.height = Math.ceil(G.H + G.pad * 2);
+    var g = cv.getContext('2d');
+    g.translate(G.over + G.pad, G.pad);
+    paintHouse(g, h, G);
+    if (dark > 0) {
+      // source-atop 只染已经画过的像素：屋角外的透明区不会把地面也压暗
+      g.globalCompositeOperation = 'source-atop';
+      g.fillStyle = 'rgba(12,16,34,' + (dark * 0.42).toFixed(3) + ')';
+      g.fillRect(-G.over - G.pad, -G.pad, cv.width, cv.height);
+      g.globalCompositeOperation = 'source-over';
+    }
+    S.houseCache[key] = cv;
+    return cv;
+  }
+
+  // 地面层：门前石台 + 接触阴影 + 统一落影。所有大结构走这一遍（实体之前），
+  // 影子才不会盖到站在前面的人身上，房子也才有「踩在地上」的那块地。
+  function drawStructureShadows(ctx, vr) {
+    var houses = S.map.town.houses || [];
+    var u = S.zoom * TILE;
+    for (var i = 0; i < houses.length; i++) {
+      var h = houses[i];
+      if (h.x + h.w < vr.x0 - 4 || h.x > vr.x1 + 4 || h.y + h.h < vr.y0 - 4 || h.y > vr.y1 + 4) continue;
+      var G = houseGeom(h);
+      var x0 = w2sX(h.x * TILE), x1 = w2sX((h.x + h.w) * TILE);
+      var yTop = w2sY(h.y * TILE);
+      var yFoot = yTop + G.H;                     // 墙脚线
+      var yWall = yTop + G.D;                    // 占地南缘
+
+      // ① 门前石台：铺在墙脚前，砖缝错开，边缘压暗 —— 房子和地面在这里缝合
+      var apronY = yFoot - u * 0.02, apronH = u * 0.58;
+      ctx.fillStyle = 'rgba(28,22,16,0.20)';
+      ctx.fillRect(x0 - u * 0.18, apronY + apronH, (x1 - x0) + u * 0.36, u * 0.06);
+      ctx.fillStyle = '#a89a7e';
+      ctx.fillRect(x0 - u * 0.16, apronY, (x1 - x0) + u * 0.32, apronH);
+      ctx.fillStyle = 'rgba(255,248,224,0.08)';
+      ctx.fillRect(x0 - u * 0.16, apronY, (x1 - x0) + u * 0.32, u * 0.035);
+      var brickW = u * 0.62, brickH = u * 0.19;
+      for (var br = 0; br < 3; br++) {
+        var by = apronY + br * brickH;
+        var shift = (br % 2) * brickW * 0.5;
+        for (var bc = x0 - u * 0.16 - brickW; bc < x1 + u * 0.16; bc += brickW) {
+          ctx.fillStyle = hash2(Math.round(bc), br, 77) > 0.55 ? 'rgba(255,246,220,0.07)' : 'rgba(70,56,38,0.10)';
+          ctx.fillRect(bc + shift, by + brickH * 0.18, brickW - 2, brickH - 2);
+        }
+      }
+      ctx.strokeStyle = 'rgba(50,38,26,0.42)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x0 - u * 0.16, apronY, (x1 - x0) + u * 0.32, apronH);
+
+      // ② 落影：光源在左上，影子一律落右下（平行四边形，从墙脚出发）
+      var offX = u * 0.52, offY = u * 0.44;
+      ctx.beginPath();
+      ctx.moveTo(x0 + u * 0.04, yFoot - u * 0.03);
+      ctx.lineTo(x1 + u * 0.04, yFoot - u * 0.03);
+      ctx.lineTo(x1 + offX, yFoot + offY);
+      ctx.lineTo(x0 + offX, yFoot + offY);
+      ctx.closePath();
+      var sg = ctx.createLinearGradient(0, yFoot, 0, yFoot + offY);
+      sg.addColorStop(0, 'rgba(14,18,26,0.24)');
+      sg.addColorStop(1, 'rgba(14,18,26,0)');
+      ctx.fillStyle = sg;
+      ctx.fill();
+      // ③ 接触阴影：墙和地面之间必须有这条暗，否则是贴纸
+      ctx.fillStyle = 'rgba(10,12,18,0.32)';
+      ctx.fillRect(x0 - u * 0.05, yFoot - u * 0.045, (x1 - x0) + u * 0.10, u * 0.075);
+      // ④ 屋顶在地面上的投影（檐口往右下一小条），强化「建筑是立起来的」
+      ctx.fillStyle = 'rgba(12,16,24,0.12)';
+      ctx.fillRect(x0 + u * 0.10, yWall + u * 0.03, (x1 - x0) + u * 0.18, u * 0.06);
+    }
+    // 灯塔的影
+    for (var z in S.map.towers) {
+      var tw = S.map.towers[z];
+      if (!tw) continue;
+      var tx = w2sX(tw.x * TILE + TILE * 0.5), ty = w2sY((tw.y + 1) * TILE);
+      ctx.fillStyle = 'rgba(14,18,26,0.20)';
+      ctx.beginPath();
+      ctx.ellipse(tx + u * 0.34, ty + u * 0.1, u * 0.95, u * 0.24, -0.18, 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  function drawHouse(ctx, h, t) {
+    var G = houseGeom(h);
+    var u = G.u;
+    // 原点对齐「占地后檐」：屋顶压住自己的占地，正面墙落到占地南缘之下
+    var x0 = Math.round(w2sX(h.x * TILE));
+    var y0 = Math.round(w2sY(h.y * TILE));
+    var dark = S.phase === 'night' ? 1 : (S.phase === 'dusk' ? 0.55 : 0);
+    var cv = houseCanvas(h, dark);
+    var lit = (S.phase === 'night' || S.phase === 'dusk');
+
+    ctx.drawImage(cv, Math.round(x0 - G.over - G.pad), Math.round(y0 - G.pad));
+
+    // 窗光 / 玻璃反光（夜里亮灯，白天是天光）
+    var win = houseWindows(G);
+    var flick = 0.86 + Math.sin(t * 3.7 + h.x) * 0.14;
+    for (var k = 0; k < win.xs.length; k++) {
+      var wx = x0 + win.xs[k], sy = y0 + win.wy, ww = win.ww, wh = win.wh;
+      if (lit) {
+        ctx.fillStyle = 'rgba(255,204,120,' + (0.9 * flick).toFixed(2) + ')';
+        ctx.fillRect(wx, sy, ww, wh);
+        ctx.fillStyle = 'rgba(255,238,190,0.55)';
+        ctx.fillRect(wx, sy, ww, Math.max(2, Math.round(wh * 0.28)));
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        var gg = ctx.createRadialGradient(wx + ww / 2, sy + wh / 2, 0, wx + ww / 2, sy + wh / 2, u * 1.5);
+        gg.addColorStop(0, 'rgba(255,190,110,' + (0.15 * flick).toFixed(3) + ')');
+        gg.addColorStop(1, 'rgba(255,190,110,0)');
+        ctx.fillStyle = gg;
+        ctx.fillRect(wx - u * 1.5, sy - u * 1.5, u * 3, u * 3);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#6f8fa8';
+        ctx.fillRect(wx, sy, ww, wh);
+        ctx.fillStyle = 'rgba(220,240,255,0.34)';
+        ctx.beginPath();
+        ctx.moveTo(wx, sy + wh); ctx.lineTo(wx + ww * 0.55, sy);
+        ctx.lineTo(wx + ww, sy); ctx.lineTo(wx + ww * 0.45, sy + wh);
+        ctx.closePath(); ctx.fill();
+      }
+      // 十字棂重新压一遍，免得被光块盖掉
+      ctx.fillStyle = 'rgba(46,32,20,0.86)';
+      ctx.fillRect(Math.round(wx + ww * 0.47), sy, Math.max(2, u * 0.038), wh);
+      ctx.fillRect(wx, Math.round(sy + wh * 0.47), ww, Math.max(2, u * 0.038));
+    }
+
+    // 门灯：夜里往外溢一圈暖光
+    var door = houseDoor(G);
+    var lampX = x0 + door.dx - u * 0.40 + u * 0.17;
+    var lampY = y0 + door.dy + u * 0.02 - u * 0.22;
+    if (lit) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      var lg = ctx.createRadialGradient(lampX, lampY, 0, lampX, lampY, u * 2.1);
+      lg.addColorStop(0, 'rgba(255,200,110,' + (0.28 * flick).toFixed(3) + ')');
+      lg.addColorStop(1, 'rgba(255,200,110,0)');
+      ctx.fillStyle = lg;
+      ctx.fillRect(lampX - u * 2.1, lampY - u * 2.1, u * 4.2, u * 4.2);
+      ctx.restore();
+    }
+
+    // 炊烟：三团循环上升（白天淡一点、夜里被灯光照亮）
+    var chX = x0 + G.W * 0.70 + u * 0.21;
+    var chY = y0 + G.ridgeY * 0.46 - u * 0.86;
+    for (var s2 = 0; s2 < 3; s2++) {
+      var ph = (t * 0.32 + s2 * 0.333) % 1;
+      var sa = (1 - ph) * 0.20 * (lit ? 1.5 : 1);
+      if (sa <= 0.01) continue;
+      ctx.fillStyle = 'rgba(214,214,222,' + sa.toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(chX + Math.sin(ph * 6.2 + s2) * u * 0.14, chY - ph * u * 1.4, u * (0.09 + ph * 0.17), 0, 6.2832);
+      ctx.fill();
+    }
+  }
+
+  // 广场上的东西：不是装饰，是「这里有人住」的证据。
+  // 位置按新的 4×3 房屋布局重排，全部避开门口与主路。
   function townProps() {
     var t = S.map.town;
     return [
-      { k: 'well', x: t.cx + 3.5, y: t.cy - 1.5 },
-      { k: 'crate', x: t.cx - 4.5, y: t.cy + 2.2 },
-      { k: 'crate', x: t.cx - 3.6, y: t.cy + 2.6 },
-      { k: 'bench', x: t.cx + 1.5, y: t.cy + 4.2 },
-      { k: 'banner', x: t.cx - 3.2, y: t.cy + 8.5 },
-      { k: 'banner', x: t.cx + 3.2, y: t.cy + 8.5 }
+      { k: 'well', x: t.cx - 3.1, y: t.cy - 0.2 },
+      { k: 'board', x: t.cx + 1.6, y: t.cy - 1.4 },
+      { k: 'bench', x: t.cx + 2.1, y: t.cy + 0.5 },
+      { k: 'barrel', x: t.cx + 4.7, y: t.cy - 1.1 },
+      { k: 'barrel', x: t.cx + 5.2, y: t.cy - 0.5 },
+      { k: 'sack', x: t.cx + 4.3, y: t.cy - 0.3 },
+      { k: 'crate', x: t.cx - 4.9, y: t.cy - 0.9 },
+      { k: 'crate', x: t.cx - 5.4, y: t.cy - 0.35 },
+      { k: 'wood', x: t.cx - 4.6, y: t.cy + 1.4 },
+      { k: 'pot', x: t.cx - 2.0, y: t.cy + 1.5 },
+      { k: 'pot', x: t.cx + 2.0, y: t.cy + 1.5 },
+      { k: 'lamp', x: t.cx - 2.4, y: t.cy - 2.4 },
+      { k: 'lamp', x: t.cx + 2.4, y: t.cy - 2.4 },
+      { k: 'lamp', x: t.cx - 2.4, y: t.cy + 3.4 },
+      { k: 'lamp', x: t.cx + 2.4, y: t.cy + 3.4 }
     ];
   }
 
   function drawTownProp(ctx, p) {
     var u = S.zoom * TILE;   // 一格在屏幕上的像素数
-    var sx = w2sX(p.x * TILE), sy = w2sY(p.y * TILE);
+    var sx = Math.round(w2sX(p.x * TILE)), sy = Math.round(w2sY(p.y * TILE));
+    var lit = (S.phase === 'night' || S.phase === 'dusk');
+
+    // 统一落影：光源在左上，影子落右下。所有物件共用这一条，才像在同一个世界。
+    // ⚠️ w/h 已经是像素值（调用处都乘过 u 了）。这里再乘一次 u 会得到 700px 的巨影，
+    // 十几个道具叠起来就把整片广场压黑 —— 这类 bug 看起来像「全局光照坏了」。
+    function dropShadow(w, h) {
+      ctx.fillStyle = 'rgba(14,16,24,0.22)';
+      ctx.beginPath();
+      ctx.ellipse(sx + u * 0.06, sy + u * 0.02, w, h, 0, 0, 6.2832);
+      ctx.fill();
+    }
+
     if (p.k === 'well') {
       // 井：石圈 + 水面 + 两根柱子 + 小顶棚 + 吊桶
-      var rw = u * 0.62, rh = u * 0.26;
-      ctx.fillStyle = 'rgba(0,0,0,0.20)';
-      ctx.beginPath();
-      ctx.ellipse(sx, sy + u * 0.06, rw * 1.05, rh * 1.0, 0, 0, 6.2832);
-      ctx.fill();
+      var rw = u * 0.6, rh = u * 0.25;
+      dropShadow(rw * 1.15, rh * 1.15);
       ctx.fillStyle = '#5f574e';
-      ctx.beginPath();
-      ctx.ellipse(sx, sy - u * 0.10, rw, rh, 0, 0, 6.2832);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.08, rw, rh, 0, 0, 6.2832); ctx.fill();
       ctx.fillStyle = '#8a8175';
-      ctx.beginPath();
-      ctx.ellipse(sx, sy - u * 0.18, rw * 0.94, rh * 0.9, 0, 0, 6.2832);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.16, rw * 0.94, rh * 0.9, 0, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = 'rgba(255,250,232,0.18)';
+      ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.2, rw * 0.94, rh * 0.9, 0, Math.PI, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#25333f';
-      ctx.beginPath();
-      ctx.ellipse(sx, sy - u * 0.18, rw * 0.6, rh * 0.55, 0, 0, 6.2832);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(140,200,220,0.28)';
-      ctx.beginPath();
-      ctx.ellipse(sx - rw * 0.18, sy - u * 0.2, rw * 0.2, rh * 0.18, 0, 0, 6.2832);
-      ctx.fill();
+      ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.16, rw * 0.62, rh * 0.56, 0, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = 'rgba(140,200,220,0.26)';
+      ctx.beginPath(); ctx.ellipse(sx - rw * 0.2, sy - u * 0.19, rw * 0.2, rh * 0.16, 0, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = 'rgba(30,24,18,0.65)';
+      ctx.lineWidth = Math.max(1, S.zoom * 0.4);
+      ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.16, rw * 0.94, rh * 0.9, 0, 0, 6.2832); ctx.stroke();
       // 柱与顶
       ctx.fillStyle = '#5b4130';
-      ctx.fillRect(Math.round(sx - rw * 0.92), Math.round(sy - u * 1.05), Math.max(2, u * 0.1), Math.round(u * 0.86));
-      ctx.fillRect(Math.round(sx + rw * 0.82), Math.round(sy - u * 1.05), Math.max(2, u * 0.1), Math.round(u * 0.86));
-      ctx.fillStyle = '#8d4a3a';
+      ctx.fillRect(Math.round(sx - rw * 0.88), Math.round(sy - u * 1.02), Math.max(2, u * 0.1), Math.round(u * 0.84));
+      ctx.fillRect(Math.round(sx + rw * 0.78), Math.round(sy - u * 1.02), Math.max(2, u * 0.1), Math.round(u * 0.84));
+      ctx.fillStyle = '#7d4438';
       ctx.beginPath();
-      ctx.moveTo(sx - rw * 1.15, sy - u * 1.02);
-      ctx.lineTo(sx, sy - u * 1.42);
-      ctx.lineTo(sx + rw * 1.15, sy - u * 1.02);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(sx - rw * 1.2, sy - u * 0.98);
+      ctx.lineTo(sx, sy - u * 1.4);
+      ctx.lineTo(sx + rw * 1.2, sy - u * 0.98);
+      ctx.closePath(); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.16)';
       ctx.beginPath();
-      ctx.moveTo(sx - rw * 1.05, sy - u * 1.05);
-      ctx.lineTo(sx, sy - u * 1.36);
-      ctx.lineTo(sx + rw * 0.1, sy - u * 1.05);
-      ctx.closePath();
-      ctx.fill();
-      // 吊桶
-      ctx.fillStyle = 'rgba(210,200,170,0.5)';
-      ctx.fillRect(Math.round(sx - u * 0.02), Math.round(sy - u * 0.95), 1, Math.round(u * 0.5));
-      ctx.fillStyle = '#6f5034';
-      ctx.fillRect(Math.round(sx - u * 0.1), Math.round(sy - u * 0.5), Math.round(u * 0.2), Math.round(u * 0.16));
-    } else if (p.k === 'crate') {
-      ctx.fillStyle = '#7d5c38';
-      ctx.fillRect(sx - u * 0.32, sy - u * 0.55, u * 0.64, u * 0.55);
-      ctx.fillStyle = '#96703f';
-      ctx.fillRect(sx - u * 0.32, sy - u * 0.55, u * 0.64, u * 0.12);
-      ctx.fillStyle = 'rgba(60,40,22,0.5)';
-      ctx.fillRect(sx - u * 0.32, sy - u * 0.3, u * 0.64, Math.max(1, u * 0.06));
-    } else if (p.k === 'bench') {
-      ctx.fillStyle = '#6b4d34';
-      ctx.fillRect(sx - u * 0.7, sy - u * 0.3, u * 1.4, u * 0.14);
-      ctx.fillStyle = '#8a6340';
-      ctx.fillRect(sx - u * 0.7, sy - u * 0.42, u * 1.4, u * 0.12);
-      ctx.fillStyle = '#5a4130';
-      ctx.fillRect(sx - u * 0.6, sy - u * 0.28, u * 0.1, u * 0.28);
-      ctx.fillRect(sx + u * 0.5, sy - u * 0.28, u * 0.1, u * 0.28);
-    } else if (p.k === 'banner') {
-      ctx.fillStyle = '#5a4130';
-      ctx.fillRect(sx - u * 0.06, sy - u * 2.2, Math.max(2, u * 0.12), u * 2.2);
-      var flap = Math.sin(S.time * 2.2 + p.x) * u * 0.08;
-      ctx.fillStyle = '#c9694f';
+      ctx.moveTo(sx - rw * 1.1, sy - u * 1.0);
+      ctx.lineTo(sx, sy - u * 1.34);
+      ctx.lineTo(sx + rw * 0.12, sy - u * 1.0);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(28,20,14,0.8)';
       ctx.beginPath();
-      ctx.moveTo(sx + u * 0.06, sy - u * 2.1);
-      ctx.lineTo(sx + u * 0.9 + flap, sy - u * 1.95);
-      ctx.lineTo(sx + u * 0.06, sy - u * 1.5);
-      ctx.closePath();
+      ctx.moveTo(sx - rw * 1.2, sy - u * 0.98);
+      ctx.lineTo(sx, sy - u * 1.4);
+      ctx.lineTo(sx + rw * 1.2, sy - u * 0.98);
+      ctx.stroke();
+      // 吊桶
+      ctx.fillStyle = 'rgba(210,200,170,0.45)';
+      ctx.fillRect(Math.round(sx), Math.round(sy - u * 0.92), 1, Math.round(u * 0.42));
+      ctx.fillStyle = '#6f5034';
+      ctx.fillRect(Math.round(sx - u * 0.09), Math.round(sy - u * 0.5), Math.round(u * 0.18), Math.round(u * 0.15));
+    } else if (p.k === 'crate') {
+      // 木箱：顶面 + 正面 + 侧面。少任何一个面都是一张贴纸。
+      var cw = u * 0.5, ch = u * 0.42, dep = u * 0.16;
+      dropShadow(cw * 0.62, u * 0.13);
+      ctx.fillStyle = '#8a6236';
+      ctx.fillRect(sx - cw / 2, sy - ch - dep, cw, dep);                       // 顶
+      ctx.fillStyle = '#a87c45';
+      ctx.fillRect(sx - cw / 2, sy - ch - dep, cw, Math.max(1, u * 0.03));
+      ctx.fillStyle = '#6d4b2a';
+      ctx.fillRect(sx - cw / 2, sy - ch, cw, ch);                              // 正面
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(sx - cw / 2, sy - ch, cw, Math.max(1, u * 0.025));
+      // 木条
+      ctx.fillStyle = '#8a6236';
+      ctx.fillRect(sx - cw / 2, sy - ch * 0.62, cw, Math.max(1, u * 0.035));
+      ctx.fillRect(sx - cw * 0.36, sy - ch, Math.max(1, u * 0.03), ch);
+      ctx.fillRect(sx + cw * 0.32, sy - ch, Math.max(1, u * 0.03), ch);
+      ctx.strokeStyle = 'rgba(30,20,12,0.75)';
+      ctx.lineWidth = Math.max(1, S.zoom * 0.35);
+      ctx.strokeRect(sx - cw / 2, sy - ch, cw, ch);
+      ctx.beginPath();
+      ctx.moveTo(sx - cw / 2, sy - ch - dep); ctx.lineTo(sx + cw / 2, sy - ch - dep);
+      ctx.lineTo(sx + cw / 2, sy - ch);
+      ctx.stroke();
+    } else if (p.k === 'barrel') {
+      var bw = u * 0.42, bh = u * 0.56;
+      dropShadow(bw * 0.62, u * 0.12);
+      ctx.fillStyle = '#6b4a2c';
+      ctx.beginPath();
+      ctx.ellipse(sx, sy - bh, bw / 2, u * 0.07, 0, 0, 6.2832);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,225,150,0.9)';
-      ctx.fillRect(sx + u * 0.2, sy - u * 1.86, u * 0.16, u * 0.16);
+      ctx.fillStyle = '#8a5f38';
+      ctx.fillRect(sx - bw / 2, sy - bh, bw, bh);
+      ctx.fillStyle = '#a3743f';
+      ctx.fillRect(sx - bw / 2, sy - bh, bw * 0.3, bh);
+      ctx.fillStyle = '#4a4238';
+      ctx.fillRect(sx - bw / 2, sy - bh * 0.78, bw, Math.max(2, u * 0.045));
+      ctx.fillRect(sx - bw / 2, sy - bh * 0.3, bw, Math.max(2, u * 0.045));
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillRect(sx + bw * 0.28, sy - bh, bw * 0.22, bh);
+      ctx.strokeStyle = 'rgba(30,20,12,0.7)';
+      ctx.lineWidth = Math.max(1, S.zoom * 0.35);
+      ctx.beginPath(); ctx.ellipse(sx, sy - bh, bw / 2, u * 0.07, 0, 0, 6.2832); ctx.stroke();
+    } else if (p.k === 'sack') {
+      var sw = u * 0.34, sh = u * 0.34;
+      dropShadow(sw * 0.7, u * 0.1);
+      ctx.fillStyle = '#c4b083';
+      ctx.beginPath();
+      ctx.moveTo(sx - sw * 0.5, sy);
+      ctx.quadraticCurveTo(sx - sw * 0.62, sy - sh * 0.8, sx - sw * 0.16, sy - sh);
+      ctx.lineTo(sx + sw * 0.16, sy - sh);
+      ctx.quadraticCurveTo(sx + sw * 0.62, sy - sh * 0.8, sx + sw * 0.5, sy);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,250,230,0.22)';
+      ctx.beginPath();
+      ctx.moveTo(sx - sw * 0.42, sy - sh * 0.1);
+      ctx.quadraticCurveTo(sx - sw * 0.5, sy - sh * 0.7, sx - sw * 0.14, sy - sh * 0.92);
+      ctx.lineTo(sx - sw * 0.02, sy - sh * 0.92);
+      ctx.lineTo(sx - sw * 0.1, sy - sh * 0.1);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#6f5a38';
+      ctx.fillRect(sx - sw * 0.2, sy - sh - u * 0.03, sw * 0.4, u * 0.06);
+      ctx.strokeStyle = 'rgba(40,28,16,0.6)';
+      ctx.lineWidth = Math.max(1, S.zoom * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(sx - sw * 0.5, sy); ctx.quadraticCurveTo(sx - sw * 0.62, sy - sh * 0.8, sx - sw * 0.16, sy - sh);
+      ctx.stroke();
+    } else if (p.k === 'bench') {
+      var lw2 = u * 0.72, lh = u * 0.16;
+      dropShadow(lw2 * 0.55, u * 0.1);
+      // 腿
+      ctx.fillStyle = '#4a3a28';
+      ctx.fillRect(Math.round(sx - lw2 * 0.42), sy - lh, Math.max(2, u * 0.07), lh);
+      ctx.fillRect(Math.round(sx + lw2 * 0.34), sy - lh, Math.max(2, u * 0.07), lh);
+      // 坐面
+      ctx.fillStyle = '#8a6340';
+      ctx.fillRect(sx - lw2 / 2, sy - lh - u * 0.09, lw2, u * 0.09);
+      ctx.fillStyle = '#a87c50';
+      ctx.fillRect(sx - lw2 / 2, sy - lh - u * 0.09, lw2, Math.max(1, u * 0.03));
+      // 靠背
+      ctx.fillStyle = '#6b4d34';
+      ctx.fillRect(sx - lw2 / 2, sy - lh - u * 0.4, lw2, u * 0.06);
+      ctx.fillRect(sx - lw2 * 0.42, sy - lh - u * 0.4, Math.max(2, u * 0.05), u * 0.32);
+      ctx.fillRect(sx + lw2 * 0.38, sy - lh - u * 0.4, Math.max(2, u * 0.05), u * 0.32);
+      ctx.strokeStyle = 'rgba(30,20,12,0.55)';
+      ctx.lineWidth = Math.max(1, S.zoom * 0.3);
+      ctx.strokeRect(sx - lw2 / 2, sy - lh - u * 0.09, lw2, u * 0.09);
+    } else if (p.k === 'board') {
+      // 公告板：两根柱子 + 一块板 + 三张告示
+      var bdW = u * 0.88, bdH = u * 0.6;
+      dropShadow(bdW * 0.5, u * 0.1);
+      ctx.fillStyle = '#5b4430';
+      ctx.fillRect(Math.round(sx - bdW * 0.38), sy - u * 0.9, Math.max(2, u * 0.08), u * 0.9);
+      ctx.fillRect(Math.round(sx + bdW * 0.32), sy - u * 0.9, Math.max(2, u * 0.08), u * 0.9);
+      ctx.fillStyle = '#3a2c1c';
+      ctx.fillRect(sx - bdW / 2 - u * 0.04, sy - u * 0.98 - u * 0.04, bdW + u * 0.08, bdH + u * 0.08);
+      ctx.fillStyle = '#9a7a4e';
+      ctx.fillRect(sx - bdW / 2, sy - u * 0.98, bdW, bdH);
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      for (var bp = 1; bp < 4; bp++) ctx.fillRect(sx - bdW / 2, sy - u * 0.98 + bdH * 0.25 * bp, bdW, Math.max(1, u * 0.02));
+      // 告示纸
+      var papers = [[-0.3, 0.14, 0.3, 0.3], [0.06, 0.1, 0.26, 0.36], [0.34, 0.2, 0.24, 0.24]];
+      for (var pp = 0; pp < papers.length; pp++) {
+        var q = papers[pp];
+        ctx.fillStyle = pp === 1 ? '#f0e6c8' : '#ddd0ad';
+        ctx.fillRect(sx - bdW / 2 + bdW * (0.5 + q[0]), sy - u * 0.98 + bdH * q[1], bdW * q[2], bdH * q[3]);
+        ctx.fillStyle = 'rgba(60,44,26,0.55)';
+        ctx.fillRect(sx - bdW / 2 + bdW * (0.5 + q[0]) + 2, sy - u * 0.98 + bdH * q[1] + 3, bdW * q[2] * 0.6, Math.max(1, u * 0.02));
+      }
+      ctx.strokeStyle = 'rgba(26,18,12,0.85)';
+      ctx.strokeRect(sx - bdW / 2, sy - u * 0.98, bdW, bdH);
+    } else if (p.k === 'pot') {
+      var pw = u * 0.26, ph = u * 0.2;
+      dropShadow(pw * 0.85, u * 0.08);
+      ctx.fillStyle = '#9c5f45';
+      ctx.beginPath();
+      ctx.moveTo(sx - pw * 0.4, sy - ph);
+      ctx.lineTo(sx + pw * 0.4, sy - ph);
+      ctx.lineTo(sx + pw * 0.5, sy);
+      ctx.lineTo(sx - pw * 0.5, sy);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,236,200,0.25)';
+      ctx.fillRect(sx - pw * 0.34, sy - ph, pw * 0.24, ph);
+      ctx.fillStyle = '#b06a4c';
+      ctx.fillRect(sx - pw * 0.48, sy - ph - u * 0.04, pw * 0.96, u * 0.05);
+      // 花
+      var bloom2 = ['#e0645a', '#f0c86a', '#d879b0'];
+      for (var pb = 0; pb < 3; pb++) {
+        ctx.fillStyle = '#4f7a38';
+        ctx.fillRect(Math.round(sx - pw * 0.3 + pw * 0.3 * pb), sy - ph - u * 0.16, Math.max(1, u * 0.03), u * 0.13);
+        ctx.fillStyle = bloom2[pb];
+        ctx.fillRect(Math.round(sx - pw * 0.34 + pw * 0.3 * pb), sy - ph - u * 0.2, Math.max(2, u * 0.07), Math.max(2, u * 0.07));
+      }
+    } else if (p.k === 'wood') {
+      // 柴堆：几根横放的木头，端面画年轮
+      dropShadow(u * 0.3, u * 0.1);
+      for (var w2 = 0; w2 < 3; w2++) {
+        for (var w3 = 0; w3 < 2; w3++) {
+          var lx = sx - u * 0.34 + w2 * u * 0.045, ly = sy - u * 0.1 - w3 * u * 0.13 - w2 * 0.02;
+          ctx.fillStyle = w2 % 2 ? '#7a5636' : '#8a6340';
+          ctx.fillRect(Math.round(lx), Math.round(ly - u * 0.1), u * 0.5, u * 0.11);
+          ctx.fillStyle = '#c9ab7c';
+          ctx.beginPath();
+          ctx.ellipse(lx + u * 0.5, ly - u * 0.045, u * 0.045, u * 0.055, 0, 0, 6.2832);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(120,90,56,0.7)';
+          ctx.beginPath();
+          ctx.ellipse(lx + u * 0.5, ly - u * 0.045, u * 0.018, u * 0.022, 0, 0, 6.2832);
+          ctx.fill();
+        }
+      }
+    } else if (p.k === 'lamp') {
+      // 灯柱：守夜人的路灯。白天是木杆 + 铁灯笼，夜里点亮（光源在 lightSources 里注册）
+      var poleH = u * 1.7;
+      dropShadow(u * 0.16, u * 0.06);
+      ctx.fillStyle = '#4a3a28';
+      ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - poleH), Math.max(2, u * 0.09), Math.round(poleH));
+      ctx.fillStyle = 'rgba(255,240,200,0.14)';
+      ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - poleH), Math.max(1, u * 0.03), Math.round(poleH));
+      // 横挑
+      ctx.fillStyle = '#4a3a28';
+      ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - poleH), Math.round(u * 0.26), Math.max(2, u * 0.06));
+      // 灯笼
+      var lgx = sx + u * 0.14, lgy = sy - poleH + u * 0.06;
+      ctx.fillStyle = '#2a2118';
+      ctx.fillRect(Math.round(lgx - u * 0.1), Math.round(lgy), Math.max(1, u * 0.03), u * 0.1);
+      ctx.fillStyle = '#3a2c1e';
+      ctx.fillRect(Math.round(lgx - u * 0.13), Math.round(lgy + u * 0.1), u * 0.24, u * 0.26);
+      if (lit) {
+        var fl = 0.8 + Math.sin(S.time * 5 + p.x) * 0.2;
+        ctx.fillStyle = 'rgba(255,214,130,' + fl.toFixed(2) + ')';
+        ctx.fillRect(Math.round(lgx - u * 0.08), Math.round(lgy + u * 0.13), u * 0.15, u * 0.19);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        var g2 = ctx.createRadialGradient(lgx, lgy + u * 0.22, 0, lgx, lgy + u * 0.22, u * 1.9);
+        g2.addColorStop(0, 'rgba(255,196,110,' + (0.20 * fl).toFixed(3) + ')');
+        g2.addColorStop(1, 'rgba(255,196,110,0)');
+        ctx.fillStyle = g2;
+        ctx.fillRect(lgx - u * 1.9, lgy + u * 0.22 - u * 1.9, u * 3.8, u * 3.8);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = 'rgba(120,140,160,0.55)';
+        ctx.fillRect(Math.round(lgx - u * 0.08), Math.round(lgy + u * 0.13), u * 0.15, u * 0.19);
+      }
+      ctx.fillStyle = '#2a2118';
+      ctx.fillRect(Math.round(lgx - u * 0.15), Math.round(lgy + u * 0.08), u * 0.28, u * 0.05);
+      ctx.fillRect(Math.round(lgx - u * 0.15), Math.round(lgy + u * 0.35), u * 0.28, u * 0.05);
     }
   }
 
-  // 区域灯塔：一根真的塔 —— 石基、塔身、三扇窄窗、顶部灯室。
-  // 没点亮时是冷灰石 + 紫黑灯室；点亮后整根发亮，光柱冲天。
   function drawTower(ctx, z, t) {
     var tw = S.map.towers[z];
     if (!tw) return;
@@ -1763,6 +2376,18 @@ var MUSIC = {
       if (!S.towers[z]) continue;
       var t = S.map.towers[z];
       if (t) L.push({ x: t.x * TILE, y: t.y * TILE, r: 12 * TILE, warm: 1 });
+    }
+    // 广场灯柱：夜里是一圈真的光，不是贴上去的亮点
+    var tps = townProps();
+    for (var ti = 0; ti < tps.length; ti++) {
+      if (tps[ti].k === 'lamp') L.push({ x: tps[ti].x * TILE, y: (tps[ti].y - 1.5) * TILE, r: 5.2 * TILE, warm: 1 });
+    }
+    // 每栋房子的门灯：夜里门口一小片暖光。房子因此「有一盏自己的灯」，
+    // 而不是被夜色整体糊掉的一块色块。
+    var hs = (S.map.town && S.map.town.houses) || [];
+    for (var hi = 0; hi < hs.length; hi++) {
+      var hh2 = hs[hi];
+      L.push({ x: (hh2.x + hh2.w * 0.32) * TILE, y: (hh2.y + hh2.h) * TILE, r: 4.4 * TILE, warm: 1 });
     }
     for (var i = 0; i < S.lamps.length; i++) {
       var lp = S.lamps[i];
@@ -2719,7 +3344,9 @@ var MUSIC = {
       ctx.stroke();
       return;
     }
-    var bob = p.moving ? Math.sin(S.time * 12) * 0.6 : 0;
+    // 站着不动也要「活着」：极轻的呼吸起伏 + 走路时更快的踏步弹性
+    var phase = S.time * 2.05 + (p.x || 0) * 0.7 + (p.y || 0) * 0.3;
+    var bob = p.moving ? Math.sin(S.time * 12) * 0.6 : Math.sin(phase) * 0.55;
     drawCharacter(p.look, x, y + bob, p.face, p.moving, p.animT || 0, 1);
     // 攻击特效
     if (isMe && p.act && p.act.type === 'attack' && p.act.t < p.act.dur * 0.7) {
@@ -2877,7 +3504,9 @@ var MUSIC = {
     var houses = S.map.town.houses;
     for (i = 0; i < houses.length; i++) {
       var h = houses[i];
-      DRAW.push({ y: (h.y + h.h) * TILE, kind: 'house', ref: h });
+      // 排序锚点是「墙脚」，不是占地南缘 —— 正面墙往下长了 1.18 格，
+      // 站在门口的人必须画在这面墙之后（贴着门），站在屋檐下的人要被墙挡住。
+      DRAW.push({ y: (h.y + h.h + 1.18) * TILE, kind: 'house', ref: h });
     }
     // 灯塔
     for (var z in S.map.towers) {
@@ -2928,8 +3557,10 @@ var MUSIC = {
     var ctx = S.ctx;
     var vr = viewRange();
     collectProps(vr);
-    drawGround(ctx, vr);
-    drawWater(ctx, vr, S.time);
+    if (!S.dbgNoGround) drawGround(ctx, vr);
+    if (!S.dbgNoGround) drawWater(ctx, vr, S.time);
+    // 大结构的落影必须在实体之前：影子在地上，不能在站在前面的人身上
+    drawStructureShadows(ctx, vr);
     buildDrawList(vr);
     for (var i = 0; i < DRAW.length; i++) {
       var d = DRAW[i];
@@ -2950,9 +3581,10 @@ var MUSIC = {
     }
     drawShots();
     drawEmotes();
+    drawSocialFx(ctx);
     drawFx(dt);
-    drawNight(ctx, S.view.w, S.view.h);
-    drawAtmosphere(ctx, S.view.w, S.view.h);
+    if (!S.dbgNoNight) drawNight(ctx, S.view.w, S.view.h);
+    if (!S.dbgNoAtmo) drawAtmosphere(ctx, S.view.w, S.view.h);
   }
 
   // 大气层：冷热分层 + 暗角。少了它，再好的像素画也像贴纸贴在屏幕上。
@@ -2975,7 +3607,10 @@ var MUSIC = {
   function drawNpc(ctx, n) {
     var x = w2sX(n.x * TILE), y = w2sY(n.y * TILE + TILE * 0.4);
     shadow(x, y + 4, 1);
-    drawCharacter(n.look, x, y, 0, false, 0, 1);
+    // NPC 也有呼吸，并且偶尔换个方向看 —— 街上有人才像镇子
+    var idleY = y + Math.sin(S.time * 1.75 + n.x * 0.6) * 0.7;
+    var idleFace = Math.sin(S.time * 0.27 + n.y) > 0.86 ? 3 : 0;
+    drawCharacter(n.look, x, idleY, idleFace, false, 0, 1);
     // 头顶的交互小标
     var bob = Math.sin(S.time * 2.4) * 2;
     ctx.fillStyle = 'rgba(255,225,150,0.95)';
@@ -3315,6 +3950,18 @@ var MUSIC = {
       '...#####..##',
       '..........##',
       '..........#.'
+    ],
+    // 好友：两个并排的小人（一眼看出「一起玩」，而不是一颗心）
+    friend: [
+      '..###..###..',
+      '.#####.#####',
+      '..###..###..',
+      '...##...##..',
+      '.##########.',
+      '.##########.',
+      '..##.....##.',
+      '.####...####',
+      '.####...####'
     ]
   };
 
@@ -3448,6 +4095,7 @@ var MUSIC = {
     dockBtn(dock, 'map', 'obj_ScrollEmpty', '地图', 'M');
     dockBtn(dock, 'dex', 'obj_Letter', '图鉴', 'V');
     dockBtn(dock, 'talent', 'it_heart', '天赋', 'T');
+    dockBtn(dock, 'social', 'glyph:friend', '一起玩', 'F');
     dockBtn(dock, 'help', 'glyph:gear', '设置', 'Esc');
     hud.appendChild(dock);
     UI.dock = dock;
@@ -4209,13 +4857,19 @@ var MUSIC = {
     S.towers = d.towers || {};
     S.waystones = d.me.waystones || ['ws_town'];
     S.goal = d.goal;
-    S.phase = d.phase ? d.phase.name : 'day';
+    if (!S.pfLock) S.phase = d.phase ? d.phase.name : 'day';
     S.pf = d.phase ? d.phase.f : 0;
     S.feed = (d.feed || []).map(function (f) { return { text: f.text, kind: f.kind }; });
     S.party = d.party || null;
     S.quests = d.quests || {};
     S.tideInfo = d.tide || null;
     S.caves = d.caves || [];
+    S.friends = d.friends || [];
+    S.friendReq = d.friendReq || null;
+    S.bonds = d.bonds || {};
+    S.nearby = d.nearby || [];
+    S.acts = d.acts || S.acts;
+    if (S.friendReq) setTimeout(function () { cardFriendReq(S.friendReq); }, 1800);
     // 相机先对上，否则第一帧会从 (0,0) 飞过来
     S.cam.x = me.x * TILE;
     S.cam.y = me.y * TILE;
@@ -4226,8 +4880,9 @@ var MUSIC = {
         if (S.map.town.houses[j].kind === NPCS[k].id) h = S.map.town.houses[j];
       }
       if (h) {
-        NPCS[k].x = h.x + h.w / 2;
-        NPCS[k].y = h.y + h.h + 0.7;
+        // 站在门侧、退到墙脚之外：名字牌才不会压在屋檐上，门也能露出来
+        NPCS[k].x = h.x + h.w / 2 + 0.62;
+        NPCS[k].y = h.y + h.h + 1.55;
       }
     }
     applyPlayers(d.players || []);
@@ -4319,7 +4974,7 @@ var MUSIC = {
     if (me.hp < prevHp - 0.5) hurtFlash();
     // 血量变了要跟服务端对齐（本地预测的伤害不该留在血条上）
     if (!S.pfLock) {
-      S.phase = d.ph || S.phase;
+      if (!S.pfLock) S.phase = d.ph || S.phase;
       S.pf = d.pf != null ? d.pf : S.pf;
     }
     S.party = d.pt || null;
@@ -4352,6 +5007,8 @@ var MUSIC = {
 
   function handleEvent(e) {
     if (!e || !e.k) return;
+    // 社交层先接：好友申请 / 互动邀请 / 私聊要变成能点的卡片，不是一行 toast
+    if (socialEvent(e)) return;
     switch (e.k) {
       case 'zone':
         S.zone = e.z;
@@ -4378,6 +5035,17 @@ var MUSIC = {
         toast('升级！ Lv.' + e.lv, 'good');
         auSfx('levelup', 0.5, 1);
         S.rings.push({ x: S.me.x, y: S.me.y, r: 0, max: 3.2, life: 0.7, max2: 0.7, col: '#ffe6a8' });
+        S.rings.push({ x: S.me.x, y: S.me.y, r: 0, max: 1.8, life: 0.5, max2: 0.5, col: '#fff3d0' });
+        // 一束从脚底往上抽的金色光尘：升级要有一点「被世界看见了」的仪式感
+        for (var li = 0; li < 20; li++) {
+          S.parts.push({
+            x: S.me.x + (Math.random() - 0.5) * 0.9, y: S.me.y + 0.35,
+            vx: (Math.random() - 0.5) * 0.7, vy: -1.1 - Math.random() * 1.1,
+            life: 0.85 + Math.random() * 0.55, max: 1.4,
+            col: li % 3 ? 'rgba(255,224,150,' : 'rgba(255,248,214,', r: 1.8
+          });
+        }
+        S.cam.shake = Math.max(S.cam.shake, 1.4);
         if (e.talent) setTimeout(function () { toast('获得 1 点天赋 —— 按 T 分配', 'good'); }, 1200);
         break;
       case 'down':
@@ -4513,7 +5181,14 @@ var MUSIC = {
     var off4 = rt.subscribe('shiguang5.emote', function (p) {
       if (p && p.e) showEmote(p);
     });
-    S.onDestroyAll.push(off1, off2, off3, off4);
+    // 双人互动是「附近所有人都看得见」的事，走广播而不是个人事件
+    var off5 = rt.subscribe('shiguang5.act', function (p) {
+      if (p && p.a) spawnActFx(p);
+    });
+    var off6 = rt.subscribe('shiguang5.friend', function (p) {
+      if (p && p.an) feedPush(p.an + ' 和 ' + p.bn + ' 成了朋友', 'story');
+    });
+    S.onDestroyAll.push(off1, off2, off3, off4, off5, off6);
   }
 
   // ---------------- §18 动作接口 ----------------
@@ -4743,6 +5418,7 @@ var MUSIC = {
       }
       camUpdate(dt);
       renderWorld(freeze ? 0 : dt);
+      socialTick(S.time);
       // HUD 不需要 60Hz
       if (S.time - hudAt > 0.2) { hudAt = S.time; uiUpdate(); }
       if (S.time - miniAt > 0.12) { miniAt = S.time; uiMini(); }
@@ -4765,8 +5441,18 @@ var MUSIC = {
   // 环境粒子：每个区域有自己的「空气」
   function ambient(dt) {
     var z = S.zone;
-    if (Math.random() > dt * 8) return;
     var me = S.me;
+    // 夜里的萤火虫：镇上、草原、森林才有。慢、亮、少 —— 多了就成了噪点。
+    if ((S.phase === 'night' || S.phase === 'dusk') &&
+        (z === 'town' || z === 'meadow' || z === 'forest') && me && Math.random() < dt * 3.2) {
+      S.parts.push({
+        x: me.x + (Math.random() - 0.5) * 22, y: me.y + (Math.random() - 0.5) * 14,
+        vx: (Math.random() - 0.5) * 0.35, vy: (Math.random() - 0.5) * 0.25,
+        life: 2.6 + Math.random() * 2.2, max: 4.8,
+        col: 'rgba(226,255,160,', r: 1.5
+      });
+    }
+    if (Math.random() > dt * 8) return;
     var ox = (Math.random() - 0.5) * 26, oy = (Math.random() - 0.5) * 18;
     if (z === 'swamp') {
       S.parts.push({ x: me.x + ox, y: me.y + oy, vx: 0.2, vy: -0.25, life: 2.4, max: 2.4, col: '#d8ff9a', r: 1.1 });
@@ -4856,8 +5542,16 @@ var MUSIC = {
       var k = (e.key || '').toLowerCase();
       if (k === 'escape') { closePanel(); return; }
       if (e.target && e.target.tagName === 'INPUT') return;
-      if (k === 'p') { if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; } return; }
+      if (k === 'p') {
+        // 有邀请卡就当成「接受」，没有才走旧的按 P 入队
+        if (S.inviteCard && S.inviteCard.node) {
+          var pb = S.inviteCard.node.querySelector('.sg5-btn-primary');
+          if (pb) pb.click();
+        } else if (S.pendingInvite) { apiAcceptInvite(); S.pendingInvite = ''; }
+        return;
+      }
       if (k === 'g') { apiEmote(EMOTE_SET[Math.floor(Math.random() * EMOTE_SET.length)].id); return; }
+      if (k === 'f') { openPanel('social'); return; }
       if (k === 'c') openPanel('char');
       else if (k === 'b' || k === 'i') openPanel('bag');
       else if (k === 'm') openPanel('map');
@@ -4984,8 +5678,24 @@ var MUSIC = {
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
         toast: toast,
+        social: function () {
+          return { friends: S.friends.length, nearby: S.nearby.length, acts: Object.keys(S.acts || {}).length,
+            party: !!(S.party && S.party.members && S.party.members.length), bubbles: S.bubbles.length };
+        },
+        card: function () { cardFriendReq({ from: '1002', n: '小明' }); },
+        actfx: function () {
+          spawnActFx({ x: S.me.x, y: S.me.y, a: 'dance', ch: '♪', fn: '我', tn: '小明' });
+          pushBubble(S.myId, '一起跳舞吧！', '#ffe1a6');
+        },
         // 调试用：锁住昼夜（截图/回归时不想等到夜里）
-        lockPhase: function (phase, pf) { S.pfLock = !!phase; if (phase) { S.phase = phase; S.pf = pf == null ? 0.3 : pf; } }
+        lockPhase: function (phase, pf) {
+          S.pfLock = !!phase;
+          if (phase) {
+            S.phase = phase;
+            // 每个时段的默认进度要合理：night + pf=0.3 算出来的暗度只有 0.32，看起来像白天
+            S.pf = pf == null ? (phase === 'night' ? 0.94 : phase === 'dusk' ? 0.68 : 0.3) : pf;
+          }
+        }
       };
     } catch (e) {}
   }
@@ -5042,16 +5752,32 @@ var MUSIC = {
     for (var i = S.emotes.length - 1; i >= 0; i--) {
       var e = S.emotes[i];
       if (S.time > e.until) { S.emotes.splice(i, 1); continue; }
-      var k = (e.until - S.time) / 2.4;
-      var x = w2sX(e.x * TILE), y = w2sY(e.y * TILE) - 34 - (1 - k) * 14;
+      var left = (e.until - S.time) / 2.4;          // 剩余比例
+      var age = 2.4 - (e.until - S.time);
+      var pop = clamp(age / 0.28, 0, 1);
+      // 弹出时轻微过冲（像弹簧），随后稳住；再慢慢上飘、淡出
+      var sc = (0.55 + 0.45 * easeOut(pop)) * (1 + 0.18 * Math.sin(pop * Math.PI));
+      var x = w2sX(e.x * TILE);
+      var y = w2sY(e.y * TILE) - 34 - (1 - left) * 16 + Math.sin(S.time * 4.2 + e.x) * 1.1;
+      var bw = Math.round(30 * (S.zoom / 3)), bh = Math.round(26 * (S.zoom / 3));
       ctx.save();
-      ctx.globalAlpha = Math.min(1, k * 2.2);
-      ctx.font = Math.round(18 * (S.zoom / 3)) + 'px system-ui,sans-serif';
+      ctx.globalAlpha = Math.min(1, left * 2.6);
+      ctx.translate(x, y - bh * 0.34);
+      ctx.scale(sc, sc);
+      // 硬边像素气泡：深底 + 暖色上下边 + 一个朝下的小尖
+      ctx.fillStyle = 'rgba(14,11,20,0.90)';
+      ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+      ctx.fillStyle = 'rgba(255,214,140,0.85)';
+      ctx.fillRect(-bw / 2, -bh / 2, bw, 2);
+      ctx.fillRect(-bw / 2, bh / 2 - 2, bw, 2);
+      ctx.fillRect(-3, bh / 2, 6, 2);
+      ctx.fillRect(-1, bh / 2 + 2, 2, 2);
+      ctx.font = Math.round(16 * (S.zoom / 3)) + 'px system-ui,sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillText(e.ch, x + 1, y + 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillText(e.ch, 1, 6 * (S.zoom / 3) + 1);
       ctx.fillStyle = '#fff2c8';
-      ctx.fillText(e.ch, x, y);
+      ctx.fillText(e.ch, 0, 6 * (S.zoom / 3));
       ctx.restore();
     }
   }
@@ -5068,9 +5794,30 @@ var MUSIC = {
     var box = el('div', 'sg5-pmenu sg5-frame');
     box.appendChild(el('div', 'sg5-pmenu-name', p.name || '旅人'));
     var inParty = S.party && S.party.members && S.party.members.some(function (m) { return m[0] === p.id; });
+    var isFriend = false;
+    for (var fi = 0; fi < (S.friends || []).length; fi++) if (S.friends[fi].u === p.id) isFriend = true;
+    if (isFriend) {
+      var bd = (S.bonds || {})[p.id] || 0;
+      box.appendChild(el('div', 'sg5-pmenu-bond', '✦ 羁绊 ' + bd + ' · ' + bondTierLabel(bd)));
+    }
+
+    var ops = el('div', 'sg5-pmenu-ops');
+    if (!isFriend) {
+      ops.appendChild(uiBtn('加好友', 'sg5-btn-sm sg5-btn-ghost', function () {
+        apiFriend(p.id, 'request'); closePlayerMenu();
+      }));
+    } else {
+      ops.appendChild(uiBtn('悄悄话', 'sg5-btn-sm sg5-btn-ghost', function () {
+        S.chatWith = p.id; S.socialTab = 'chat'; openPanel('social'); closePlayerMenu();
+      }));
+    }
+    ops.appendChild(uiBtn('一起互动', 'sg5-btn-sm', function () {
+      openActPicker(p.id); closePlayerMenu();
+    }));
+    box.appendChild(ops);
 
     if (!inParty) {
-      box.appendChild(uiBtn('邀请组队', 'sg5-btn-sm', function () {
+      box.appendChild(uiBtn('邀请组队', 'sg5-btn-sm sg5-btn-ghost', function () {
         apiInvite(p.id); closePlayerMenu();
       }));
     }
@@ -5096,7 +5843,7 @@ var MUSIC = {
     UI.hud.appendChild(box);
     var w = 190;
     var left = clamp(sx - w / 2, 8, S.view.w - w - 8);
-    var top = clamp(sy - 10, 8, S.view.h - 180);
+    var top = clamp(sy - 10, 8, S.view.h - 260);
     box.style.left = left + 'px';
     box.style.top = top + 'px';
     pmenuEl = box;
@@ -5172,6 +5919,549 @@ var MUSIC = {
     }
     return box;
   }
+
+
+  // ======================== 14_social_ui.js ========================
+  // ---------------- §21 一起玩：好友 / 附近 / 悄悄话 / 双人互动 ----------------
+  // 一个班在同一张地图上，最难的不是打怪，是「找到那个人、说上话、留下点什么」。
+  // 这一层只做三件事：把关系显示出来、把邀请做成能点的卡片、把互动画成看得见的动画。
+  // 服务端才是关系与羁绊的真相，这里所有列表都来自 /v5/social/state。
+  S.friends = [];
+  S.friendReq = null;
+  S.bonds = {};
+  S.nearby = [];
+  S.whispers = [];
+  S.partyChat = [];
+  S.acts = {};
+  S.chatWith = '';
+  S.socialTab = 'friends';
+  S.bubbles = [];
+  S.actFx = [];
+  S.rallyMark = null;
+  S.inviteCard = null;
+  var socialAt = 0;
+
+  var ACT_FALLBACK = {
+    highfive: { name: '击掌', ch: '✋' }, hug: { name: '抱一下', ch: '♥' },
+    dance: { name: '一起跳舞', ch: '♪' }, cheer: { name: '加油', ch: '✦' },
+    bow: { name: '行个礼', ch: '☺' }, star: { name: '一起看星星', ch: '★' }
+  };
+  var BOND_COLORS = ['#8e8069', '#8ee8b8', '#6fc0ff', '#d9b8ff', '#ffd27a'];
+
+  function actDef(a) { return S.acts[a] || ACT_FALLBACK[a] || { name: '互动', ch: '✦' }; }
+  function bondColor(tier) {
+    var names = ['初识', '同行', '挚友', '知己', '莫逆'];
+    var i = names.indexOf(tier);
+    return BOND_COLORS[i < 0 ? 0 : i];
+  }
+  function bondTierLabel(v) {
+    return v >= 240 ? '莫逆' : v >= 100 ? '知己' : v >= 40 ? '挚友' : v >= 10 ? '同行' : '初识';
+  }
+
+  // ---- 数据 ----
+  function applySocial(d) {
+    if (!d) return;
+    S.friends = d.friends || S.friends;
+    S.nearby = d.nearby || S.nearby;
+    S.whispers = d.whispers || S.whispers;
+    S.friendReq = d.req || null;
+    if (curPanel === 'social') refreshPanel('social');
+    if (S.friendReq && !S.inviteCard) cardFriendReq(S.friendReq);
+  }
+  function apiSocialState(cb) {
+    apiGet('/shiguang/v5/social/state').then(function (d) {
+      applySocial(d);
+      if (cb) cb(d);
+    }, function () {});
+  }
+  function socialTick(t) {
+    if (t - socialAt < 9) return;
+    socialAt = t;
+    // 面板开着或有待处理邀请时才轮询；世界里每秒 5 次的 sync 不背这个包袱
+    if (curPanel === 'social' || S.friendReq || S.inviteCard) apiSocialState();
+  }
+
+  function apiFriend(to, mode) {
+    apiPost('/shiguang/v5/friend/' + mode, { to: to }).then(function (d) {
+      if (d && d.friends) S.friends = d.friends;
+      if (mode === 'remove') toast('已从好友名单里移除', 'tip');
+      apiSocialState();
+    }, function (err) { toast(err.message || '没发出去', 'warn'); });
+  }
+  function apiWhisper(to, text) {
+    apiPost('/shiguang/v5/whisper', { to: to, text: text }).then(function (d) {
+      S.whispers.push({ from: S.myId, to: to, n: nameOf(to), text: d.text, at: Date.now(), self: 1 });
+      if (S.whispers.length > 40) S.whispers.shift();
+      pushBubble(to, d.text, '#ffe1a6');
+      if (curPanel === 'social' && S.socialTab === 'chat') refreshPanel('social');
+    }, function (err) { toast(err.message || '没送出去', 'warn'); });
+  }
+  function apiAct(to, a, mode) {
+    var body = { to: to, a: a };
+    if (mode) body[mode] = 1;
+    apiPost('/shiguang/v5/social/act', body).then(function (d) {
+      if (mode === 'accept') {
+        closeInviteCard();
+        toast('羁绊 +' + (d.bond || 0) + ' · ' + actDef(a).name, 'good');
+      } else if (mode === 'decline') {
+        closeInviteCard();
+        toast('这次先算了', 'tip');
+      } else {
+        toast('邀请「' + actDef(a).name + '」已发出，等他回应', 'good');
+      }
+    }, function (err) { toast(err.message || '邀请没发出去', 'warn'); });
+  }
+  function apiPartySay(text) {
+    apiPost('/shiguang/v5/party/say', { text: text }).then(function (d) {
+      S.partyChat.push({ from: S.myId, n: S.me.name || '我', text: d.text, at: Date.now(), self: 1 });
+      if (S.partyChat.length > 30) S.partyChat.shift();
+      pushBubble(S.myId, d.text, '#a8d8ff');
+      if (curPanel === 'social' && S.socialTab === 'party') refreshPanel('social');
+    }, function (err) { toast(err.message || '没发出去', 'warn'); });
+  }
+  function apiRally() {
+    apiPost('/shiguang/v5/party/rally', {}).then(function () {
+      toast('集合令已发给队友', 'good');
+    }, function (err) { toast(err.message || '发不出去', 'warn'); });
+  }
+
+  function nameOf(uid) {
+    if (uid === S.myId) return (S.me && S.me.name) || '我';
+    var p = S.players[uid];
+    if (p && p.name) return p.name;
+    for (var i = 0; i < S.friends.length; i++) if (S.friends[i].u === uid) return S.friends[i].n;
+    for (var j = 0; j < S.nearby.length; j++) if (S.nearby[j].u === uid) return S.nearby[j].n;
+    return '旅人';
+  }
+
+  // ---- 邀请卡：把「按 P 接受」换成能点的东西 ----
+  function closeInviteCard() {
+    if (S.inviteCard && S.inviteCard.node && S.inviteCard.node.parentNode) {
+      S.inviteCard.node.className = 'sg5-invite is-out';
+      var n = S.inviteCard.node;
+      setTimeout(function () { if (n.parentNode) n.parentNode.removeChild(n); }, 320);
+    }
+    S.inviteCard = null;
+  }
+  function showInviteCard(cfg) {
+    closeInviteCard();
+    if (!UI.hud) return;
+    var box = el('div', 'sg5-invite');
+    var top = el('div', 'sg5-invite-top');
+    top.appendChild(el('span', 'sg5-invite-ch', cfg.ch || '✦'));
+    top.appendChild(el('span', 'sg5-invite-title', cfg.title || '有人找你'));
+    box.appendChild(top);
+    box.appendChild(el('div', 'sg5-invite-text', cfg.text || ''));
+    var row = el('div', 'sg5-invite-ops');
+    (cfg.ops || []).forEach(function (op) {
+      var b = uiBtn(op.label, op.cls || '', function () {
+        closeInviteCard();
+        op.fn();
+      });
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+    UI.hud.appendChild(box);
+    S.inviteCard = { node: box, until: S.time + (cfg.ttl || 24) };
+    auSfx('menu', 0.28, 1.35);
+    // 显式 setTimeout 也要跟着卸载走，避免应用关掉后还弹一张卡
+    var tm = setTimeout(function () {
+      if (S.inviteCard && S.inviteCard.node === box) closeInviteCard();
+    }, (cfg.ttl || 24) * 1000);
+    if (S.onDestroyAll) S.onDestroyAll.push(function () { clearTimeout(tm); });
+  }
+  function cardFriendReq(req) {
+    showInviteCard({
+      ch: '✦', title: '好友申请', text: req.n + ' 想和你成为朋友 —— 一起打怪会攒下羁绊。', ttl: 60,
+      ops: [
+        { label: '成为朋友', cls: 'sg5-btn-primary', fn: function () { apiPost('/shiguang/v5/friend/accept', {}).then(function (d) { if (d.friends) S.friends = d.friends; toast('你们成了朋友', 'good'); apiSocialState(); }, function (err) { toast(err.message, 'warn'); }); } },
+        { label: '待会儿', cls: 'sg5-btn-ghost', fn: function () { S.friendReq = null; } }
+      ]
+    });
+  }
+  function cardActInvite(e) {
+    var d = actDef(e.a);
+    showInviteCard({
+      ch: d.ch, title: e.n + ' 想和你' + d.name, text: '走到他身边，点一下「回应」就一起做。回应之后两个人的羁绊会涨一点。', ttl: 30,
+      ops: [
+        { label: '回应 · ' + d.name, cls: 'sg5-btn-primary', fn: function () { apiAct(e.from, e.a, 'accept'); } },
+        { label: '婉拒', cls: 'sg5-btn-ghost', fn: function () { apiAct(e.from, e.a, 'decline'); } }
+      ]
+    });
+  }
+  function cardPartyInvite(e) {
+    showInviteCard({
+      ch: '⚑', title: '组队邀请', text: e.n + ' 邀你一起走 —— 同队打怪有经验加成，倒下了还能被扶起来。', ttl: 60,
+      ops: [
+        { label: '加入队伍', cls: 'sg5-btn-primary', fn: function () { apiAcceptInvite(); } },
+        { label: '待会儿', cls: 'sg5-btn-ghost', fn: function () { S.pendingInvite = ''; } }
+      ]
+    });
+  }
+
+  // ---- 互动动作选择 ----
+  function openActPicker(to) {
+    var old = UI.hud.querySelector('.sg5-actpicker');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var box = el('div', 'sg5-actpicker sg5-frame');
+    box.appendChild(el('div', 'sg5-pmenu-name', '和 ' + nameOf(to) + ' 一起…'));
+    var grid = el('div', 'sg5-actgrid');
+    Object.keys(ACT_FALLBACK).forEach(function (a) {
+      var d = actDef(a);
+      var b = el('button', 'sg5-actpick', d.ch + ' ' + d.name);
+      b.type = 'button';
+      b.addEventListener('click', function () {
+        if (box.parentNode) box.parentNode.removeChild(box);
+        apiAct(to, a);
+      }, false);
+      grid.appendChild(b);
+    });
+    box.appendChild(grid);
+    box.appendChild(uiBtn('关闭', 'sg5-btn-sm sg5-btn-ghost', function () {
+      if (box.parentNode) box.parentNode.removeChild(box);
+    }));
+    UI.hud.appendChild(box);
+    setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 12000);
+  }
+
+  // ---- 事件（由 11_net.js 的 handleEvent 转过来；返回 1 表示已处理） ----
+  function socialEvent(e) {
+    if (!e || !e.k) return 0;
+    switch (e.k) {
+      case 'friend-req':
+        S.friendReq = { from: e.from, n: e.n };
+        cardFriendReq(S.friendReq);
+        return 1;
+      case 'friend-sent': toast('好友申请已发给 ' + e.n, 'good'); return 1;
+      case 'friend-add':
+        toast('和 ' + e.n + ' 成了朋友', 'good');
+        auSfx('bonus', 0.35, 1.2);
+        apiSocialState();
+        return 1;
+      case 'friend-remove': toast(e.n + ' 把你从好友名单里移除了', 'tip'); apiSocialState(); return 1;
+      case 'act-invite': cardActInvite(e); return 1;
+      case 'act-wait': toast('等 ' + e.n + ' 回应「' + e.an + '」…', 'tip'); return 1;
+      case 'act-done': toast('和 ' + e.n + ' ' + actDef(e.a).name + ' ✦', 'good'); apiSocialState(); return 1;
+      case 'act-decline': toast(e.n + ' 这会儿不方便', 'tip'); return 1;
+      case 'whisper':
+        S.whispers.push({ from: e.from, to: S.myId, n: e.n, text: e.text, at: e.at || Date.now(), self: 0 });
+        if (S.whispers.length > 40) S.whispers.shift();
+        pushBubble(e.from, e.text, '#ffe1a6');
+        toast('✉ ' + e.n + '：' + e.text, 'good');
+        auSfx('menu', 0.22, 1.5);
+        if (curPanel === 'social' && S.socialTab === 'chat') refreshPanel('social');
+        return 1;
+      case 'whisper-echo': return 1;   // 发送方已本地入列
+      case 'party-chat':
+        S.partyChat.push({ from: e.from, n: e.n, text: e.text, at: e.at || Date.now(), self: 0 });
+        if (S.partyChat.length > 30) S.partyChat.shift();
+        pushBubble(e.from, e.text, '#a8d8ff');
+        toast('队伍 · ' + e.n + '：' + e.text);
+        if (curPanel === 'social' && S.socialTab === 'party') refreshPanel('social');
+        return 1;
+      case 'rally':
+        S.rallyMark = { x: e.x, y: e.y, until: S.time + 90, n: e.n, z: e.z };
+        toast('⚑ ' + e.n + ' 在' + (e.z || '附近') + '召集集合', 'good');
+        auSfx('alert', 0.3, 1.4);
+        return 1;
+      case 'rally-sent': return 1;
+      case 'bond':
+        S.bonds[e.u] = e.v;
+        if (e.crossed) {
+          toast('和 ' + e.n + ' 的羁绊成了「' + e.tier + '」', 'good');
+          auSfx('levelup', 0.35, 1.25);
+        }
+        apiSocialState();
+        return 1;
+      case 'invite':
+        S.pendingInvite = e.from;
+        cardPartyInvite({ from: e.from, n: e.n });
+        return 1;
+      case 'invited': toast('组队邀请已发给 ' + e.n, 'good'); return 1;
+    }
+    return 0;
+  }
+
+  // ---- 头顶气泡 ----
+  function pushBubble(uid, text, col) {
+    var p = (uid === S.myId) ? S.me : S.players[uid];
+    if (!p) return;
+    S.bubbles.push({ x: p.x, y: p.y, text: String(text).slice(0, 26), col: col || '#ffe1a6', until: S.time + 4.2, born: S.time });
+    if (S.bubbles.length > 10) S.bubbles.shift();
+  }
+  function spawnActFx(p) {
+    if (!p) return;
+    var d = actDef(p.a);
+    S.actFx.push({ x: p.x, y: p.y, ch: d.ch, a: p.a, name: d.name, fn: p.fn, tn: p.tn, born: S.time, until: S.time + 2.6 });
+    if (S.actFx.length > 6) S.actFx.shift();
+    // 一圈星屑 + 两个人的头顶符号
+    for (var i = 0; i < 14; i++) {
+      var a = (i / 14) * 6.2832 + hash2(i, 3, 71);
+      S.parts.push({
+        x: p.x + Math.cos(a) * 0.35, y: p.y + Math.sin(a) * 0.25,
+        vx: Math.cos(a) * 1.5, vy: Math.sin(a) * 1.2 - 0.6,
+        life: 0.9 + hash2(i, 7, 72) * 0.6, max: 1.5,
+        col: p.a === 'hug' || p.a === 'star' ? 'rgba(255,170,200,' : 'rgba(255,226,150,', r: 1.6
+      });
+    }
+    S.rings.push({ x: p.x, y: p.y, r: 0, max: 2.4, life: 0.7, max2: 0.7, col: '#ffe6a8' });
+    auSfx('bonus', 0.32, 1.3);
+  }
+
+  // ---- 世界层：气泡 / 互动 / 集合光标 ----
+  function drawSocialFx(ctx) {
+    var u = S.zoom * TILE;
+    var i, k;
+    // 互动：两人中间浮起一串符号 + 一圈柔光
+    for (i = S.actFx.length - 1; i >= 0; i--) {
+      var f = S.actFx[i];
+      if (S.time > f.until) { S.actFx.splice(i, 1); continue; }
+      var age = S.time - f.born, k2 = clamp(age / 2.6, 0, 1);
+      var cx = w2sX(f.x * TILE), cy = w2sY(f.y * TILE) - u * 0.5;
+      ctx.save();
+      ctx.globalAlpha = (1 - k2) * 0.9;
+      var gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, u * 1.8);
+      gg.addColorStop(0, 'rgba(255,224,160,0.26)');
+      gg.addColorStop(1, 'rgba(255,224,160,0)');
+      ctx.fillStyle = gg;
+      ctx.fillRect(cx - u * 1.8, cy - u * 1.8, u * 3.6, u * 3.6);
+      for (k = 0; k < 5; k++) {
+        var ph = (age * 0.55 + k * 0.2) % 1;
+        var ox = Math.sin(k * 2.1 + age * 2) * u * (0.4 + ph);
+        var oy = -ph * u * 1.9;
+        ctx.globalAlpha = (1 - ph) * (1 - k2) * 0.95;
+        ctx.font = 'bold ' + Math.round(u * (0.30 + (1 - ph) * 0.12)) + 'px system-ui,sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(20,14,10,0.55)';
+        ctx.fillText(f.ch, cx + ox + 1, cy + oy + 1);
+        ctx.fillStyle = k % 2 ? '#ffd78a' : '#fff3d0';
+        ctx.fillText(f.ch, cx + ox, cy + oy);
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    // 气泡：硬边像素框 + 小尖角，文字压一行阴影
+    for (i = S.bubbles.length - 1; i >= 0; i--) {
+      var b = S.bubbles[i];
+      if (S.time > b.until) { S.bubbles.splice(i, 1); continue; }
+      var pop = clamp((S.time - b.born) / 0.22, 0, 1);
+      var fade = clamp((b.until - S.time) / 0.5, 0, 1);
+      var bx = w2sX(b.x * TILE), by = w2sY(b.y * TILE) - u * 1.05 - Math.sin(S.time * 2.2 + i) * 2;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      ctx.font = Math.round(12 * (S.zoom / 3)) + 'px "SG5Pixel", monospace';
+      var tw = ctx.measureText(b.text).width;
+      var bw = Math.min(S.view.w * 0.42, tw + 20), bh = 26;
+      var x0 = Math.round(bx - bw / 2), y0 = Math.round(by - bh);
+      ctx.translate(bx, by);
+      ctx.scale(0.7 + 0.3 * easeOut(pop), 0.7 + 0.3 * easeOut(pop));
+      ctx.translate(-bx, -by);
+      ctx.fillStyle = 'rgba(12,10,18,0.88)';
+      ctx.fillRect(x0, y0, bw, bh);
+      ctx.fillStyle = b.col;
+      ctx.fillRect(x0, y0, bw, 2);
+      ctx.fillRect(x0, y0 + bh - 2, bw, 2);
+      ctx.fillRect(x0, y0, 2, bh);
+      ctx.fillRect(x0 + bw - 2, y0, 2, bh);
+      ctx.fillRect(bx - 4, y0 + bh, 8, 2);
+      ctx.fillRect(bx - 2, y0 + bh + 2, 4, 2);
+      ctx.fillStyle = '#f8efdd';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.text, bx, y0 + 18);
+      ctx.restore();
+    }
+    // 集合光标：队长发起后 90 秒内在地面闪一个圈与旗
+    if (S.rallyMark) {
+      if (S.time > S.rallyMark.until) S.rallyMark = null;
+      else {
+        var rx = w2sX(S.rallyMark.x * TILE), ry = w2sY(S.rallyMark.y * TILE);
+        var pulse = 0.5 + 0.5 * Math.sin(S.time * 3.2);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,214,120,' + (0.35 + pulse * 0.4).toFixed(2) + ')';
+        ctx.lineWidth = Math.max(2, u * 0.06);
+        ctx.beginPath();
+        ctx.ellipse(rx, ry, u * (0.55 + pulse * 0.25), u * (0.24 + pulse * 0.1), 0, 0, 6.2832);
+        ctx.stroke();
+        ctx.fillStyle = '#ffd27a';
+        ctx.fillRect(rx - 1, ry - u * 1.5, 2, u * 1.1);
+        ctx.fillRect(rx + 1, ry - u * 1.5, u * 0.45, u * 0.30);
+        ctx.restore();
+      }
+    }
+  }
+
+  // ---- 面板：好友 / 附近 / 悄悄话 / 队伍 ----
+  function socialTabs(body) {
+    var tabs = el('div', 'sg5-tabs');
+    [['friends', '好友'], ['nearby', '附近的人'], ['chat', '悄悄话'], ['party', '队伍']].forEach(function (t) {
+      var b = el('button', 'sg5-tab' + (S.socialTab === t[0] ? ' is-on' : ''), t[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () {
+        S.socialTab = t[0];
+        refreshPanel('social');
+        auSfx('menu', 0.2, 1.2);
+      }, false);
+      tabs.appendChild(b);
+    });
+    body.appendChild(tabs);
+  }
+
+  function personRow(p, isFriend) {
+    var row = el('div', 'sg5-person' + (p.on === 0 || p.down ? ' is-off' : ''));
+    var av = el('div', 'sg5-person-av');
+    var faceKey = 'face_' + (p.look || 'NinjaBlue');
+    if (!FR[faceKey]) faceKey = 'face_NinjaBlue';
+    av.appendChild(iconCanvas(faceKey, 30));
+    row.appendChild(av);
+    var mid = el('div', 'sg5-person-mid');
+    var head = el('div', 'sg5-person-head');
+    head.appendChild(el('span', 'sg5-person-name', p.n));
+    head.appendChild(el('span', 'sg5-person-lv', 'Lv.' + (p.lv || 1)));
+    head.appendChild(el('span', 'sg5-person-state' + (p.on ? ' is-on' : ''), p.on ? (p.zone || '在线') : '离线'));
+    mid.appendChild(head);
+    if (isFriend) {
+      var b = p.bond || 0;
+      var bondRow = el('div', 'sg5-bondrow');
+      bondRow.appendChild(el('span', 'sg5-bond-tier', '✦ ' + (p.tier || '初识')));
+      var bar = el('div', 'sg5-bondbar');
+      var fill = el('i');
+      var from = p.bond == null ? 0 : 0, to = p.next || 100;
+      var prev = 0;
+      ['初识', '同行', '挚友', '知己', '莫逆'].forEach(function (nm, idx) {
+        var th = [0, 10, 40, 100, 240][idx];
+        if (b >= th) prev = th;
+      });
+      fill.style.transform = 'scaleX(' + clamp((b - prev) / Math.max(1, to - prev), 0, 1).toFixed(3) + ')';
+      fill.style.background = bondColor(p.tier);
+      bar.appendChild(fill);
+      bondRow.appendChild(bar);
+      bondRow.appendChild(el('span', 'sg5-bond-num', b + (p.next ? ' / ' + p.next : '')));
+      mid.appendChild(bondRow);
+    } else {
+      mid.appendChild(el('div', 'sg5-person-sub', (p.zone || '某处') + ' · ' + (p.d != null ? p.d : '?') + ' 格外' + (p.pt ? ' · 同队' : '') + (p.fr ? ' · 已是好友' : '')));
+    }
+    row.appendChild(mid);
+    var ops = el('div', 'sg5-person-ops');
+    if (isFriend || p.fr) {
+      ops.appendChild(uiBtn('私聊', 'sg5-btn-sm sg5-btn-ghost', function () {
+        S.chatWith = p.u; S.socialTab = 'chat'; refreshPanel('social');
+      }));
+      ops.appendChild(uiBtn('互动', 'sg5-btn-sm', function () { openActPicker(p.u); }));
+    } else {
+      ops.appendChild(uiBtn('加好友', 'sg5-btn-sm', function () { apiFriend(p.u, 'request'); }));
+      ops.appendChild(uiBtn('招呼', 'sg5-btn-sm sg5-btn-ghost', function () { apiEmote('wave'); toast('朝 ' + p.n + ' 挥了挥手'); }));
+    }
+    if (!p.pt) ops.appendChild(uiBtn('组队', 'sg5-btn-sm sg5-btn-ghost', function () { apiInvite(p.u); }));
+    if (isFriend) {
+      ops.appendChild(uiBtn('移除', 'sg5-btn-sm sg5-btn-ghost', function () { apiFriend(p.u, 'remove'); }));
+    }
+    row.appendChild(ops);
+    return row;
+  }
+
+  function chatBody(body, list, toUid, onSend, placeholder) {
+    var log = el('div', 'sg5-chatlog');
+    if (!list.length) log.appendChild(el('div', 'sg5-empty', '还没有人说话 —— 先打个招呼吧'));
+    list.slice(-24).forEach(function (m) {
+      var line = el('div', 'sg5-chatline' + (m.self ? ' is-self' : ''));
+      line.appendChild(el('span', 'sg5-chatwho', m.n || nameOf(m.from)));
+      line.appendChild(el('span', 'sg5-chattxt', m.text));
+      log.appendChild(line);
+    });
+    body.appendChild(log);
+    var form = el('div', 'sg5-chatform');
+    var input = el('input', 'sg5-input');
+    input.type = 'text';
+    input.maxLength = 60;
+    input.setAttribute('placeholder', placeholder || '说点什么…');
+    var send = uiBtn('发送', 'sg5-btn-sm', function () {
+      var v = input.value.replace(/^\s+|\s+$/g, '');
+      if (!v) return;
+      input.value = '';
+      onSend(v);
+    });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); send.click(); }
+      ev.stopPropagation();
+    }, false);
+    form.appendChild(input);
+    form.appendChild(send);
+    body.appendChild(form);
+    setTimeout(function () { try { log.scrollTop = log.scrollHeight; } catch (e) {} }, 0);
+  }
+
+  PANELS.social = function () {
+    var online = 0;
+    for (var i = 0; i < S.friends.length; i++) if (S.friends[i].on) online++;
+    var sh = panelShell('一起玩', '好友 ' + online + '/' + S.friends.length + ' 在线 · 附近 ' + S.nearby.length + ' 人');
+    sh.root.className = 'sg5-panel sg5-panel-wide';
+    var body = sh.body;
+    socialTabs(body);
+
+    if (S.socialTab === 'friends') {
+      body.appendChild(el('div', 'sg5-note', '一起打怪、扶起、回应互动都会攒下羁绊。称号从「初识」一路到「莫逆」—— 别只和同一个人打怪。'));
+      if (!S.friends.length) {
+        body.appendChild(el('div', 'sg5-empty', '好友名单还是空的 · 去「附近的人」里找个同学打个招呼'));
+      } else {
+        var list = el('div', 'sg5-personlist');
+        S.friends.forEach(function (p) { list.appendChild(personRow(p, true)); });
+        body.appendChild(list);
+      }
+      if (S.friendReq) {
+        body.appendChild(uiBtn('✦ 处理 ' + S.friendReq.n + ' 的好友申请', 'sg5-btn', function () { cardFriendReq(S.friendReq); }));
+      }
+      body.appendChild(uiBtn('刷新名单', 'sg5-btn-sm sg5-btn-ghost', function () { apiSocialState(); }));
+    } else if (S.socialTab === 'nearby') {
+      body.appendChild(el('div', 'sg5-note', '同一片视野里的同学。走近 3 格才能邀请互动 —— 隔着半张地图点人是没用的。'));
+      if (!S.nearby.length) {
+        body.appendChild(el('div', 'sg5-empty', '附近没有别人 · 去广场或灯塔那边看看'));
+      } else {
+        var nl = el('div', 'sg5-personlist');
+        S.nearby.forEach(function (p) { nl.appendChild(personRow(p, false)); });
+        body.appendChild(nl);
+      }
+      body.appendChild(uiBtn('重新看看', 'sg5-btn-sm sg5-btn-ghost', function () { apiSocialState(); }));
+    } else if (S.socialTab === 'chat') {
+      if (!S.friends.length) {
+        body.appendChild(el('div', 'sg5-empty', '先加个好友，才能说悄悄话'));
+      } else {
+        var pick = el('div', 'sg5-chatpick');
+        S.friends.forEach(function (p) {
+          var b = el('button', 'sg5-chatwho-btn' + (S.chatWith === p.u ? ' is-on' : ''), p.n);
+          b.type = 'button';
+          b.addEventListener('click', function () { S.chatWith = p.u; refreshPanel('social'); }, false);
+          pick.appendChild(b);
+        });
+        body.appendChild(pick);
+        var to = S.chatWith;
+        var talk = [];
+        for (var j = 0; j < S.whispers.length; j++) {
+          var w = S.whispers[j];
+          if (w.from === to || w.to === to) talk.push(w);
+        }
+        if (!to) body.appendChild(el('div', 'sg5-empty', '选一个好友开始说话'));
+        else chatBody(body, talk, to, function (v) { apiWhisper(to, v); }, '给 ' + nameOf(to) + ' 说一句…');
+      }
+    } else {
+      var pt = S.party;
+      if (!pt || !pt.members || !pt.members.length) {
+        body.appendChild(el('div', 'sg5-empty', '还没有队伍 · 点别人头上的名字就能邀请'));
+      } else {
+        var pl = el('div', 'sg5-personlist');
+        pt.members.forEach(function (m) {
+          pl.appendChild(personRow({ u: m[0], n: m[1], lv: m[5], on: m[6] ? 1 : 0, look: 'NinjaBlue', pt: 1, down: m[4], zone: '' }, false));
+        });
+        body.appendChild(pl);
+        var prow = el('div', 'sg5-partyops');
+        if (pt.leader === S.myId) prow.appendChild(uiBtn('⚑ 召集队友', 'sg5-btn-sm', function () { apiRally(); }));
+        prow.appendChild(uiBtn('退出队伍', 'sg5-btn-sm sg5-btn-ghost', function () { apiLeaveParty(); }));
+        body.appendChild(prow);
+      }
+      body.appendChild(el('div', 'sg5-sect', '队伍频道'));
+      chatBody(body, S.partyChat, '', function (v) { apiPartySay(v); }, '对队友说…');
+    }
+    return sh.root;
+  };
 
   window.ClassIntraMarket.define({ name: NAME, mount: mount, unmount: unmount });
 })();
