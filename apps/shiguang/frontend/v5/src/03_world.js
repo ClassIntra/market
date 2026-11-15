@@ -572,7 +572,8 @@
         if (!mask[y * W + x]) continue;
         var edge = (x === 0 || y === 0 || x === W - 1 || y === H - 1) ||
           !mask[y * W + x - 1] || !mask[y * W + x + 1] || !mask[(y - 1) * W + x];
-        putPx(g, x, y, edge ? tint.out : (y < H * 0.55 ? tint.light : (x > W * 0.62 ? tint.mid : tint.mid)));
+        // 草丛要比树下亮：它是「草」，不是「阴影」。描边用 dark 不用 out。
+        putPx(g, x, y, edge ? tint.dark : (y < H * 0.5 ? tint.hi : tint.light));
       }
     }
     return sp.cv;
@@ -653,7 +654,7 @@
         drawCliff(ctx, sx, sy, p.s);
         break;
       case 'bush':
-        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx, sy + z * 0.4, z * 0.9);
+        blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx, sy + z * 0.2, z * 0.8);
         break;
     }
   }

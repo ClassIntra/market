@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-15T03:22:52.458Z",
+  "updated_at": "2026-11-15T03:26:00.695Z",
   "apps": [
     {
       "name": "chess",
@@ -541,7 +541,7 @@
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
         "CHANGELOG.md": "f6decb900f45772accab0d0131d547be77851710eb774192fadd3a44cab7c501",
         "DESIGN-v5.md": "89b35633a69ac9e46983a8da33146f5a0d15dc12350a0b097c1c75ef16deaeb2",
-        "frontend/entry.js": "1e5a7c4b4af5eee6d45d41085e0984f38fae5fcbf2cf8577ef45a59a2c2fa500",
+        "frontend/entry.js": "6f325a8d915b00883abd0c4bb5b1160a1e02a44f354b4a3dc3a4b06c1b6326af",
         "frontend/style.css": "87de57e19eb9a473bd3a0abb4432af9c23f7787c439ab145bc430a80767674a6",
         "frontend/v5/atlas.json": "a00db589e8bfe64e3efd2f08b16fd926f2618c7181a6452180404d65791b19db",
         "frontend/v5/atlas.png": "7dbded1ec3cd382114b15c588b3d4cef52f1ebe000d8fcc5347743f85db1db35",
@@ -588,7 +588,7 @@
         "frontend/v5/src/00_frames.js": "ba94763c169389a36dfb9c41b4382a49c82fd171d47cd4306f293be637220c50",
         "frontend/v5/src/01_core.js": "7e3726d154fd80602f556e8736224375224be638721f2e016246eb78617d88ee",
         "frontend/v5/src/02_audio.js": "e4bbeb533a46ba1c9a96ec70beb066779ccee91485d1ad8554d04697c744f2e4",
-        "frontend/v5/src/03_world.js": "4c93ec4560e506bb28bd1e3907091fde981cb68b6079041c65184385832e7e8a",
+        "frontend/v5/src/03_world.js": "0724496e833534e6edd535206015beda0b48ff507fdef748fd7fbf00dbcedf45",
         "frontend/v5/src/04_landmarks.js": "9ea4d6f82fb2a5fc28306b929492e351121cbf0d6bebee919df618601905fa20",
         "frontend/v5/src/05_player.js": "0b585d2661ec32cfb7069d186bfbb27bf8e0acdd9df5ee7919e979b6a74759d6",
         "frontend/v5/src/06_data.js": "6d499c605d32a13f5a84acd0a40eb565fb6156d60b016334fcb488330ad1cac7",
