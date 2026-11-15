@@ -1,0 +1,432 @@
+  // ---------------- §17 网络 ----------------
+  // 一条 /sync 走完全部：我上报位置，服务端回我「你周围有什么 + 你身上发生了什么」。
+  // 为什么不用 WS 推怪物：校园平板上一条 5Hz 的 HTTP 比 WebSocket 更抗折腾，
+  // 而且回包里天然带「我的」事件，不用再开一条通道对齐时序。
+  S.net = { queue: [], skill: null, roll: null, syncing: 0, errs: 0 };
+
+  function http(method, path, body) {
+    var api = S.api;
+    if (!api) return Promise.reject(new Error('SDK 不可用'));
+    var p = String(path).replace(/^\/api(?=\/)/, '');
+    var call;
+    try {
+      call = method === 'get' ? api.get(p) : api.post(p, body || {});
+    } catch (e) { return Promise.reject(e); }
+    if (!call || typeof call.then !== 'function') return Promise.reject(new Error('请求失败'));
+    return call.then(function (res) {
+      var env = res && res.data ? res.data : null;
+      if (!env) throw new Error('空响应');
+      var code = env.code;
+      if (code && code !== 200 && code !== 201) {
+        var err = new Error(env.message || '请求失败');
+        err.code = code;
+        throw err;
+      }
+      return env.data;
+    });
+  }
+  function apiGet(p) { return http('get', p); }
+  function apiPost(p, b) { return http('post', p, b); }
+
+  // ---- 进入世界 ----
+  function loadTerrain() {
+    var cached = null;
+    try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
+    if (cached && cached.version === 5 && cached.cells && cached.size === 256) {
+      return Promise.resolve(cached);
+    }
+    return apiGet('/shiguang/v5/terrain').then(function (data) {
+      try { S.storage.set('terr5', data); } catch (e) {}
+      return data;
+    });
+  }
+
+  function applyEnter(d) {
+    var me = makeMe(d.me);
+    S.myId = d.me.id;
+    S.zone = d.me.zone || 'town';
+    S.stats = d.me.stats || {};
+    S.chests = {};
+    for (var i = 0; i < (d.chests || []).length; i++) S.chests[d.chests[i]] = 1;
+    S.towers = d.towers || {};
+    S.waystones = d.me.waystones || ['ws_town'];
+    S.goal = d.goal;
+    S.phase = d.phase ? d.phase.name : 'day';
+    S.pf = d.phase ? d.phase.f : 0;
+    S.feed = (d.feed || []).map(function (f) { return { text: f.text, kind: f.kind }; });
+    // 相机先对上，否则第一帧会从 (0,0) 飞过来
+    S.cam.x = me.x * TILE;
+    S.cam.y = me.y * TILE;
+    // NPC 站到自家门口
+    for (var k = 0; k < NPCS.length; k++) {
+      var h = null;
+      for (var j = 0; j < S.map.town.houses.length; j++) {
+        if (S.map.town.houses[j].kind === NPCS[k].id) h = S.map.town.houses[j];
+      }
+      if (h) {
+        NPCS[k].x = h.x + h.w / 2;
+        NPCS[k].y = h.y + h.h + 0.7;
+      }
+    }
+    applyPlayers(d.players || []);
+    renderFeed();
+    drawFace(me.look);
+    uiUpdate();
+    uiGoal();
+    auMusic(S.zone === 'town' ? 'town' : S.zone);
+    reveal(Math.floor(me.x), Math.floor(me.y), 18);   // 第一次进世界，先把镇子看清
+    if (d.me.isNew) {
+      setTimeout(function () { showChapter(0); }, 900);
+    }
+    bindRealtime();
+  }
+
+  // ---- 同步 ----
+  function syncOnce() {
+    var me = S.me;
+    if (!me || !S.ready) return;
+    if (S.net.syncing) return;
+    S.net.syncing = 1;
+    var body = {
+      x: Math.round(me.x * 100) / 100,
+      y: Math.round(me.y * 100) / 100,
+      f: Math.round(Math.atan2(me.dirY || 0, me.dirX || 0) * 100) / 100,
+      mv: me.moving ? 1 : 0,
+      mp: Math.round(me.mp)
+    };
+    if (S.net.roll) { body.roll = 1; body.rt = 0; S.net.roll = null; }
+    var hits = null;
+    if (S.net.queue.length) { hits = S.net.queue.splice(0, 12); }
+    var skill = S.net.skill;
+    S.net.skill = null;
+
+    var done = function () { S.net.syncing = 0; };
+    // 先把命中送出去（服务端先记账），再要快照 —— 顺序反了会「怪没掉血但已经死了」
+    var chain = Promise.resolve();
+    if (hits && hits.length) {
+      chain = chain.then(function () {
+        return apiPost('/shiguang/v5/hit', { list: hits, kind: 'melee' }).then(null, function () {});
+      });
+    }
+    if (skill) {
+      chain = chain.then(function () {
+        return apiPost('/shiguang/v5/skill', skill).then(null, function () {});
+      });
+    }
+    chain.then(function () {
+      return apiPost('/shiguang/v5/sync', body);
+    }).then(function (d) {
+      S.net.errs = 0;
+      applySync(d);
+      done();
+    }, function (err) {
+      S.net.errs++;
+      done();
+      if (S.net.errs === 4) {
+        toast('与世界的连接断了一下，正在重连…', 'warn');
+      }
+      if (S.net.errs > 3 && S.net.errs % 10 === 0) {
+        // 连续失败：不弹窗打断，只在 HUD 上显示，恢复后自动消失
+        if (UI.zoneEl) UI.zoneEl.textContent = '重连中…';
+      }
+    });
+  }
+
+  function applySync(d) {
+    if (!d || d.thin) {
+      if (d && d.ph && !S.pfLock) { S.phase = d.ph; }
+      return;
+    }
+    var me = S.me;
+    if (!me) return;
+    var a = d.me;
+    // 位置以服务端为准；只有在「被纠正」时才硬拉，平时不打断本地手感
+    if (d.c && Math.abs(a[0] - me.x) + Math.abs(a[1] - me.y) > 0.35) {
+      me.x = a[0]; me.y = a[1];
+      reveal(Math.floor(me.x), Math.floor(me.y), 12);   // 被服务端挪过去时也要揭图
+    }
+    var prevHp = me.hp;
+    me.hp = a[2]; me.maxHp = a[3];
+    me.mp = a[4]; me.maxMp = a[5];
+    me.lv = a[6]; me.xp = a[7]; me.xpNext = a[8];
+    me.shards = a[9];
+    me.down = !!a[10];
+    if (a[10]) showDead(true);
+    else showDead(false);
+    if (me.hp < prevHp - 0.5) hurtFlash();
+    // 血量变了要跟服务端对齐（本地预测的伤害不该留在血条上）
+    if (!S.pfLock) {
+      S.phase = d.ph || S.phase;
+      S.pf = d.pf != null ? d.pf : S.pf;
+    }
+    applyMobs(d.m || []);
+    applyPlayers(d.p || []);
+    applyShots(d.s || []);
+    // 区域切换 → 换 BGM
+    var z = zoneAtMe();
+    if (z !== S.zone) {
+      S.zone = z;
+      showZone(ZONE_NAMES[z] || z);
+      auMusic(z === 'town' ? 'town' : z);
+    }
+    // 事件
+    var ev = d.ev || [];
+    for (var i = 0; i < ev.length; i++) handleEvent(ev[i]);
+    // Boss 血条
+    updateBossBar();
+    uiUpdate();
+    uiGoal();
+  }
+
+  function zoneAtMe() {
+    var me = S.me;
+    if (!me) return 'town';
+    return zoneOf(Math.floor(me.x), Math.floor(me.y));
+  }
+
+  function handleEvent(e) {
+    if (!e || !e.k) return;
+    switch (e.k) {
+      case 'zone':
+        S.zone = e.z;
+        showZone(e.n);
+        auMusic(e.z === 'town' ? 'town' : e.z);
+        break;
+      case 'loot':
+        if (e.s) {
+          S.texts.push({ x: S.me.x, y: S.me.y - 1.2, txt: '+' + e.s, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
+          auSfx('coin', 0.3, 1.1);
+        }
+        if (e.it) {
+          toast('获得 ' + rarityName(e.it.rarity) + '「' + e.it.name + '」', 'good');
+          auSfx(e.it.rarity >= 3 ? 'gold' : 'bonus', 0.45, 1);
+        }
+        if (e.f) toast('背包满了 —— 去镇上卖掉一些吧', 'warn');
+        if (e.m && e.m.length) {
+          for (var i = 0; i < e.m.length; i++) {
+            S.texts.push({ x: S.me.x, y: S.me.y - 1.6, txt: '材料 +' + e.m[i][1], crit: 0, life: 0.9, max: 0.9, vy: -0.8, vx: -0.2, small: 1 });
+          }
+        }
+        break;
+      case 'lvup':
+        toast('升级！ Lv.' + e.lv, 'good');
+        auSfx('levelup', 0.5, 1);
+        S.rings.push({ x: S.me.x, y: S.me.y, r: 0, max: 3.2, life: 0.7, max2: 0.7, col: '#ffe6a8' });
+        if (e.talent) setTimeout(function () { toast('获得 1 点天赋 —— 按 T 分配', 'good'); }, 1200);
+        break;
+      case 'down':
+        showDead(true);
+        auSfx('gameover', 0.4, 1);
+        break;
+      case 'dead':
+        showDead(true);
+        break;
+      case 'boss':
+        toast('守护者苏醒：' + e.n, 'warn');
+        auMusic('boss');
+        break;
+      case 'tower':
+        S.towers[e.z] = { by: e.b, at: Date.now() };
+        showChapter(ZONE_ORDER.indexOf(e.z) + 1);
+        feedPush(e.n + '的灯塔亮了 —— ' + e.b + ' 打倒了守护者', 'tower');
+        auSfx('success', 0.5, 1);
+        reGoal();
+        break;
+      case 'revived':
+        toast('被 ' + e.by + ' 扶了起来', 'good');
+        break;
+    }
+  }
+
+  function reGoal() {
+    // 灯塔点亮后重新算目标（服务端下次 enter 会给，但这里先本地推一下，反馈要即时）
+    for (var i = 0; i < ZONE_ORDER.length; i++) {
+      var z = ZONE_ORDER[i];
+      if (!S.towers[z]) {
+        var t = S.map.towers[z];
+        S.goal = { zone: z, name: ZONE_NAMES[z], x: t.x, y: t.y, boss: '', idx: i + 1, total: 6 };
+        uiGoal();
+        return;
+      }
+    }
+    S.goal = null;
+    uiGoal();
+  }
+
+  function updateBossBar() {
+    var boss = null;
+    for (var id in S.mobs) {
+      var m = S.mobs[id];
+      if (m.boss && m.hp > 0) {
+        var d = dist(S.me.x, S.me.y, m.rx, m.ry);
+        if (d < 26) { boss = m; break; }
+      }
+    }
+    S.boss = boss;
+    if (!UI.bossEl) return;
+    if (!boss) {
+      UI.bossEl.className = 'sg5-boss';
+      if (auBossPlaying) { auBossPlaying = 0; auMusic(zoneAtMe() === 'town' ? 'town' : zoneAtMe()); }
+      return;
+    }
+    if (!auBossPlaying) { auBossPlaying = 1; auMusic('boss'); }
+    UI.bossEl.className = 'sg5-boss is-on';
+    var name = boss.name || '守护者';
+    setText(UI.bossName, name + '  Lv.' + boss.lv);
+    var f = clamp(boss.hp / (boss.maxHp || 1), 0, 1);
+    UI.bossFill.style.width = (f * 100).toFixed(1) + '%';
+  }
+  var auBossPlaying = 0;
+
+  function showDead(on) {
+    if (!UI.deadEl) return;
+    UI.deadEl.className = 'sg5-dead' + (on ? ' is-on' : '');
+  }
+
+  // ---- 实时事件（灯塔 / 首杀 / 世界频道） ----
+  function bindRealtime() {
+    var rt = S.realtime;
+    if (!rt || typeof rt.subscribe !== 'function' || S.rtBound) return;
+    S.rtBound = 1;
+    var off1 = rt.subscribe('shiguang5.tower', function (p) {
+      if (!p || S.towers[p.z]) return;
+      S.towers[p.z] = { by: p.by, at: p.at };
+      feedPush(ZONE_NAMES[p.z] + '的灯塔亮了 —— ' + p.by, 'tower');
+      if (curPanel === 'dex') refreshPanel('dex');
+      reGoal();
+    });
+    var off2 = rt.subscribe('shiguang5.boss', function (p) {
+      if (p && p.by) toast(p.by + ' 惊醒了' + ZONE_NAMES[p.z] + '的守护者', 'warn');
+    });
+    S.onDestroyAll.push(off1, off2);
+  }
+
+  // ---------------- §18 动作接口 ----------------
+  function apiRespawn() {
+    apiPost('/shiguang/v5/respawn').then(function (d) {
+      var me = S.me;
+      me.x = d.x; me.y = d.y; me.hp = d.hp; me.mp = d.mp || me.mp;
+      me.down = 0;
+      S.cam.x = me.x * TILE; S.cam.y = me.y * TILE;
+      showDead(false);
+      toast('你在拾光镇醒了过来');
+    }, function () { toast('复活失败，再试一次', 'warn'); });
+  }
+
+  function apiChest(c) {
+    apiPost('/shiguang/v5/chest', { id: c.id }).then(function (d) {
+      S.chests[c.id] = 1;
+      auSfx('secret', 0.42, 1);
+      S.texts.push({ x: c.x + 0.5, y: c.y, txt: '+' + d.shards, crit: 0, life: 1.1, max: 1.1, vy: -1, vx: 0, gold: 1 });
+      if (d.item) toast('宝箱：' + rarityName(d.item.rarity) + '「' + d.item.name + '」', 'good');
+      else if (d.full) toast('背包满了，装备没能带走', 'warn');
+      if (d.mat) toast('材料 +' + d.mat[1], 'good');
+      auSfx('bonus', 0.4, 1);
+    }, function (err) { toast(err.message || '打不开', 'warn'); });
+  }
+
+  function apiWaystone(w) {
+    apiPost('/shiguang/v5/waystone', { id: w.id }).then(function (d) {
+      if ((S.waystones || []).indexOf(w.id) < 0) S.waystones.push(w.id);
+      toast(d.fresh ? '传送石亮起来了 · 已记录' : '传送石已激活');
+      auSfx('secret', 0.4, 1.1);
+      S.rings.push({ x: w.x + 0.5, y: w.y + 0.5, r: 0, max: 2.4, life: 0.5, max2: 0.5, col: '#9fe0ff' });
+    }, function (err) { toast(err.message || '没有反应', 'warn'); });
+  }
+
+  function apiBuy(id, n) {
+    apiPost('/shiguang/v5/shop', { id: id, n: n }).then(function (d) {
+      S.me.shards = d.shards;
+      S.me.mats = d.mats;
+      toast('买好了');
+      auSfx('coin', 0.35, 1.15);
+      refreshPanel('shop');
+    }, function (err) { toast(err.message || '买不了', 'warn'); });
+  }
+
+  function apiUse(id) {
+    apiPost('/shiguang/v5/use', { id: id }).then(function (d) {
+      S.me.hp = d.hp; S.me.mp = d.mp; S.me.mats = d.mats;
+      auSfx('power', 0.3, 1.2);
+      refreshPanel('bag');
+    }, function (err) { toast(err.message || '用不了', 'warn'); });
+  }
+
+  function apiEquip(uid) {
+    apiPost('/shiguang/v5/equip', { uid: uid }).then(function (d) {
+      S.me.equip = d.equip;
+      S.me.bag = d.bag;
+      S.stats = d.stats || S.stats;
+      S.me.maxHp = d.maxHp;
+      S.me.hp = d.hp || S.me.hp;
+      toast('换上了');
+      auSfx('menu', 0.3, 1.1);
+      refreshPanel('bag');
+    }, function (err) { toast(err.message || '换不了', 'warn'); });
+  }
+
+  function apiUnequip(slot) {
+    apiPost('/shiguang/v5/unequip', { slot: slot }).then(function (d) {
+      S.me.equip = d.equip;
+      S.me.bag = d.bag;
+      S.stats = d.stats || S.stats;
+      S.me.maxHp = d.maxHp;
+      refreshPanel('char');
+    }, function (err) { toast(err.message || '卸不下来', 'warn'); });
+  }
+
+  function apiSell(uids) {
+    apiPost('/shiguang/v5/sell', { uids: uids }).then(function (d) {
+      S.me.bag = d.bag;
+      S.me.shards = d.shards;
+      toast('卖了 ' + d.gain + ' 星屑');
+      auSfx('coin', 0.3, 1);
+      refreshPanel('bag');
+    }, function (err) { toast(err.message || '卖不了', 'warn'); });
+  }
+
+  function apiForge(slot) {
+    apiPost('/shiguang/v5/forge', { slot: slot, mat: 'ore' }).then(function (d) {
+      S.me.equip = d.equip;
+      S.me.shards = d.shards;
+      S.me.mats = d.mats;
+      S.stats = (function () { return S.stats; })();
+      toast('重铸完成：' + d.item.name);
+      auSfx('magic', 0.5, 0.9);
+      refreshPanel('forge');
+    }, function (err) { toast(err.message || '打不了', 'warn'); });
+  }
+
+  function apiTalent(line) {
+    apiPost('/shiguang/v5/talent', { line: line }).then(function (d) {
+      S.me.talents = d.talents;
+      S.me.talentLeft = d.left;
+      S.stats = d.stats || S.stats;
+      S.me.maxHp = d.maxHp;
+      toast('点亮：' + d.tier.name);
+      auSfx('levelup', 0.4, 1.2);
+      refreshPanel('talent');
+    }, function (err) { toast(err.message || '点不了', 'warn'); });
+  }
+
+  function apiRest() {
+    toast('歇了一会儿 —— 生命回满了');
+    apiPost('/shiguang/v5/use', { id: 'potion' }).then(function (d) {
+      S.me.hp = d.hp;
+    }, function () {
+      // 没有药也要能休息：交给服务端下一个 tick 的自然回复（脱战回血）
+      S.me.hp = S.me.maxHp;
+    });
+    closePanel();
+  }
+
+  function apiLook(look) {
+    apiPost('/shiguang/v5/look', { look: look }).then(function () {
+      S.me.look = look;
+      drawFace(look);
+    }, function () {});
+  }
+
+  function apiLeave() {
+    try { apiPost('/shiguang/v5/leave').then(null, function () {}); } catch (e) {}
+  }

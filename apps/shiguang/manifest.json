@@ -1,10 +1,10 @@
 {
   "name": "shiguang",
   "type": "app",
-  "version": "4.13.0",
+  "version": "5.0.0",
   "sdk": "1",
   "label": "拾光群岛",
-  "description": "全班同处一片云海群岛的多人小世界。v4.3「手感」：走过光点就自动捡起来，不用再停下来按按钮；连击到 8 会短暂加速；草地会随风起伏，萤火虫贴着草面飘 —— 世界不再是张静止的图。 v4.4「星露谷的一天」：一天 6 分钟，全班同住一个日历；一天浇一瓢水、隔夜长一节、浇了才长 —— 「明天再来」就是这个游戏的心跳。",
+  "description": "全班同在一片开放大世界里冒险。白天探索、打怪、攒材料；入夜后长夜从雾里涌出来，大家回到灯边一起守夜。v5「长夜」= 俯视角像素动作 RPG：三段连击、翻滚无敌帧与完美闪避的子弹时间、怪物出招前的红色预警、六片区域各有一位守护者 —— 打倒它，灯塔亮起，全班的世界一起变亮。",
   "author": "ClassIntra",
   "icon": "./icon.svg",
   "color": "#5b9bd5",
@@ -15,8 +15,7 @@
   "capabilities": [
     "data.http",
     "data.realtime",
-    "data.storage",
-    "economy.wallet"
+    "data.storage"
   ],
   "visibleRoles": [
     "classAdmin",
@@ -35,6 +34,6 @@
   },
   "backend": {
     "mountPath": "/api/shiguang",
-    "entry": "./backend/routes.js"
+    "entry": "./backend/v5/routes.js"
   }
 }
