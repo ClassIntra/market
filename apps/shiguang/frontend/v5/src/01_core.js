@@ -16,7 +16,8 @@
   var ATK_RECOVER = 105;
   var COMBO_WINDOW = 420;
   var HITSTOP = 60;
-  var SYNC_MS = 200;          // 5Hz 同步
+  var SYNC_MS = 100;          // 10Hz 同步：5Hz 时远端玩家要 200ms 才有下一个采样点，看起来就是「慢半拍」
+  var SYNC_MAX_INFLIGHT = 2;  // 允许两条在途：RTT 抖动时节奏不被单条请求卡住
   var REVEAL_R = 11;          // 走一步揭开的半径（格）
 
   // 地形编码（与 backend/v5/worldgen.js 的 TILE 严格一致）

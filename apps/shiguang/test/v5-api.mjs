@@ -54,6 +54,10 @@ async function goTo(uid, x, y) {
 const terrain = await call('/v5/terrain');
 ok(terrain.code === 200, '地形接口返回 200', terrain.code);
 const T = terrain.data;
+// v5.8：地形 meta 小包（客户端用它判断本地缓存是否还新鲜，避免每次进世界重下 300KB）
+const tmeta = await call('/v5/terrain/meta');
+ok(tmeta.code === 200 && tmeta.data.version === T.version && tmeta.data.size === T.size,
+  '地形 meta 与全量包版本一致', tmeta.data);
 ok(T.size === 384 && T.cells.length === T.size * T.size, '地形尺寸（v5.7 起 384×384）', T.cells && T.cells.length);
 ok(T.zones.length === T.size * T.size, '区域图长度一致');
 ok(Object.keys(T.towers).length === 6, '6 座灯塔');
@@ -149,6 +153,32 @@ const s2 = await call('/v5/sync', { x: wsMeadow.x + 8.5, y: wsMeadow.y + 0.6, f:
 ok((s2.data.m || []).length > 0, '草原上刷出了怪', (s2.data.m || []).length);
 const mob = s2.data.m[0];
 ok(mob[4] > 0 && mob[5] > 0, '怪物有血量', { hp: mob[4], max: mob[5] });
+
+// v5.8 合包：客户端把命中/技能塞进同步包，省一次往返。
+// 关键断言：同一份响应里怪已经掉血（服务端先结算、再拍快照），事件也在这一包里。
+const mobB = s2.data.m[1] || s2.data.m[0];
+await goTo('1001', mobB[2] + 0.6, mobB[3]);
+await sleep(120);
+const hpBefore = mobB[4];
+const sHit = await call('/v5/sync', {
+  x: mobB[2] + 0.6, y: mobB[3], f: 0, mv: 0, mp: 40,
+  hits: [{ m: mobB[0], d: 7, c: 0, kx: 0, ky: 0 }]
+});
+ok(sHit.code === 200 && !sHit.data.thin, '同步合包命中 200', sHit.data && sHit.data.thin);
+const rowAfter = (sHit.data.m || []).find((r) => r[0] === mobB[0]);
+ok(!rowAfter || rowAfter[4] <= hpBefore - 7, '同一响应里怪已掉血（先结算后快照）', { before: hpBefore, after: rowAfter && rowAfter[4] });
+
+const mobC = (s2.data.m[2] || s2.data.m[0]);
+await goTo('1001', mobC[2] + 0.6, mobC[3]);
+await sleep(120);
+const sSkill = await call('/v5/sync', {
+  x: mobC[2] + 0.6, y: mobC[3], f: 0, mv: 0, mp: 40,
+  skill: { k: 'spin', list: [{ m: mobC[0], d: 5, c: 0, kx: 0, ky: 0 }] }
+});
+ok(sSkill.code === 200 && !sSkill.data.thin, '同步合包技能 200', sSkill.data && sSkill.data.thin);
+ok(sSkill.data.me[4] < 40, '技能在同步包里扣了灯火', sSkill.data.me[4]);
+const rowC = (sSkill.data.m || []).find((r) => r[0] === mobC[0]);
+ok(!rowC || rowC[4] < mobC[4], '技能命中在同一响应里结算', { before: mobC[4], after: rowC && rowC[4] });
 
 await goTo('1001', mob[2] + 0.7, mob[3] + 0.1);
 const hit = await call('/v5/hit', { list: [{ m: mob[0], d: 6, c: 0, kx: 1, ky: 0 }], kind: 'melee' });

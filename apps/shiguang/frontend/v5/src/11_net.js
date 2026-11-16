@@ -1,8 +1,9 @@
   // ---------------- §17 网络 ----------------
-  // 一条 /sync 走完全部：我上报位置，服务端回我「你周围有什么 + 你身上发生了什么」。
-  // 为什么不用 WS 推怪物：校园平板上一条 5Hz 的 HTTP 比 WebSocket 更抗折腾，
+  // 一条 /sync 走完全部：我上报位置 + 本轮命中/技能，服务端回我「你周围有什么 + 你身上发生了什么」。
+  // 为什么不用 WS 推怪物：校园平板上一条 10Hz 的 HTTP 比 WebSocket 更抗折腾，
   // 而且回包里天然带「我的」事件，不用再开一条通道对齐时序。
-  S.net = { queue: [], skill: null, roll: null, syncing: 0, errs: 0 };
+  // 命中不在单独请求里发：多一次往返 = 打怪那一下整条同步链都被拖慢。
+  S.net = { queue: [], skill: null, roll: null, inflight: 0, errs: 0, lastT: 0, sent: 0, recv: 0, rtt: -1, clock: 0 };
 
   function http(method, path, body) {
     var api = S.api;
@@ -29,20 +30,30 @@
   function apiPost(p, b) { return http('post', p, b); }
 
   // ---- 进入世界 ----
+  // 地形 300KB：先用 1KB 的 meta 校验版本，命中缓存就不再整包重下。
+  // 旧实现把版本号写死在客户端（7 / 256），扩图后每条进世界都白拉一次全量地形。
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 7 && cached.cells && cached.size === 256) {
-      return Promise.resolve(cached);
+    function fetchFull() {
+      return apiGet('/shiguang/v5/terrain').then(function (data) {
+        try { S.storage.set('terr5', data); } catch (e) {}
+        return data;
+      });
     }
-    return apiGet('/shiguang/v5/terrain').then(function (data) {
-      try { S.storage.set('terr5', data); } catch (e) {}
-      return data;
+    return apiGet('/shiguang/v5/terrain/meta').then(function (m) {
+      if (cached && cached.cells && m && cached.version === m.version && cached.size === m.size) return cached;
+      return fetchFull();
+    }, function () {
+      // meta 不可用（旧后端/瞬时断网）：有缓存先用缓存，没有才整包拉
+      return cached && cached.cells ? cached : fetchFull();
     });
   }
 
   function applyEnter(d) {
     var me = makeMe(d.me);
+    // 重进世界时上一局可能还有在途请求：清掉计数，避免把新会话卡在「已满 2 条」
+    S.net.inflight = 0; S.net.errs = 0; S.net.queue = []; S.net.skill = null;
     // v5.6 W4：天赋线等级挂到本地玩家（s4 见切窗口加成 / 剑舞 / 影袭都在本地判定）
     me.talentShadowLv = (me.talents && me.talents.shadow) || 0;
     me.talentBladeLv = (me.talents && me.talents.blade) || 0;
@@ -103,8 +114,7 @@
   function syncOnce() {
     var me = S.me;
     if (!me || !S.ready) return;
-    if (S.net.syncing) return;
-    S.net.syncing = 1;
+    if (S.net.inflight >= SYNC_MAX_INFLIGHT) return;
     var body = {
       x: Math.round(me.x * 100) / 100,
       y: Math.round(me.y * 100) / 100,
@@ -113,57 +123,52 @@
       mp: Math.round(me.mp)
     };
     if (S.net.roll) { body.roll = 1; body.rt = 0; S.net.roll = null; }
-    var hits = null;
-    if (S.net.queue.length) { hits = S.net.queue.splice(0, 12); }
-    var skill = S.net.skill;
-    S.net.skill = null;
+    // v5.8 合包：命中/技能跟着同步一起走。拆开发时，打怪那一下要多等一个 RTT 才轮到同步，
+    // 战斗中的「一卡一卡」主要就是这条链。服务端会先落位置、再结算命中和技能、最后拍快照。
+    if (S.net.queue.length) body.hits = S.net.queue.splice(0, 16);
+    if (S.net.skill) { body.skill = S.net.skill; S.net.skill = null; }
 
-    var settled = 0, syncTimer = 0;
-    var finish = function () {
+    var sentAt = Date.now();
+    var settled = 0;
+    S.net.inflight++;
+    S.net.sent++;
+    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都不能让在途计数永远不归零，
+    // 表现为「玩着玩着世界不动了」。8 秒没结果就放弃这一条，下一轮接着发。
+    var watchdog = setTimeout(function () {
       if (settled) return;
       settled = 1;
-      if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
-      S.net.syncing = 0;
-    };
-    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都可能让 syncing 永远为 1，
-    // 表现为「玩着玩着世界不动了」。8 秒没结果就主动放锁，让下一轮重新同步。
-    syncTimer = setTimeout(function () {
-      if (settled) return;
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
       S.net.errs++;
-      finish();
+      onSyncErr();
       toast('世界同步超时，正在重新连接…', 'warn');
     }, 8000);
-    // 先把命中送出去（服务端先记账），再要快照 —— 顺序反了会「怪没掉血但已经死了」
-    var chain = Promise.resolve();
-    if (hits && hits.length) {
-      chain = chain.then(function () {
-        return apiPost('/shiguang/v5/hit', { list: hits, kind: 'melee' }).then(null, function () {});
-      });
-    }
-    if (skill) {
-      chain = chain.then(function () {
-        return apiPost('/shiguang/v5/skill', skill).then(null, function () {});
-      });
-    }
-    chain.then(function () {
-      return apiPost('/shiguang/v5/sync', body);
-    }).then(function (d) {
+    apiPost('/shiguang/v5/sync', body).then(function (d) {
       if (settled) return;
+      settled = 1;
+      clearTimeout(watchdog);
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
+      S.net.rtt = Date.now() - sentAt;
+      S.net.recv++;
       S.net.errs = 0;
       applySync(d);
-      finish();
-    }, function (err) {
+    }, function () {
       if (settled) return;
+      settled = 1;
+      clearTimeout(watchdog);
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
       S.net.errs++;
-      finish();
-      if (S.net.errs === 4) {
-        toast('与世界的连接断了一下，正在重连…', 'warn');
-      }
-      if (S.net.errs > 3 && S.net.errs % 10 === 0) {
-        // 连续失败：不弹窗打断，只在 HUD 上显示，恢复后自动消失
-        if (UI.zoneEl) UI.zoneEl.textContent = '重连中…';
-      }
+      onSyncErr();
     });
+  }
+
+  function onSyncErr() {
+    if (S.net.errs === 4) {
+      toast('与世界的连接断了一下，正在重连…', 'warn');
+    }
+    if (S.net.errs > 3 && S.net.errs % 10 === 0) {
+      // 连续失败：不弹窗打断，只在 HUD 上显示，恢复后自动消失
+      if (UI.zoneEl) UI.zoneEl.textContent = '重连中…';
+    }
   }
 
   function applySync(d) {
@@ -171,6 +176,14 @@
       if (d && d.ph && !S.pfLock) { S.phase = d.ph; }
       return;
     }
+    // 允许两条同步在途后，响应可能乱序：旧快照不许覆盖新状态，
+    // 但旧快照里的事件（掉落 / 升级 / 灯塔）必须照收，吞掉就是凭空丢奖励。
+    if (d.t && S.net.lastT && d.t <= S.net.lastT) {
+      var staleEv = d.ev || [];
+      for (var se = 0; se < staleEv.length; se++) handleEvent(staleEv[se]);
+      return;
+    }
+    if (d.t) S.net.lastT = d.t;
     var me = S.me;
     if (!me) return;
     var a = d.me;

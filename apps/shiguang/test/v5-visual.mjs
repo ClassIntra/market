@@ -310,9 +310,11 @@ if (fp) {
   });
   await evalJs('__sg5.teleport(' + (fp.x + 0.5) + ',' + (fp.y + 1.5) + ')');
   await sleep(700);
+  // 采集提示由农场条在下一帧刷新，别盲等固定时长（v5.6 教训：固定 sleep 会抖）
+  const nearOk = await waitFor('(((document.querySelector(".sg5-farm-near")||{}).textContent)||"").indexOf("采集")>=0', 5000, '农场条提示出现');
   await shot('17-forage-world');
   const nearTx = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-near")||{}).textContent||"")');
-  ok(nearTx.v && String(nearTx.v).indexOf('采集') >= 0, '农场条提示「E：采集」', nearTx.v);
+  ok(nearOk === true, '农场条提示「E：采集」', nearTx.v);
 } else {
   await shot('17-forage-world');
 }
@@ -445,8 +447,15 @@ await waitFor('!document.querySelector(".sg5-lore.is-on")', 4000, 'lore 卡可�
 await evalJs('__sg5.panel("dex")');
 await evalJs('(function(){var t=[].slice.call(document.querySelectorAll(".sg5-tab")).filter(function(x){return x.textContent==="世界"})[0];if(t)t.click();return 1})()');
 await waitFor('(document.querySelectorAll(".sg5-lorew-row").length>=5)', 6000, '图鉴世界页签渲染');
-await waitFor('(document.body.textContent.indexOf("守塔人日记")>=0)', 4000, '日记收集进度可见');
+// v5.8 起日记不再是「守塔人日记」一整个分区，而是按区域分成「昼 n/n · 夜 n/n」组头
+await waitFor('(document.body.textContent.indexOf("昼 ")>=0 && document.body.textContent.indexOf("夜 ")>=0)', 4000, '昼夜收集进度可见');
 await shot('22-dex-world');
+// v5.8：同一处地点的「昼/夜」两面必须成对呈现
+const dyad = await evalJs('JSON.stringify({rows:document.querySelectorAll(".sg5-lorew-row.is-night").length,day:document.querySelectorAll(".sg5-face.is-day").length,night:document.querySelectorAll(".sg5-face.is-night").length})');
+const dv = JSON.parse(dyad.v);
+ok(dv.rows >= 5 && dv.day >= 5 && dv.night >= 5, '图鉴昼夜对照行与昼/夜牌齐全', dyad.v);
+const leak = await evalJs('JSON.stringify([].slice.call(document.querySelectorAll(".sg5-lorew-row.is-night.is-off .sg5-lorew-text")).filter(function(e){return e.textContent.indexOf("入夜后")<0}).length)');
+ok(Number(leak.v) === 0, '未获得的夜语正文不进 DOM（防剧透）', leak.v);
 // 灯语仪式卡（模拟点亮广播）
 await evalJs('__sg5.testEvent&&__sg5.testEvent({k:"lampword",z:"meadow",n:"晨光草原",t:"铃铛不响了，羊还是会回家的 —— 路我记在灯里了。替我喂猫。"})');
 await sleep(500);
@@ -454,6 +463,42 @@ await waitFor('!!document.querySelector(".sg5-lampword")', 5000, '灯语仪式�
 await shot('23-lampword');
 await evalJs('(function(){var b=document.querySelector(".sg5-lampword button");if(b)b.click();return 1})()');
 await evalJs('__sg5.panel("")');
+// ---------- 《夜语》v5.8：夜里才浮出来的残页 + 冷底夜卡 ----------
+// 服务端相位也要置夜（collect 有相位门禁），本进程直接替换 dayPhase 引用
+const realDayPhase = SIM.dayPhase;
+SIM.dayPhase = () => ({ f: 0.8, name: 'night', night: true });
+await evalJs('__sg5.lockPhase("night", 0.94)');
+await sleep(300);
+const nyxPick = await evalJs('(function(){var s=__sg5.state;var pick=s.loreNightPick||[];var got=s.loreNightCollected||[];var arr=(s.map.nights||[]).filter(function(n){return pick.indexOf(n.id)>=0&&got.indexOf(n.id)<0});return JSON.stringify(arr[0]||null)})()');
+const nyx = nyxPick.v ? JSON.parse(nyxPick.v) : null;
+ok(!!nyx, '今晚有可听见的夜语（按天轮转）', nyxPick.v);
+if (nyx) {
+  await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x: nyx.x + 0.5, y: nyx.y + 1.5 })
+  });
+  await evalJs('__sg5.teleport(' + (nyx.x + 0.5) + ',' + (nyx.y + 1.5) + ')');
+  await sleep(700);
+  await shot('24-night-nyx');
+  await evalJs('__sg5.interact()');
+  await sleep(700);
+  const ndbg = await evalJs('JSON.stringify({me:{x:__sg5.state.me.x,y:__sg5.state.me.y,down:__sg5.state.me.down,dead:__sg5.state.me.dead,hp:Math.round(__sg5.state.me.hp)},phase:__sg5.state.phase,pf:__sg5.state.pf,pick:(__sg5.state.loreNightPick||[]).length,nights:(__sg5.state.map.nights||[]).length,toasts:[].slice.call(document.querySelectorAll(".sg5-toast")).map(function(e){return e.textContent}).slice(-4)})');
+  console.log('  night debug:', ndbg.v);
+  await waitFor('!!document.querySelector(".sg5-nightcard")', 6000, '夜语卡弹出');
+  const ncard = await evalJs('JSON.stringify({cold:!!document.querySelector(".sg5-lore.is-night"),text:((document.querySelector(".sg5-nightcard .sg5-lorecard-text")||{}).textContent||"").length})');
+  const nv2 = ncard.v ? JSON.parse(ncard.v) : {};
+  ok(nv2.cold === true, '夜卡用冷底 is-night 版式', ncard.v);
+  ok(nv2.text > 20, '夜语正文已渲染', nv2.text);
+  const nfit = await evalJs('(function(){var c=document.querySelector(".sg5-nightcard");if(!c)return JSON.stringify({missing:1});var r=c.getBoundingClientRect();return JSON.stringify({inside:(r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1),h:Math.round(r.height),vh:innerHeight})})()');
+  const nfv = nfit.v ? JSON.parse(nfit.v) : {};
+  ok(nfv.inside === true, '夜卡完整落在视口内', nfit.v);
+  await shot('25-night-card');
+  await evalJs('(function(){var b=document.querySelector(".sg5-nightcard button");if(b)b.click();return 1})()');
+  await sleep(300);
+  await waitFor('!document.querySelector(".sg5-lore.is-on")', 4000, '夜卡可关闭');
+}
+SIM.dayPhase = realDayPhase;
+await evalJs('__sg5.lockPhase("", 0)');
 await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ x: world.town.cx + 0.5, y: world.town.cy + 0.2 })
@@ -555,6 +600,27 @@ await sleep(300);
 const moved = await evalJs('JSON.stringify({x:Math.round(__sg5.state.me.x*10)/10})');
 console.log('  move:', moved.v);
 await shot('09-move');
+
+// ---------- 终章：灯语 → 终章卡 → 灯火名录（v5.8） ----------
+await evalJs('__sg5.lockPhase("night", 0.94)');
+await evalJs('__sg5.testFinale({k:"finale-done",roster:{keepers:["张三","李四","王五"],later:["赵六","钱七"]}})');
+await waitFor('!!document.querySelector(".sg5-lampword")', 5000, '终章灯语卡弹出');
+await shot('26-finale-lamp');
+await sleep(4600);   // 4200ms 时 showChapter(8) 会盖上来看一眼世界
+await evalJs('(function(){var c=document.querySelector(".sg5-chapter");if(c&&c.parentNode)c.parentNode.removeChild(c);return 1})()');
+await waitFor('!!document.querySelector(".sg5-roster")', 9000, '灯火名录卡弹出');
+await sleep(500);
+const roster = await evalJs('JSON.stringify({head:(document.querySelector(".sg5-roster-head")||{}).textContent||"",keepers:document.querySelectorAll(".sg5-roster-keeper").length,names:document.querySelectorAll(".sg5-roster-name").length,note:(document.querySelector(".sg5-roster-note")||{}).textContent||""})');
+const rv = JSON.parse(roster.v);
+ok(rv.head === '灯火名录', '灯火名录标题', rv.head);
+ok(rv.keepers === 7 && rv.names === 5, '七代守塔人 + 全班名字齐全', roster.v);
+ok(rv.note.indexOf('守了这一夜') >= 0, '名录附注统计正确', rv.note);
+const rfit = await evalJs('(function(){var c=document.querySelector(".sg5-roster");var r=c.getBoundingClientRect();var btn=c.querySelector(".sg5-btn");var br=btn?btn.getBoundingClientRect():null;return JSON.stringify({inside:(r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1),btnVisible:!!br&&br.bottom<=innerHeight+1,btnText:btn?btn.textContent:""})})()');
+const rfv = JSON.parse(rfit.v);
+ok(rfv.inside === true && rfv.btnVisible === true, '名录卡与「合上名册」按钮都在视口内', rfit.v);
+await shot('27-roster');
+await evalJs('(function(){var b=document.querySelector(".sg5-roster .sg5-btn");if(b)b.click();return 1})()');
+await sleep(300);
 
 // ---------- 控制台 ----------
 const errs = logs.filter((l) => (l.indexOf('[error]') === 0 || l.indexOf('[exception]') === 0) && l.indexOf('favicon') < 0);

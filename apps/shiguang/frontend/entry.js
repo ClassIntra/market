@@ -312,7 +312,8 @@ var MUSIC = {
   var ATK_RECOVER = 105;
   var COMBO_WINDOW = 420;
   var HITSTOP = 60;
-  var SYNC_MS = 200;          // 5Hz 同步
+  var SYNC_MS = 100;          // 10Hz 同步：5Hz 时远端玩家要 200ms 才有下一个采样点，看起来就是「慢半拍」
+  var SYNC_MAX_INFLIGHT = 2;  // 允许两条在途：RTT 抖动时节奏不被单条请求卡住
   var REVEAL_R = 11;          // 走一步揭开的半径（格）
 
   // 地形编码（与 backend/v5/worldgen.js 的 TILE 严格一致）
@@ -4243,8 +4244,10 @@ var MUSIC = {
 
   // ======================== 08_mobs.js ========================
   // ---------------- §14 实体同步（把服务端快照变成看得见的东西） ----------------
-  // 服务端 5Hz 下发；客户端每帧插值。插值比直接赋值重要得多：200ms 一跳的怪物
+  // 服务端 10Hz 下发；客户端每帧插值。插值比直接赋值重要得多：200ms 一跳的怪物
   // 会像幻灯片，插值之后是连续移动 —— 手感全在这一层。
+  // v5.8：改成「分段线性 + 段尾短外推」—— 起点取当前看到的位置、终点取新快照，
+  // 用实测快照间隔推进；晚到的包不会再让实体先停住、然后瞬移一下（那就是「一卡一卡」）。
   function applyMobs(list) {
     var seen = {};
     for (var i = 0; i < list.length; i++) {
@@ -4255,6 +4258,7 @@ var MUSIC = {
       if (!m) {
         m = S.mobs[id] = {
           id: id, kind: a[1], rx: a[2], ry: a[3], tx: a[2], ty: a[3],
+          sx: a[2], sy: a[3], segT: S.net.clock, segDur: 0.1, snapAt: S.net.clock, vx: 0, vy: 0,
           hp: a[4], maxHp: a[5], lv: a[6], state: a[7], faceAng: a[8],
           elite: !!a[9], boss: !!a[10], tellT: 0, tellMax: 0, moving: !!a[12],
           kx: 0, ky: 0, flash: 0, reg: 0
@@ -4263,7 +4267,18 @@ var MUSIC = {
         m.bossZone = S.bossZoneOf && S.bossZoneOf[id];
         m.name = a[13] || '';
       } else {
+        var gap = m.snapAt ? S.net.clock - m.snapAt : 0.1;
+        var jump = Math.abs(a[2] - m.rx) + Math.abs(a[3] - m.ry);
+        m.sx = m.rx; m.sy = m.ry;
         m.tx = a[2]; m.ty = a[3];
+        m.snapAt = S.net.clock;
+        if (jump > 6) {                      // 传送 / 重生：直接对齐，别在画面上滑过去
+          m.sx = m.tx; m.sy = m.ty; m.rx = m.tx; m.ry = m.ty; gap = 0.1;
+        }
+        m.segDur = clamp(gap, 0.05, 0.45);
+        m.segT = S.net.clock;
+        m.vx = (m.tx - m.sx) / m.segDur;
+        m.vy = (m.ty - m.sy) / m.segDur;
         if (a[4] < m.hp && m.hp - a[4] > 0) m.flash = 0.1;
         m.hp = a[4];
         m.maxHp = a[5];
@@ -4307,17 +4322,27 @@ var MUSIC = {
     for (var i = ids.length - 1; i >= 0; i--) {
       var m = S.mobs[ids[i]];
       if (!m) continue;
-      // 位置插值（快照 5Hz，这里 60Hz 平滑）
-      var k = Math.min(1, dt * 11);
-      m.rx += (m.tx - m.rx) * k;
-      m.ry += (m.ty - m.ry) * k;
+      // 位置推进：段内线性走到新快照；走完仍标记 moving 时按段速度短外推（最多 220ms）
+      // 用 S.net.clock（跟随顿帧/慢动作）而不是 S.time，慢镜头里实体才是慢的
+      var u = m.segDur > 0 ? (S.net.clock - m.segT) / m.segDur : 1;
+      if (u < 1) {
+        var f = u < 0 ? 0 : u;
+        m.rx = m.sx + (m.tx - m.sx) * f;
+        m.ry = m.sy + (m.ty - m.sy) * f;
+      } else if (m.moving && (Math.abs(m.vx) + Math.abs(m.vy)) > 0.3) {
+        var extra = Math.min(S.net.clock - (m.segT + m.segDur), 0.22);
+        m.rx = m.tx + clamp(m.vx, -12, 12) * extra;
+        m.ry = m.ty + clamp(m.vy, -12, 12) * extra;
+      } else {
+        m.rx = m.tx; m.ry = m.ty;
+      }
       // 击退位移衰减（纯表现，不影响服务端位置）
       if (m.kx) { m.rx += m.kx * dt; m.kx *= Math.max(0, 1 - dt * 9); }
       if (m.ky) { m.ry += m.ky * dt; m.ky *= Math.max(0, 1 - dt * 9); }
       m.x = m.rx; m.y = m.ry;
       // 朝向：只在动的时候更新，站定时保持
-      if (Math.abs(m.tx - m.rx) + Math.abs(m.ty - m.ry) > 0.05) {
-        m.face = (m.tx - m.rx) < 0 ? 'l' : 'r';
+      if (Math.abs(m.vx) > 0.15 && u < 1.05) {
+        m.face = m.vx < 0 ? 'l' : 'r';
       }
       if (m.faceAng != null) {
         var fx = Math.cos(m.faceAng);
@@ -4393,12 +4418,22 @@ var MUSIC = {
       if (!p) {
         S.players[id] = {
           id: id, name: a[1], x: a[2], y: a[3], tx: a[2], ty: a[3], face: 0,
+          sx: a[2], sy: a[3], segT: S.net.clock, segDur: 0.1, snapAt: S.net.clock, vx: 0, vy: 0,
           look: a[5] || 'NinjaBlue', hp: a[6], maxHp: a[7], down: !!a[8], lv: a[9],
           moving: !!a[10], animT: 0
         };
         continue;
       }
+      var gap = p.snapAt ? S.net.clock - p.snapAt : 0.1;
+      var jump = Math.abs(a[2] - p.x) + Math.abs(a[3] - p.y);
+      p.sx = p.x; p.sy = p.y;
       p.tx = a[2]; p.ty = a[3];
+      p.snapAt = S.net.clock;
+      if (jump > 8) { p.sx = p.tx; p.sy = p.ty; p.x = p.tx; p.y = p.ty; gap = 0.1; }
+      p.segDur = clamp(gap, 0.05, 0.45);
+      p.segT = S.net.clock;
+      p.vx = (p.tx - p.sx) / p.segDur;
+      p.vy = (p.ty - p.sy) / p.segDur;
       p.hp = a[6]; p.maxHp = a[7];
       p.down = !!a[8];
       p.lv = a[9];
@@ -4414,11 +4449,18 @@ var MUSIC = {
   function updatePlayers(dt) {
     for (var id in S.players) {
       var p = S.players[id];
-      var k = Math.min(1, dt * 9);
-      var d = Math.abs(p.tx - p.x) + Math.abs(p.ty - p.y);
-      p.x += (p.tx - p.x) * k;
-      p.y += (p.ty - p.y) * k;
-      p.moving = d > 0.06 ? 1 : p.moving;
+      var u = p.segDur > 0 ? (S.net.clock - p.segT) / p.segDur : 1;
+      if (u < 1) {
+        var f = u < 0 ? 0 : u;
+        p.x = p.sx + (p.tx - p.sx) * f;
+        p.y = p.sy + (p.ty - p.sy) * f;
+      } else if (p.moving && (Math.abs(p.vx) + Math.abs(p.vy)) > 0.3) {
+        var extra = Math.min(S.net.clock - (p.segT + p.segDur), 0.22);
+        p.x = p.tx + clamp(p.vx, -12, 12) * extra;
+        p.y = p.ty + clamp(p.vy, -12, 12) * extra;
+      } else {
+        p.x = p.tx; p.y = p.ty;
+      }
       p.animT = (p.animT || 0) + dt;
       if (p.face == null) p.face = 0;
     }
@@ -5791,10 +5833,11 @@ var MUSIC = {
 
   // ======================== 11_net.js ========================
   // ---------------- §17 网络 ----------------
-  // 一条 /sync 走完全部：我上报位置，服务端回我「你周围有什么 + 你身上发生了什么」。
-  // 为什么不用 WS 推怪物：校园平板上一条 5Hz 的 HTTP 比 WebSocket 更抗折腾，
+  // 一条 /sync 走完全部：我上报位置 + 本轮命中/技能，服务端回我「你周围有什么 + 你身上发生了什么」。
+  // 为什么不用 WS 推怪物：校园平板上一条 10Hz 的 HTTP 比 WebSocket 更抗折腾，
   // 而且回包里天然带「我的」事件，不用再开一条通道对齐时序。
-  S.net = { queue: [], skill: null, roll: null, syncing: 0, errs: 0 };
+  // 命中不在单独请求里发：多一次往返 = 打怪那一下整条同步链都被拖慢。
+  S.net = { queue: [], skill: null, roll: null, inflight: 0, errs: 0, lastT: 0, sent: 0, recv: 0, rtt: -1, clock: 0 };
 
   function http(method, path, body) {
     var api = S.api;
@@ -5821,20 +5864,30 @@ var MUSIC = {
   function apiPost(p, b) { return http('post', p, b); }
 
   // ---- 进入世界 ----
+  // 地形 300KB：先用 1KB 的 meta 校验版本，命中缓存就不再整包重下。
+  // 旧实现把版本号写死在客户端（7 / 256），扩图后每条进世界都白拉一次全量地形。
   function loadTerrain() {
     var cached = null;
     try { cached = S.storage.get('terr5', null); } catch (e) { cached = null; }
-    if (cached && cached.version === 7 && cached.cells && cached.size === 256) {
-      return Promise.resolve(cached);
+    function fetchFull() {
+      return apiGet('/shiguang/v5/terrain').then(function (data) {
+        try { S.storage.set('terr5', data); } catch (e) {}
+        return data;
+      });
     }
-    return apiGet('/shiguang/v5/terrain').then(function (data) {
-      try { S.storage.set('terr5', data); } catch (e) {}
-      return data;
+    return apiGet('/shiguang/v5/terrain/meta').then(function (m) {
+      if (cached && cached.cells && m && cached.version === m.version && cached.size === m.size) return cached;
+      return fetchFull();
+    }, function () {
+      // meta 不可用（旧后端/瞬时断网）：有缓存先用缓存，没有才整包拉
+      return cached && cached.cells ? cached : fetchFull();
     });
   }
 
   function applyEnter(d) {
     var me = makeMe(d.me);
+    // 重进世界时上一局可能还有在途请求：清掉计数，避免把新会话卡在「已满 2 条」
+    S.net.inflight = 0; S.net.errs = 0; S.net.queue = []; S.net.skill = null;
     // v5.6 W4：天赋线等级挂到本地玩家（s4 见切窗口加成 / 剑舞 / 影袭都在本地判定）
     me.talentShadowLv = (me.talents && me.talents.shadow) || 0;
     me.talentBladeLv = (me.talents && me.talents.blade) || 0;
@@ -5895,8 +5948,7 @@ var MUSIC = {
   function syncOnce() {
     var me = S.me;
     if (!me || !S.ready) return;
-    if (S.net.syncing) return;
-    S.net.syncing = 1;
+    if (S.net.inflight >= SYNC_MAX_INFLIGHT) return;
     var body = {
       x: Math.round(me.x * 100) / 100,
       y: Math.round(me.y * 100) / 100,
@@ -5905,57 +5957,52 @@ var MUSIC = {
       mp: Math.round(me.mp)
     };
     if (S.net.roll) { body.roll = 1; body.rt = 0; S.net.roll = null; }
-    var hits = null;
-    if (S.net.queue.length) { hits = S.net.queue.splice(0, 12); }
-    var skill = S.net.skill;
-    S.net.skill = null;
+    // v5.8 合包：命中/技能跟着同步一起走。拆开发时，打怪那一下要多等一个 RTT 才轮到同步，
+    // 战斗中的「一卡一卡」主要就是这条链。服务端会先落位置、再结算命中和技能、最后拍快照。
+    if (S.net.queue.length) body.hits = S.net.queue.splice(0, 16);
+    if (S.net.skill) { body.skill = S.net.skill; S.net.skill = null; }
 
-    var settled = 0, syncTimer = 0;
-    var finish = function () {
+    var sentAt = Date.now();
+    var settled = 0;
+    S.net.inflight++;
+    S.net.sent++;
+    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都不能让在途计数永远不归零，
+    // 表现为「玩着玩着世界不动了」。8 秒没结果就放弃这一条，下一轮接着发。
+    var watchdog = setTimeout(function () {
       if (settled) return;
       settled = 1;
-      if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
-      S.net.syncing = 0;
-    };
-    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都可能让 syncing 永远为 1，
-    // 表现为「玩着玩着世界不动了」。8 秒没结果就主动放锁，让下一轮重新同步。
-    syncTimer = setTimeout(function () {
-      if (settled) return;
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
       S.net.errs++;
-      finish();
+      onSyncErr();
       toast('世界同步超时，正在重新连接…', 'warn');
     }, 8000);
-    // 先把命中送出去（服务端先记账），再要快照 —— 顺序反了会「怪没掉血但已经死了」
-    var chain = Promise.resolve();
-    if (hits && hits.length) {
-      chain = chain.then(function () {
-        return apiPost('/shiguang/v5/hit', { list: hits, kind: 'melee' }).then(null, function () {});
-      });
-    }
-    if (skill) {
-      chain = chain.then(function () {
-        return apiPost('/shiguang/v5/skill', skill).then(null, function () {});
-      });
-    }
-    chain.then(function () {
-      return apiPost('/shiguang/v5/sync', body);
-    }).then(function (d) {
+    apiPost('/shiguang/v5/sync', body).then(function (d) {
       if (settled) return;
+      settled = 1;
+      clearTimeout(watchdog);
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
+      S.net.rtt = Date.now() - sentAt;
+      S.net.recv++;
       S.net.errs = 0;
       applySync(d);
-      finish();
-    }, function (err) {
+    }, function () {
       if (settled) return;
+      settled = 1;
+      clearTimeout(watchdog);
+      S.net.inflight = Math.max(0, S.net.inflight - 1);
       S.net.errs++;
-      finish();
-      if (S.net.errs === 4) {
-        toast('与世界的连接断了一下，正在重连…', 'warn');
-      }
-      if (S.net.errs > 3 && S.net.errs % 10 === 0) {
-        // 连续失败：不弹窗打断，只在 HUD 上显示，恢复后自动消失
-        if (UI.zoneEl) UI.zoneEl.textContent = '重连中…';
-      }
+      onSyncErr();
     });
+  }
+
+  function onSyncErr() {
+    if (S.net.errs === 4) {
+      toast('与世界的连接断了一下，正在重连…', 'warn');
+    }
+    if (S.net.errs > 3 && S.net.errs % 10 === 0) {
+      // 连续失败：不弹窗打断，只在 HUD 上显示，恢复后自动消失
+      if (UI.zoneEl) UI.zoneEl.textContent = '重连中…';
+    }
   }
 
   function applySync(d) {
@@ -5963,6 +6010,14 @@ var MUSIC = {
       if (d && d.ph && !S.pfLock) { S.phase = d.ph; }
       return;
     }
+    // 允许两条同步在途后，响应可能乱序：旧快照不许覆盖新状态，
+    // 但旧快照里的事件（掉落 / 升级 / 灯塔）必须照收，吞掉就是凭空丢奖励。
+    if (d.t && S.net.lastT && d.t <= S.net.lastT) {
+      var staleEv = d.ev || [];
+      for (var se = 0; se < staleEv.length; se++) handleEvent(staleEv[se]);
+      return;
+    }
+    if (d.t) S.net.lastT = d.t;
     var me = S.me;
     if (!me) return;
     var a = d.me;
@@ -6492,6 +6547,8 @@ var MUSIC = {
         else if (S.slow) S.slow = null;
         var ds = freeze ? 0 : dt * scale;
         if (ds > 0) {
+          // 网络插值时钟：跟着顿帧/子弹时间走 —— 慢动作里远方实体也得慢下来
+          S.net.clock += ds;
           updatePlayer(ds, S.time);
           resolveAttack(S.me, S.time);
           updateMobs(ds, S.time);
@@ -6798,7 +6855,7 @@ var MUSIC = {
       var secs = F.startedAt ? Math.min(60, Math.max(0, Math.round(((F.now || Date.now()) - F.startedAt) / 1000))) : 0;
       var line = F.meWaiting ? '守夜中 · ' + (F.waiters || 1) + ' 人 · 第 ' + secs + ' / 60 秒' : '举灯同守 · 现在 ' + (F.waiters || 0) + ' / ' + need + ' 人（塔下按 E）';
       var el2 = UI.finaliteEl;
-      el2.innerHTML = '';
+      clearNode(el2);
       el2.appendChild(el('div', 'sg5-finalite-title', '最后的守夜'));
       el2.appendChild(el('div', 'sg5-finalite-line', line));
       var bar = el('div', 'sg5-finalite-bar');

@@ -1,6 +1,8 @@
   // ---------------- §14 实体同步（把服务端快照变成看得见的东西） ----------------
-  // 服务端 5Hz 下发；客户端每帧插值。插值比直接赋值重要得多：200ms 一跳的怪物
+  // 服务端 10Hz 下发；客户端每帧插值。插值比直接赋值重要得多：200ms 一跳的怪物
   // 会像幻灯片，插值之后是连续移动 —— 手感全在这一层。
+  // v5.8：改成「分段线性 + 段尾短外推」—— 起点取当前看到的位置、终点取新快照，
+  // 用实测快照间隔推进；晚到的包不会再让实体先停住、然后瞬移一下（那就是「一卡一卡」）。
   function applyMobs(list) {
     var seen = {};
     for (var i = 0; i < list.length; i++) {
@@ -11,6 +13,7 @@
       if (!m) {
         m = S.mobs[id] = {
           id: id, kind: a[1], rx: a[2], ry: a[3], tx: a[2], ty: a[3],
+          sx: a[2], sy: a[3], segT: S.net.clock, segDur: 0.1, snapAt: S.net.clock, vx: 0, vy: 0,
           hp: a[4], maxHp: a[5], lv: a[6], state: a[7], faceAng: a[8],
           elite: !!a[9], boss: !!a[10], tellT: 0, tellMax: 0, moving: !!a[12],
           kx: 0, ky: 0, flash: 0, reg: 0
@@ -19,7 +22,18 @@
         m.bossZone = S.bossZoneOf && S.bossZoneOf[id];
         m.name = a[13] || '';
       } else {
+        var gap = m.snapAt ? S.net.clock - m.snapAt : 0.1;
+        var jump = Math.abs(a[2] - m.rx) + Math.abs(a[3] - m.ry);
+        m.sx = m.rx; m.sy = m.ry;
         m.tx = a[2]; m.ty = a[3];
+        m.snapAt = S.net.clock;
+        if (jump > 6) {                      // 传送 / 重生：直接对齐，别在画面上滑过去
+          m.sx = m.tx; m.sy = m.ty; m.rx = m.tx; m.ry = m.ty; gap = 0.1;
+        }
+        m.segDur = clamp(gap, 0.05, 0.45);
+        m.segT = S.net.clock;
+        m.vx = (m.tx - m.sx) / m.segDur;
+        m.vy = (m.ty - m.sy) / m.segDur;
         if (a[4] < m.hp && m.hp - a[4] > 0) m.flash = 0.1;
         m.hp = a[4];
         m.maxHp = a[5];
@@ -63,17 +77,27 @@
     for (var i = ids.length - 1; i >= 0; i--) {
       var m = S.mobs[ids[i]];
       if (!m) continue;
-      // 位置插值（快照 5Hz，这里 60Hz 平滑）
-      var k = Math.min(1, dt * 11);
-      m.rx += (m.tx - m.rx) * k;
-      m.ry += (m.ty - m.ry) * k;
+      // 位置推进：段内线性走到新快照；走完仍标记 moving 时按段速度短外推（最多 220ms）
+      // 用 S.net.clock（跟随顿帧/慢动作）而不是 S.time，慢镜头里实体才是慢的
+      var u = m.segDur > 0 ? (S.net.clock - m.segT) / m.segDur : 1;
+      if (u < 1) {
+        var f = u < 0 ? 0 : u;
+        m.rx = m.sx + (m.tx - m.sx) * f;
+        m.ry = m.sy + (m.ty - m.sy) * f;
+      } else if (m.moving && (Math.abs(m.vx) + Math.abs(m.vy)) > 0.3) {
+        var extra = Math.min(S.net.clock - (m.segT + m.segDur), 0.22);
+        m.rx = m.tx + clamp(m.vx, -12, 12) * extra;
+        m.ry = m.ty + clamp(m.vy, -12, 12) * extra;
+      } else {
+        m.rx = m.tx; m.ry = m.ty;
+      }
       // 击退位移衰减（纯表现，不影响服务端位置）
       if (m.kx) { m.rx += m.kx * dt; m.kx *= Math.max(0, 1 - dt * 9); }
       if (m.ky) { m.ry += m.ky * dt; m.ky *= Math.max(0, 1 - dt * 9); }
       m.x = m.rx; m.y = m.ry;
       // 朝向：只在动的时候更新，站定时保持
-      if (Math.abs(m.tx - m.rx) + Math.abs(m.ty - m.ry) > 0.05) {
-        m.face = (m.tx - m.rx) < 0 ? 'l' : 'r';
+      if (Math.abs(m.vx) > 0.15 && u < 1.05) {
+        m.face = m.vx < 0 ? 'l' : 'r';
       }
       if (m.faceAng != null) {
         var fx = Math.cos(m.faceAng);
@@ -149,12 +173,22 @@
       if (!p) {
         S.players[id] = {
           id: id, name: a[1], x: a[2], y: a[3], tx: a[2], ty: a[3], face: 0,
+          sx: a[2], sy: a[3], segT: S.net.clock, segDur: 0.1, snapAt: S.net.clock, vx: 0, vy: 0,
           look: a[5] || 'NinjaBlue', hp: a[6], maxHp: a[7], down: !!a[8], lv: a[9],
           moving: !!a[10], animT: 0
         };
         continue;
       }
+      var gap = p.snapAt ? S.net.clock - p.snapAt : 0.1;
+      var jump = Math.abs(a[2] - p.x) + Math.abs(a[3] - p.y);
+      p.sx = p.x; p.sy = p.y;
       p.tx = a[2]; p.ty = a[3];
+      p.snapAt = S.net.clock;
+      if (jump > 8) { p.sx = p.tx; p.sy = p.ty; p.x = p.tx; p.y = p.ty; gap = 0.1; }
+      p.segDur = clamp(gap, 0.05, 0.45);
+      p.segT = S.net.clock;
+      p.vx = (p.tx - p.sx) / p.segDur;
+      p.vy = (p.ty - p.sy) / p.segDur;
       p.hp = a[6]; p.maxHp = a[7];
       p.down = !!a[8];
       p.lv = a[9];
@@ -170,11 +204,18 @@
   function updatePlayers(dt) {
     for (var id in S.players) {
       var p = S.players[id];
-      var k = Math.min(1, dt * 9);
-      var d = Math.abs(p.tx - p.x) + Math.abs(p.ty - p.y);
-      p.x += (p.tx - p.x) * k;
-      p.y += (p.ty - p.y) * k;
-      p.moving = d > 0.06 ? 1 : p.moving;
+      var u = p.segDur > 0 ? (S.net.clock - p.segT) / p.segDur : 1;
+      if (u < 1) {
+        var f = u < 0 ? 0 : u;
+        p.x = p.sx + (p.tx - p.sx) * f;
+        p.y = p.sy + (p.ty - p.sy) * f;
+      } else if (p.moving && (Math.abs(p.vx) + Math.abs(p.vy)) > 0.3) {
+        var extra = Math.min(S.net.clock - (p.segT + p.segDur), 0.22);
+        p.x = p.tx + clamp(p.vx, -12, 12) * extra;
+        p.y = p.ty + clamp(p.vy, -12, 12) * extra;
+      } else {
+        p.x = p.tx; p.y = p.ty;
+      }
       p.animT = (p.animT || 0) + dt;
       if (p.face == null) p.face = 0;
     }

@@ -50,6 +50,8 @@
         else if (S.slow) S.slow = null;
         var ds = freeze ? 0 : dt * scale;
         if (ds > 0) {
+          // 网络插值时钟：跟着顿帧/子弹时间走 —— 慢动作里远方实体也得慢下来
+          S.net.clock += ds;
           updatePlayer(ds, S.time);
           resolveAttack(S.me, S.time);
           updateMobs(ds, S.time);
@@ -356,7 +358,7 @@
       var secs = F.startedAt ? Math.min(60, Math.max(0, Math.round(((F.now || Date.now()) - F.startedAt) / 1000))) : 0;
       var line = F.meWaiting ? '守夜中 · ' + (F.waiters || 1) + ' 人 · 第 ' + secs + ' / 60 秒' : '举灯同守 · 现在 ' + (F.waiters || 0) + ' / ' + need + ' 人（塔下按 E）';
       var el2 = UI.finaliteEl;
-      el2.innerHTML = '';
+      clearNode(el2);
       el2.appendChild(el('div', 'sg5-finalite-title', '最后的守夜'));
       el2.appendChild(el('div', 'sg5-finalite-line', line));
       var bar = el('div', 'sg5-finalite-bar');

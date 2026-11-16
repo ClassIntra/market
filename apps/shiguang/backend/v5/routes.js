@@ -44,6 +44,14 @@ var pending = {};
 var meta = {};       // uid -> { syncAt, lastHit, lastSkill, lastEmote, chatAt }
 
 function nowMs() { return Date.now(); }
+// 灯塔进度：10Hz 同步每次都要读它决定要不要唤醒守护者。
+// 2 秒短缓存把「每请求一次 SELECT」压成「每 2 秒一次」，点灯时显式失效。
+var towersCache = null, towersCacheAt = 0;
+function towersCached() {
+  var t = nowMs();
+  if (!towersCache || t - towersCacheAt > 2000) { towersCache = S.towers(); towersCacheAt = t; }
+  return towersCache;
+}
 function num(v, d) { var n = Number(v); return isFinite(n) ? n : d; }
 function round1(v) { return Math.round(v * 10) / 10; }
 function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
@@ -320,6 +328,7 @@ function nmOf(id) { return S.userName(id || ''); }
 // 正常点灯链（六域守护者 & 守夜仪式完成后的 abyss 共用）
 function lightTowerChain(zone, byId, nm) {
   var first = S.lightTower(zone, byId);
+  towersCache = null;   // 点灯后立刻让同步路径看到新进度（避免 2s 内又唤醒已亮塔的守护者）
   var zn = zoneName(zone);
   if (first) {
     broadcast('tower', { z: zone, by: nm, at: nowMs() });
@@ -556,10 +565,19 @@ var LIFE = require('./life')({
 });
 
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 9;   // v5.7.1 孤岛封偿 + v5.8 夜语残页入世界（nights），旧缓存必须失效
+// 两个版本号各管一件事：
+//   TERRAIN_VERSION     —— 存档坐标迁移（flags.terrainV）。改地图布局才 +1，会把人送回镇心。
+//   TERRAIN_CACHE_VERSION —— 客户端地形缓存的内容版本。地形包内容有变就 +1（v5.8 加了夜语地标），
+//                          只让缓存失效一次，不触发玩家位置迁移。
+var TERRAIN_VERSION = 9;         // v5.7.1 孤岛封偿 + 旧存档坐标迁移
+var TERRAIN_CACHE_VERSION = 10;  // v5.8 夜语地标入包；5.7.1 的 v9 缓存必须重拉
+// 版本校验用的小包：客户端先问 meta，命中本地缓存就不必重复下载 300KB 全量地形
+router.get('/v5/terrain/meta', function (req, res) {
+  ok(res, { version: TERRAIN_CACHE_VERSION, size: SIZE });
+});
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
-    version: TERRAIN_VERSION,
+    version: TERRAIN_CACHE_VERSION,
     size: SIZE,
     cells: world.encoded,
     zones: world.zonesEncoded,
@@ -771,11 +789,11 @@ router.post('/v5/sync', requireAuth, function (req, res) {
   var t = nowMs();
   var b = req.body || {};
   var m = meta[id] || (meta[id] = {});
-  if (m.syncAt && t - m.syncAt < C.SYNC_MIN_GAP_MS) {
-    // 太密了：不推开销，直接回一份「什么都没变」
-    return ok(res, { thin: 1, t: t, ph: SIM.dayPhase().name });
-  }
-  m.syncAt = t;
+  // v5.8 合包：客户端把「这一帧的命中/技能」塞进同步包，省掉一次往返。
+  // 顺序仍是先落位置、再结算、最后拍快照 —— 校验看到的坐标就是上报的那一刻。
+  // 节流只用来省快照开销，不能吞掉这一包里的伤害，所以结算在 thin 之前。
+  var throttled = !!(m.syncAt && t - m.syncAt < C.SYNC_MIN_GAP_MS);
+  if (!throttled) m.syncAt = t;
 
   // ---- 位置校验：客户端算手感，服务端算合法性 ----
   var nx = num(b.x, p.x), ny = num(b.y, p.y);
@@ -803,6 +821,14 @@ router.post('/v5/sync', requireAuth, function (req, res) {
     if (rt && (!p.rollAt || t - p.rollAt > 420)) p.rollAt = t - Math.min(120, num(b.rt, 0));
     p.invUntil = t + 220;
   }
+  // ---- 命中 / 技能（合包） ----
+  if (b.hits && b.hits.length) {
+    if (!m.lastHit || t - m.lastHit >= C.HIT_MIN_GAP_MS) {
+      m.lastHit = t;
+      applyHits(id, b.hits, 'melee');
+    }
+  }
+  if (b.skill && b.skill.k) applySkill(id, b.skill);
   var zone = zoneAt(p.x, p.y);
   if (zone !== p.zone) {
     p.zone = zone;
@@ -810,9 +836,10 @@ router.post('/v5/sync', requireAuth, function (req, res) {
   }
   p.safe = zone === 'town';
   p.level = rec.level;
+  if (throttled) return ok(res, { thin: 1, t: t, ph: SIM.dayPhase().name });
 
   // ---- 守护者：走到未点亮灯塔前，把它叫醒 ----
-  var towers = S.towers();
+  var towers = towersCached();
   Object.keys(world.landmarks.towers).forEach(function (z) {
     if (towers[z]) return;
     // v5.8 守夜仪式：abyss 开着仪式（或已完成）就不唤醒长夜之主 —— 举灯期间不该被反扑，仪式后塔已亮
@@ -905,20 +932,19 @@ router.post('/v5/hit', requireAuth, function (req, res) {
 });
 
 // 范围技（灯火回旋 / 星爆）：一次上报多个目标，服务端逐个校验
-router.post('/v5/skill', requireAuth, function (req, res) {
-  var id = uid(req);
-  var b = req.body || {};
+// v5.8：技能也走 /v5/sync 合包，这里保留独立入口（老客户端/测试兼容），逻辑收敛在 applySkill。
+function applySkill(id, b) {
   var rec = S.load(id, TOWN_SPAWN);
   var p = SIM.players[id];
-  if (!p) return fail(res, '还没进入世界', 409);
-  var kind = String(b.k || 'spin');
+  if (!p) return { error: '还没进入世界', status: 409 };
+  var kind = String((b && b.k) || 'spin');
   var def = D.SKILLS[kind];
-  if (!def) return fail(res, '没有这个技能');
+  if (!def) return { error: '没有这个技能', status: 400 };
   var m = meta[id] || (meta[id] = {});
   var t = nowMs();
-  if (m.lastSkill && t - m.lastSkill < def.cd * 0.8) return fail(res, '技能还在冷却', 429);
-  if ((rec.skills || []).indexOf(kind) < 0) return fail(res, '还没学会这个技能');
-  if ((p.mp || 0) < def.mp) return fail(res, '灯火不够', 428);
+  if (m.lastSkill && t - m.lastSkill < def.cd * 0.8) return { error: '技能还在冷却', status: 429 };
+  if ((rec.skills || []).indexOf(kind) < 0) return { error: '还没学会这个技能', status: 400 };
+  if ((p.mp || 0) < def.mp) return { error: '灯火不够', status: 428 };
   m.lastSkill = t;
   p.mp -= def.mp;
 
@@ -928,7 +954,13 @@ router.post('/v5/skill', requireAuth, function (req, res) {
   if (kind === 'lamp') {
     SIM.addLight({ x: p.x, y: p.y, r: def.radius || 4, until: t + (def.dur || 12000) });
   }
-  ok(res, { hits: r.hits, mp: Math.round(p.mp) });
+  return { hits: r.hits, mp: Math.round(p.mp) };
+}
+
+router.post('/v5/skill', requireAuth, function (req, res) {
+  var r = applySkill(uid(req), req.body || {});
+  if (r.error) return fail(res, r.error, r.status);
+  ok(res, { hits: r.hits, mp: r.mp });
 });
 
 // ---------------- 宝箱 ----------------

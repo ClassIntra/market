@@ -297,6 +297,31 @@ const ph = sim.dayPhase();
 ok(['day', 'dusk', 'night', 'dawn'].indexOf(ph.name) >= 0, '昼夜相位有效', ph.name);
 ok(ph.f >= 0 && ph.f < 1, '相位比例 0~1', ph.f);
 
+// ---- 《灯火纪》/《夜语》文本资产（v5.8）----
+const LORE = require(B + 'lore.js');
+ok(Array.isArray(LORE.diaries) && LORE.diaries.length === 20, '守塔人日记 20 页', (LORE.diaries || []).length);
+ok(Array.isArray(LORE.nights) && LORE.nights.length === 20, '夜语残页 20 页', (LORE.nights || []).length);
+ok(LORE.chapters.length === 9 && LORE.codex.length === 5, '主线九章 / 编年史五篇');
+ok(LORE.keeperAfter.length === 2 && LORE.keeperLines.length >= 7, '栗的暗线两段 / 独白七级');
+const diaryIds = {};
+LORE.diaries.forEach((d) => { diaryIds[d.id] = 1; });
+// 昼与夜是同一处地点的两面：id 后缀一一对应，且 pair 指向那页日记
+let pairBad = 0, shortText = 0, dupText = 0;
+const seenText = {};
+LORE.diaries.forEach((d) => { seenText[d.text] = 1; });
+LORE.nights.forEach((n) => {
+  if (n.pair !== 'd_' + n.id.slice(2) || !diaryIds[n.pair]) pairBad++;
+  if (!n.text || n.text.length < 30) shortText++;
+  if (seenText[n.text]) dupText++;
+  seenText[n.text] = 1;
+});
+ok(pairBad === 0, '夜语与日记严格配对（y_x ↔ d_x）', pairBad);
+ok(shortText === 0, '每页夜语都有实打实的正文', shortText);
+ok(dupText === 0, '昼/夜两面内容不重复', dupText);
+const zoneSet = {};
+LORE.nights.forEach((n) => { zoneSet[n.zone] = 1; });
+ok(Object.keys(zoneSet).length === 7, '夜语覆盖七个生态区', Object.keys(zoneSet).join(','));
+
 // 快照结构
 const snap = sim.snapshotFor('u_test');
 ok(Array.isArray(snap.mobs) && Array.isArray(snap.shots), '快照含怪物与弹幕');
