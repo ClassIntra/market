@@ -829,6 +829,37 @@
     ctx.ellipse(sx, sy - u * 0.05, baseW * 0.56, u * 0.18, 0, 0, 6.2832);
     ctx.fill();
 
+    // v5.8 守夜仪式：长夜之心塔下共守光环 —— 每多一位举灯人 +1 圈金环（封顶 8），
+    // 在场玩家（含自己，3.5 格内）脚下补一盏「带来的灯」。
+    if (z === 'abyss' && S.finale && S.finale.open && !S.finale.done) {
+      var holders = [];
+      var fkey;
+      for (fkey in S.players) {
+        var fp = S.players[fkey];
+        if (fp && Math.abs(fp.x - tw.x) <= 3.5 && Math.abs(fp.y - tw.y) <= 3.5) holders.push(fp);
+      }
+      // S.players 已排除自己（applyPlayers 里 id === S.myId 直接 continue），所以自己单独判一次
+      var meF = S.me;
+      if (meF && Math.abs(meF.x - tw.x) <= 3.5 && Math.abs(meF.y - tw.y) <= 3.5) holders.push(meF);
+      var rings = Math.min(8, Math.max(1, S.finale.waiters || 1));
+      for (var ri = 0; ri < rings; ri++) {
+        var rx = u * (1.3 + ri * 0.34);
+        ctx.strokeStyle = '#ffd27a';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = Math.max(0.09, 0.30 - ri * 0.03) + Math.sin(S.time * 1.6 + ri * 0.9) * 0.04;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - u * 0.05, rx, rx * 0.38, 0, 0, 6.2832);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.50;
+      ctx.fillStyle = '#ffd27a';
+      for (var hi = 0; hi < holders.length; hi++) {
+        var hx = w2sX(holders[hi].x * TILE), hy = w2sY(holders[hi].y * TILE);
+        ctx.fillRect(hx - u * 0.08, hy - u * 0.30, u * 0.16, u * 0.16);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     // 塔身（上窄下宽）
     ctx.beginPath();
     ctx.moveTo(sx - baseW / 2, sy);

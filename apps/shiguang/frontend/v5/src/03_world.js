@@ -44,7 +44,8 @@
     S.map = {
       size: size, cells: cells, zoneIdx: zi, zones: data.zonesMeta, town: data.town,
       towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile,
-      relics: data.relics || []   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
+      relics: data.relics || [],   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
+      nights: data.nights || []    // v5.8 夜语残页：与日记同格，夜间浮现
     };
     S.chests = {};
     S.waystones = data.waystones;
@@ -626,6 +627,14 @@
         PROPS.push({ k: 'relic', x: rl.x, y: rl.y, s: 0.5, z: zoneOf(rl.x, rl.y), id: rl.id });
       }
     }
+    // v5.8 夜语残页：常收进 PROPS（坐标=日记同格），可见性在 drawProp 里按 phase 门控
+    var nights = S.map.nights || [];
+    for (var ni = 0; ni < nights.length; ni++) {
+      var ny = nights[ni];
+      if (ny.x >= vr.x0 && ny.x <= vr.x1 && ny.y >= vr.y0 && ny.y <= vr.y1) {
+        PROPS.push({ k: 'nyx', x: ny.x, y: ny.y, s: 0.5, z: zoneOf(ny.x, ny.y), id: ny.id });
+      }
+    }
   }
 
   function blitSprite(ctx, cv, cx, bottom, scale) {
@@ -639,6 +648,29 @@
     ctx.beginPath();
     ctx.ellipse(cx, bottom - u * 0.05, wTiles * u * 0.5, u * 0.22, 0, 0, 6.2832);
     ctx.fill();
+  }
+
+  // v5.8 夜语残页的「显形程度」：深夜 1，黄昏最后 15% 渐显，黎明 5% 内渐隐。
+  // 与服务端 collect 的相位门禁（dusk 本地进度 > 0.85）严格对齐，避免看得到却收不到。
+  function nyxPhaseAlpha() {
+    var pf = S.pf || 0;
+    if (S.phase === 'night') return 1;
+    if (S.phase === 'dusk') {
+      var dk = (pf - 0.62) / 0.08;
+      return dk > 0.85 ? Math.min(1, (dk - 0.85) / 0.15) : 0;
+    }
+    if (S.phase === 'dawn') {
+      var dw = (pf - 0.95) / 0.05;
+      return dw >= 1 ? 0 : Math.max(0, 1 - dw);
+    }
+    return 0;
+  }
+
+  // 今晚能听见的夜语：服务端按天轮转（S.loreNightPick），已收下的不再显形
+  function nyxTonight(id) {
+    if (!id) return false;
+    if ((S.loreNightCollected || []).indexOf(id) >= 0) return false;
+    return (S.loreNightPick || []).indexOf(id) >= 0;
   }
 
   function drawProp(ctx, p) {
@@ -693,6 +725,51 @@
         var twk = lit2 ? 0.35 : (0.62 + Math.sin(S.time * 2.2 + p.x * 1.7) * 0.22);
         ctx.fillStyle = lit2 ? 'rgba(255,210,122,' + twk.toFixed(2) + ')' : 'rgba(207,232,255,' + twk.toFixed(2) + ')';
         ctx.fillRect(sx - z * 1.5, sy - u2 * 1.08, z * 3, z * 3);
+        break;
+      }
+      case 'nyx': {
+        // v5.8 夜语残页：夜间浮现的撕口残页。phase 门控在这里做（PROPS 常收）。
+        var nv = nyxPhaseAlpha();
+        if (nv <= 0) break;
+        if (!nyxTonight(p.id)) break;
+        var un = TILE * S.zoom;
+        var nx = w2sX(p.x * TILE + TILE * 0.5);
+        var nyy = w2sY(p.y * TILE + TILE);
+        var nbob = Math.round(Math.sin(S.time * 1.7 + (p.x * 3 + p.y) % 5) * un * 0.08);
+        var ndrift = Math.round(Math.sin(S.time * 0.9 + p.y * 1.1) * un * 0.10);
+        var ngot = S.loreNightCollected && S.loreNightCollected.indexOf(p.id) >= 0;
+        var nalpha = ngot ? 0.30 : (0.55 + Math.sin(S.time * 2.2 + p.x * 0.9) * 0.18);
+        nalpha = Math.max(0, Math.min(1, nalpha * nv));
+        // 分离地面影：残页悬空，影子留在地上并随 drift 偏移
+        ctx.fillStyle = 'rgba(8,12,20,' + (0.25 * nv).toFixed(2) + ')';
+        ctx.beginPath();
+        ctx.ellipse(nx - ndrift * 0.4, nyy - 1, un * 0.24, un * 0.07, 0, 0, 6.2832);
+        ctx.fill();
+        ctx.save();
+        ctx.globalAlpha = nalpha;
+        // 撕口残页三段横带（冷蓝纸底，撕口错位）
+        var nw = un * 0.46;
+        var ny0 = nyy - un * 0.86 + nbob;
+        ctx.fillStyle = '#26314a';
+        ctx.fillRect(nx - nw / 2 + ndrift, ny0, nw, un * 0.12);
+        ctx.fillStyle = '#3a4a6a';
+        ctx.fillRect(nx - nw / 2 + ndrift, ny0, nw, 1);
+        ctx.fillStyle = '#1c2436';
+        ctx.fillRect(nx - nw / 2 + un * 0.05 + ndrift, ny0 + un * 0.135, nw * 0.86, un * 0.11);
+        ctx.fillStyle = '#232c40';
+        ctx.fillRect(nx - nw / 2 - un * 0.03 + ndrift, ny0 + un * 0.26, nw * 0.82, un * 0.10);
+        // 蓝字两行：#6fc0ff 小像素点行，呼吸明灭
+        var ta = ngot ? 0.45 : (0.62 + Math.sin(S.time * 2.6 + p.y * 1.3) * 0.25);
+        ctx.globalAlpha = Math.max(0, Math.min(1, nalpha * ta));
+        ctx.fillStyle = '#6fc0ff';
+        for (var ln = 0; ln < 2; ln++) {
+          for (var ch = 0; ch < 7; ch++) {
+            if ((p.x * 7 + p.y + ln * 3 + ch * 5) % 7 < 2) continue;
+            ctx.fillRect(nx - nw / 2 + un * 0.06 + ch * un * 0.055 + ndrift,
+              ny0 + un * 0.15 + ln * un * 0.10, Math.max(1, un * 0.032), Math.max(1, un * 0.022));
+          }
+        }
+        ctx.restore();
         break;
       }
     }

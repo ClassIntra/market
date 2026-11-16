@@ -340,6 +340,48 @@
     boot();
 
     // 对外暴露一点调试接口（线上排查用，不影响玩家）
+    // v5.8 守夜仪式状态卡：S.finale.open 期间常驻右下，1.2s 轮询服务端权威进度
+    function finaleUiPaint() {
+      var F = S.finale;
+      if (!F || (!F.open && !F.meWaiting) || F.done) {
+        if (UI.finaliteEl && UI.finaliteEl.parentNode) UI.finaliteEl.parentNode.removeChild(UI.finaliteEl);
+        UI.finaliteEl = null;
+        return;
+      }
+      if (!UI.finaliteEl) {
+        UI.finaliteEl = el('div', 'sg5-finalite sg5-frame');
+        UI.hud.appendChild(UI.finaliteEl);
+      }
+      var need = F.threshold || Math.min(3, Math.max(1, F.waiters || 1));
+      var secs = F.startedAt ? Math.min(60, Math.max(0, Math.round(((F.now || Date.now()) - F.startedAt) / 1000))) : 0;
+      var line = F.meWaiting ? '守夜中 · ' + (F.waiters || 1) + ' 人 · 第 ' + secs + ' / 60 秒' : '举灯同守 · 现在 ' + (F.waiters || 0) + ' / ' + need + ' 人（塔下按 E）';
+      var el2 = UI.finaliteEl;
+      el2.innerHTML = '';
+      el2.appendChild(el('div', 'sg5-finalite-title', '最后的守夜'));
+      el2.appendChild(el('div', 'sg5-finalite-line', line));
+      var bar = el('div', 'sg5-finalite-bar');
+      var fill = el('div', 'sg5-finalite-fill');
+      fill.style.width = Math.round((F.startedAt ? secs / 60 : (F.waiters || 0) / need) * 100) + '%';
+      bar.appendChild(fill);
+      el2.appendChild(bar);
+    }
+    // 守夜轮询：finale open 时每 1.2s 拉一次权威状态（句柄挂 S，重连自动恢复）
+    S.finalePollAt = 0;
+    var _socialTickFinale = socialTick;
+    socialTick = function (tt) {
+      _socialTickFinale(tt);
+      try {
+        if (S.finale && (S.finale.open || S.finale.meWaiting) && !S.finale.done) {
+          if (tt - S.finalePollAt > 1.2) {
+            S.finalePollAt = tt;
+            apiPost('/shiguang/v5/finalite', { act: 'status' }).then(function (r) {
+              if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+            }).catch(function () {});
+          }
+        }
+      } catch (e) {}
+    };
+
     try {
       // v5.6 W1：手动驱动主循环（headless rAF 节流 / 截图机用）。advance 一次 ≈ 16ms。
       window.__sg5 = {
@@ -373,6 +415,13 @@
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
         interact: function () { IN.use = 1; },   // v5.7：语义别名（visual 探针用 interact 触发 E）
+        testFinale: function (ev) { handleEvent(ev); },   // v5.8：注入守夜/终章事件（回归用）
+        finalite: function (act) {
+          return apiPost('/shiguang/v5/finalite', { act: act || 'status' }).then(function (r) {
+            if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+            return r && r.data;
+          });
+        },
         testEvent: function (e) { handleEvent(e); },   // v5.7：注入事件（灯语仪式卡等）回归用
         toast: toast,
         social: function () {

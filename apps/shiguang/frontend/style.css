@@ -1801,3 +1801,87 @@ div.sg5-exhibit-cell, .sg5-exhibit-cell:disabled { cursor: default; }
 .sg5-lorew-text { font-size: 16px; line-height: 1.85; color: var(--px-ink-2); white-space: pre-line; }
 .sg5-lorew-hint { color: var(--px-ink-3); }
 .sg5-lorew-zone { font-size: 16px; color: var(--px-gold); margin: 10px 0 6px; text-shadow: 0 1px 0 #000; }
+
+/* ==================== v5.8 《夜语》夜卡 / 昼夜对照 · 守夜仪式 / 灯火名录 ==================== */
+/* ① 夜语残页卡：冷底（与灯火纪的暖底形成「同一世界的另一面」），只靠色块与描边，不加发光 */
+.sg5-lore.is-night { background: rgba(3, 5, 9, 0.52); }
+.sg5-nightcard {
+  background: linear-gradient(180deg, #1a2030, #0e1118);
+  border-color: #34405c;
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.46), inset 0 2px 0 rgba(140, 176, 224, 0.16), inset 0 -2px 0 rgba(0, 0, 0, 0.55);
+  animation: sg5-nightcard-in 260ms ease-out;
+}
+.sg5-nightcard .sg5-lorecard-title { color: #9fd0ff; text-shadow: 0 2px 0 #000; }
+.sg5-nightcard .sg5-lorecard-sub { color: var(--px-ink-3); }
+.sg5-nightcard .sg5-lorecard-text { color: #cfd9ea; }
+.sg5-nightcard .sg5-btn { background: #222a3a; border-color: #3c4a68; }
+@keyframes sg5-nightcard-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ② 图鉴 · 昼夜对照：昼牌暖、夜牌冷，同域上下成对 */
+.sg5-face {
+  display: inline-block; min-width: 24px; text-align: center;
+  font-size: 16px; line-height: 20px; padding: 0 5px; margin-right: 2px;
+  border: 1px solid var(--px-line); border-radius: 2px;
+  vertical-align: 1px;
+}
+.sg5-face.is-day { color: #ffd27a; background: #3a2c1c; border-color: #6b5230; }
+.sg5-face.is-night { color: #9fd0ff; background: #1b2233; border-color: #34405c; }
+.sg5-lorew-row.is-night { background: #1d2230; border-color: #2f3a52; }
+.sg5-lorew-row.is-night.is-have { border-left-color: #6fa8e0; }
+.sg5-lorew-row.is-night .sg5-lorew-title { color: #cfd9ea; }
+.sg5-lorew-row.is-night.is-off .sg5-lorew-title { color: #7b869c; }
+.sg5-lorew-row.is-night .sg5-lorew-text { color: #aab6ca; }
+
+/* ③ 守夜仪式状态卡：贴底部，不挡塔（塔在屏幕中央） */
+.sg5-finalite {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+  width: min(360px, 84%); padding: 10px 14px 12px; z-index: 4;
+  background: #241c12; border: 2px solid var(--px-gold-2); border-radius: var(--radius-xs);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.4);
+}
+.sg5-finalite-title { font-size: 16px; color: var(--px-gold); text-shadow: 0 1px 0 #000; margin-bottom: 6px; }
+.sg5-finalite-line { font-size: 16px; color: var(--px-ink); line-height: 1.6; margin-bottom: 8px; }
+.sg5-finalite-bar { height: 10px; background: #12100c; border: 1px solid #4a3828; border-radius: 2px; overflow: hidden; }
+.sg5-finalite-fill { height: 100%; width: 0; background: #ffd27a; transition: width 260ms linear; }
+
+/* ④ 灯火名录（终章）：拾在最上，七代守塔人逐行滚入，最后是全班名字 */
+.sg5-roster {
+  width: min(520px, 92%); max-height: 82%;
+  background: linear-gradient(180deg, #2b2317, #130f09);
+  border: 2px solid var(--px-gold-2); border-radius: var(--radius-xs);
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.44), inset 0 2px 0 rgba(255, 236, 190, 0.14);
+  padding: 18px 22px 16px; overflow-y: auto;
+}
+.sg5-roster-head {
+  font-size: 20px; color: var(--px-gold); text-align: center;
+  margin-bottom: 14px; text-shadow: 0 2px 0 #000;
+  animation: sg5-roll-in 320ms ease-out both;
+}
+.sg5-roster-first {
+  font-size: 17px; color: #ffe6b4; text-align: center; margin-bottom: 10px;
+  animation: sg5-roll-in 320ms ease-out both;
+}
+.sg5-roster-keeper {
+  font-size: 16px; color: #e3d3b6; line-height: 1.9;
+  padding-left: 14px; animation: sg5-roll-in 300ms ease-out both;
+}
+.sg5-roster-sep {
+  height: 0; border-top: 1px dashed #5b472c; margin: 12px 0 10px;
+  animation: sg5-roll-in 260ms ease-out both;
+}
+.sg5-roster-class { line-height: 2; }
+.sg5-roster-name {
+  display: inline-block; font-size: 16px; color: #cfc4ae;
+  animation: sg5-roll-in 240ms ease-out both;
+}
+.sg5-roster-note {
+  font-size: 16px; color: var(--px-ink-3); margin: 12px 0 12px;
+  animation: sg5-roll-in 260ms ease-out both;
+}
+@keyframes sg5-roll-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ⑤ 图鉴里的永久名录（小号，不抢正文） */
+.sg5-roster-mini { background: #2c231b; border: 1px solid #4a3828; border-left: 3px solid var(--px-gold-2); padding: 10px 12px; }
+.sg5-roster-mini-first { font-size: 16px; color: #ffe6b4; margin-bottom: 4px; }
+.sg5-roster-mini-keepers { font-size: 16px; color: #e3d3b6; line-height: 1.8; margin-bottom: 6px; }
+.sg5-roster-mini-class { font-size: 16px; color: var(--px-ink-2); line-height: 1.85; }

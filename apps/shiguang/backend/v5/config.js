@@ -16,6 +16,12 @@ module.exports = {
   NIGHT_AT: 0.70,
   DAWN_AT: 0.95,
 
+  // 守夜仪式（v5.8）：举灯人数达标后要共守多久才天亮
+  // 自动化测试用 SG5_FINALE_MS 缩短，生产恒为 60000
+  FINALE_MS: parseInt(process.env.SG5_FINALE_MS, 10) || 60000,
+  FINALE_GRACE_MS: 3000,    // 中途有人离开的宽限
+  FINALE_REACH: 6,          // 举灯需要离塔多近（格）
+
   // 玩家成长
   MAX_LEVEL: 30,
   BASE_HP: 60,

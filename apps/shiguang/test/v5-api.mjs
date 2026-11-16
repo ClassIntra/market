@@ -8,6 +8,8 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const NM = 'D:/NetWork/Integration/ClassIntra/server/node_modules/';
+// 守夜仪式共守时长压到 1.2s（生产恒 60000），否则测试要等一分钟
+process.env.SG5_FINALE_MS = '1200';
 const SRC = (process.env.SG5_APP || 'D:/NetWork/Integration/market/apps/shiguang') + '/backend/v5/';
 const express = require(NM + 'express');
 const app = express();
@@ -75,6 +77,38 @@ const colBad = await call('/v5/lore/collect', { id: 'd_fake_99' });
 ok(colBad.code !== 200, '未知遗物被拒绝');
 const colAll = await call('/v5/lore');
 ok(colAll.data.collected.indexOf('d_meadow_1') >= 0, '收集进度持久化');
+
+// ---------------- 《夜语》v5.8：同坐标昼夜双页 ----------------
+ok(Array.isArray(T.nights) && T.nights.length === 20, '夜语残页 20 处入世界', T.nights && T.nights.length);
+// 每张夜语必须与某页日记同坐标（世界同一处、昼夜两面的设定）
+const relicPts = {};
+T.relics.forEach((r) => { relicPts[r.x + ',' + r.y] = 1; });
+let pairable = 0;
+T.nights.forEach((n) => { if (relicPts[n.x + ',' + n.y]) pairable++; });
+ok(pairable === 20, '20 处夜语与日记严格同点', pairable);
+ok(colAll.data.nights.length === 20, 'lore 下发 20 条夜语元数据', colAll.data.nights.length);
+ok(colAll.data.nightCollected.length === 0, '初始夜语未收集');
+// 未收集的夜语必须只给标题/暗示，正文绝不能进响应（防剧透）
+const n0 = colAll.data.nights[0];
+ok(!!n0 && !n0.text, '未收集夜语不下发正文', n0 && n0.text);
+ok(Array.isArray(colAll.data.nightPick), '夜语可见集按天轮转');
+// 白天收夜语要被相位挡住
+const nightBad = await call('/v5/lore/collect', { kind: 'night', id: n0.id });
+const dayIsNight = SIM.dayPhase().name === 'night';
+ok(dayIsNight || nightBad.code !== 200, '白天不能收集夜语', nightBad.code);
+// 打桩成夜（等价于等到入夜；不改生产代码，只在本进程替换函数引用）
+const realDayPhase = SIM.dayPhase;
+SIM.dayPhase = () => ({ f: 0.8, name: 'night', night: true });
+const nightOk = await call('/v5/lore/collect', { kind: 'night', id: n0.id });
+ok(nightOk.code === 200 && nightOk.data.nightCollected.indexOf(n0.id) >= 0, '入夜后可收集夜语', nightOk.code);
+const nightAgain = await call('/v5/lore/collect', { kind: 'night', id: n0.id });
+ok(nightAgain.code === 200 && nightAgain.data.nightCollected.length === 1, '夜语重复收集幂等', nightAgain.data.nightCollected.length);
+SIM.dayPhase = realDayPhase;
+const loreAfterNight = await call('/v5/lore');
+const nGotRow = loreAfterNight.data.nights.find((x) => x.id === n0.id);
+ok(!!nGotRow && !!nGotRow.text, '已收集夜语下发正文', nGotRow && !!nGotRow.text);
+// 未通关长夜时不得提前下发栗的终章独白
+ok(!loreAfterNight.data.keeperAfter || loreAfterNight.data.keeperAfter.length === 0, '未通关不提前下发 keeperAfter', loreAfterNight.data.keeperAfter);
 
 // ---------------- 进入 ----------------
 const enter = await call('/v5/enter', {});
@@ -305,10 +339,13 @@ if (cave) {
 const em = await call('/v5/emote', { e: 'wave' });
 ok(em.code === 200, '表情可用', em.data);
 
-// ---------------- 终局：长夜之主点亮长夜之心（v5.6 P0-1 死锁修复回归） ----------------
-// 场景：先把前五区灯塔置亮，只留 abyss 未点亮。world boss 未点亮时必须能刷（玩家要打它点灯），
-// 击杀后 towers.abyss 点亮 → enter 的 goal 归空（客户端第七章文案），再 sync 不再唤醒（不印钞）。
+// ---------------- 终局 v5.8：击杀 → 守夜仪式 → 天亮 → 点灯 ----------------
+// 场景：先把前五区灯塔置亮，只留 abyss 未点亮。world boss 未点亮时必须能刷（玩家要打它），
+// 击杀后塔不直接亮，而是开启「最后的守夜」：塔下举灯、人数达标、共守到天亮才亮灯。
 const ABYSS_TOWER = T.towers.abyss;
+// 守夜门槛 = min(3, 开计时那一刻的在线数)。前面几节留了 1002 在线，
+// 这里等价于「同学都下线了、只剩一个人守着」——清掉别的在线态，门槛才会是 1。
+Object.keys(SIM.players).forEach((oid) => { if (oid !== '1001') delete SIM.players[oid]; });
 ['forest', 'swamp', 'crag', 'frost'].forEach((z) => routes.STORE.lightTower(z, '1001'));
 await goTo('1001', ABYSS_TOWER.x + 0.5, ABYSS_TOWER.y + 4.5);
 await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
@@ -317,11 +354,64 @@ const abyssRow = (sAbyss.data.m || []).find((m) => m[10] === 1);
 ok(!!abyssRow, '长夜之心未点亮时长夜之主可被唤醒（世界 boss 保留可刷）', (sAbyss.data.m || []).filter((m) => m[10] === 1).length);
 if (abyssRow && SIM.mobs[abyssRow[0]]) {
   routes.SIM.killMob(SIM.mobs[abyssRow[0]], '1001');
-  await sleep(120);
+  await sleep(140);
+
+  // ① 击杀只开仪式，不点灯
+  const fOpen = await call('/v5/finalite', { act: 'status' });
+  ok(fOpen.code === 200 && fOpen.data.open === true && fOpen.data.done === false, '击杀开启守夜仪式', fOpen.data && fOpen.data.open);
+  const tPre = await call('/v5/profile');
+  ok(!tPre.data.towers.abyss, '守夜完成前 towers.abyss 仍未点亮', tPre.data.towers);
+  const lorePre = await call('/v5/lore');
+  ok(!lorePre.data.keeperAfter || lorePre.data.keeperAfter.length === 0, '仪式完成前 keeperAfter 仍不下发', lorePre.data.keeperAfter);
+
+// ② 站太远举不了灯（先用传送拉远，验证距离校验不是摆设）
+await goTo('1001', ABYSS_TOWER.x + 26.5, ABYSS_TOWER.y + 4.5);
+await call('/v5/sync', { x: ABYSS_TOWER.x + 26.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+const fFar = await call('/v5/finalite', { act: 'join' });
+ok(fFar.code === 400, '不在塔下举不了灯', fFar.code);
+
+  // ③ 塔下举灯 → 计数 1
+  await goTo('1001', ABYSS_TOWER.x + 0.5, ABYSS_TOWER.y + 4.5);
+  await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+  const fJoin = await call('/v5/finalite', { act: 'join' });
+  ok(fJoin.data.waiters === 1 && fJoin.data.meWaiting === true, '塔下举灯入列', fJoin.data.waiters);
+  // 服务端 tick 是 2s 一跳，等它把 startedAt 落下来
+  let fTick = null;
+  for (let i = 0; i < 20; i++) {
+    await sleep(200);
+    const st = await call('/v5/finalite', { act: 'status' });
+    if (st.data.startedAt > 0) { fTick = st.data; break; }
+  }
+  ok(!!fTick && fTick.startedAt > 0, '人数达标后开始共守计时', fTick && fTick.startedAt);
+
+  // ④ 离开 → 出列（宽限内 startedAt 不清零，但人要先出去）
+  const fLeave = await call('/v5/finalite', { act: 'leave' });
+  ok(fLeave.data.waiters === 0 && fLeave.data.meWaiting === false, '离开后出列', fLeave.data.waiters);
+
+  // ⑤ 重新举灯，守着到天亮（FINALE_MS 已压到 1.2s）
+  const fJoin2 = await call('/v5/finalite', { act: 'join' });
+  ok(fJoin2.data.waiters === 1, '重新举灯', fJoin2.data.waiters);
+  let fDone = null;
+  for (let i = 0; i < 60; i++) {
+    await sleep(200);
+    const st = await call('/v5/finalite', { act: 'status' });
+    if (st.data.done) { fDone = st.data; break; }
+  }
+  ok(!!fDone, '共守到天亮仪式完成');
+  ok(!!fDone && Array.isArray(fDone.roster.keepers) && fDone.roster.keepers.length === 1, '名录记下举灯人', fDone && fDone.roster);
+
   const t3 = await call('/v5/profile');
-  ok(!!t3.data.towers.abyss, '击杀长夜之主点亮 towers.abyss（第七章解锁）', t3.data.towers);
+  ok(!!t3.data.towers.abyss, '天亮后点亮 towers.abyss（第七章解锁）', t3.data.towers);
+  const lorePost = await call('/v5/lore');
+  ok(!!lorePost.data.keeperAfter, '通关后下发栗的终章独白');
   const e2 = await call('/v5/enter', {});
   ok(e2.data.goal === null, '六灯全亮后 goal 归空（客户端进入第七章文案）', e2.data.goal);
+  ok(!!e2.data.finale && e2.data.finale.done === true, 'enter 带上终局已完成状态', e2.data.finale);
+
+  // ⑥ 完成后所有动作只读（不能二次开仪式）
+  const fAgain = await call('/v5/finalite', { act: 'join' });
+  ok(fAgain.code === 200 && fAgain.data.done === true && fAgain.data.open === false, '仪式完成后不可重开', fAgain.data && fAgain.data.open);
+
   // 印钞机：点亮后再站回塔前，唤醒逻辑必须沉默
   await goTo('1001', ABYSS_TOWER.x + 0.5, ABYSS_TOWER.y + 4.5);
   await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });

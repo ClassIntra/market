@@ -304,40 +304,164 @@ function grantKill(m, shares, killer, night) {
 
   // 守护者：点亮灯塔（全服进度）。潮汐首领不点灯 —— 那是反扑，不是守护者。
   // v5.6 P0-1 终局死锁：长夜之主是 world boss，但它是 abyss 的守护者（data.js lights:true）——
-  // 击杀必须点亮 towers.abyss，否则第七章永远不可达，全服主线卡死。
+  // v5.8：abyss 的点灯改走「守夜仪式」—— boss 倒下先开仪式（finaleOpenByKill），全班举灯同守
+  // 满 60s 才走 lightAbyssTower 正常点灯链（灯语 / 守夜补给照发）。
   if (m.boss && m.bossZone && (!m.world || m.lights)) {
-    var first = S.lightTower(m.bossZone, killer || list[0] || '');
-    var nm = S.userName(killer || list[0] || '');
-    var zn = zoneName(m.bossZone);
-    if (first) {
-      // 全场广播：这不是一个人的进度
-      broadcast('tower', { z: m.bossZone, by: nm, at: nowMs() });
-      S.feed('tower', killer || '', zn + '的灯塔亮了 —— ' + nm + ' 打倒了' + (D.BOSSES[m.bossZone] ? D.BOSSES[m.bossZone].name : '守护者'));
-      // 点亮的一刻，全班都拿到一小份「守夜补给」
-      var ids = onlineIds();
-      ids.forEach(function (id) {
-        var rec = S.load(id, TOWN_SPAWN);
-        rec.shards = (rec.shards || 0) + 40;
-        S.markDirty(id);
-        push(id, { k: 'tower', z: m.bossZone, n: zn, b: nm });
-      });
-      // 《灯火纪》v5.7：灯亮的一刻，把这位守塔人的灯语念给全班听 —— 这是仪式的核心
-      var lwz = LORE.lampwords[m.bossZone];
-      if (lwz) ids.forEach(function (id) { push(id, { k: 'lampword', z: m.bossZone, t: lwz, n: zn }); });
-      // 第七盏（长夜之心）点亮且六域全亮 → 终章
-      if (m.bossZone === 'abyss') {
-        var allLit = true;
-        Object.keys(world.landmarks.towers).forEach(function (zz) {
-          if (zz !== 'abyss' && !S.towers()[zz]) allLit = false;
-        });
-        if (allLit) ids.forEach(function (id) { push(id, { k: 'lampword', z: 'finale', t: LORE.finale, n: '长夜之心' }); });
-      }
+    if (m.bossZone === 'abyss' && !S.towers().abyss) {
+      finaleOpenByKill(killer || list[0] || '');
     } else {
-      S.feed('tower', killer || '', nm + ' 又一次守住了' + zn + '的灯塔');
+      lightTowerChain(m.bossZone, killer || list[0] || '', nmOf(killer || list[0] || ''));
     }
-    refreshLights();
   }
 }
+
+function nmOf(id) { return S.userName(id || ''); }
+
+// 正常点灯链（六域守护者 & 守夜仪式完成后的 abyss 共用）
+function lightTowerChain(zone, byId, nm) {
+  var first = S.lightTower(zone, byId);
+  var zn = zoneName(zone);
+  if (first) {
+    broadcast('tower', { z: zone, by: nm, at: nowMs() });
+    S.feed('tower', byId, zn + '的灯塔亮了 —— ' + nm + ' 打倒了' + (D.BOSSES[zone] ? D.BOSSES[zone].name : '守护者'));
+    var ids = onlineIds();
+    ids.forEach(function (id) {
+      var rec = S.load(id, TOWN_SPAWN);
+      rec.shards = (rec.shards || 0) + 40;
+      S.markDirty(id);
+      push(id, { k: 'tower', z: zone, n: zn, b: nm });
+    });
+    var lwz = LORE.lampwords[zone];
+    if (lwz) ids.forEach(function (id) { push(id, { k: 'lampword', z: zone, t: lwz, n: zn }); });
+    if (zone === 'abyss') {
+      var allLit = true;
+      Object.keys(world.landmarks.towers).forEach(function (zz) {
+        if (zz !== 'abyss' && !S.towers()[zz]) allLit = false;
+      });
+      if (allLit) ids.forEach(function (id) { push(id, { k: 'lampword', z: 'finale', t: LORE.finale, n: '长夜之心' }); });
+    }
+  } else {
+    S.feed('tower', byId, nm + ' 又一次守住了' + zn + '的灯塔');
+  }
+  refreshLights();
+}
+
+// ---------------- 守夜仪式（v5.8 · 终局协作点灯） ----------------
+// 长夜之主倒下 → 不立刻点灯 → 全班到塔下「举灯同守」，满门槛持续 60s → 正常点灯链。
+// 状态在 S.finale（store 进程级全服字段）；60s 计时服务端权威，客户端只做进度显示。
+function finaleStatus(id) {
+  var F = S.finale;
+  var tw = world.landmarks.towers.abyss;
+  var meW = false;
+  if (F.lamp) F.lamp.waiters.forEach(function (w) { if (w.id === id) meW = true; });
+  return {
+    open: !!(F.lamp && !F.done),
+    done: F.done,
+    waiters: F.lamp ? F.lamp.waiters.length : 0,
+    waitList: F.lamp ? F.lamp.waiters : [],
+    threshold: (F.lamp && F.lamp.threshold) || 0,
+    startedAt: (F.lamp && F.lamp.startedAt) || 0,
+    grace: (F.lamp && F.lamp.graceUntil) || 0,
+    now: nowMs(),
+    meWaiting: meW,
+    roster: F.done ? F.roster : null,
+    tower: { x: tw.x, y: tw.y }
+  };
+}
+
+function finaleOpenByKill(byId) {
+  var F = S.finale;
+  if (F.done || F.lamp) return;
+  F.lamp = { open: nowMs(), by: S.userName(byId), waiters: [], startedAt: 0, threshold: 0, graceUntil: 0 };
+  broadcast('finale', {
+    k: 'finale-open', by: F.lamp.by,
+    tower: { x: world.landmarks.towers.abyss.x, y: world.landmarks.towers.abyss.y },
+    hint: '长夜之主倒下了。到塔下，把灯举起来 —— 一起守到天亮。'
+  });
+}
+
+// 60s 门槛计时：门槛 = min(3, 计时开始时在线数)；中途跌破给 3s 宽限，再跌破清零重计（重新取在线快照）
+function finaleTick() {
+  var F = S.finale;
+  if (!F || F.done || !F.lamp) return;
+  var now = nowMs();
+  F.lamp.waiters = F.lamp.waiters.filter(function (w) {
+    var p = SIM.players[w.id];
+    return p && now - p.seen <= C.ONLINE_TTL_MS;
+  });
+  var online = 0;
+  Object.keys(SIM.players).forEach(function (oid) {
+    var o = SIM.players[oid];
+    if (o && now - o.seen <= C.ONLINE_TTL_MS) online++;
+  });
+  var n = F.lamp.waiters.length;
+  var need = F.lamp.threshold || Math.min(3, Math.max(1, online));
+  if (n >= need) {
+    F.lamp.graceUntil = 0;
+    if (!F.lamp.startedAt) {
+      F.lamp.threshold = Math.min(3, Math.max(1, online));   // 计时开始那一刻取在线快照
+      F.lamp.startedAt = now;
+    } else if (now - F.lamp.startedAt >= C.FINALE_MS) {
+      finaleComplete();
+    }
+  } else if (F.lamp.startedAt) {
+    if (!F.lamp.graceUntil) F.lamp.graceUntil = now + C.FINALE_GRACE_MS;
+    else if (now > F.lamp.graceUntil) {
+      F.lamp.startedAt = 0;
+      F.lamp.graceUntil = 0;
+      F.lamp.threshold = 0;                                   // 清零重计：下次达标重新取快照
+    }
+  }
+}
+
+function finaleComplete() {
+  var F = S.finale;
+  var waiters = F.lamp.waiters.slice();                       // push 顺序 = 举灯先后
+  var first = waiters[0] || { id: '', name: '守夜众人' };
+  var keeperIds = {};
+  waiters.forEach(function (w) { keeperIds[w.id] = 1; });
+  var later = onlineIds().filter(function (oid) { return !keeperIds[oid]; })
+    .map(function (oid) { return S.userName(oid); });
+  F.done = true;
+  F.roster = {
+    keepers: waiters.map(function (w) { return w.name; }),
+    later: later
+  };
+  F.lamp = null;
+  lightTowerChain('abyss', first.id, first.name);
+  broadcast('finale', { k: 'finale-done', roster: F.roster });
+}
+
+router.post('/v5/finalite', requireAuth, function (req, res) {
+  var id = uid(req);
+  var b = req.body || {};
+  var F = S.finale;
+  var tw = world.landmarks.towers.abyss;
+  if (b.act === 'status') return ok(res, finaleStatus(id));
+  if (F.done) return ok(res, finaleStatus(id));               // 完成后所有动作只读
+  if (!F.lamp) {
+    // 兜底入口：boss 不在场上且塔未亮（比如服务重启丢了仪式态）→ 允许重新开灯
+    var alive = Object.keys(SIM.mobs).some(function (k) { return SIM.mobs[k] && SIM.mobs[k].bossZone === 'abyss'; });
+    if (alive) return fail(res, '长夜之主还在塔前站着', 400);
+    if (S.towers().abyss) { F.done = true; return ok(res, finaleStatus(id)); }
+    if (b.act === 'light' || b.act === 'join') finaleOpenByKill(id);
+    else return fail(res, '守夜仪式还没有开始', 400);
+  }
+  if (b.act === 'light' || b.act === 'join') {
+    var p = SIM.players[id];
+    if (!p) return fail(res, '先回到世界里', 400);
+    if (dist(p.x, p.y, tw.x, tw.y) > C.FINALE_REACH) return fail(res, '走近一点 —— 到塔下再举灯', 400);
+    var has = false;
+    for (var i = 0; i < F.lamp.waiters.length; i++) if (F.lamp.waiters[i].id === id) has = true;
+    if (!has) F.lamp.waiters.push({ id: id, name: S.userName(id), ts: nowMs() });
+    return ok(res, finaleStatus(id));
+  }
+  if (b.act === 'leave') {
+    F.lamp.waiters = F.lamp.waiters.filter(function (w) { return w.id !== id; });
+    return ok(res, finaleStatus(id));
+  }
+  return fail(res, '未知的动作', 400);
+});
 
 // 灯光：镇子 + 已点亮灯塔 + 玩家放的守夜灯
 function refreshLights() {
@@ -381,6 +505,8 @@ try { refreshLights(); } catch (e) {}
     try { SOC.tick(); } catch (e) { console.error('[shiguang5] social tick', e.message); }
     // 全班共享的农场日历：跨日只广播一次「晨光」，作物生长由玩家动作 lazy 补算
     try { if (FARM) FARM.tick(); } catch (e) { console.error('[shiguang5] farm tick', e.message); }
+    // v5.8 守夜仪式：60s 门槛计时（服务端权威）
+    try { finaleTick(); } catch (e) { console.error('[shiguang5] finale tick', e.message); }
   }, 2000);
   if (G.timer.unref) G.timer.unref();
 })();
@@ -430,7 +556,7 @@ var LIFE = require('./life')({
 });
 
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 9;   // v5.7.1：孤岛封偿（空气墙修复），旧缓存必须失效
+var TERRAIN_VERSION = 9;   // v5.7.1 孤岛封偿 + v5.8 夜语残页入世界（nights），旧缓存必须失效
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
     version: TERRAIN_VERSION,
@@ -442,6 +568,7 @@ router.get('/v5/terrain', function (req, res) {
     waystones: world.landmarks.waystones,
     chests: world.landmarks.chests,
     relics: world.landmarks.relics,   // v5.7 守塔人遗物地标（客户端画石碑/书本，按 E 阅读）
+    nights: world.landmarks.nights,   // v5.8 夜语残页：与日记同格，夜间浮现
     caves: world.landmarks.caves,
     zonesMeta: D.ZONES,
     quests: D.QUESTS,
@@ -451,34 +578,94 @@ router.get('/v5/terrain', function (req, res) {
   });
 });
 
-// ---------------- 《灯火纪》世界观与剧情（v5.7） ----------------
-// 一次性下发全部文本（约 10KB，客户端缓存），collected 是该玩家已收集的遗物页。
+// ---------------- 《灯火纪》世界观与剧情（v5.7 / v5.8 深度层） ----------------
+// 夜语「今晚浮现哪几页」：按 pair 顺序在未收集页里确定性轮转（以世界 day 号做种子）。
+// 每域每晚最多 3 处、全域单晚最多 5 处；已全收则全部可见（供重读）；跨日自然换一批。
+function nightPick(rec) {
+  var got = rec.lore.nights || [];
+  var left = LORE.nights.filter(function (n) { return got.indexOf(n.id) < 0; });
+  if (!left.length) return LORE.nights.map(function (n) { return n.id; });
+  var day = Math.floor(nowMs() / C.DAY_MS);
+  var pick = [], perZone = {};
+  for (var i = 0; i < left.length * 3 && pick.length < 5; i++) {
+    var n = left[(day * 7 + i) % left.length];
+    if (pick.indexOf(n.id) >= 0) continue;
+    if ((perZone[n.zone] || 0) >= 3) continue;
+    perZone[n.zone] = (perZone[n.zone] || 0) + 1;
+    pick.push(n.id);
+  }
+  return pick;
+}
+
 router.get('/v5/lore', requireAuth, function (req, res) {
   var rec = S.load(uid(req), TOWN_SPAWN);
   rec.lore = rec.lore || { relics: [] };
+  rec.lore.nights = rec.lore.nights || [];
+  var nightAt = {};
+  world.landmarks.nights.forEach(function (n) { nightAt[n.id] = n; });
+  var pick = nightPick(rec);
+  var nights = LORE.nights.map(function (n) {
+    var at = nightAt[n.id] || {};
+    var got = rec.lore.nights.indexOf(n.id) >= 0;
+    var vis = got || pick.indexOf(n.id) >= 0;
+    var o = { id: n.id, x: at.x, y: at.y, pair: n.pair, zone: n.zone, on: vis ? 1 : 0 };
+    // 防剧透：未收集的只回 id/坐标 —— 正文永远只在 collect 的那一刻下发
+    if (got) { o.title = n.title; o.text = n.text; }
+    return o;
+  });
+  // keeperAfter（栗暗线）：只在七灯全亮（含长夜之心）后下发
+  var towersAll = S.towers();
+  var allLit = !!towersAll.abyss;
+  if (allLit) Object.keys(world.landmarks.towers).forEach(function (zz) { if (!towersAll[zz]) allLit = false; });
   ok(res, {
     codex: LORE.codex, gazetteer: LORE.gazetteer, chapters: LORE.chapters,
     keeperLines: LORE.keeperLines, diaries: LORE.diaries,
+    keeperAfter: allLit ? LORE.keeperAfter : null,
     lamps: LORE.lampwords, finale: LORE.finale,
-    collected: rec.lore.relics
+    collected: rec.lore.relics,
+    nights: nights, nightCollected: rec.lore.nights, nightPick: pick
   });
 });
 
-// 收集遗物：走近世界层的石碑/书本按 E 后调用。幂等；正文回传供 lore 卡展示。
+// 收集遗物/夜语：走近世界层按 E 后调用。幂等；正文在收集的那一刻才回传（防剧透）。
+// v5.8：kind 'night' 写 rec.lore.nights —— 首次收集只个人 toast，不广播、不进 feed。
 router.post('/v5/lore/collect', requireAuth, function (req, res) {
   var rec = S.load(uid(req), TOWN_SPAWN);
   rec.lore = rec.lore || { relics: [] };
+  rec.lore.nights = rec.lore.nights || [];
   var id = String(req.body && req.body.id || '');
+  var kind = (req.body && req.body.kind) === 'night' ? 'night' : 'day';
+  if (kind === 'night') {
+    var n = null;
+    for (var k = 0; k < LORE.nights.length; k++) {
+      if (LORE.nights[k].id === id) { n = LORE.nights[k]; break; }
+    }
+    if (!n) return fail(res, '没有这一页夜语', 400);
+    // 夜语只在夜里浮现：夜晚（含黄昏渐显段）才收得到
+    var ph = SIM.dayPhase();
+    var duskLocal = (ph.f - C.DUSK_AT) / (C.NIGHT_AT - C.DUSK_AT);
+    if (!(ph.name === 'night' || (ph.name === 'dusk' && duskLocal > 0.85))) {
+      return fail(res, '夜语只在入夜后浮现', 400);
+    }
+    var freshNight = rec.lore.nights.indexOf(n.id) < 0;
+    if (freshNight) rec.lore.nights.push(n.id);
+    S.markDirty(uid(req));
+    return ok(res, {
+      collected: rec.lore.relics, nightCollected: rec.lore.nights, fresh: freshNight ? 1 : 0,
+      night: { id: n.id, title: n.title, text: n.text, pair: n.pair, zone: n.zone }
+    });
+  }
   var diary = null;
   for (var i = 0; i < LORE.diaries.length; i++) {
     if (LORE.diaries[i].id === id) { diary = LORE.diaries[i]; break; }
   }
   if (!diary) return fail(res, '没有这份守塔人遗物', 400);
-  if (rec.lore.relics.indexOf(id) < 0) {
+  var fresh = rec.lore.relics.indexOf(id) < 0;
+  if (fresh) {
     rec.lore.relics.push(id);
     S.markDirty(uid(req));
   }
-  ok(res, { collected: rec.lore.relics, diary: diary });
+  ok(res, { collected: rec.lore.relics, diary: diary, fresh: fresh ? 1 : 0 });
 });
 
 // ---------------- 进入世界 ----------------
@@ -532,6 +719,11 @@ router.post('/v5/enter', requireAuth, function (req, res) {
     }
   }
 
+  // v5.8 守夜仪式：进场恢复现场（开着仪式 → 举灯条；已完成 → 名录）
+  var FIN = S.finale;
+  var meFin = false;
+  if (FIN.lamp) FIN.lamp.waiters.forEach(function (w) { if (w.id === id) meFin = true; });
+
   ok(res, {
     me: {
       id: id, x: round1(p.x), y: round1(p.y), hp: Math.round(p.hp), maxHp: st.hp, mp: st.mp, maxMp: st.mp,
@@ -559,6 +751,14 @@ router.post('/v5/enter', requireAuth, function (req, res) {
     farm: FARM.payload(id, FARM.of(id)),
     goal: goal,
     phase: SIM.dayPhase(),
+    finale: {
+      open: !!(FIN.lamp && !FIN.done),
+      done: FIN.done,
+      waiters: FIN.lamp ? FIN.lamp.waiters.length : 0,
+      meWaiting: meFin,
+      roster: FIN.done ? FIN.roster : null,
+      tower: { x: world.landmarks.towers.abyss.x, y: world.landmarks.towers.abyss.y }
+    },
     serverNow: nowMs()
   });
 });
@@ -615,6 +815,8 @@ router.post('/v5/sync', requireAuth, function (req, res) {
   var towers = S.towers();
   Object.keys(world.landmarks.towers).forEach(function (z) {
     if (towers[z]) return;
+    // v5.8 守夜仪式：abyss 开着仪式（或已完成）就不唤醒长夜之主 —— 举灯期间不该被反扑，仪式后塔已亮
+    if (z === 'abyss' && (S.finale.lamp || S.finale.done)) return;
     var tw = world.landmarks.towers[z];
     if (dist(p.x, p.y, tw.x, tw.y) > 13) return;
     var bossAlive = false;

@@ -111,7 +111,7 @@ var ZONE_CENTER = {
 };
 
 function buildLandmarks() {
-  var L = { towers: {}, waystones: [], chests: [], caves: [], npcs: [], camps: [], shrines: [], relics: [] };
+  var L = { towers: {}, waystones: [], chests: [], caves: [], npcs: [], camps: [], shrines: [], relics: [], nights: [] };
   // 区域灯塔（守护者 Boss 的场地）
   L.towers.meadow = polar(300, 57);
   L.towers.forest = polar(150, 156);
@@ -398,6 +398,13 @@ function buildRelics(grid, zones, L) {
         if (ws) L.relics.push({ id: list[i].id, x: ws.x + 3 + i * 2, y: ws.y + 2 });
       }
     }
+  });
+  // v5.8 夜语：与日记同格放置（pair 对位）—— 夜里读守塔人，也读没等到天亮的人
+  var relicAt = {};
+  L.relics.forEach(function (r) { relicAt[r.id] = r; });
+  lore.nights.forEach(function (n) {
+    var r = relicAt[n.pair];
+    L.nights.push({ id: n.id, x: r ? r.x : 0, y: r ? r.y : 0, pair: n.pair });
   });
 }
 

@@ -696,7 +696,8 @@ var MUSIC = {
     S.map = {
       size: size, cells: cells, zoneIdx: zi, zones: data.zonesMeta, town: data.town,
       towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile,
-      relics: data.relics || []   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
+      relics: data.relics || [],   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
+      nights: data.nights || []    // v5.8 夜语残页：与日记同格，夜间浮现
     };
     S.chests = {};
     S.waystones = data.waystones;
@@ -1278,6 +1279,14 @@ var MUSIC = {
         PROPS.push({ k: 'relic', x: rl.x, y: rl.y, s: 0.5, z: zoneOf(rl.x, rl.y), id: rl.id });
       }
     }
+    // v5.8 夜语残页：常收进 PROPS（坐标=日记同格），可见性在 drawProp 里按 phase 门控
+    var nights = S.map.nights || [];
+    for (var ni = 0; ni < nights.length; ni++) {
+      var ny = nights[ni];
+      if (ny.x >= vr.x0 && ny.x <= vr.x1 && ny.y >= vr.y0 && ny.y <= vr.y1) {
+        PROPS.push({ k: 'nyx', x: ny.x, y: ny.y, s: 0.5, z: zoneOf(ny.x, ny.y), id: ny.id });
+      }
+    }
   }
 
   function blitSprite(ctx, cv, cx, bottom, scale) {
@@ -1291,6 +1300,29 @@ var MUSIC = {
     ctx.beginPath();
     ctx.ellipse(cx, bottom - u * 0.05, wTiles * u * 0.5, u * 0.22, 0, 0, 6.2832);
     ctx.fill();
+  }
+
+  // v5.8 夜语残页的「显形程度」：深夜 1，黄昏最后 15% 渐显，黎明 5% 内渐隐。
+  // 与服务端 collect 的相位门禁（dusk 本地进度 > 0.85）严格对齐，避免看得到却收不到。
+  function nyxPhaseAlpha() {
+    var pf = S.pf || 0;
+    if (S.phase === 'night') return 1;
+    if (S.phase === 'dusk') {
+      var dk = (pf - 0.62) / 0.08;
+      return dk > 0.85 ? Math.min(1, (dk - 0.85) / 0.15) : 0;
+    }
+    if (S.phase === 'dawn') {
+      var dw = (pf - 0.95) / 0.05;
+      return dw >= 1 ? 0 : Math.max(0, 1 - dw);
+    }
+    return 0;
+  }
+
+  // 今晚能听见的夜语：服务端按天轮转（S.loreNightPick），已收下的不再显形
+  function nyxTonight(id) {
+    if (!id) return false;
+    if ((S.loreNightCollected || []).indexOf(id) >= 0) return false;
+    return (S.loreNightPick || []).indexOf(id) >= 0;
   }
 
   function drawProp(ctx, p) {
@@ -1345,6 +1377,51 @@ var MUSIC = {
         var twk = lit2 ? 0.35 : (0.62 + Math.sin(S.time * 2.2 + p.x * 1.7) * 0.22);
         ctx.fillStyle = lit2 ? 'rgba(255,210,122,' + twk.toFixed(2) + ')' : 'rgba(207,232,255,' + twk.toFixed(2) + ')';
         ctx.fillRect(sx - z * 1.5, sy - u2 * 1.08, z * 3, z * 3);
+        break;
+      }
+      case 'nyx': {
+        // v5.8 夜语残页：夜间浮现的撕口残页。phase 门控在这里做（PROPS 常收）。
+        var nv = nyxPhaseAlpha();
+        if (nv <= 0) break;
+        if (!nyxTonight(p.id)) break;
+        var un = TILE * S.zoom;
+        var nx = w2sX(p.x * TILE + TILE * 0.5);
+        var nyy = w2sY(p.y * TILE + TILE);
+        var nbob = Math.round(Math.sin(S.time * 1.7 + (p.x * 3 + p.y) % 5) * un * 0.08);
+        var ndrift = Math.round(Math.sin(S.time * 0.9 + p.y * 1.1) * un * 0.10);
+        var ngot = S.loreNightCollected && S.loreNightCollected.indexOf(p.id) >= 0;
+        var nalpha = ngot ? 0.30 : (0.55 + Math.sin(S.time * 2.2 + p.x * 0.9) * 0.18);
+        nalpha = Math.max(0, Math.min(1, nalpha * nv));
+        // 分离地面影：残页悬空，影子留在地上并随 drift 偏移
+        ctx.fillStyle = 'rgba(8,12,20,' + (0.25 * nv).toFixed(2) + ')';
+        ctx.beginPath();
+        ctx.ellipse(nx - ndrift * 0.4, nyy - 1, un * 0.24, un * 0.07, 0, 0, 6.2832);
+        ctx.fill();
+        ctx.save();
+        ctx.globalAlpha = nalpha;
+        // 撕口残页三段横带（冷蓝纸底，撕口错位）
+        var nw = un * 0.46;
+        var ny0 = nyy - un * 0.86 + nbob;
+        ctx.fillStyle = '#26314a';
+        ctx.fillRect(nx - nw / 2 + ndrift, ny0, nw, un * 0.12);
+        ctx.fillStyle = '#3a4a6a';
+        ctx.fillRect(nx - nw / 2 + ndrift, ny0, nw, 1);
+        ctx.fillStyle = '#1c2436';
+        ctx.fillRect(nx - nw / 2 + un * 0.05 + ndrift, ny0 + un * 0.135, nw * 0.86, un * 0.11);
+        ctx.fillStyle = '#232c40';
+        ctx.fillRect(nx - nw / 2 - un * 0.03 + ndrift, ny0 + un * 0.26, nw * 0.82, un * 0.10);
+        // 蓝字两行：#6fc0ff 小像素点行，呼吸明灭
+        var ta = ngot ? 0.45 : (0.62 + Math.sin(S.time * 2.6 + p.y * 1.3) * 0.25);
+        ctx.globalAlpha = Math.max(0, Math.min(1, nalpha * ta));
+        ctx.fillStyle = '#6fc0ff';
+        for (var ln = 0; ln < 2; ln++) {
+          for (var ch = 0; ch < 7; ch++) {
+            if ((p.x * 7 + p.y + ln * 3 + ch * 5) % 7 < 2) continue;
+            ctx.fillRect(nx - nw / 2 + un * 0.06 + ch * un * 0.055 + ndrift,
+              ny0 + un * 0.15 + ln * un * 0.10, Math.max(1, un * 0.032), Math.max(1, un * 0.022));
+          }
+        }
+        ctx.restore();
         break;
       }
     }
@@ -2196,6 +2273,37 @@ var MUSIC = {
     ctx.beginPath();
     ctx.ellipse(sx, sy - u * 0.05, baseW * 0.56, u * 0.18, 0, 0, 6.2832);
     ctx.fill();
+
+    // v5.8 守夜仪式：长夜之心塔下共守光环 —— 每多一位举灯人 +1 圈金环（封顶 8），
+    // 在场玩家（含自己，3.5 格内）脚下补一盏「带来的灯」。
+    if (z === 'abyss' && S.finale && S.finale.open && !S.finale.done) {
+      var holders = [];
+      var fkey;
+      for (fkey in S.players) {
+        var fp = S.players[fkey];
+        if (fp && Math.abs(fp.x - tw.x) <= 3.5 && Math.abs(fp.y - tw.y) <= 3.5) holders.push(fp);
+      }
+      // S.players 已排除自己（applyPlayers 里 id === S.myId 直接 continue），所以自己单独判一次
+      var meF = S.me;
+      if (meF && Math.abs(meF.x - tw.x) <= 3.5 && Math.abs(meF.y - tw.y) <= 3.5) holders.push(meF);
+      var rings = Math.min(8, Math.max(1, S.finale.waiters || 1));
+      for (var ri = 0; ri < rings; ri++) {
+        var rx = u * (1.3 + ri * 0.34);
+        ctx.strokeStyle = '#ffd27a';
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = Math.max(0.09, 0.30 - ri * 0.03) + Math.sin(S.time * 1.6 + ri * 0.9) * 0.04;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy - u * 0.05, rx, rx * 0.38, 0, 0, 6.2832);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.50;
+      ctx.fillStyle = '#ffd27a';
+      for (var hi = 0; hi < holders.length; hi++) {
+        var hx = w2sX(holders[hi].x * TILE), hy = w2sY(holders[hi].y * TILE);
+        ctx.fillRect(hx - u * 0.08, hy - u * 0.30, u * 0.16, u * 0.16);
+      }
+      ctx.globalAlpha = 1;
+    }
 
     // 塔身（上窄下宽）
     ctx.beginPath();
@@ -3191,8 +3299,18 @@ var MUSIC = {
   function doInteract(t) {
     var me = S.me;
     var best = null, bd = 2.2, bkind = '';
-    // 守塔人遗物（《灯火纪》）：叙事点优先级最高 —— 走近就该读
-    for (var ri = 0; ri < (S.map.relics || []).length; ri++) {
+    // 守塔人遗物与夜语（《灯火纪》v5.8）：同一格昼夜切换 —— 夜（含 dusk 渐显段）读夜语、
+    // 白天读石碑。phase 门控优先，一次 E 只出一张卡（防同点双触发）。
+    var nightNow = nyxPhaseAlpha() > 0.01;
+    if (nightNow) {
+      for (var nyi = 0; nyi < (S.map.nights || []).length; nyi++) {
+        var ny = S.map.nights[nyi];
+        if (!nyxTonight(ny.id)) continue;
+        var dny = dist(me.x, me.y, ny.x + 0.5, ny.y + 0.5);
+        if (dny < bd) { bd = dny; best = ny; bkind = 'nyx'; }
+      }
+    }
+    for (var ri = 0; !nightNow && ri < (S.map.relics || []).length; ri++) {
       var rl = S.map.relics[ri];
       var dr = dist(me.x, me.y, rl.x + 0.5, rl.y + 0.5);
       if (dr < bd) { bd = dr; best = rl; bkind = 'relic'; }
@@ -3223,11 +3341,22 @@ var MUSIC = {
       if (d4 < bd) { bd = d4; best = n; bkind = 'npc'; }
     }
     if (!best) return toast('这里没有可以交互的东西');
+    if (bkind === 'nyx') return loreOpenNight(best);
     if (bkind === 'relic') return loreOpenRelic(best);
     if (bkind === 'chest') return apiChest(best);
     if (bkind === 'waystone') return apiWaystone(best);
     if (bkind === 'tower') {
-      var lit = !!S.towers[findZoneOfTower(best)];
+      var tz = findZoneOfTower(best);
+      var lit = !!S.towers[tz];
+      // v5.8 守夜仪式：长夜之心的塔在仪式期间按 E = 举灯 / 放下
+      if (tz === 'abyss' && S.finale && S.finale.open && !S.finale.done) {
+        var act = S.finale.meWaiting ? 'leave' : 'join';
+        return apiPost('/shiguang/v5/finalite', { act: act }).then(function (r) {
+          if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+          if (act === 'join') { toast('你举起了灯', 'good'); auSfx('menu', 0.4, 1.2); }
+          else toast('你放下了灯');
+        }).catch(function (e) { toast(e.message || '塔没有回应', 'warn'); });
+      }
       return toast(lit ? '灯塔已经亮了 —— 这片区域是安全的' : '灯塔被长夜压着。打倒守护者才能点亮它');
     }
     if (bkind === 'npc') return openNpc(best);
@@ -6653,6 +6782,48 @@ var MUSIC = {
     boot();
 
     // 对外暴露一点调试接口（线上排查用，不影响玩家）
+    // v5.8 守夜仪式状态卡：S.finale.open 期间常驻右下，1.2s 轮询服务端权威进度
+    function finaleUiPaint() {
+      var F = S.finale;
+      if (!F || (!F.open && !F.meWaiting) || F.done) {
+        if (UI.finaliteEl && UI.finaliteEl.parentNode) UI.finaliteEl.parentNode.removeChild(UI.finaliteEl);
+        UI.finaliteEl = null;
+        return;
+      }
+      if (!UI.finaliteEl) {
+        UI.finaliteEl = el('div', 'sg5-finalite sg5-frame');
+        UI.hud.appendChild(UI.finaliteEl);
+      }
+      var need = F.threshold || Math.min(3, Math.max(1, F.waiters || 1));
+      var secs = F.startedAt ? Math.min(60, Math.max(0, Math.round(((F.now || Date.now()) - F.startedAt) / 1000))) : 0;
+      var line = F.meWaiting ? '守夜中 · ' + (F.waiters || 1) + ' 人 · 第 ' + secs + ' / 60 秒' : '举灯同守 · 现在 ' + (F.waiters || 0) + ' / ' + need + ' 人（塔下按 E）';
+      var el2 = UI.finaliteEl;
+      el2.innerHTML = '';
+      el2.appendChild(el('div', 'sg5-finalite-title', '最后的守夜'));
+      el2.appendChild(el('div', 'sg5-finalite-line', line));
+      var bar = el('div', 'sg5-finalite-bar');
+      var fill = el('div', 'sg5-finalite-fill');
+      fill.style.width = Math.round((F.startedAt ? secs / 60 : (F.waiters || 0) / need) * 100) + '%';
+      bar.appendChild(fill);
+      el2.appendChild(bar);
+    }
+    // 守夜轮询：finale open 时每 1.2s 拉一次权威状态（句柄挂 S，重连自动恢复）
+    S.finalePollAt = 0;
+    var _socialTickFinale = socialTick;
+    socialTick = function (tt) {
+      _socialTickFinale(tt);
+      try {
+        if (S.finale && (S.finale.open || S.finale.meWaiting) && !S.finale.done) {
+          if (tt - S.finalePollAt > 1.2) {
+            S.finalePollAt = tt;
+            apiPost('/shiguang/v5/finalite', { act: 'status' }).then(function (r) {
+              if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+            }).catch(function () {});
+          }
+        }
+      } catch (e) {}
+    };
+
     try {
       // v5.6 W1：手动驱动主循环（headless rAF 节流 / 截图机用）。advance 一次 ≈ 16ms。
       window.__sg5 = {
@@ -6686,6 +6857,13 @@ var MUSIC = {
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
         interact: function () { IN.use = 1; },   // v5.7：语义别名（visual 探针用 interact 触发 E）
+        testFinale: function (ev) { handleEvent(ev); },   // v5.8：注入守夜/终章事件（回归用）
+        finalite: function (act) {
+          return apiPost('/shiguang/v5/finalite', { act: act || 'status' }).then(function (r) {
+            if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+            return r && r.data;
+          });
+        },
         testEvent: function (e) { handleEvent(e); },   // v5.7：注入事件（灯语仪式卡等）回归用
         toast: toast,
         social: function () {
@@ -10522,11 +10700,18 @@ var MUSIC = {
 // 设计：卡片独立于面板系统（curPanel 单例），叠在世界层上；阅读不打断世界运行。
 
 var loreState = { loaded: false, data: null, wrap: null };
+var LORE_NIGHT_ZONE_ORDER = ['town', 'meadow', 'forest', 'swamp', 'crag', 'frost', 'abyss'];
+var LORE_NIGHT_ALL = [];   // /v5/lore 下发的夜语元数据（id/坐标/zone，正文只在收集后）
 
 function loreLoad() {
   return apiGet('/shiguang/v5/lore').then(function (d) {
     loreState.data = d || {};
     S.loreCollected = d.collected || [];
+    // v5.8 夜语：今晚浮现集 + 已收集（私密，无广播）
+    S.loreNightCollected = d.nightCollected || [];
+    S.loreNightPick = d.nightPick || [];
+    S.keeperAfterLines = d.keeperAfter || [];
+    LORE_NIGHT_ALL = d.nights || [];
     loreState.loaded = true;
   }).catch(function () { /* 拉不到不阻塞游戏；图鉴里显示「暂未载入」 */ });
 }
@@ -10536,12 +10721,15 @@ var _applyEnterLore = applyEnter;
 applyEnter = function (d) {
   _applyEnterLore(d);
   loreLoad();
-  // 终章：六域 + 长夜之心全亮（goal 归空）且没看过终章 → 触发一次
+  // v5.8：守夜仪式现场恢复（服务端权威，客户端只做显示与举灯动作）
+  S.finale = d.finale || { open: 0, done: 0, waiters: 0, meWaiting: 0, roster: null };
+  // 终章触发改造（v5.8）：删「goal 归空自动放章节卡」—— 终章由 finale-done 事件触发一次。
+  // 若进场时仪式已完成但本场没看过名录，补播一次终幕序列（幂等：本会话只放一遍）。
   try {
-    if (!d.goal && Object.keys(S.towers || {}).length >= 7 && !S.seenFinale) {
-      S.seenFinale = 1;
+    if (S.finale && S.finale.done && !S.finaleCardShown) {
+      S.finaleCardShown = 1;
       try { S.storage.set('finale', '1'); } catch (e) {}
-      setTimeout(function () { showChapter(8); auSfx('spirit', 0.4, 0.9); }, 1200);
+      setTimeout(function () { finalePlaySequence(); }, 1200);
     }
   } catch (e) {}
 };
@@ -10560,6 +10748,72 @@ function loreOpenRelic(relic) {
       auSfx('secret', 0.4, 1.1);
     }
   }).catch(function (e) { toast(e.message || '读完这一页需要一点时间，再试一次', 'warn'); });
+}
+
+// ---------- 世界层夜语：夜间同点浮现，走近按 E（phase 门控在 doInteract） ----------
+function loreOpenNight(nyx) {
+  apiPost('/shiguang/v5/lore/collect', { id: nyx.id, kind: 'night' }).then(function (r) {
+    S.loreNightCollected = r.nightCollected || S.loreNightCollected;
+    var got = S.loreNightCollected.indexOf(nyx.id) >= 0;
+    var n = r.night || {};
+    var first = got && !loreState._nightSeen;
+    loreState._nightSeen = 1;
+    loreCard(n.title || '夜语', '没能等到天亮的人 · 留下的半页话', n.text || '', 'night');
+    if (first) {
+      toast('夜语已收进图鉴 —— 只有你听见了它', 'good');
+      auSfx('secret', 0.35, 0.85);
+    }
+  }).catch(function (e) { toast(e.message || '夜里的话听不清，再试一次', 'warn'); });
+}
+
+// ---------- 终幕序列：finale 灯语 → 终章章节卡 → 灯火名录 → 引导回守灯人之家 ----------
+function finalePlaySequence() {
+  var d = loreState.data || {};
+  loreCard('终章 · 灯火名录', '第一代大守塔人 拾', d.finale || '', 'lamp');
+  auSfx('spirit', 0.45, 0.9);
+  setTimeout(function () {
+    try { showChapter(8); } catch (e) {}
+  }, 4200);
+  setTimeout(function () {
+    if (S.finale && S.finale.roster) loreRosterCard(S.finale.roster);
+    toast('去守灯人之家 —— 栗在等你们', 'good');
+  }, 9200);
+}
+
+// ---------- 灯火名录卡：拾 → 七代守塔人 → 全班（滚入节奏见 v5.8 视觉规范） ----------
+function loreRosterCard(roster) {
+  var wrap = loreWrap();
+  clearNode(wrap);
+  var card = el('div', 'sg5-roster');
+  card.appendChild(el('div', 'sg5-roster-head', '灯火名录'));
+  var first = el('div', 'sg5-roster-first', '拾');
+  first.style.animationDelay = '150ms';
+  card.appendChild(first);
+  var keepers = ['宁 · 晨光草原', '哑叔 · 雾隐林', '阿潮 · 萤火泽', '石翁 · 星坠岩', '孩子们 · 霜屿', '栗 · 拾光镇', '拾 · 长夜之心'];
+  for (var i = 0; i < keepers.length; i++) {
+    var kr = el('div', 'sg5-roster-keeper', keepers[i]);
+    kr.style.animationDelay = (400 + i * 140) + 'ms';
+    card.appendChild(kr);
+  }
+  var sep = el('div', 'sg5-roster-sep');
+  sep.style.animationDelay = '1480ms';
+  card.appendChild(sep);
+  var cls = el('div', 'sg5-roster-class');
+  var names = (roster && roster.keepers) || [];
+  var later = (roster && roster.later) || [];
+  var all = names.concat(later);
+  for (var j = 0; j < all.length; j++) {
+    var nm = el('span', 'sg5-roster-name', all[j] + (j < all.length - 1 ? ' ·' : ''));
+    nm.style.animationDelay = (1600 + Math.min(j * 60, 800)) + 'ms';
+    cls.appendChild(nm);
+  }
+  card.appendChild(cls);
+  var note = el('div', 'sg5-roster-note', names.length + ' 人守了这一夜 · ' + later.length + ' 人后来到了');
+  card.appendChild(note);
+  card.appendChild(uiBtn('合上名册', 'sg5-btn', function () { loreCardClose(); auSfx('accept', 0.35, 1.0); }));
+  wrap.appendChild(card);
+  wrap.className = 'sg5-lore is-on';
+  auSfx('gold', 0.45, 1.0);
 }
 
 // ---------- 阅读卡（复用面板框语言，独立于 curPanel） ----------
@@ -10584,10 +10838,11 @@ function loreCardClose() {
 }
 
 // kind: 'diary' 日记页（含收下按钮） | 'lamp' 灯语仪式卡（更庄重，自动可关） | 'plain' 栗的独白等
+//      | 'night' 夜语残页卡（v5.8：冷底夜卡，容器加 .is-night）
 function loreCard(title, sub, text, kind) {
   var wrap = loreWrap();
   clearNode(wrap);
-  var card = el('div', 'sg5-lorecard' + (kind === 'lamp' ? ' sg5-lampword' : ''));
+  var card = el('div', 'sg5-lorecard' + (kind === 'lamp' ? ' sg5-lampword' : '') + (kind === 'night' ? ' sg5-nightcard' : ''));
   card.appendChild(el('div', 'sg5-lorecard-title', title || ''));
   if (sub) card.appendChild(el('div', 'sg5-lorecard-sub', sub));
   var body = el('div', 'sg5-lorecard-text', text || '');
@@ -10596,11 +10851,14 @@ function loreCard(title, sub, text, kind) {
     card.appendChild(el('div', 'sg5-lorecard-note', '这一晚，请和整个班一起记住。'));
     var b1 = uiBtn('记住这一晚', 'sg5-btn-primary', function () { loreCardClose(); auSfx('accept', 0.35, 1.0); });
     card.appendChild(b1);
+  } else if (kind === 'night') {
+    card.appendChild(el('div', 'sg5-lorecard-note', '—— 夜里的话，只有夜听得见。'));
+    card.appendChild(uiBtn('把这一页收好', 'sg5-btn-primary', function () { loreCardClose(); auSfx('secret', 0.4, 0.85); }));
   } else {
     card.appendChild(uiBtn(kind === 'diary' ? '收下这一页' : '合上', 'sg5-btn', function () { loreCardClose(); }));
   }
   wrap.appendChild(card);
-  wrap.className = 'sg5-lore is-on';
+  wrap.className = 'sg5-lore is-on' + (kind === 'night' ? ' is-night' : '');
   var firstBtn = card.querySelector('button');
   if (firstBtn) { try { firstBtn.focus(); } catch (e) {} }
 }
@@ -10616,12 +10874,44 @@ handleEvent = function (e) {
     S.cam.shake = Math.max(S.cam.shake || 0, 2.2);
     return;
   }
+  // v5.8 守夜仪式：开场广播 / 完成名录
+  if (e && e.k === 'finale-open') {
+    S.finale = S.finale || {};
+    S.finale.open = 1; S.finale.done = 0;
+    toast(e.hint || '到长夜之心的塔下举灯 —— 一起守到天亮', 'warn');
+    auSfx('menu', 0.4, 0.9);
+    return;
+  }
+  if (e && e.k === 'finale-done') {
+    S.finale = S.finale || {};
+    S.finale.done = 1; S.finale.open = 0;
+    S.finale.roster = e.roster || S.finale.roster;
+    if (!S.finaleCardShown) {
+      S.finaleCardShown = 1;
+      try { S.storage.set('finale', '1'); } catch (e2) {}
+      finalePlaySequence();
+    }
+    return;
+  }
   return _handleEventLore(e);
 };
 
 // ---------- 栗的独白（守灯人之家「听她说话」） ----------
+// v5.8 keeperAfter（栗的暗线）：at:7 在 abyss 塔亮后、守夜仪式完成前（终章引子）；
+// at:8 严格在 S.finale.done 后（仪式→名录→饭桌的收束）。各幂等，未完成仪式永不触发。
 function loreKeeperLine() {
   var lit = Object.keys(S.towers || {}).length;
+  var after = S.keeperAfterLines || [];
+  if (S.finale && S.finale.done && after.length >= 2 && !S.keeperAfter8Seen) {
+    S.keeperAfter8Seen = 1;
+    try { S.storage.set('ka8', '1'); } catch (e) {}
+    return after[1].text;
+  }
+  if (S.towers && S.towers.abyss && after.length >= 1 && !S.keeperAfter7Seen) {
+    S.keeperAfter7Seen = 1;
+    try { S.storage.set('ka7', '1'); } catch (e) {}
+    return after[0].text;
+  }
   var lines = (loreState.data && loreState.data.keeperLines) || [];
   var pick = null;
   for (var i = 0; i < lines.length; i++) if (lines[i].at <= lit) pick = lines[i];
@@ -10648,24 +10938,72 @@ function loreWorldTab(body) {
     body.appendChild(box);
   }
 
-  // 守塔人日记：20 页收集
-  body.appendChild(el('div', 'sg5-sect', '守塔人日记 · ' + (S.loreCollected || []).length + ' / ' + d.diaries.length));
-  var zoneSeen = {};
-  for (var di = 0; di < d.diaries.length; di++) {
-    var dy = d.diaries[di];
-    if (!zoneSeen[dy.zone]) {
-      zoneSeen[dy.zone] = 1;
-      body.appendChild(el('div', 'sg5-lorew-zone', ZONE_NAMES[dy.zone] || dy.zone));
+  // 守塔人日记与夜语：同域上下对照（昼上夜下，翻图鉴就是翻一枚硬币的两面）
+  var nightById = {};
+  var nightsData = (loreState.data && loreState.data.nights) || [];
+  for (var nix = 0; nix < nightsData.length; nix++) nightById[nightsData[nix].id] = nightsData[nix];
+  var zoneStat = {};
+  for (var dz = 0; dz < d.diaries.length; dz++) {
+    var zd = d.diaries[dz].zone;
+    zoneStat[zd] = zoneStat[zd] || { day: 0, night: 0, tot: 0, ntot: 0 };
+    zoneStat[zd].tot++;
+    zoneStat[zd].ntot++;
+    if ((S.loreCollected || []).indexOf(d.diaries[dz].id) >= 0) zoneStat[zd].day++;
+  }
+  for (var nz = 0; nz < LORE_NIGHT_ZONE_ORDER.length; nz++) {
+    var zkey = LORE_NIGHT_ZONE_ORDER[nz];
+    if (!zoneStat[zkey]) continue;
+    var st = zoneStat[zkey];
+    var zhead = el('div', 'sg5-lorew-zone', (ZONE_NAMES[zkey] || zkey) + ' · 昼 ' + st.day + '/' + st.tot + ' · 夜 ' + st.night + '/' + st.ntot);
+    zhead.setAttribute('data-zone', zkey);
+    body.appendChild(zhead);
+    for (var di = 0; di < d.diaries.length; di++) {
+      var dy = d.diaries[di];
+      if (dy.zone !== zkey) continue;
+      var got = (S.loreCollected || []).indexOf(dy.id) >= 0;
+      var row = el('div', 'sg5-lorew-row' + (got ? ' is-have' : ' is-off'));
+      var t1 = el('div', 'sg5-lorew-title');
+      t1.appendChild(el('span', 'sg5-face is-day', '昼'));
+      t1.appendChild(document.createTextNode(got ? ' ' + dy.title : ' 一页未寻得的日记'));
+      row.appendChild(t1);
+      if (got) {
+        row.appendChild(el('div', 'sg5-lorew-text', dy.text));
+      } else {
+        row.appendChild(el('div', 'sg5-lorew-text sg5-lorew-hint', '在这片区域的草丛、林间与岩缝里，找一块碑顶发亮的石碑。'));
+      }
+      body.appendChild(row);
+      // 配对夜语（夜下）：未收集只给暗示，正文永不进 DOM（防剧透）
+      var pairId = 'y_' + dy.id.slice(2);
+      var nq = nightById[pairId];
+      var nGot = nq && (S.loreNightCollected || []).indexOf(pairId) >= 0;
+      if (nq) {
+        var nrow = el('div', 'sg5-lorew-row is-night' + (nGot ? ' is-have' : ' is-off'));
+        var t2 = el('div', 'sg5-lorew-title');
+        t2.appendChild(el('span', 'sg5-face is-night', '夜'));
+        t2.appendChild(document.createTextNode(nGot ? ' ' + nq.title : ' 一页未听过的夜语'));
+        nrow.appendChild(t2);
+        if (nGot && nq.text) nrow.appendChild(el('div', 'sg5-lorew-text', nq.text));
+        else if (!nGot) nrow.appendChild(el('div', 'sg5-lorew-text sg5-lorew-hint', '入夜后，这里还有别的话。'));
+        body.appendChild(nrow);
+      }
     }
-    var got = (S.loreCollected || []).indexOf(dy.id) >= 0;
-    var row = el('div', 'sg5-lorew-row' + (got ? ' is-have' : ' is-off'));
-    row.appendChild(el('div', 'sg5-lorew-title', got ? dy.title : '一页未寻得的日记'));
-    if (got) {
-      row.appendChild(el('div', 'sg5-lorew-text', dy.text));
-    } else {
-      row.appendChild(el('div', 'sg5-lorew-text sg5-lorew-hint', '在这片区域的草丛、林间与岩缝里，找一块碑顶发亮的石碑。'));
+  }
+  // 夜语收集计数修正（组头一次性算准；按 data-zone 匹配，不依赖对象键顺序）
+  var nCount = {};
+  var ncList = S.loreNightCollected || [];
+  for (var nc = 0; nc < ncList.length; nc++) nCount[ncList[nc]] = 1;
+  var zrows = body.querySelectorAll('.sg5-lorew-zone');
+  for (var zr = 0; zr < zrows.length; zr++) {
+    var zk2 = zrows[zr].getAttribute('data-zone');
+    if (!zk2 || !zoneStat[zk2]) continue;
+    var nTot = 0, nGot2 = 0;
+    for (var q = 0; q < LORE_NIGHT_ALL.length; q++) {
+      if (LORE_NIGHT_ALL[q].zone !== zk2) continue;
+      nTot++;
+      if (nCount[LORE_NIGHT_ALL[q].id]) nGot2++;
     }
-    body.appendChild(row);
+    zoneStat[zk2].ntot = nTot;
+    zrows[zr].textContent = (ZONE_NAMES[zk2] || zk2) + ' · 昼 ' + zoneStat[zk2].day + '/' + zoneStat[zk2].tot + ' · 夜 ' + nGot2 + '/' + nTot;
   }
 
   // 风物志：按点亮进度逐步解锁（塔亮 = 真正「到过」那片地）
@@ -10679,6 +11017,17 @@ function loreWorldTab(body) {
     if (open) row.appendChild(el('div', 'sg5-lorew-text', g.text));
     body.appendChild(row);
   });
+
+  // 灯火名录（终章后永久呈现 —— 已写进世界的东西不再动）
+  if (S.finale && S.finale.done && S.finale.roster) {
+    body.appendChild(el('div', 'sg5-sect', '灯火名录'));
+    var mini = el('div', 'sg5-roster-mini');
+    mini.appendChild(el('div', 'sg5-roster-mini-first', '拾'));
+    mini.appendChild(el('div', 'sg5-roster-mini-keepers', '宁 · 哑叔 · 阿潮 · 石翁 · 霜屿的孩子们 · 栗'));
+    var all2 = ((S.finale.roster.keepers) || []).concat((S.finale.roster.later) || []);
+    mini.appendChild(el('div', 'sg5-roster-mini-class', all2.join(' · ')));
+    body.appendChild(mini);
+  }
 }
 
   window.ClassIntraMarket.define({ name: NAME, mount: mount, unmount: unmount });

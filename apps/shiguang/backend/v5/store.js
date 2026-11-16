@@ -161,6 +161,14 @@ function userName(userId) {
   return nm;
 }
 
+// v5.8 守夜仪式（全服状态）：进程级、随进程重建 —— 唯一必须持久的是「塔亮了」（towers 表），
+// 仪式中断重开一场即可；热挂载不重置（挂 global）。
+var FINALE = global.__shiguang5finale || (global.__shiguang5finale = { lamp: null, done: false, roster: null });
+if (!FINALE.init) {
+  FINALE.init = 1;
+  if (towers().abyss) FINALE.done = true;   // 已经亮过的服务器：仪式视为完成，不回卷
+}
+
 module.exports = {
   LOOKS: LOOKS,
   load: load,
@@ -177,5 +185,6 @@ module.exports = {
   feed: feed,
   recentFeed: recentFeed,
   userName: userName,
+  finale: FINALE,
   TABLES: ['shiguang5_players', 'shiguang5_chests', 'shiguang5_towers', 'shiguang5_boss_kills', 'shiguang5_feed']
 };

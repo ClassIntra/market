@@ -492,8 +492,18 @@
   function doInteract(t) {
     var me = S.me;
     var best = null, bd = 2.2, bkind = '';
-    // 守塔人遗物（《灯火纪》）：叙事点优先级最高 —— 走近就该读
-    for (var ri = 0; ri < (S.map.relics || []).length; ri++) {
+    // 守塔人遗物与夜语（《灯火纪》v5.8）：同一格昼夜切换 —— 夜（含 dusk 渐显段）读夜语、
+    // 白天读石碑。phase 门控优先，一次 E 只出一张卡（防同点双触发）。
+    var nightNow = nyxPhaseAlpha() > 0.01;
+    if (nightNow) {
+      for (var nyi = 0; nyi < (S.map.nights || []).length; nyi++) {
+        var ny = S.map.nights[nyi];
+        if (!nyxTonight(ny.id)) continue;
+        var dny = dist(me.x, me.y, ny.x + 0.5, ny.y + 0.5);
+        if (dny < bd) { bd = dny; best = ny; bkind = 'nyx'; }
+      }
+    }
+    for (var ri = 0; !nightNow && ri < (S.map.relics || []).length; ri++) {
       var rl = S.map.relics[ri];
       var dr = dist(me.x, me.y, rl.x + 0.5, rl.y + 0.5);
       if (dr < bd) { bd = dr; best = rl; bkind = 'relic'; }
@@ -524,11 +534,22 @@
       if (d4 < bd) { bd = d4; best = n; bkind = 'npc'; }
     }
     if (!best) return toast('这里没有可以交互的东西');
+    if (bkind === 'nyx') return loreOpenNight(best);
     if (bkind === 'relic') return loreOpenRelic(best);
     if (bkind === 'chest') return apiChest(best);
     if (bkind === 'waystone') return apiWaystone(best);
     if (bkind === 'tower') {
-      var lit = !!S.towers[findZoneOfTower(best)];
+      var tz = findZoneOfTower(best);
+      var lit = !!S.towers[tz];
+      // v5.8 守夜仪式：长夜之心的塔在仪式期间按 E = 举灯 / 放下
+      if (tz === 'abyss' && S.finale && S.finale.open && !S.finale.done) {
+        var act = S.finale.meWaiting ? 'leave' : 'join';
+        return apiPost('/shiguang/v5/finalite', { act: act }).then(function (r) {
+          if (r && r.data) { S.finale = r.data; finaleUiPaint(); }
+          if (act === 'join') { toast('你举起了灯', 'good'); auSfx('menu', 0.4, 1.2); }
+          else toast('你放下了灯');
+        }).catch(function (e) { toast(e.message || '塔没有回应', 'warn'); });
+      }
       return toast(lit ? '灯塔已经亮了 —— 这片区域是安全的' : '灯塔被长夜压着。打倒守护者才能点亮它');
     }
     if (bkind === 'npc') return openNpc(best);
