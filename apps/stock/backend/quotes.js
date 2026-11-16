@@ -572,7 +572,7 @@ function fetchTrendsTencent(code) {
       // 腾讯分时给的是**累计**成交量（手）与累计成交额（元），均价 = 累计额 / 累计股数
       var avg = cumVol > 0 ? Math.round(cumAmount / (cumVol * 100) * 100) / 100 : 0;
       points.push({
-        time: raw.slice(0, 2) + ':' + raw.slice(2, 4) + ':00',
+        time: raw.slice(0, 2) + ':' + raw.slice(2, 4),
         price: price,
         avg: avg,
         volume: cumVol
