@@ -1585,7 +1585,8 @@
     var box = h('div', 'profile-card');
     var head = h('div', 'chart-tabs');
     head.appendChild(h('div', 'card-title', '公司概况'));
-    head.appendChild(h('div', 'card-more', '数据：东方财富'));
+    var src = entry && entry.data && entry.data.source === 'tencent' ? '腾讯行情' : '东方财富';
+    head.appendChild(h('div', 'card-more', '数据：' + src));
     box.appendChild(head);
 
     var card = h('div', 'card');
