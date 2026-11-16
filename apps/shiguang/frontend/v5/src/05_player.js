@@ -11,6 +11,12 @@
   function inputBind(root, onDestroy) {
     var keys = {};
     IN.keysRef = keys;
+    function isTyping(e) {
+      var t = (e && e.target) || document.activeElement;
+      if (!t) return false;
+      var tag = t.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || !!t.isContentEditable;
+    }
     function setKey(e, down) {
       var k = e.key || '';
       var code = e.keyCode || 0;
@@ -20,6 +26,12 @@
       };
       var name = map[code];
       if (!name) return;
+      // 聊天输入框 / 任何可编辑区域里，WASD 与空格归输入法，不驱动角色。
+      // 抬起必须照常清键，否则「按住 W 时点进输入框再松开」会让角色一直往右跑。
+      if (isTyping(e)) {
+        if (!down) keys[name] = 0;
+        return;
+      }
       // v5.3：钓鱼 QTE 期间空格归绿条用，不置 IN.attack、也不 preventDefault
       if (code === 32 && S.farm && S.farm.qte) return;
       if (down && keys[name]) return;
@@ -29,7 +41,6 @@
         if (name === 'k') IN.roll = 1;
         if (name === 'l') IN.skill = 1;
         if (name === 'e') IN.use = 1;
-        if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
         auResume();
       }
       if (['a', 'd', 'w', 's'].indexOf(name) >= 0 || name === 'j') e.preventDefault();
@@ -45,10 +56,22 @@
 
     // 摇杆（左半屏）
     var joyBase = null;
+    // 触点在 HUD 控件上时不要起摇杆：否则点 dock / 面板按钮也会把角色拖走
+    function touchOnUi(target) {
+      var t = target;
+      while (t && t !== root) {
+        var c = t.className;
+        if (typeof c === 'string' && /(^|\s)(sg5-dock|sg5-panel|sg5-panels|sg5-farmbar|sg5-invite|sg5-actions|sg5-dead|sg5-pmenu|sg5-actpicker|sg5-qte)(\s|$)/.test(c)) return true;
+        if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON') return true;
+        t = t.parentNode;
+      }
+      return false;
+    }
     function touchStart(e) {
+      if (curPanel || (S.me && (S.me.down || S.me.dead))) { auResume(); return; }
       for (var i = 0; i < e.changedTouches.length; i++) {
         var t = e.changedTouches[i];
-        if (t.clientX < S.view.w * 0.5 && !IN.joyActive) {
+        if (t.clientX < S.view.w * 0.5 && !IN.joyActive && !touchOnUi(e.target)) {
           IN.joyActive = true;
           IN.joyId = t.identifier;
           IN.joyOX = t.clientX;
@@ -174,7 +197,13 @@
   function updatePlayer(dt, t) {
     var me = S.me;
     if (!me) return;
-    if (me.dead) return;
+    // 倒下/死亡时锁住输入：死亡遮罩已经弹出，角色不该还在底下走动或挥剑
+    if (me.dead || me.down) {
+      IN.x = 0; IN.y = 0;
+      IN.attack = 0; IN.roll = 0; IN.skill = 0; IN.use = 0;
+      me.vx = 0; me.vy = 0; me.moving = 0;
+      return;
+    }
     readInput();
 
     // 计时器

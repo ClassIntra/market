@@ -180,7 +180,7 @@
   PANELS.bag = function () {
     var me = S.me;
     var bag = me.bag || [];
-    var sh = panelShell('背包', bag.length + ' / 60');
+    var sh = panelShell('装备', bag.length + ' / 60');
     var body = sh.body;
     if (!bag.length) {
       body.appendChild(el('div', 'sg5-empty', '背包是空的。去打点东西，或者开个箱子。'));
@@ -302,7 +302,7 @@
   PANELS.dex = function () {
     var me = S.me;
     var dex = me.dex || {};
-    var sh = panelShell('图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
+    var sh = panelShell('怪物图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
     var body = sh.body;
     var mobName = {
       slime: '果冻史莱姆', slime2: '薄荷史莱姆', bamboo: '竹精', mouse: '偷灯鼠', eye: '雾眼',
@@ -465,7 +465,8 @@
     body.appendChild(el('div', 'sg5-sect', '操作'));
     body.appendChild(el('div', 'sg5-keys',
       '移动：WASD / 方向键 / 左半屏摇杆　·　攻击：J / 空格　·　翻滚：K　·　技能：L　·　交互：E\n' +
-      '角色 C　·　背包 B　·　地图 M　·　图鉴 V　·　天赋 T　·　关闭面板 Esc\n' +
+      '角色 C　·　装备 B　·　地图 M　·　怪物图鉴 V　·　天赋 T　·　关闭面板 Esc\n\n' +
+      '农场 N　·　小镇 R　·　钓鱼/矿洞 H\n' +
       '翻滚的前 0.22 秒无敌。在怪物出招前 0.15 秒内翻滚 = 完美闪避（子弹时间 + 下一击必暴击）。'));
     // v5.4 新增说明（新 DOM 新文案，原有键位表逐字节未动）
     body.appendChild(el('div', 'sg5-note',

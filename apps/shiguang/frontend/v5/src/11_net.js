@@ -112,7 +112,21 @@
     var skill = S.net.skill;
     S.net.skill = null;
 
-    var done = function () { S.net.syncing = 0; };
+    var settled = 0, syncTimer = 0;
+    var finish = function () {
+      if (settled) return;
+      settled = 1;
+      if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
+      S.net.syncing = 0;
+    };
+    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都可能让 syncing 永远为 1，
+    // 表现为「玩着玩着世界不动了」。8 秒没结果就主动放锁，让下一轮重新同步。
+    syncTimer = setTimeout(function () {
+      if (settled) return;
+      S.net.errs++;
+      finish();
+      toast('世界同步超时，正在重新连接…', 'warn');
+    }, 8000);
     // 先把命中送出去（服务端先记账），再要快照 —— 顺序反了会「怪没掉血但已经死了」
     var chain = Promise.resolve();
     if (hits && hits.length) {
@@ -128,12 +142,14 @@
     chain.then(function () {
       return apiPost('/shiguang/v5/sync', body);
     }).then(function (d) {
+      if (settled) return;
       S.net.errs = 0;
       applySync(d);
-      done();
+      finish();
     }, function (err) {
+      if (settled) return;
       S.net.errs++;
-      done();
+      finish();
       if (S.net.errs === 4) {
         toast('与世界的连接断了一下，正在重连…', 'warn');
       }
@@ -346,6 +362,9 @@
   function showDead(on) {
     if (!UI.deadEl) return;
     UI.deadEl.className = 'sg5-dead' + (on ? ' is-on' : '');
+    // 倒下时把常驻 HUD 一起压暗并锁住点击，避免动作键/农场条盖在死亡遮罩上
+    if (UI.hud) UI.hud.className = 'sg5-hud' + (on ? ' is-dead' : '');
+    if (on) closePanel();
   }
 
   // ---- 实时事件（灯塔 / 首杀 / 世界频道） ----

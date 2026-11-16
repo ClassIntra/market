@@ -93,7 +93,8 @@
     S.farm.qte = null;
     lifeAct('fish/result', { score: score }).then(function (d) {
       if (d && d.caught) {
-        farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g');
+        farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g' +
+          (d.contestCounted === false ? ' · 本竿不计入赛绩（前 3 竿已计满）' : ''));
       } else {
         farmToast((d && d.reason) || '鱼跑了', 'warn');
       }
@@ -116,6 +117,7 @@
     qteCleanup();
     S.farm.qte = {
       fish: d.fish, name: d.name, diff: d.diff || 30, green: d.green || 0.35,
+      contest: d.contest || null,   // v5.5：赛制状态（counting/total/rods）
       y: 0.5, targetY: 0.28 + Math.random() * 0.44,
       targetVy: (Math.random() - 0.5) * 0.006,
       vy: 0, hold: false, progress: 0.3, hit: 0, frames: 0, timer: null
@@ -162,6 +164,34 @@
         }, 'sg5-btn-primary', null, 'op:cast'],
         ['按 H 收起', function () { closePanel(); }]
       ]);
+      // v5.5：冰雪钓赛成绩卡（只在赛日渲染；QTE 进行中不渲染，走 else 分支的赛制行）
+      var fc = P.fishContest;
+      if (isFishContestDay() && fc) {
+        if (fc.day !== P.cal.day) fc = { day: P.cal.day, total: 0, rods: 0, claimed: 0 };
+        var card = el('div', 'sg5-fish-score');
+        card.appendChild(el('div', 'sg5-farm-big', '当前积分 ' + fc.total + 'g'));
+        var prog = el('div', 'sg5-quest-prog');
+        var fill = el('i');
+        fill.style.transform = 'scaleX(' + Math.min(1, fc.total / 300).toFixed(3) + ')';
+        prog.appendChild(fill);
+        card.appendChild(prog);
+        card.appendChild(el('div', 'sg5-note', '剩余竿数 ' + Math.max(0, 3 - fc.rods) + ' / 3 · 前 3 竿卖价之和 ≥300g 即达标'));
+        var chipCls, chipTxt;
+        if (fc.claimed) { chipCls = 'sg5-bundle-need is-done'; chipTxt = '已领奖 · 赛绩已结算'; }
+        else if (fc.total >= 300) { chipCls = 'sg5-bundle-need is-done'; chipTxt = '已达标 · 可领奖'; }
+        else if (fc.rods >= 3) { chipCls = 'sg5-bundle-need is-off'; chipTxt = '未达标（' + fc.total + 'g / 300g）'; }
+        else { chipCls = 'sg5-bundle-need is-have'; chipTxt = '计分中'; }
+        card.appendChild(el('div', chipCls, chipTxt));
+        if (!fc.claimed && fc.total >= 300) {
+          card.appendChild(el('div', 'sg5-note', '奖励：金币 800g + 鱼饵 ×20'));
+          farmBtnRow(card, [['领取赛奖', function () {
+            lifeAct('fish/contest/claim', {}).then(function (d) {
+              farmToast('赛奖到手：800 金 + 鱼饵 ×20');
+            }, function (e) { farmToast(e.message, 'warn'); });
+          }, 'sg5-btn-primary', true]]);
+        }
+        s.appendChild(card);
+      }
       var caught = 0;
       for (var k in (P.fishCaught || {})) if (Object.prototype.hasOwnProperty.call(P.fishCaught, k)) caught += P.fishCaught[k];
       s.appendChild(el('div', 'sg5-note', '已经钓上 ' + caught + ' 条鱼 · 图鉴见隔壁'));
@@ -177,6 +207,12 @@
       side.appendChild(el('div', 'sg5-qte-title', '咬钩了！'));
       side.appendChild(el('div', 'sg5-qte-name', '???（钓上来才知道）'));
       side.appendChild(el('div', 'sg5-note', '难度 ' + q.diff + ' · 绿条 ' + Math.round(q.green * 100) + '%'));
+      // v5.5：赛制行（fish/start 的 contest 字段驱动；非赛日不渲染）
+      if (q.contest) {
+        side.appendChild(el('div', 'sg5-note', q.contest.counting
+          ? '赛制第 ' + Math.min(3, q.contest.rods + 1) + ' 竿 · 计入成绩'
+          : '本竿不计入赛绩（前 3 竿已计满）'));
+      }
       var pb = el('div', 'sg5-qte-bar');
       pb.setAttribute('role', 'progressbar');
       pb.setAttribute('aria-valuemin', '0');

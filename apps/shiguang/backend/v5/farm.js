@@ -39,6 +39,11 @@ module.exports = function createFarm(ctx) {
       festivalSeen: {}, todayTalk: {}, weekGifts: {}, lastWeek: 0,
       pendingFish: null, mineRun: null, spouse: '', houseLv: 0,
       machines: {}, forageCd: {}, chopped: {}, seenForage: 0,
+      // v5.5 节日小游戏：彩蛋节（eggHunt/eggTaken/eggRedeem）、冰雪钓赛、丰收展
+      eggHunt: { day: 0, found: 0 }, eggTaken: {},
+      eggRedeem: { day: 0, seed_strawberry: 0, speedgro: 0, gold: 0 },
+      fishContest: { day: 0, total: 0, rods: 0, claimed: 0 },
+      exhibit: { day: 0, items: null, grade: null },
       stats: { harvest: 0, fish: 0, ore: 0, gift: 0, ship: 0 }
     };
   }
@@ -81,7 +86,7 @@ module.exports = function createFarm(ctx) {
           wool: '羊毛', big_wool: '优质羊毛', truffle: '松露',
           hay: '干草', wood: '木材', speedgro: '生长激素', quality_fert: '高级肥料',
           sprinkler: '洒水器', bait: '鱼饵', rod: '鱼竿', furnace: '熔炉', seeds: '混合种子',
-          gem: '宝石', stone: '石头' };
+          ticket: '彩蛋彩券', gem: '宝石', stone: '石头' };
         n = FIX[base] || (D.ITEM_NAMES && D.ITEM_NAMES[base]) || base;
       }
     }
@@ -100,6 +105,7 @@ module.exports = function createFarm(ctx) {
     if (/_bar$/.test(b)) return 'ore';
     if (/^food_/.test(b) || b === 'mayonnaise' || b === 'cheese' || b === 'pale_ale' || b === 'beer') return 'food';
     if (b === 'crab') return 'fish';
+    if (b === 'ticket') return 'food';   // v5.5 彩蛋彩券：送礼按一般处理
     if (b === 'bait' || b === 'rod' || b === 'furnace' || b === 'sprinkler' || b === 'seeds') return 'food';
     return 'other';
   }
@@ -282,6 +288,25 @@ module.exports = function createFarm(ctx) {
     }
   }
 
+  // ---------- v5.5 彩蛋节：当日 12 颗彩蛋（确定性 per uid+day，过滤阻挡格） ----------
+  // eggList 的候选主环排前、外环垫底：先取主环里走得通的，不足 12 颗自然放宽到外环补齐。
+  // 索引 i = 过滤后 12 颗里的序号，全天稳定，pick 只认 i；
+  // payload 下发的 eggsLeft = 12 颗里去掉已采索引的剩余列表（i 保持原序号不变）。
+  function eggsOf(id, f, day) {
+    var cands = FD.eggList(day, id), full = [], i;
+    for (i = 0; i < cands.length && full.length < 12; i++) {
+      var cx = cands[i].x, cy = cands[i].y;
+      if (isBlockedWorld && isBlockedWorld(cx + 0.5, cy + 0.5)) continue;
+      full.push({ i: full.length, x: cx, y: cy });
+    }
+    var taken = (f.eggTaken && f.eggTaken[day]) || [];
+    var out = [];
+    for (i = 0; i < full.length; i++) if (taken.indexOf(full[i].i) < 0) out.push(full[i]);
+    var found = taken.length;
+    if (found > full.length) found = full.length;   // 老档容错：登记数不该超过总蛋数
+    return { eggs: out, found: found, total: full.length };
+  }
+
   // ---------- 快照 ----------
   function cal() {
     var day = dayNow();
@@ -306,6 +331,19 @@ module.exports = function createFarm(ctx) {
       festivalSeen: f.festivalSeen, spouse: f.spouse, houseLv: f.houseLv,
       stats: f.stats, lastDay: f.lastDay, sleptDay: f.sleptDay, faint: f.faint,
       machines: f.machines, forageCd: f.forageCd, chopped: f.chopped,
+      // v5.5：彩蛋节当日下发剩余彩蛋与进度；钓赛 / 丰收展状态常驻（前端渲染成绩卡与展台锁定态）
+      eggsLeft: (function () {
+        var fes = FD.festivalOn(dayNow());
+        return fes && fes.name === '彩蛋节' ? eggsOf(id, f, dayNow()).eggs : [];
+      })(),
+      eggHunt: (function () {
+        var fes = FD.festivalOn(dayNow());
+        if (!fes || fes.name !== '彩蛋节') return { day: 0, found: 0, total: 12 };
+        var e = eggsOf(id, f, dayNow());
+        return { day: dayNow(), found: e.found, total: e.total };
+      })(),
+      eggRedeem: f.eggRedeem,
+      fishContest: f.fishContest, exhibit: f.exhibit,
       forage: (function () {
         // 生成端就过滤掉不可达格：提示与实际可采保持一致，别让玩家对着栅栏发呆
         var list = FD.forageList(dayNow(), f.forageCd), out = [];
@@ -693,6 +731,8 @@ module.exports = function createFarm(ctx) {
     world: ctx.world,
     setEpochForDay: setEpochForDay, tick: tick,
     // 供 life.js 复用的动作包装
-    guard: guard, defFarm: defFarm
+    guard: guard, defFarm: defFarm,
+    // v5.5：彩蛋列表（life.js 的 egg/pick 用同一份过滤逻辑，别让提示与实际可捡不一致）
+    eggsOf: eggsOf
   };
 };

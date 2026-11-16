@@ -1266,11 +1266,12 @@
   background: rgba(8, 7, 5, 0.42);
   margin-bottom: 10px;
 }
-.sg5-chatline { display: flex; gap: 8px; font-size: 14px; line-height: 2; animation: sg5-slide 200ms ease-out; }
+.sg5-chatline { display: flex; font-size: 14px; line-height: 2; animation: sg5-slide 200ms ease-out; }
 .sg5-chatwho { flex: 0 0 auto; color: var(--px-gold); white-space: nowrap; }
-.sg5-chattxt { color: var(--px-ink-2); word-break: break-all; }
+.sg5-chattxt { color: var(--px-ink-2); word-break: break-all; margin-left: 8px; min-width: 0; }
 .sg5-chatline.is-self .sg5-chatwho { color: var(--px-jade); }
-.sg5-chatform { display: flex; gap: 8px; }
+.sg5-chatform { display: flex; }
+.sg5-chatform .sg5-btn { margin-right: 0; margin-left: 8px; }
 .sg5-input {
   flex: 1 1 auto; min-width: 0;
   padding: 6px 10px 8px;
@@ -1286,8 +1287,9 @@
 }
 .sg5-input:focus { border-color: var(--px-gold-2); box-shadow: inset 0 0 0 1px rgba(255,210,140,0.2); }
 .sg5-input::placeholder { color: var(--px-ink-3); }
-.sg5-partyops { display: flex; gap: 6px; margin: 6px 0 4px; }
-.sg5-partyops .sg5-btn { margin-right: 0; }
+.sg5-partyops { display: flex; margin: 6px 0 4px; }
+.sg5-partyops .sg5-btn { margin-right: 6px; }
+.sg5-partyops .sg5-btn:last-child { margin-right: 0; }
 
 /* ---- 互动动作选择 ---- */
 .sg5-actpicker {
@@ -1615,3 +1617,59 @@
   background: rgba(255, 255, 255, 0.5);
 }
 .sg5-farm-swatch .sg5-farm-icon { display: block; image-rendering: pixelated; max-width: 100%; max-height: 100%; }
+
+/* ==================== v5.5 节日小游戏 / 新手引导 / 重命名 ==================== */
+
+/* dock 入口角标：农场 N / 小镇 R / 钓鱼·矿洞 H 首次打开前呼吸提示 */
+@keyframes sg5-newpulse { from { opacity: .55; } to { opacity: 1; } }
+.sg5-dockbtn.is-new {
+  animation: sg5-newpulse 1.6s ease-in-out infinite alternate;
+  box-shadow: inset 0 0 0 2px var(--px-gold-2), inset 0 2px 0 rgba(255, 236, 190, 0.18);
+}
+
+/* 新手引导单例提示条：左下、不走交互；进场 180ms / 出场 240ms ease-out */
+.sg5-hint {
+  position: absolute; left: 14px; bottom: 68px;
+  max-width: 60%;
+  padding: 8px 12px;
+  border: 2px solid var(--px-line); border-left: 3px solid var(--px-gold-2);
+  background: linear-gradient(180deg, rgba(51, 41, 28, 0.94), rgba(29, 23, 16, 0.94));
+  color: var(--px-ink); font-size: 16px; line-height: 1.6;
+  pointer-events: none; z-index: 8;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity 240ms ease-out, transform 240ms ease-out;
+}
+.sg5-hint.is-on {
+  opacity: 1; transform: translateY(0);
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+/* 冰雪钓赛成绩卡：复用 .sg5-farm-cal 的木底骨架 */
+.sg5-fish-score { padding: 8px; background: #32271d; border: 1px solid #5a4632; margin: 8px 0; }
+.sg5-fish-score .sg5-farm-big { margin: 2px 0 6px; }
+.sg5-fish-score .sg5-note { margin-top: 4px; }
+
+/* 丰收展展台：3×3 格，复用 farm-grid 骨架；格子最小 44px 方可点 */
+.sg5-exhibit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 8px 0; max-width: 440px; }
+.sg5-exhibit-cell {
+  min-height: 44px; padding: 4px 6px;
+  background: #3a2d21; border: 1px solid #6b543c; color: var(--px-ink-3);
+  text-align: left; cursor: pointer; font-family: inherit; font-size: 16px;
+  display: flex; align-items: center; overflow: hidden;
+}
+.sg5-exhibit-cell:hover { background: #4d3b2a; border-color: #b09063; }
+div.sg5-exhibit-cell, .sg5-exhibit-cell:disabled { cursor: default; }
+.sg5-exhibit-cell .sg5-farm-itemname { margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 彩蛋节商店横幅：粉块（farmbar 的 .sg5-farm-festival 同底色，面板内独立高度与标题） */
+.sg5-farm-festival-banner { padding: 8px 10px; margin: 0 0 10px; }
+.sg5-farm-festival-h { color: #ffd8e6; font-size: 18px; margin-bottom: 6px; }
+@media (max-height: 720px) {
+  /* 面板里的横幅不吃农场条的矮视口隐藏规则 */
+  .sg5-farm-festival.sg5-farm-festival-banner { display: block; }
+}
+
+/* 彩蛋节 farmbar chip：可点 + 满 12 变绿 */
+.sg5-farm-eggchip { cursor: pointer; border-color: #a7657f; color: #ffd8e6; background: #5c2f46; }
+.sg5-farm-eggchip:hover { filter: brightness(1.15); }
+.sg5-farm-eggchip.is-full { color: #cdf5c0; border-color: #6c8c50; background: #32402a; }

@@ -165,6 +165,64 @@ ok(FA.ENERGY_CAP === 200, '体力上限 200 硬约束', FA.ENERGY_CAP);
   ok(l1.every(function (p) { return !cd[p.x + ',' + p.y]; }), '冷却格（day 差 <3）被排除');
 })();
 
+// ---- v5.5 彩蛋节 / 丰收展：farmdata 数据层 ----
+ok(FA.EGG_REDEEM && FA.EGG_REDEEM.seed_strawberry && FA.EGG_REDEEM.seed_strawberry.n === 5 && FA.EGG_REDEEM.seed_strawberry.cost === 2,
+  'EGG_REDEEM 草莓种子 ×5 / 彩券 2 张', JSON.stringify(FA.EGG_REDEEM));
+ok(FA.EGG_REDEEM.speedgro && FA.EGG_REDEEM.speedgro.n === 5 && FA.EGG_REDEEM.speedgro.cost === 2,
+  'EGG_REDEEM 生长激素 ×5 / 彩券 2 张');
+ok(FA.EGG_REDEEM.gold && FA.EGG_REDEEM.gold.amount === 200 && FA.EGG_REDEEM.gold.cost === 1,
+  'EGG_REDEEM 200 金 / 彩券 1 张');
+(function () {
+  for (const day of [13, 41, 97, 367]) {
+    const uid = 'u1001';
+    const a = FD.eggList(day, uid), b = FD.eggList(day, uid);
+    ok(JSON.stringify(a) === JSON.stringify(b), 'eggList(' + day + ') 确定性（同 uid+day 同结果）');
+    // 取「过滤阻挡格后的前 12 颗」——与 farm.js eggsOf 同一逻辑
+    const picked = [];
+    for (const c of a) {
+      if (picked.length >= 12) break;
+      if (W.isBlocked(world, c.x + 0.5, c.y + 0.5)) continue;
+      picked.push(c);
+    }
+    ok(picked.length === 12, 'eggList(' + day + ') 过滤阻挡后仍有 12 颗', picked.length);
+    const keys = picked.map(function (p) { return p.x + ',' + p.y; });
+    ok(new Set(keys).size === 12, 'eggList(' + day + ') 12 颗不重复', keys.length);
+    ok(picked.every(function (p) { return !W.isBlocked(world, p.x + 0.5, p.y + 0.5); }),
+      'eggList(' + day + ') 全部落在无阻挡格');
+    const inFarm = picked.filter(function (p) {
+      return p.x >= FA.FARM_X - 1 && p.x <= FA.FARM_X + FA.FARM_W && p.y >= FA.FARM_Y - 1 && p.y <= FA.FARM_Y + FA.FARM_H;
+    });
+    ok(inFarm.length === 0, 'eggList(' + day + ') 不长在自家田里', inFarm.length);
+  }
+  ok(JSON.stringify(FD.eggList(13, 'u1001')) !== JSON.stringify(FD.eggList(13, 'u1002')),
+    'eggList per-player（不同 uid 不同分布）');
+  ok(JSON.stringify(FD.eggList(13, 'u1001')) !== JSON.stringify(FD.eggList(14, 'u1001')),
+    'eggList 按天变化（跨日刷新）');
+})();
+// exhibitGrade 四档边界（主理人公式：普通1/银2/金3/铱4；S:均分≥2.5且≥7种 / A:均分≥2且≥5种 / B:≥3种 / C）
+(function () {
+  // 9 样全铱 9 种 → S
+  const nine = ['parsnip', 'melon', 'pumpkin', 'kale', 'potato', 'garlic', 'tulip', 'jazz', 'cauliflower'];
+  const s9 = FD.exhibitGrade(nine.map(function (b) { return b + '_q3'; }));
+  ok(s9.grade === 'S' && s9.gold === 1200, 'exhibitGrade S：9 种全铱 1200g', JSON.stringify(s9));
+  // 均分 3（金星）7 种 → S 边界（2.5 边界之上）
+  const s7 = FD.exhibitGrade(nine.slice(0, 7).map(function (b) { return b + '_q2'; })
+    .concat(nine.slice(7).map(function (b) { return b + '_q2'; })));
+  ok(s7.grade === 'S', 'exhibitGrade S：7 种金星也到 S', JSON.stringify(s7));
+  // A：5 种金星（均分 3 ≥2、5 种 ≥5），6/7 种不够 S 的 diversity≤6 → A
+  const a5 = FD.exhibitGrade(['parsnip_q2', 'melon_q2', 'pumpkin_q2', 'kale_q2', 'potato_q2', 'parsnip_q2', 'melon_q2', 'pumpkin_q2', 'kale_q2']);
+  ok(a5.grade === 'A' && a5.gold === 800, 'exhibitGrade A：5 种金星 800g', JSON.stringify(a5));
+  // B：3 种普通（diversity 3 ≥3，均分不足 A 档）
+  const b3 = FD.exhibitGrade(['parsnip', 'parsnip_q1', 'parsnip_q2', 'melon', 'melon_q1', 'melon_q2', 'kale', 'kale_q1', 'kale_q2']);
+  ok(b3.grade === 'B' && b3.gold === 500, 'exhibitGrade B：3 种普通 500g', JSON.stringify(b3));
+  // C：2 种
+  const c2 = FD.exhibitGrade(['parsnip', 'parsnip', 'parsnip', 'parsnip', 'parsnip', 'parsnip', 'parsnip', 'parsnip', 'melon']);
+  ok(c2.grade === 'C' && c2.gold === 300, 'exhibitGrade C：2 种 300g', JSON.stringify(c2));
+  // 同 base 不同品质算同一种（9 样 1 种 → C，均分不影响 B/C 档）
+  const one = FD.exhibitGrade(['parsnip_q1', 'parsnip_q2', 'parsnip_q3', 'parsnip_q2', 'parsnip_q1', 'parsnip_q2', 'parsnip_q3', 'parsnip_q1', 'parsnip_q2']);
+  ok(one.diversity === 1 && one.grade === 'C', 'exhibitGrade：同 base 不同品质算同种', JSON.stringify(one));
+})();
+
 // ---- 数据完整性 ----
 for (const k of Object.keys(D.MONSTERS)) {
   const m = D.MONSTERS[k];

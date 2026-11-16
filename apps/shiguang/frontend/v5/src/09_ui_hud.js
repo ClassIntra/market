@@ -137,6 +137,35 @@
       '..##.....##.',
       '.####...####',
       '.####...####'
+    ],
+    // v5.5 彩蛋节：蛋形（'#' 蛋壳 / 'o' 高光 / '+' 花斑）与彩券（'#' 票身 / 'o' 打孔线，两侧缺齿）
+    egg: [
+      '....####....',
+      '...######...',
+      '..########..',
+      '.##########.',
+      '.##oooooo##.',
+      '.#oo++++oo#.',
+      '.#oooooooo#.',
+      '.#o+oo+ooo#.',
+      '.#oooooooo#.',
+      '..########..',
+      '............',
+      '............'
+    ],
+    ticket: [
+      '............',
+      '.####o#####.',
+      '.####o#####.',
+      '..###o#####.',
+      '.####o#####.',
+      '.####o#####.',
+      '..###o#####.',
+      '.####o#####.',
+      '.####o#####.',
+      '............',
+      '............',
+      '............'
     ]
   };
 
@@ -275,9 +304,9 @@
     // ---- 底部功能槽 ----
     var dock = el('div', 'sg5-dock');
     dockBtn(dock, 'char', 'face_NinjaBlue', '角色', 'C');
-    dockBtn(dock, 'bag', 'it_chest', '背包', 'B');
+    dockBtn(dock, 'bag', 'it_chest', '装备', 'B');
     dockBtn(dock, 'map', 'obj_ScrollEmpty', '地图', 'M');
-    dockBtn(dock, 'dex', 'obj_Letter', '图鉴', 'V');
+    dockBtn(dock, 'dex', 'obj_Letter', '怪物图鉴', 'V');
     dockBtn(dock, 'talent', 'it_heart', '天赋', 'T');
     dockBtn(dock, 'social', 'glyph:friend', '一起玩', 'F');
     dockBtn(dock, 'help', 'glyph:gear', '设置', 'Esc');

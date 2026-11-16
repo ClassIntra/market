@@ -2630,6 +2630,12 @@ var MUSIC = {
   function inputBind(root, onDestroy) {
     var keys = {};
     IN.keysRef = keys;
+    function isTyping(e) {
+      var t = (e && e.target) || document.activeElement;
+      if (!t) return false;
+      var tag = t.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || !!t.isContentEditable;
+    }
     function setKey(e, down) {
       var k = e.key || '';
       var code = e.keyCode || 0;
@@ -2639,6 +2645,12 @@ var MUSIC = {
       };
       var name = map[code];
       if (!name) return;
+      // 聊天输入框 / 任何可编辑区域里，WASD 与空格归输入法，不驱动角色。
+      // 抬起必须照常清键，否则「按住 W 时点进输入框再松开」会让角色一直往右跑。
+      if (isTyping(e)) {
+        if (!down) keys[name] = 0;
+        return;
+      }
       // v5.3：钓鱼 QTE 期间空格归绿条用，不置 IN.attack、也不 preventDefault
       if (code === 32 && S.farm && S.farm.qte) return;
       if (down && keys[name]) return;
@@ -2648,7 +2660,6 @@ var MUSIC = {
         if (name === 'k') IN.roll = 1;
         if (name === 'l') IN.skill = 1;
         if (name === 'e') IN.use = 1;
-        if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
         auResume();
       }
       if (['a', 'd', 'w', 's'].indexOf(name) >= 0 || name === 'j') e.preventDefault();
@@ -2664,10 +2675,22 @@ var MUSIC = {
 
     // 摇杆（左半屏）
     var joyBase = null;
+    // 触点在 HUD 控件上时不要起摇杆：否则点 dock / 面板按钮也会把角色拖走
+    function touchOnUi(target) {
+      var t = target;
+      while (t && t !== root) {
+        var c = t.className;
+        if (typeof c === 'string' && /(^|\s)(sg5-dock|sg5-panel|sg5-panels|sg5-farmbar|sg5-invite|sg5-actions|sg5-dead|sg5-pmenu|sg5-actpicker|sg5-qte)(\s|$)/.test(c)) return true;
+        if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON') return true;
+        t = t.parentNode;
+      }
+      return false;
+    }
     function touchStart(e) {
+      if (curPanel || (S.me && (S.me.down || S.me.dead))) { auResume(); return; }
       for (var i = 0; i < e.changedTouches.length; i++) {
         var t = e.changedTouches[i];
-        if (t.clientX < S.view.w * 0.5 && !IN.joyActive) {
+        if (t.clientX < S.view.w * 0.5 && !IN.joyActive && !touchOnUi(e.target)) {
           IN.joyActive = true;
           IN.joyId = t.identifier;
           IN.joyOX = t.clientX;
@@ -2793,7 +2816,13 @@ var MUSIC = {
   function updatePlayer(dt, t) {
     var me = S.me;
     if (!me) return;
-    if (me.dead) return;
+    // 倒下/死亡时锁住输入：死亡遮罩已经弹出，角色不该还在底下走动或挥剑
+    if (me.dead || me.down) {
+      IN.x = 0; IN.y = 0;
+      IN.attack = 0; IN.roll = 0; IN.skill = 0; IN.use = 0;
+      me.vx = 0; me.vy = 0; me.moving = 0;
+      return;
+    }
     readInput();
 
     // 计时器
@@ -3968,6 +3997,35 @@ var MUSIC = {
       '..##.....##.',
       '.####...####',
       '.####...####'
+    ],
+    // v5.5 彩蛋节：蛋形（'#' 蛋壳 / 'o' 高光 / '+' 花斑）与彩券（'#' 票身 / 'o' 打孔线，两侧缺齿）
+    egg: [
+      '....####....',
+      '...######...',
+      '..########..',
+      '.##########.',
+      '.##oooooo##.',
+      '.#oo++++oo#.',
+      '.#oooooooo#.',
+      '.#o+oo+ooo#.',
+      '.#oooooooo#.',
+      '..########..',
+      '............',
+      '............'
+    ],
+    ticket: [
+      '............',
+      '.####o#####.',
+      '.####o#####.',
+      '..###o#####.',
+      '.####o#####.',
+      '.####o#####.',
+      '..###o#####.',
+      '.####o#####.',
+      '.####o#####.',
+      '............',
+      '............',
+      '............'
     ]
   };
 
@@ -4106,9 +4164,9 @@ var MUSIC = {
     // ---- 底部功能槽 ----
     var dock = el('div', 'sg5-dock');
     dockBtn(dock, 'char', 'face_NinjaBlue', '角色', 'C');
-    dockBtn(dock, 'bag', 'it_chest', '背包', 'B');
+    dockBtn(dock, 'bag', 'it_chest', '装备', 'B');
     dockBtn(dock, 'map', 'obj_ScrollEmpty', '地图', 'M');
-    dockBtn(dock, 'dex', 'obj_Letter', '图鉴', 'V');
+    dockBtn(dock, 'dex', 'obj_Letter', '怪物图鉴', 'V');
     dockBtn(dock, 'talent', 'it_heart', '天赋', 'T');
     dockBtn(dock, 'social', 'glyph:friend', '一起玩', 'F');
     dockBtn(dock, 'help', 'glyph:gear', '设置', 'Esc');
@@ -4556,7 +4614,7 @@ var MUSIC = {
   PANELS.bag = function () {
     var me = S.me;
     var bag = me.bag || [];
-    var sh = panelShell('背包', bag.length + ' / 60');
+    var sh = panelShell('装备', bag.length + ' / 60');
     var body = sh.body;
     if (!bag.length) {
       body.appendChild(el('div', 'sg5-empty', '背包是空的。去打点东西，或者开个箱子。'));
@@ -4678,7 +4736,7 @@ var MUSIC = {
   PANELS.dex = function () {
     var me = S.me;
     var dex = me.dex || {};
-    var sh = panelShell('图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
+    var sh = panelShell('怪物图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
     var body = sh.body;
     var mobName = {
       slime: '果冻史莱姆', slime2: '薄荷史莱姆', bamboo: '竹精', mouse: '偷灯鼠', eye: '雾眼',
@@ -4841,7 +4899,8 @@ var MUSIC = {
     body.appendChild(el('div', 'sg5-sect', '操作'));
     body.appendChild(el('div', 'sg5-keys',
       '移动：WASD / 方向键 / 左半屏摇杆　·　攻击：J / 空格　·　翻滚：K　·　技能：L　·　交互：E\n' +
-      '角色 C　·　背包 B　·　地图 M　·　图鉴 V　·　天赋 T　·　关闭面板 Esc\n' +
+      '角色 C　·　装备 B　·　地图 M　·　怪物图鉴 V　·　天赋 T　·　关闭面板 Esc\n\n' +
+      '农场 N　·　小镇 R　·　钓鱼/矿洞 H\n' +
       '翻滚的前 0.22 秒无敌。在怪物出招前 0.15 秒内翻滚 = 完美闪避（子弹时间 + 下一击必暴击）。'));
     // v5.4 新增说明（新 DOM 新文案，原有键位表逐字节未动）
     body.appendChild(el('div', 'sg5-note',
@@ -4972,7 +5031,21 @@ var MUSIC = {
     var skill = S.net.skill;
     S.net.skill = null;
 
-    var done = function () { S.net.syncing = 0; };
+    var settled = 0, syncTimer = 0;
+    var finish = function () {
+      if (settled) return;
+      settled = 1;
+      if (syncTimer) { clearTimeout(syncTimer); syncTimer = 0; }
+      S.net.syncing = 0;
+    };
+    // 任何一条请求悬挂（校园网抖动 / 平板切后台）都可能让 syncing 永远为 1，
+    // 表现为「玩着玩着世界不动了」。8 秒没结果就主动放锁，让下一轮重新同步。
+    syncTimer = setTimeout(function () {
+      if (settled) return;
+      S.net.errs++;
+      finish();
+      toast('世界同步超时，正在重新连接…', 'warn');
+    }, 8000);
     // 先把命中送出去（服务端先记账），再要快照 —— 顺序反了会「怪没掉血但已经死了」
     var chain = Promise.resolve();
     if (hits && hits.length) {
@@ -4988,12 +5061,14 @@ var MUSIC = {
     chain.then(function () {
       return apiPost('/shiguang/v5/sync', body);
     }).then(function (d) {
+      if (settled) return;
       S.net.errs = 0;
       applySync(d);
-      done();
+      finish();
     }, function (err) {
+      if (settled) return;
       S.net.errs++;
-      done();
+      finish();
       if (S.net.errs === 4) {
         toast('与世界的连接断了一下，正在重连…', 'warn');
       }
@@ -5206,6 +5281,9 @@ var MUSIC = {
   function showDead(on) {
     if (!UI.deadEl) return;
     UI.deadEl.className = 'sg5-dead' + (on ? ' is-on' : '');
+    // 倒下时把常驻 HUD 一起压暗并锁住点击，避免动作键/农场条盖在死亡遮罩上
+    if (UI.hud) UI.hud.className = 'sg5-hud' + (on ? ' is-dead' : '');
+    if (on) closePanel();
   }
 
   // ---- 实时事件（灯塔 / 首杀 / 世界频道） ----
@@ -6527,7 +6605,9 @@ var MUSIC = {
     p: null, data: null, tool: 'hoe', seed: '', tab: 'field',
     lastPoll: 0, epoch: 0, dirty: 0, rtBound: 0, qte: null,
     relationTab: 'villagers', mineTab: 'fish', sel: null, bagSel: null,
-    loadState: 'loading', lastError: '', relGiftTo: ''
+    loadState: 'loading', lastError: '', relGiftTo: '',
+    // v5.5：新手引导去重（localStorage sg5hint 持久化）+ 丰收展展台态
+    hintSeen: {}, exhibitMode: false, exhibitSel: []
   };
 
   function farmClock(progress) {
@@ -6577,6 +6657,7 @@ var MUSIC = {
       mayonnaise: '#f6efc0', cheese: '#e8c060', pale_ale: '#e8b84a', beer: '#d89830',
       food_soup: '#e8d8a0', food_stirfry: '#a8c860', food_grilled: '#d8a06a', food_sushi: '#e8e0c8',
       food_bento: '#c8a878', food_cookie: '#d8b070', food_tea: '#88b080', food_honey: '#e0a840',
+      ticket: '#c9963f',
       horseradish: '#e8e2d0', daffodil: '#f0d858', leek: '#b8cc88', dandelion: '#f0c840',
       spice_berry: '#d86a4a', sweet_pea: '#c878d8', summer_grape: '#8868b8',
       hazelnut: '#a87848', wild_plum: '#8858a8', blackberry: '#585878',
@@ -6685,7 +6766,11 @@ var MUSIC = {
     'life/bundle': ['spirit', 0.45, 1.0],
     'life/festival': ['bonus', 0.4, 1.25],
     'life/marry': ['magic', 0.45, 1.15],
-    'life/bouquet': ['magic', 0.4, 1.1]
+    'life/bouquet': ['magic', 0.4, 1.1],
+    'life/egg/pick': ['coin', 0.45, 1.2],
+    'life/egg/redeem': ['bonus', 0.4, 1.15],
+    'life/fish/contest/claim': ['bonus', 0.45, 1.2],
+    'life/exhibit/submit': ['success', 0.45, 1.1]
   };
   function actSfx(kind, path, d) {
     var key = kind + '/' + path, s = ACT_SFX[key];
@@ -6754,21 +6839,97 @@ var MUSIC = {
   }
   // v5.4：两条只读提示统一在这里刷（farmHudPaint 与每帧 socialTick 都调它；
   // 走动 / 传送都要跟着变，setText 自带相等判断，不变就零开销）
+  // v5.5：彩蛋优先级最高，同帧撞上采集物也让位（并联动把 forage 引导标记为已看）
   function farmHintPaint() {
+    // v5.5：彩蛋节 chip 只在「彩蛋节 + 草原」出现；满 12 变绿（每帧刷，传送换区也即时）
+    if (UI.farmEggChip) {
+      var ep = farmP();
+      var show = isEggDay() && S.zone === 'meadow' && ep && ep.eggHunt;
+      UI.farmEggChip.style.display = show ? '' : 'none';
+      if (show) {
+        var full = ep.eggHunt.found >= ep.eggHunt.total;
+        setText(UI.farmEggChip, '彩蛋节 · ' + ep.eggHunt.found + '/' + ep.eggHunt.total);
+        UI.farmEggChip.className = 'sg5-farm-chip sg5-farm-eggchip' + (full ? ' is-full' : '');
+      }
+    }
     if (UI.farmToolNext) {
       var nx = farmNextAction();
       setText(UI.farmToolNext, nx ? 'E：' + nx : '');
     }
     if (UI.farmNear) {
-      // 优先级：采集物 > 树 > 田格工具提示（田格提示在 farmToolNext 里）
-      var nf = farmNearForage(), txt = '';
-      if (nf) txt = 'E：采集 ' + farmItemName(nf.item);
+      var ne = farmNearEgg(), nf = ne ? null : farmNearForage(), txt = '';
+      if (ne) txt = 'E：捡彩蛋';
+      else if (nf) txt = 'E：采集 ' + farmItemName(nf.item);
       else {
         var nt = farmNearTree();
         if (nt) txt = nt.ready ? 'E：砍树' : '这棵树刚砍过，过几天再来';
       }
       setText(UI.farmNear, txt);
     }
+    farmHintTick();
+  }
+
+  // ---------- v5.5 新手引导：单例提示条（五键矩阵 till/forage/egg/fish/panel） ----------
+  // 每帧在 farmHintPaint 里查一次，命中即显示 8 秒后淡出；看过一次就永久去重，
+  // 记录存 localStorage 'sg5hint'，跨日不重置。触屏不区分文案。
+  var HINT_TEXT = {
+    till: '走进自家田里了：按 E 翻土，手上拿着的工具就是干活的工具',
+    forage: '身边有野味：按 E 采集，背包里多一份收成',
+    egg: '彩蛋节：草原上藏着 12 颗彩蛋，走近按 E 捡，彩券去农场面板「商店」换奖励',
+    fish: '到水边了：按 H 打开钓鱼，甩竿把绿条对准鱼',
+    panel: '第一次收成了：按 N 打开农场面板，商店 / 背包 / 出货都在里面'
+  };
+  var hintEl = null, hintKey = '', hintUntil = 0;
+  function farmHintLoad() {
+    try {
+      var raw = window.localStorage ? window.localStorage.getItem('sg5hint') : '';
+      var o = raw ? JSON.parse(raw) : null;
+      if (o && typeof o === 'object') S.farm.hintSeen = o;
+    } catch (e) {}
+  }
+  function farmHintSave() {
+    try { if (window.localStorage) window.localStorage.setItem('sg5hint', JSON.stringify(S.farm.hintSeen)); } catch (e) {}
+  }
+  // v5.5：dock 入口角标 seen 记录（S.storage 'sg5new'），首次打开 farm/relation/mine 后摘标
+  function sg5NewLoad() {
+    try { return JSON.parse(S.storage.get('sg5new', '{}') || '{}') || {}; } catch (e) { return {}; }
+  }
+  function sg5NewMark(id) {
+    try {
+      var news = sg5NewLoad();
+      if (news[id] === 1) return;
+      news[id] = 1;
+      S.storage.set('sg5new', JSON.stringify(news));
+    } catch (e) {}
+  }
+  function farmHintShow(key) {
+    if (!UI.hud) return;
+    if (!hintEl) {
+      hintEl = el('div', 'sg5-hint', '');
+      hintEl.setAttribute('role', 'status');
+      UI.hud.appendChild(hintEl);
+    }
+    hintKey = key; hintUntil = Date.now() + 8000;
+    if (!S.farm.hintSeen[key]) { S.farm.hintSeen[key] = 1; farmHintSave(); }
+    setText(hintEl, HINT_TEXT[key] || '');
+    hintEl.className = 'sg5-hint is-on';
+  }
+  function farmHintHide() {
+    if (hintEl && hintKey) { hintEl.className = 'sg5-hint'; hintKey = ''; }
+  }
+  function farmHintTick() {
+    if (!UI.hud) return;
+    var hs = S.farm.hintSeen, P = farmP(), key = '';
+    if (!hs.till && farmNear()) key = 'till';
+    else if (!hs.forage && farmNearForage()) key = 'forage';
+    else if (!hs.egg && isEggDay() && S.zone === 'meadow' && P && P.eggsLeft && P.eggsLeft.length) {
+      key = 'egg';
+      if (farmNearForage()) hs.forage = 1;   // 彩蛋与采集同帧：egg 优先，forage 联动去重
+    }
+    else if (!hs.fish && farmNearWater()) key = 'fish';
+    else if (!hs.panel && P && P.stats && P.stats.harvest >= 1) key = 'panel';
+    if (key) farmHintShow(key);
+    else if (hintKey && Date.now() > hintUntil) farmHintHide();
   }
 
   var _uiBuildFarm = uiBuild;
@@ -6781,6 +6942,16 @@ var MUSIC = {
     left.appendChild(el('span', 'sg5-farm-chip sg5-farm-date', ''));
     left.appendChild(el('span', 'sg5-farm-chip sg5-farm-weather', ''));
     UI.farmClock = left.childNodes[0]; UI.farmDate = left.childNodes[1]; UI.farmWeather = left.childNodes[2];
+    // v5.5：彩蛋节首位 chip「彩蛋节 · n/12」——满 12 变绿，点击直达商店页签兑换
+    var eggChip = el('button', 'sg5-farm-chip sg5-farm-eggchip', '');
+    eggChip.type = 'button';
+    eggChip.style.display = 'none';
+    UI.farmEggChip = eggChip;
+    left.insertBefore(eggChip, left.firstChild);
+    eggChip.addEventListener('click', function () {
+      S.farm.tab = 'shop';
+      openPanel('farm');
+    }, false);
     bar.appendChild(left);
     var row = el('div', 'sg5-farmbar-row');
     var gold = el('div', 'sg5-farm-gold');
@@ -6831,9 +7002,17 @@ var MUSIC = {
 
     // dock：多两个入口。bindButtons 的 click 委托读 data-panel，无需改动。
     if (UI.dock) {
-      dockBtn(UI.dock, 'farm', 'glyph:hoe', '农场', 'N');
-      dockBtn(UI.dock, 'relation', 'glyph:heart', '小镇', 'R');
-      dockBtn(UI.dock, 'mine', 'glyph:pick', '钓鱼 / 矿洞', 'H');
+      UI.farmDockBtns = {
+        farm: dockBtn(UI.dock, 'farm', 'glyph:hoe', '农场', 'N'),
+        relation: dockBtn(UI.dock, 'relation', 'glyph:heart', '小镇', 'R'),
+        mine: dockBtn(UI.dock, 'mine', 'glyph:pick', '钓鱼 / 矿洞', 'H')
+      };
+      // v5.5：三个农场入口挂新手角标，首次成功打开对应面板后摘掉（S.storage sg5new 记录）
+      var news = sg5NewLoad();
+      for (var dk in UI.farmDockBtns) {
+        if (!Object.prototype.hasOwnProperty.call(UI.farmDockBtns, dk)) continue;
+        if (news[dk] !== 1) UI.farmDockBtns[dk].className += ' is-new';
+      }
     }
     tools.addEventListener('click', function (e) {
       var t = e.target;
@@ -7057,6 +7236,13 @@ var MUSIC = {
       if (gx < vr.x0 || gx > vr.x1 || gy < vr.y0 || gy > vr.y1) continue;
       PROPS.push({ k: 'forage', x: gx, y: gy, s: 0, item: '', stub: 1 });
     }
+    // ---- v5.5：彩蛋节的彩蛋（视野内才画，捡一颗少一颗） ----
+    var eggs = P.eggsLeft || [];
+    for (fi = 0; fi < eggs.length; fi++) {
+      var eg = eggs[fi];
+      if (eg.x < vr.x0 || eg.x > vr.x1 || eg.y < vr.y0 || eg.y > vr.y1) continue;
+      PROPS.push({ k: 'egg', x: eg.x, y: eg.y, s: (eg.x * 7 + eg.y * 13) % 7, i: eg.i });
+    }
     // 设备画在田下缘：按购买顺序每台占 2 格，一排放不下就封顶 6 台
     var mi = 0, order = MACHINE_ORDER;
     for (var oi = 0; oi < order.length; oi++) {
@@ -7094,6 +7280,27 @@ var MUSIC = {
     ctx.strokeRect(Math.round(bx - w1 / 2) + 0.5, Math.round(baseY - h1) + 0.5, Math.round(w1), Math.round(h1));
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), 2, 2);
+  }
+  // v5.5：彩蛋——不摇（sway=0），接触阴影长轴 u*0.20 / 短轴 u*0.06；头顶小金星提示可捡
+  function farmDrawEgg(ctx, p) {
+    var u = TILE * S.zoom;
+    var sx = w2sX(p.x * TILE + TILE * 0.5);
+    var sy = w2sY(p.y * TILE + TILE);
+    ctx.fillStyle = 'rgba(30,22,16,0.22)';
+    ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.20, u * 0.06, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#f2e7c8';
+    ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.17, u * 0.14, u * 0.19, 0, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = 'rgba(201,150,63,0.85)'; ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,253,242,0.9)';
+    ctx.beginPath(); ctx.ellipse(sx - u * 0.045, sy - u * 0.23, u * 0.05, u * 0.07, -0.4, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(201,150,63,0.7)';
+    ctx.fillRect(Math.round(sx + u * 0.04), Math.round(sy - u * 0.24), 2, 2);
+    ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - u * 0.12), 2, 2);
+    var tw = 0.55 + 0.45 * Math.sin(S.time * 4 + p.i * 1.7);
+    ctx.globalAlpha = tw; ctx.fillStyle = '#ffe9a0';
+    ctx.fillRect(Math.round(sx + u * 0.2), Math.round(sy - u * 0.46), 3, 3);
+    ctx.globalAlpha = 1;
   }
   // v5.4：加工设备——田下缘一排，5 种造型 + 两帧交替的工作烟
   function farmDrawMachine(ctx, p) {
@@ -7134,6 +7341,7 @@ var MUSIC = {
   drawProp = function (ctx, p) {
     if (p && p.k === 'farmcrop') { farmDrawCrop(ctx, p); return; }
     if (p && p.k === 'forage') { farmDrawForage(ctx, p); return; }
+    if (p && p.k === 'egg') { farmDrawEgg(ctx, p); return; }
     if (p && p.k === 'machine') { farmDrawMachine(ctx, p); return; }
     var r = _drawPropFarm(ctx, p);
     // v5.4：刚砍过的树叠两道斧痕（前 3 天内），一亮一暗
@@ -7207,6 +7415,34 @@ var MUSIC = {
     }
     return null;
   }
+  // ---- v5.5：节日判定 / 身边的彩蛋 / 水边（引导用） ----
+  function festivalNamed(n) { var c = farmCal(); return !!(c.festival && c.festival.name === n); }
+  function isEggDay() { return festivalNamed('彩蛋节'); }
+  function isFishContestDay() { return festivalNamed('冰雪钓赛'); }
+  function isExhibitDay() { var c = farmCal(); return !!(c.festival && c.festival.perk === 'exhibit'); }
+  function farmNearEgg() {
+    var P = farmP(), m = S.me;
+    if (!P || !m || !isEggDay() || !P.eggsLeft || !P.eggsLeft.length) return null;
+    var best = null, bd = 2.25;                       // 1.5 格（平方）
+    for (var i = 0; i < P.eggsLeft.length; i++) {
+      var e = P.eggsLeft[i];
+      var d = dist(m.x, m.y, e.x + 0.5, e.y + 0.5);
+      if (d < bd) { bd = d; best = e; }
+    }
+    return best;
+  }
+  function farmNearWater() {
+    var m = S.me;
+    if (!m || !S.map || !S.map.cells) return false;
+    var fx = Math.floor(m.x), fy = Math.floor(m.y);
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        var t = tileAt(fx + dx, fy + dy);
+        if (t === T.WATER || t === T.SHALLOW) return true;
+      }
+    }
+    return false;
+  }
   function farmSmartAction(r, c) {
     var P = farmP(); if (!P) return;
     var p = (P.plots || {})[r + ',' + c];
@@ -7256,10 +7492,18 @@ var MUSIC = {
     var m = S.me;
     if (m && S.texts) S.texts.push({ x: m.x, y: m.y - 1.2, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
   }
-  // 世界里按 E：田区内严格按手上的工具干活；田区外先采集、再砍树，最后才轮到宝箱 / NPC
+  // 世界里按 E：田区内严格按手上的工具干活；田区外先捡彩蛋、再采集、再砍树，最后才轮到宝箱 / NPC
   var _doInteractFarm = doInteract;
   doInteract = function (t) {
     if (farmP() && farmNear() && farmWorldAction()) return;
+    var ne = farmNearEgg();
+    if (ne) {
+      lifeAct('egg/pick', { i: ne.i }).then(function (d) {
+        farmToast('捡到了彩蛋，还拿到一张彩蛋彩券（农场面板「商店」可兑换）');
+        floatText('+彩蛋');
+      }, function (e) { farmToast(e.message, 'warn'); });
+      return;
+    }
     var nf = farmNearForage();
     if (nf) {
       lifeAct('forage/pick', { x: nf.x, y: nf.y }).then(function (d) {
@@ -7358,6 +7602,14 @@ var MUSIC = {
   openPanel = function (id) {
     var r = _openPanelFarm(id);
     if (UI.farmBar) UI.farmBar.style.display = curPanel ? 'none' : '';
+    // v5.5：farm/relation/mine 首次成功渲染后摘对应 dock 角标
+    if (curPanel === id && (id === 'farm' || id === 'relation' || id === 'mine')) {
+      var b = UI.farmDockBtns && UI.farmDockBtns[id];
+      if (b && b.className.indexOf('is-new') >= 0) {
+        b.className = b.className.replace(/\s*is-new/, '');
+        sg5NewMark(id);
+      }
+    }
     return r;
   };
   var _closePanelFarm = closePanel;
@@ -7374,6 +7626,9 @@ var MUSIC = {
     S.farm.lastPoll = 0; S.farm.rtBound = 0; S.farm.qte = null;
     S.farm.sel = null; S.farm.bagSel = null; S.farm.tool = 'hoe';
     S.farm.relGiftTo = ''; S.farm.loadState = 'loading'; S.farm.lastError = '';
+    // v5.5：展台是瞬时视图；引导去重跨日持久（localStorage sg5hint 读回）
+    S.farm.exhibitMode = false; S.farm.exhibitSel = [];
+    farmHintLoad();
     if (window.__sg5) {
       window.__sg5.farm = {
         state: function () {
@@ -7651,7 +7906,10 @@ var MUSIC = {
     mayo_machine: { glyph: 'machine_mayo', pal: { '#': '#6b543c', 'o': '#e8e2d0', '+': '#f2d878' } },
     cheese_press: { glyph: 'machine_cheese', pal: { '#': '#8a8078', 'o': '#e8c060' } },
     keg: { glyph: 'machine_keg', pal: { '#': '#6b4b2a', 'o': '#a87848' } },
-    stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } }
+    stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } },
+    // v5.5 彩蛋节：蛋形与彩券字形（定义见 09_ui_hud.js 的 GLYPH）
+    egg: { glyph: 'egg', pal: { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' } },
+    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } }
   };
   // 种子 A 轨：按季节 + 价格档取精灵（低 ≤40 / 中 ≤80 / 高）
   function seedSprite(cropId) {
@@ -7928,6 +8186,40 @@ var MUSIC = {
   function farmShopBody(body) {
     var P = farmP(); if (!P) return;
     var D = farmD(), c = P.cal;
+    // ---- v5.5 彩蛋节：顶部粉块横幅 + 三行彩券兑换 ----
+    if (c.festival && c.festival.name === '彩蛋节' && D.EGG_REDEEM) {
+      var fest = el('div', 'sg5-farm-festival sg5-farm-festival-banner');
+      fest.appendChild(el('div', 'sg5-farm-festival-h', '彩蛋节 · 彩券兑换'));
+      var rl = el('div', 'sg5-farm-list');
+      var REDEEM_NAME = { seed_strawberry: '草莓种子 ×5', speedgro: '生长激素 ×5', gold: '200 金' };
+      (function () {
+        for (var rid in D.EGG_REDEEM) {
+          if (!Object.prototype.hasOwnProperty.call(D.EGG_REDEEM, rid)) continue;
+          (function (rid) {
+            var def = D.EGG_REDEEM[rid];
+            var have = P.inv.ticket || 0;
+            var doneToday = P.eggRedeem && P.eggRedeem.day === c.day && P.eggRedeem[rid] > 0;
+            var row = el('div', 'sg5-farm-row');
+            row.appendChild(farmIcon('ticket', 16));
+            row.appendChild(el('span', 'sg5-farm-rowname', REDEEM_NAME[rid] || rid));
+            // 三态 chip：off 券不够 / have 可兑 / done 今天已换
+            row.appendChild(el('span',
+              'sg5-bundle-need ' + (doneToday ? 'is-done' : (have >= def.cost ? 'is-have' : 'is-off')),
+              '彩券 ' + Math.min(have, def.cost) + '/' + def.cost));
+            var b = opBtn('兑换', 'sg5-btn-sm', function () {
+              lifeAct('egg/redeem', { id: rid }).then(function () {
+                farmToast('兑换成功：' + (REDEEM_NAME[rid] || rid));
+              }, function (e) { farmToast(e.message, 'warn'); });
+            });
+            if (doneToday || have < def.cost) b.disabled = true;
+            row.appendChild(b);
+            rl.appendChild(row);
+          })(rid);
+        }
+      })();
+      fest.appendChild(rl);
+      body.appendChild(fest);
+    }
     var seeds = farmSection(body, '种子铺 · ' + c.seasonName,
       P.greenhouse ? '温室已解锁，四季种子都能买。' : '只卖当季种子；过季种下的作物会在换季时枯掉。');
     var list = el('div', 'sg5-farm-list');
@@ -8121,6 +8413,130 @@ var MUSIC = {
     })();
   }
 
+  // ---------- v5.5 丰收展：展台选样 / 预览 / 提交 ----------
+  // 可参展：作物果实 / 采集物 / 加工品 / 动物产品（含品质变体）；种子、资材、矿石不收
+  var EXHIBIT_ANIMAL = /^(egg|big_egg|duck_egg|duck_feather|milk|big_milk|goat_milk|big_goat_milk|wool|big_wool|truffle)$/;
+  function farmExhibitCands(P) {
+    var D = farmD(), out = [];
+    for (var k in (P.inv || {})) {
+      if (!Object.prototype.hasOwnProperty.call(P.inv, k) || !P.inv[k]) continue;
+      var base = String(k).split('_q')[0];
+      if (base === 'ticket' || base === 'hardwood' || base.indexOf('seed_') === 0) continue;
+      var ok2 = EXHIBIT_ANIMAL.test(base) || (D.CROPS && D.CROPS[base]) || (D.SELL && D.SELL[base]);
+      if (ok2) { out.push(k); continue; }
+      for (var i = 0; i < (D.FORAGE || []).length; i++) if (D.FORAGE[i].id === base) { out.push(k); break; }
+    }
+    return out;
+  }
+  // 评分公式与服务端 farmdata.exhibitGrade 一致（预览用，真结果以提交响应为准）
+  function farmExhibitGrade(items) {
+    var sumQ = 0, bases = {}, n = 0;
+    for (var i = 0; i < items.length; i++) {
+      var ps = String(items[i] || '').split('_q'), q = ps[1] ? Number(ps[1]) : 0;
+      sumQ += Math.min(4, q + 1);
+      bases[ps[0]] = 1; n++;
+    }
+    var avgQ = n ? sumQ / n : 0, div = 0, b;
+    for (b in bases) if (Object.prototype.hasOwnProperty.call(bases, b)) div++;
+    var g = (avgQ >= 2.5 && div >= 7) ? 'S' : (avgQ >= 2 && div >= 5) ? 'A' : div >= 3 ? 'B' : 'C';
+    return { grade: g, avgQ: avgQ, diversity: div, gold: g === 'S' ? 1200 : g === 'A' ? 800 : g === 'B' ? 500 : 300 };
+  }
+  function farmExhibitBody(body) {
+    var P = farmP(); if (!P) return;
+    var c = P.cal;
+    var s = farmSection(body, '丰收展 · 展台', '挑 9 样产物参展（作物 / 采集 / 加工 / 畜产都行）。实物不扣，提交当日锁定，奖金按评级立刻入账。');
+    var submitted = P.exhibit && P.exhibit.day === c.day && P.exhibit.grade;
+    if (submitted) {
+      // 成绩态：只读，格子点击无响应
+      var done = el('div', 'sg5-farm-cal');
+      done.appendChild(el('div', 'sg5-farm-calclock', P.exhibit.grade + ' 级 · 奖金已入账'));
+      var g0 = farmExhibitGrade(P.exhibit.items || []);
+      done.appendChild(el('div', 'sg5-note', '品质均分 ' + g0.avgQ.toFixed(2) + ' · ' + g0.diversity + ' 种'));
+      s.appendChild(done);
+      var grid0 = el('div', 'sg5-exhibit-grid');
+      (function () {
+        var items = P.exhibit.items || [];
+        for (var i = 0; i < 9; i++) {
+          var cell = el('div', 'sg5-exhibit-cell');
+          if (items[i]) {
+            cell.appendChild(farmIcon(items[i], 16));
+            cell.appendChild(el('span', 'sg5-farm-itemname', farmItemName(items[i])));
+          }
+          grid0.appendChild(cell);
+        }
+      })();
+      s.appendChild(grid0);
+      farmBtnRow(s, [['退回背包', function () { S.farm.exhibitMode = false; refreshPanel('farm'); }]]);
+      body.appendChild(s);
+      return;
+    }
+    var sel = S.farm.exhibitSel || (S.farm.exhibitSel = []);
+    var grid = el('div', 'sg5-exhibit-grid');
+    (function () {
+      for (var i = 0; i < 9; i++) {
+        (function (i) {
+          var cell = el('button', 'sg5-exhibit-cell');
+          cell.type = 'button';
+          var iid = sel[i];
+          if (iid) {
+            cell.appendChild(farmIcon(iid, 16));
+            cell.appendChild(el('span', 'sg5-farm-itemname', farmItemName(iid)));
+            cell.setAttribute('title', farmItemName(iid) + ' · 点击移回背包');
+          } else {
+            cell.textContent = String(i + 1);
+          }
+          cell.addEventListener('click', function () {
+            if (sel[i]) { sel.splice(i, 1); auSfx('menu', 0.2, 1.0); refreshPanel('farm'); }
+          }, false);
+          grid.appendChild(cell);
+        })(i);
+      }
+    })();
+    s.appendChild(grid);
+    // 预览：评级大字（复用 calclock）+ 分量行
+    var g = farmExhibitGrade(sel);
+    var prev = el('div', 'sg5-farm-cal');
+    prev.appendChild(el('div', 'sg5-farm-calclock', sel.length < 9 ? '还差 ' + (9 - sel.length) + ' 样' : (g.grade + ' 级 · ' + g.gold + 'g')));
+    prev.appendChild(el('div', 'sg5-note', '品质均分 ' + g.avgQ.toFixed(2) + ' · ' + g.diversity + ' 种 · 种类越多分越高'));
+    s.appendChild(prev);
+    // 候选列表
+    var cands = farmExhibitCands(P);
+    var list = el('div', 'sg5-farm-inv');
+    (function () {
+      for (var i = 0; i < cands.length; i++) {
+        (function (k) {
+          var b = el('button', 'sg5-farm-item');
+          b.type = 'button';
+          b.appendChild(farmIcon(k, 16));
+          b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
+          b.appendChild(el('span', 'sg5-farm-itemnum', '×' + P.inv[k]));
+          b.addEventListener('click', function () {
+            if (sel.length >= 9) { farmToast('展台只有 9 个位置，先移走一样', 'warn'); return; }
+            sel.push(k); auSfx('menu', 0.2, 1.1); refreshPanel('farm');
+          }, false);
+          list.appendChild(b);
+        })(cands[i]);
+      }
+    })();
+    if (!cands.length) list.appendChild(el('div', 'sg5-empty', '背包里还没有可以参展的产物。'));
+    s.appendChild(list);
+    farmBtnRow(s, [
+      ['清空展台', function () { S.farm.exhibitSel = []; refreshPanel('farm'); }],
+      ['退回背包', function () { S.farm.exhibitMode = false; refreshPanel('farm'); }]
+    ]);
+    if (sel.length === 9) {
+      farmBtnRow(s, [['确定参展', function () {
+        var items = S.farm.exhibitSel.slice();
+        lifeAct('exhibit/submit', { items: items }).then(function (d) {
+          farmToast('参展成功：' + d.grade + ' 级，奖金 ' + d.gold + 'g 已入账');
+          S.farm.exhibitMode = false;
+          S.farm.exhibitSel = [];
+        }, function (e) { farmToast(e.message, 'warn'); });
+      }, 'sg5-btn-primary', true]]);
+    }
+    body.appendChild(s);
+  }
+
   // ---------- 背包 / 箱子 ----------
   function farmInvGrid(P, items, picked, onPick, readOnly) {
     var g = el('div', 'sg5-farm-inv');
@@ -8153,6 +8569,8 @@ var MUSIC = {
   }
   function farmBagBody(body) {
     var P = farmP(); if (!P) return;
+    // v5.5：丰收展展台视图（从背包页签的「参展」或日历的「去参展」进入）
+    if (S.farm.exhibitMode && isExhibitDay()) { farmExhibitBody(body); return; }
     var cap = farmSection(body, '背包 ' + P.invCount + '/' + P.backpack, '点一样东西，再选要拿它做什么。种子按半价回收。');
     cap.appendChild(farmInvGrid(P, P.inv || {}, S.farm.bagSel, function (k) {
       S.farm.bagSel = k; refreshPanel('farm');
@@ -8192,7 +8610,11 @@ var MUSIC = {
         if (full) eatRow.appendChild(el('span', 'sg5-farm-lack', '体力已满'));
         ops.appendChild(eatRow);
       }
-      farmBtnRow(ops, [
+      // v5.5：彩蛋彩券只在彩蛋节当天、只走商店页签兑换
+      if (selBase === 'ticket') {
+        ops.appendChild(el('div', 'sg5-farm-note-inline', '彩蛋节限定：点右上『商店』页签兑换，过期作废'));
+      }
+      var bagOps = [
         ['卖 1 个', function () {
           var it = {}; it[sel] = 1;
           farmAct('sell', { items: it }).then(function (d) { farmToast('卖了 ' + d.gold + 'g'); },
@@ -8219,7 +8641,15 @@ var MUSIC = {
             function (e) { farmToast(e.message, 'warn'); });
         }],
         ['送给镇上的人', function () { S.farm.relationTab = 'villagers'; openPanel('relation'); }]
-      ]);
+      ];
+      // v5.5：丰收展当天追加「参展」入口（切到展台视图）
+      if (isExhibitDay()) {
+        bagOps.push(['参展', function () {
+          S.farm.exhibitMode = true;
+          refreshPanel('farm');
+        }]);
+      }
+      farmBtnRow(ops, bagOps);
       cap.appendChild(ops);
     }
     body.appendChild(cap);
@@ -8325,10 +8755,18 @@ var MUSIC = {
           row.appendChild(el('span', 'sg5-farm-rowname', D.SEASONS[f.day[0]] + ' ' + f.day[1] + '日 · ' + f.name));
           row.appendChild(el('span', 'sg5-farm-rowsub', f.desc));
           if (f.day[0] === c.season && f.day[1] === c.dayInSeason) {
-            row.appendChild(opBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
-              lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
-                function (e) { farmToast(e.message, 'warn'); });
-            }));
+            if (f.perk === 'exhibit') {
+              // v5.5：丰收展当天按钮改为「去参展」——奖金在展台按评级结算，没有固定礼
+              row.appendChild(opBtn('去参展', 'sg5-btn-sm sg5-btn-primary', function () {
+                S.farm.tab = 'bag';
+                refreshPanel('farm');
+              }));
+            } else {
+              row.appendChild(opBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
+                lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
+                  function (e) { farmToast(e.message, 'warn'); });
+              }));
+            }
           }
           fl.appendChild(row);
         })(D.FESTIVALS[i]);
@@ -8789,7 +9227,8 @@ var MUSIC = {
     S.farm.qte = null;
     lifeAct('fish/result', { score: score }).then(function (d) {
       if (d && d.caught) {
-        farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g');
+        farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g' +
+          (d.contestCounted === false ? ' · 本竿不计入赛绩（前 3 竿已计满）' : ''));
       } else {
         farmToast((d && d.reason) || '鱼跑了', 'warn');
       }
@@ -8812,6 +9251,7 @@ var MUSIC = {
     qteCleanup();
     S.farm.qte = {
       fish: d.fish, name: d.name, diff: d.diff || 30, green: d.green || 0.35,
+      contest: d.contest || null,   // v5.5：赛制状态（counting/total/rods）
       y: 0.5, targetY: 0.28 + Math.random() * 0.44,
       targetVy: (Math.random() - 0.5) * 0.006,
       vy: 0, hold: false, progress: 0.3, hit: 0, frames: 0, timer: null
@@ -8858,6 +9298,34 @@ var MUSIC = {
         }, 'sg5-btn-primary', null, 'op:cast'],
         ['按 H 收起', function () { closePanel(); }]
       ]);
+      // v5.5：冰雪钓赛成绩卡（只在赛日渲染；QTE 进行中不渲染，走 else 分支的赛制行）
+      var fc = P.fishContest;
+      if (isFishContestDay() && fc) {
+        if (fc.day !== P.cal.day) fc = { day: P.cal.day, total: 0, rods: 0, claimed: 0 };
+        var card = el('div', 'sg5-fish-score');
+        card.appendChild(el('div', 'sg5-farm-big', '当前积分 ' + fc.total + 'g'));
+        var prog = el('div', 'sg5-quest-prog');
+        var fill = el('i');
+        fill.style.transform = 'scaleX(' + Math.min(1, fc.total / 300).toFixed(3) + ')';
+        prog.appendChild(fill);
+        card.appendChild(prog);
+        card.appendChild(el('div', 'sg5-note', '剩余竿数 ' + Math.max(0, 3 - fc.rods) + ' / 3 · 前 3 竿卖价之和 ≥300g 即达标'));
+        var chipCls, chipTxt;
+        if (fc.claimed) { chipCls = 'sg5-bundle-need is-done'; chipTxt = '已领奖 · 赛绩已结算'; }
+        else if (fc.total >= 300) { chipCls = 'sg5-bundle-need is-done'; chipTxt = '已达标 · 可领奖'; }
+        else if (fc.rods >= 3) { chipCls = 'sg5-bundle-need is-off'; chipTxt = '未达标（' + fc.total + 'g / 300g）'; }
+        else { chipCls = 'sg5-bundle-need is-have'; chipTxt = '计分中'; }
+        card.appendChild(el('div', chipCls, chipTxt));
+        if (!fc.claimed && fc.total >= 300) {
+          card.appendChild(el('div', 'sg5-note', '奖励：金币 800g + 鱼饵 ×20'));
+          farmBtnRow(card, [['领取赛奖', function () {
+            lifeAct('fish/contest/claim', {}).then(function (d) {
+              farmToast('赛奖到手：800 金 + 鱼饵 ×20');
+            }, function (e) { farmToast(e.message, 'warn'); });
+          }, 'sg5-btn-primary', true]]);
+        }
+        s.appendChild(card);
+      }
       var caught = 0;
       for (var k in (P.fishCaught || {})) if (Object.prototype.hasOwnProperty.call(P.fishCaught, k)) caught += P.fishCaught[k];
       s.appendChild(el('div', 'sg5-note', '已经钓上 ' + caught + ' 条鱼 · 图鉴见隔壁'));
@@ -8873,6 +9341,12 @@ var MUSIC = {
       side.appendChild(el('div', 'sg5-qte-title', '咬钩了！'));
       side.appendChild(el('div', 'sg5-qte-name', '???（钓上来才知道）'));
       side.appendChild(el('div', 'sg5-note', '难度 ' + q.diff + ' · 绿条 ' + Math.round(q.green * 100) + '%'));
+      // v5.5：赛制行（fish/start 的 contest 字段驱动；非赛日不渲染）
+      if (q.contest) {
+        side.appendChild(el('div', 'sg5-note', q.contest.counting
+          ? '赛制第 ' + Math.min(3, q.contest.rods + 1) + ' 竿 · 计入成绩'
+          : '本竿不计入赛绩（前 3 竿已计满）'));
+      }
       var pb = el('div', 'sg5-qte-bar');
       pb.setAttribute('role', 'progressbar');
       pb.setAttribute('aria-valuemin', '0');

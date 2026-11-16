@@ -252,7 +252,10 @@
     mayo_machine: { glyph: 'machine_mayo', pal: { '#': '#6b543c', 'o': '#e8e2d0', '+': '#f2d878' } },
     cheese_press: { glyph: 'machine_cheese', pal: { '#': '#8a8078', 'o': '#e8c060' } },
     keg: { glyph: 'machine_keg', pal: { '#': '#6b4b2a', 'o': '#a87848' } },
-    stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } }
+    stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } },
+    // v5.5 彩蛋节：蛋形与彩券字形（定义见 09_ui_hud.js 的 GLYPH）
+    egg: { glyph: 'egg', pal: { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' } },
+    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } }
   };
   // 种子 A 轨：按季节 + 价格档取精灵（低 ≤40 / 中 ≤80 / 高）
   function seedSprite(cropId) {
@@ -529,6 +532,40 @@
   function farmShopBody(body) {
     var P = farmP(); if (!P) return;
     var D = farmD(), c = P.cal;
+    // ---- v5.5 彩蛋节：顶部粉块横幅 + 三行彩券兑换 ----
+    if (c.festival && c.festival.name === '彩蛋节' && D.EGG_REDEEM) {
+      var fest = el('div', 'sg5-farm-festival sg5-farm-festival-banner');
+      fest.appendChild(el('div', 'sg5-farm-festival-h', '彩蛋节 · 彩券兑换'));
+      var rl = el('div', 'sg5-farm-list');
+      var REDEEM_NAME = { seed_strawberry: '草莓种子 ×5', speedgro: '生长激素 ×5', gold: '200 金' };
+      (function () {
+        for (var rid in D.EGG_REDEEM) {
+          if (!Object.prototype.hasOwnProperty.call(D.EGG_REDEEM, rid)) continue;
+          (function (rid) {
+            var def = D.EGG_REDEEM[rid];
+            var have = P.inv.ticket || 0;
+            var doneToday = P.eggRedeem && P.eggRedeem.day === c.day && P.eggRedeem[rid] > 0;
+            var row = el('div', 'sg5-farm-row');
+            row.appendChild(farmIcon('ticket', 16));
+            row.appendChild(el('span', 'sg5-farm-rowname', REDEEM_NAME[rid] || rid));
+            // 三态 chip：off 券不够 / have 可兑 / done 今天已换
+            row.appendChild(el('span',
+              'sg5-bundle-need ' + (doneToday ? 'is-done' : (have >= def.cost ? 'is-have' : 'is-off')),
+              '彩券 ' + Math.min(have, def.cost) + '/' + def.cost));
+            var b = opBtn('兑换', 'sg5-btn-sm', function () {
+              lifeAct('egg/redeem', { id: rid }).then(function () {
+                farmToast('兑换成功：' + (REDEEM_NAME[rid] || rid));
+              }, function (e) { farmToast(e.message, 'warn'); });
+            });
+            if (doneToday || have < def.cost) b.disabled = true;
+            row.appendChild(b);
+            rl.appendChild(row);
+          })(rid);
+        }
+      })();
+      fest.appendChild(rl);
+      body.appendChild(fest);
+    }
     var seeds = farmSection(body, '种子铺 · ' + c.seasonName,
       P.greenhouse ? '温室已解锁，四季种子都能买。' : '只卖当季种子；过季种下的作物会在换季时枯掉。');
     var list = el('div', 'sg5-farm-list');
@@ -722,6 +759,130 @@
     })();
   }
 
+  // ---------- v5.5 丰收展：展台选样 / 预览 / 提交 ----------
+  // 可参展：作物果实 / 采集物 / 加工品 / 动物产品（含品质变体）；种子、资材、矿石不收
+  var EXHIBIT_ANIMAL = /^(egg|big_egg|duck_egg|duck_feather|milk|big_milk|goat_milk|big_goat_milk|wool|big_wool|truffle)$/;
+  function farmExhibitCands(P) {
+    var D = farmD(), out = [];
+    for (var k in (P.inv || {})) {
+      if (!Object.prototype.hasOwnProperty.call(P.inv, k) || !P.inv[k]) continue;
+      var base = String(k).split('_q')[0];
+      if (base === 'ticket' || base === 'hardwood' || base.indexOf('seed_') === 0) continue;
+      var ok2 = EXHIBIT_ANIMAL.test(base) || (D.CROPS && D.CROPS[base]) || (D.SELL && D.SELL[base]);
+      if (ok2) { out.push(k); continue; }
+      for (var i = 0; i < (D.FORAGE || []).length; i++) if (D.FORAGE[i].id === base) { out.push(k); break; }
+    }
+    return out;
+  }
+  // 评分公式与服务端 farmdata.exhibitGrade 一致（预览用，真结果以提交响应为准）
+  function farmExhibitGrade(items) {
+    var sumQ = 0, bases = {}, n = 0;
+    for (var i = 0; i < items.length; i++) {
+      var ps = String(items[i] || '').split('_q'), q = ps[1] ? Number(ps[1]) : 0;
+      sumQ += Math.min(4, q + 1);
+      bases[ps[0]] = 1; n++;
+    }
+    var avgQ = n ? sumQ / n : 0, div = 0, b;
+    for (b in bases) if (Object.prototype.hasOwnProperty.call(bases, b)) div++;
+    var g = (avgQ >= 2.5 && div >= 7) ? 'S' : (avgQ >= 2 && div >= 5) ? 'A' : div >= 3 ? 'B' : 'C';
+    return { grade: g, avgQ: avgQ, diversity: div, gold: g === 'S' ? 1200 : g === 'A' ? 800 : g === 'B' ? 500 : 300 };
+  }
+  function farmExhibitBody(body) {
+    var P = farmP(); if (!P) return;
+    var c = P.cal;
+    var s = farmSection(body, '丰收展 · 展台', '挑 9 样产物参展（作物 / 采集 / 加工 / 畜产都行）。实物不扣，提交当日锁定，奖金按评级立刻入账。');
+    var submitted = P.exhibit && P.exhibit.day === c.day && P.exhibit.grade;
+    if (submitted) {
+      // 成绩态：只读，格子点击无响应
+      var done = el('div', 'sg5-farm-cal');
+      done.appendChild(el('div', 'sg5-farm-calclock', P.exhibit.grade + ' 级 · 奖金已入账'));
+      var g0 = farmExhibitGrade(P.exhibit.items || []);
+      done.appendChild(el('div', 'sg5-note', '品质均分 ' + g0.avgQ.toFixed(2) + ' · ' + g0.diversity + ' 种'));
+      s.appendChild(done);
+      var grid0 = el('div', 'sg5-exhibit-grid');
+      (function () {
+        var items = P.exhibit.items || [];
+        for (var i = 0; i < 9; i++) {
+          var cell = el('div', 'sg5-exhibit-cell');
+          if (items[i]) {
+            cell.appendChild(farmIcon(items[i], 16));
+            cell.appendChild(el('span', 'sg5-farm-itemname', farmItemName(items[i])));
+          }
+          grid0.appendChild(cell);
+        }
+      })();
+      s.appendChild(grid0);
+      farmBtnRow(s, [['退回背包', function () { S.farm.exhibitMode = false; refreshPanel('farm'); }]]);
+      body.appendChild(s);
+      return;
+    }
+    var sel = S.farm.exhibitSel || (S.farm.exhibitSel = []);
+    var grid = el('div', 'sg5-exhibit-grid');
+    (function () {
+      for (var i = 0; i < 9; i++) {
+        (function (i) {
+          var cell = el('button', 'sg5-exhibit-cell');
+          cell.type = 'button';
+          var iid = sel[i];
+          if (iid) {
+            cell.appendChild(farmIcon(iid, 16));
+            cell.appendChild(el('span', 'sg5-farm-itemname', farmItemName(iid)));
+            cell.setAttribute('title', farmItemName(iid) + ' · 点击移回背包');
+          } else {
+            cell.textContent = String(i + 1);
+          }
+          cell.addEventListener('click', function () {
+            if (sel[i]) { sel.splice(i, 1); auSfx('menu', 0.2, 1.0); refreshPanel('farm'); }
+          }, false);
+          grid.appendChild(cell);
+        })(i);
+      }
+    })();
+    s.appendChild(grid);
+    // 预览：评级大字（复用 calclock）+ 分量行
+    var g = farmExhibitGrade(sel);
+    var prev = el('div', 'sg5-farm-cal');
+    prev.appendChild(el('div', 'sg5-farm-calclock', sel.length < 9 ? '还差 ' + (9 - sel.length) + ' 样' : (g.grade + ' 级 · ' + g.gold + 'g')));
+    prev.appendChild(el('div', 'sg5-note', '品质均分 ' + g.avgQ.toFixed(2) + ' · ' + g.diversity + ' 种 · 种类越多分越高'));
+    s.appendChild(prev);
+    // 候选列表
+    var cands = farmExhibitCands(P);
+    var list = el('div', 'sg5-farm-inv');
+    (function () {
+      for (var i = 0; i < cands.length; i++) {
+        (function (k) {
+          var b = el('button', 'sg5-farm-item');
+          b.type = 'button';
+          b.appendChild(farmIcon(k, 16));
+          b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
+          b.appendChild(el('span', 'sg5-farm-itemnum', '×' + P.inv[k]));
+          b.addEventListener('click', function () {
+            if (sel.length >= 9) { farmToast('展台只有 9 个位置，先移走一样', 'warn'); return; }
+            sel.push(k); auSfx('menu', 0.2, 1.1); refreshPanel('farm');
+          }, false);
+          list.appendChild(b);
+        })(cands[i]);
+      }
+    })();
+    if (!cands.length) list.appendChild(el('div', 'sg5-empty', '背包里还没有可以参展的产物。'));
+    s.appendChild(list);
+    farmBtnRow(s, [
+      ['清空展台', function () { S.farm.exhibitSel = []; refreshPanel('farm'); }],
+      ['退回背包', function () { S.farm.exhibitMode = false; refreshPanel('farm'); }]
+    ]);
+    if (sel.length === 9) {
+      farmBtnRow(s, [['确定参展', function () {
+        var items = S.farm.exhibitSel.slice();
+        lifeAct('exhibit/submit', { items: items }).then(function (d) {
+          farmToast('参展成功：' + d.grade + ' 级，奖金 ' + d.gold + 'g 已入账');
+          S.farm.exhibitMode = false;
+          S.farm.exhibitSel = [];
+        }, function (e) { farmToast(e.message, 'warn'); });
+      }, 'sg5-btn-primary', true]]);
+    }
+    body.appendChild(s);
+  }
+
   // ---------- 背包 / 箱子 ----------
   function farmInvGrid(P, items, picked, onPick, readOnly) {
     var g = el('div', 'sg5-farm-inv');
@@ -754,6 +915,8 @@
   }
   function farmBagBody(body) {
     var P = farmP(); if (!P) return;
+    // v5.5：丰收展展台视图（从背包页签的「参展」或日历的「去参展」进入）
+    if (S.farm.exhibitMode && isExhibitDay()) { farmExhibitBody(body); return; }
     var cap = farmSection(body, '背包 ' + P.invCount + '/' + P.backpack, '点一样东西，再选要拿它做什么。种子按半价回收。');
     cap.appendChild(farmInvGrid(P, P.inv || {}, S.farm.bagSel, function (k) {
       S.farm.bagSel = k; refreshPanel('farm');
@@ -793,7 +956,11 @@
         if (full) eatRow.appendChild(el('span', 'sg5-farm-lack', '体力已满'));
         ops.appendChild(eatRow);
       }
-      farmBtnRow(ops, [
+      // v5.5：彩蛋彩券只在彩蛋节当天、只走商店页签兑换
+      if (selBase === 'ticket') {
+        ops.appendChild(el('div', 'sg5-farm-note-inline', '彩蛋节限定：点右上『商店』页签兑换，过期作废'));
+      }
+      var bagOps = [
         ['卖 1 个', function () {
           var it = {}; it[sel] = 1;
           farmAct('sell', { items: it }).then(function (d) { farmToast('卖了 ' + d.gold + 'g'); },
@@ -820,7 +987,15 @@
             function (e) { farmToast(e.message, 'warn'); });
         }],
         ['送给镇上的人', function () { S.farm.relationTab = 'villagers'; openPanel('relation'); }]
-      ]);
+      ];
+      // v5.5：丰收展当天追加「参展」入口（切到展台视图）
+      if (isExhibitDay()) {
+        bagOps.push(['参展', function () {
+          S.farm.exhibitMode = true;
+          refreshPanel('farm');
+        }]);
+      }
+      farmBtnRow(ops, bagOps);
       cap.appendChild(ops);
     }
     body.appendChild(cap);
@@ -926,10 +1101,18 @@
           row.appendChild(el('span', 'sg5-farm-rowname', D.SEASONS[f.day[0]] + ' ' + f.day[1] + '日 · ' + f.name));
           row.appendChild(el('span', 'sg5-farm-rowsub', f.desc));
           if (f.day[0] === c.season && f.day[1] === c.dayInSeason) {
-            row.appendChild(opBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
-              lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
-                function (e) { farmToast(e.message, 'warn'); });
-            }));
+            if (f.perk === 'exhibit') {
+              // v5.5：丰收展当天按钮改为「去参展」——奖金在展台按评级结算，没有固定礼
+              row.appendChild(opBtn('去参展', 'sg5-btn-sm sg5-btn-primary', function () {
+                S.farm.tab = 'bag';
+                refreshPanel('farm');
+              }));
+            } else {
+              row.appendChild(opBtn('领礼', 'sg5-btn-sm sg5-btn-primary', function () {
+                lifeAct('festival', {}).then(function (d) { farmToast(d.festival + '：' + d.gift); },
+                  function (e) { farmToast(e.message, 'warn'); });
+              }));
+            }
           }
           fl.appendChild(row);
         })(D.FESTIVALS[i]);

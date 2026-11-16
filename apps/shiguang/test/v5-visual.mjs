@@ -321,6 +321,91 @@ await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
 await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
 await sleep(320);
 
+// ---------- v5.5 节日小游戏：彩蛋世界层 / 新手引导条 / 丰收展展台 ----------
+// 面板流程长且草原有怪：先复活 + 无敌，免得死亡遮罩盖住截图
+await fetch(`http://127.0.0.1:${HTTP_PORT}/api/shiguang/v5/respawn`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-uid': '1001' }, body: '{}' });
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
+routes.FARM.setEpochForDay(13);   // 春 13 彩蛋节
+await evalJs('__sg5.farm && __sg5.farm.setDay ? __sg5.farm.setDay(13) : 1');
+await sleep(800);
+const eggRaw = await evalJs('JSON.stringify((window.__sg5.state.farm.p && window.__sg5.state.farm.p.eggsLeft || [])[0] || null)');
+const egg0 = eggRaw.v && eggRaw.v !== 'null' ? JSON.parse(eggRaw.v) : null;
+ok(!!egg0, '彩蛋节当日下发彩蛋坐标', eggRaw.v);
+if (egg0) {
+  await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x: egg0.x + 0.5, y: egg0.y + 1.3 })
+  });
+  await evalJs('__sg5.teleport(' + (egg0.x + 0.5) + ',' + (egg0.y + 1.3) + ')');
+  await sleep(900);
+  const chipTx = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-eggchip")||{}).textContent||"")');
+  ok(String(chipTx.v).indexOf('彩蛋节 · 0/12') >= 0, 'farmbar 彩蛋 chip 显示 0/12', chipTx.v);
+  await shot('18-egg-world');
+  await evalJs('__sg5.farm.life("egg/pick",{i:' + egg0.i + '}).then(function(){return 1})');
+  await sleep(700);
+  const chipTx2 = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-eggchip")||{}).textContent||"")');
+  ok(String(chipTx2.v).indexOf('彩蛋节 · 1/12') >= 0, '捡蛋后 chip 变 1/12', chipTx2.v);
+  // 走到下一颗蛋旁：农场条应提示「E：捡彩蛋」
+  const eggRaw2 = await evalJs('JSON.stringify((window.__sg5.state.farm.p && window.__sg5.state.farm.p.eggsLeft || [])[0] || null)');
+  const egg1 = eggRaw2.v && eggRaw2.v !== 'null' ? JSON.parse(eggRaw2.v) : null;
+  if (egg1) {
+    await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x: egg1.x + 0.5, y: egg1.y + 1.3 })
+    });
+    await evalJs('__sg5.teleport(' + (egg1.x + 0.5) + ',' + (egg1.y + 1.3) + ')');
+    await sleep(900);
+    const nearTx2 = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-near")||{}).textContent||"")');
+    ok(String(nearTx2.v).indexOf('捡彩蛋') >= 0, '农场条提示「E：捡彩蛋」', nearTx2.v);
+  }
+}
+// 新手引导条：清掉 sg5hint 去重记录（localStorage + 内存态），回田里应弹出 till 引导
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
+await evalJs('(function(){try{localStorage.removeItem("sg5hint")}catch(e){} window.__sg5.state.farm.hintSeen={}; var h=document.querySelector(".sg5-hint"); if(h) h.className="sg5-hint"; return 1})()');
+await evalJs('__sg5.farm.act("goto",{}).then(function(d){if(d&&d.x!=null)__sg5.teleport(d.x,d.y);return d&&d.x})');
+await sleep(800);
+const hintTx = await evalJs('JSON.stringify((document.querySelector(".sg5-hint.is-on")||{}).textContent||"")');
+ok(String(hintTx.v).indexOf('翻土') >= 0 || String(hintTx.v).indexOf('采集') >= 0 || String(hintTx.v).indexOf('彩蛋') >= 0,
+  '新手引导条已弹出（till/forage/egg 任一）', hintTx.v);
+
+// 丰收展：塞 9 样产物 → 展台视图 → 提交 → 成绩态
+routes.FARM.setEpochForDay(72);   // 秋 16 丰收展
+(function () {
+  const f = routes.FARM.of('1001');
+  f.inv = { parsnip_q3: 1, melon_q3: 1, pumpkin_q3: 1, kale_q3: 1, potato_q3: 1, garlic_q3: 1, tulip_q3: 1, jazz_q3: 1, cauliflower_q3: 1 };
+  f.exhibit = { day: 0, items: null, grade: null };
+  f.backpack = 36;
+  routes.FARM.save('1001');
+})();
+await evalJs('__sg5.farm.setDay(72)');
+await sleep(800);
+await evalJs('(function(){var F=window.__sg5.state.farm; F.tab="bag"; F.exhibitMode=true; F.exhibitSel=["parsnip_q3","melon_q3","pumpkin_q3","kale_q3","potato_q3","garlic_q3","tulip_q3","jazz_q3","cauliflower_q3"]; return 1})()');
+await evalJs('__sg5.panel("farm")');
+await sleep(500);
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
+const booth = await evalJs('JSON.stringify({cells:document.querySelectorAll(".sg5-exhibit-cell").length,prev:(document.querySelector(".sg5-farm-cal .sg5-farm-calclock")||{}).textContent||""})');
+ok(booth.v && JSON.parse(booth.v).cells === 9, '展台 3×3 九格渲染', booth.v);
+ok(booth.v && String(JSON.parse(booth.v).prev).indexOf('S') >= 0, '展台预览评到 S 级', booth.v);
+await shot('20-exhibit-booth');
+await evalJs('__sg5.farm.life("exhibit/submit",{items:window.__sg5.state.farm.exhibitSel.slice()}).then(function(){return 1})');
+await sleep(800);
+// 提交成功回调会把 exhibitMode 收回背包视图：先关面板再切回展台看成绩态
+await evalJs('__sg5.panel("")');
+await evalJs('(function(){var F=window.__sg5.state.farm; F.exhibitMode=true; F.tab="bag"; return 1})()');
+await evalJs('__sg5.panel("farm")');
+await sleep(400);
+const grade = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-calclock")||{}).textContent||"")');
+ok(String(grade.v).indexOf('S 级 · 奖金已入账') >= 0, '提交后展台进入成绩态', grade.v);
+// 收尾：回背包视图、把人送回镇上（后面的「出生在拾光镇」断言依赖出生点位）
+await evalJs('(function(){var F=window.__sg5.state.farm; F.exhibitMode=false; F.tab="field"; return 1})()');
+await evalJs('__sg5.panel("")');
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ x: world.town.cx + 0.5, y: world.town.cy + 0.2 })
+});
+await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
+await sleep(400);
+
 // ---------- 邀请卡 / 双人互动特效 ----------
 await evalJs('__sg5.card()');
 await sleep(520);

@@ -445,6 +445,55 @@ function forageList(day, cooldown) {
   return out;
 }
 
+// ---------- v5.5 节日小游戏：彩蛋节 / 丰收展 ----------
+// 彩蛋彩券兑换表：cost = 彩券张数；n = 到手个数；gold.amount = 直接入账金币
+var EGG_REDEEM = {
+  seed_strawberry: { n: 5, cost: 2 },
+  speedgro: { n: 5, cost: 2 },
+  gold: { amount: 200, cost: 1 }
+};
+
+// 彩蛋刷新（纯函数，per-player）：uid + day 确定性生成候选格，落在 meadow 环
+// （同 forageList 的区域近似），排除自家田；主环候选排前、外环候选垫底，
+// 调用方过滤阻挡格后取前 12，不足时自然用外环放宽补齐。farmdata 不依赖地形数据。
+function eggList(day, uid) {
+  var salt = 0, s = String(uid || '');
+  for (var i = 0; i < s.length; i++) salt = (salt * 31 + s.charCodeAt(i)) | 0;
+  var main = [], wide = [], x, y;
+  for (y = 80; y <= 176; y++) {
+    for (x = 80; x <= 176; x++) {
+      var dx = x - 128, dy = y - 128, d2 = dx * dx + dy * dy;
+      if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
+      if (d2 >= 144 && d2 <= 2500) {            // 主环：距镇中心 12~50
+        if (fhash(x, y, day * 7 + 1009 + salt) <= 0.02) main.push({ x: x, y: y });
+      } else if (d2 > 2500 && d2 <= 3844) {     // 放宽环：50~62，仅补齐用
+        if (fhash(x, y, day * 7 + 4001 + salt) <= 0.08) wide.push({ x: x, y: y });
+      }
+    }
+  }
+  main.sort(function (a, b) { return (a.y * 1000 + a.x) - (b.y * 1000 + b.x); });
+  wide.sort(function (a, b) { return (a.y * 1000 + a.x) - (b.y * 1000 + b.x); });
+  return main.concat(wide);
+}
+
+// 丰收展评分（主理人定死）：品质分 普通1 / 银2 / 金3 / 铱4；
+// S: 均分≥2.5 且 ≥7 种 → 1200g；A: 均分≥2 且 ≥5 种 → 800g；
+// B: ≥3 种 → 500g；C: 300g。同 base 不同品质算同一种。
+var EXHIBIT_GOLD = { S: 1200, A: 800, B: 500, C: 300 };
+function exhibitGrade(items) {
+  var sumQ = 0, bases = {}, n = 0;
+  for (var i = 0; i < items.length; i++) {
+    var ps = String(items[i] || '').split('_q');
+    var q = ps[1] ? Number(ps[1]) : 0;
+    sumQ += Math.min(4, q + 1);
+    bases[ps[0]] = 1; n++;
+  }
+  var avgQ = n ? sumQ / n : 0, div = 0, b;
+  for (b in bases) if (Object.prototype.hasOwnProperty.call(bases, b)) div++;
+  var g = (avgQ >= 2.5 && div >= 7) ? 'S' : (avgQ >= 2 && div >= 5) ? 'A' : div >= 3 ? 'B' : 'C';
+  return { grade: g, avgQ: avgQ, diversity: div, gold: EXHIBIT_GOLD[g] };
+}
+
 var DATA = {
   SEASONS: SEASONS, SEASON_DAYS: SEASON_DAYS, DAY_MS: DAY_MS,
   START_GOLD: START_GOLD, START_ENERGY: START_ENERGY,
@@ -457,7 +506,8 @@ var DATA = {
   BACKPACK_COSTS: BACKPACK_COSTS, HEART_PTS: HEART_PTS,
   SHOP_SEED_MARKUP: SHOP_SEED_MARKUP, CHEST_COST: CHEST_COST,
   MACHINES: MACHINES, RECIPES: RECIPES, FORAGE: FORAGE, SELL: SELL,
-  ITEM_NAMES: ITEM_NAMES, EAT: EAT, ENERGY_CAP: ENERGY_CAP
+  ITEM_NAMES: ITEM_NAMES, EAT: EAT, ENERGY_CAP: ENERGY_CAP,
+  EGG_REDEEM: EGG_REDEEM, EXHIBIT_GOLD: EXHIBIT_GOLD
 };
 
 module.exports = {
@@ -468,5 +518,6 @@ module.exports = {
   cropPrice: cropPrice, fishPrice: fishPrice, animalPrice: animalPrice,
   levelOf: levelOf, xpToNext: xpToNext,
   heartsOf: heartsOf, tasteOf: tasteOf, giftPoints: giftPoints,
-  growthOf: growthOf, seedList: seedList, forageList: forageList
+  growthOf: growthOf, seedList: seedList, forageList: forageList,
+  eggList: eggList, exhibitGrade: exhibitGrade
 };

@@ -105,7 +105,13 @@ module.exports = function createLife(ctx) {
       var rod = f.tools.rod || 0;
       var green = Math.min(0.85, 0.28 + lv * 0.035 + rod * 0.06 + (fes && fes.perk === 'fish' ? 0.08 : 0));
       f.pendingFish = { id: pick.id, diff: pick.diff, green: green, at: nowMs(), season: s };
-      return { fish: pick.id, name: pick.name, diff: pick.diff, green: green, xp: pick.xp };
+      // v5.5 冰雪钓赛：前 3 竿卖价求和，≥300g 可领奖；claimed 后继续正常钓但不计分
+      var fc = f.fishContest;
+      var isContest = !!(fes && fes.name === '冰雪钓赛');
+      if (fc.day !== day()) { fc.day = day(); fc.total = 0; fc.rods = 0; fc.claimed = 0; }
+      var counting = isContest && !fc.claimed && fc.rods < 3;
+      return { fish: pick.id, name: pick.name, diff: pick.diff, green: green, xp: pick.xp,
+        contest: { counting: counting, total: fc.total, rods: fc.rods } };
     });
   });
 
@@ -131,12 +137,22 @@ module.exports = function createLife(ctx) {
       f.stats.fish = (f.stats.fish || 0) + 1;
       var up = FARM.xpAdd(f, 'fishing', def.xp * (perfect ? 1.5 : 1));
       if (up) push(id, { k: 'farm-level', skill: 'fishing', lv: up.lv });
+      // v5.5：赛制计分（冰雪钓赛当天前 3 竿），本竿卖价 = 职业加成后的实际售价
+      var price = FD.fishPrice(p.id, q, f.profs, perfect);
+      var contestCounted = false;
+      var fc = f.fishContest;
+      var fesNow = FD.festivalOn(day());
+      if (fesNow && fesNow.name === '冰雪钓赛' && !fc.claimed && fc.rods < 3) {
+        fc.day = day(); fc.total += price; fc.rods++;
+        contestCounted = true;
+      }
       // 钓到的鱼顺手计入图鉴，稀有鱼给全班报一声
       if (def.sell >= 200) {
         try { broadcast('farm-rare', { who: id, fish: def.name }, onlineIds()); } catch (e) {}
       }
       return { caught: iid, name: def.name, perfect: perfect, quality: q,
-        price: FD.fishPrice(p.id, q, f.profs, perfect), levels: up ? [up] : [] };
+        price: price, contestCounted: contestCounted, contest: { total: fc.total, rods: fc.rods },
+        levels: up ? [up] : [] };
     });
   });
 
@@ -477,7 +493,9 @@ module.exports = function createLife(ctx) {
       if (fes.perk === 'strawberry') { FARM.addItem(f, 'seed_strawberry', 5); gift = '草莓种子 ×5'; }
       else if (fes.perk === 'fish') { FARM.addItem(f, 'bait', 20); gift = '鱼饵 ×20'; }
       else if (fes.perk === 'sell') { FARM.goldAdd(f, 200); gift = '200 金'; }
-      else if (fes.perk === 'exhibit') { FARM.goldAdd(f, 500); gift = '500 金'; }
+      // v5.5：丰收展不再固定发 500g —— 奖金改由 /v5/life/exhibit/submit 按评级结算，
+      // 避免新旧两套发奖并存
+      else if (fes.perk === 'exhibit') { gift = '挑 9 样产物去参展，评星换奖金'; }
       else if (fes.perk === 'gift' || fes.perk === 'dance') {
         var keys = Object.keys(D.VILLAGERS);
         for (var i = 0; i < keys.length; i++) {
@@ -488,6 +506,106 @@ module.exports = function createLife(ctx) {
         gift = '和镇上每个人都聊上了';
       } else { FARM.addItem(f, 'hay', 10); gift = '干草 ×10'; }
       return { festival: fes.name, perk: fes.perk, gift: gift };
+    });
+  });
+
+  // ---------- v5.5 彩蛋节：捡彩蛋 / 彩券兑换 ----------
+  // 彩蛋只在中环草地（eggsOf 已过滤阻挡格），索引 i 全天稳定；
+  // egg×1 + ticket×1，采集经验 +8，per-player 不共享。
+  router.post('/v5/life/egg/pick', requireAuth, function (req, res) {
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var d = day(), fes = FD.festivalOn(d);
+      if (!fes || fes.name !== '彩蛋节') { fail(res, '今天不是彩蛋节', 400); return false; }
+      var i = Math.floor(Number((req.body || {}).i));
+      var eggs = FARM.eggsOf(id, f, d);
+      if (!(i >= 0) || i >= eggs.total) { fail(res, '这里没有彩蛋了', 400); return false; }
+      var taken = f.eggTaken[d] || (f.eggTaken[d] = []);
+      if (taken.indexOf(i) >= 0) { fail(res, '这颗彩蛋已经捡过了', 400); return false; }
+      // 蛋 + 彩券一起进包：先确认有两格余量，别让捡蛋捡出一半
+      var slots = f.backpack - FARM.invCount(f);
+      if ((f.inv.egg || 0) <= 0) slots--;
+      if ((f.inv.ticket || 0) <= 0) slots--;
+      if (slots < 0) { fail(res, '背包满了，先腾两个位置', 400); return false; }
+      FARM.addItem(f, 'egg', 1);
+      FARM.addItem(f, 'ticket', 1);
+      taken.push(i);
+      for (var k in f.eggTaken) if (has(f.eggTaken, k) && Number(k) !== d) delete f.eggTaken[k];
+      f.eggHunt.day = d; f.eggHunt.found = taken.length;
+      FARM.xpAdd(f, 'foraging', 8);
+      return { picked: i, found: taken.length, total: 12, egg: 1, ticket: 1 };
+    });
+  });
+
+  router.post('/v5/life/egg/redeem', requireAuth, function (req, res) {
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var d = day(), fes = FD.festivalOn(d);
+      if (!fes || fes.name !== '彩蛋节') { fail(res, '彩券只能彩蛋节当天用', 400); return false; }
+      var rid = String((req.body || {}).id || '');
+      var def = D.EGG_REDEEM[rid];
+      if (!def) { fail(res, '没有这种兑换', 400); return false; }
+      var done = (f.eggRedeem && f.eggRedeem.day === d)
+        ? f.eggRedeem : (f.eggRedeem = { day: d, seed_strawberry: 0, speedgro: 0, gold: 0 });
+      if (done[rid] >= 1) { fail(res, '这个奖励今天已经换过了', 400); return false; }
+      var haveT = f.inv.ticket || 0;
+      if (haveT < def.cost) { fail(res, '彩券不够，还差 ' + (def.cost - haveT) + ' 张', 400); return false; }
+      if (rid === 'gold') {
+        FARM.takeItem(f, 'ticket', def.cost);
+        FARM.goldAdd(f, def.amount);
+        done.gold = 1;
+        return { redeemed: rid, gold: def.amount };
+      }
+      var slots = f.backpack - FARM.invCount(f);
+      if ((f.inv[rid] || 0) <= 0) slots--;
+      if (slots < 0) { fail(res, '背包满了，先腾个位置', 400); return false; }
+      FARM.takeItem(f, 'ticket', def.cost);
+      FARM.addItem(f, rid, def.n);
+      done[rid] = 1;
+      return { redeemed: rid, n: def.n };
+    });
+  });
+
+  // ---------- v5.5 冰雪钓赛：前 3 竿卖价之和 ≥300g 可领奖（gold+800、bait+20） ----------
+  router.post('/v5/life/fish/contest/claim', requireAuth, function (req, res) {
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var d = day(), fes = FD.festivalOn(d);
+      if (!fes || fes.name !== '冰雪钓赛') { fail(res, '冰雪钓赛今天才开奖', 400); return false; }
+      var fc = f.fishContest;
+      if (fc.day !== d) { fail(res, '今天的赛绩还没开始记，先甩一竿', 400); return false; }
+      if (fc.claimed) { fail(res, '赛奖已经领过了', 400); return false; }
+      if (fc.total < 300) { fail(res, '前三竿卖价还差 ' + (300 - fc.total) + 'g，先把鱼钓上来', 400); return false; }
+      var slots = f.backpack - FARM.invCount(f);
+      if ((f.inv.bait || 0) <= 0) slots--;
+      if (slots < 0) { fail(res, '背包满了，先腾个位置', 400); return false; }
+      fc.claimed = 1;
+      FARM.goldAdd(f, 800);
+      FARM.addItem(f, 'bait', 20);
+      return { claimed: 1, total: fc.total, gold: 800, bait: 20 };
+    });
+  });
+
+  // ---------- v5.5 丰收展：9 样产物评星换奖金（实物不扣，提交当日锁定） ----------
+  router.post('/v5/life/exhibit/submit', requireAuth, function (req, res) {
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var d = day(), fes = FD.festivalOn(d);
+      if (!fes || fes.perk !== 'exhibit') { fail(res, '丰收展今天才开', 400); return false; }
+      if (f.exhibit.day === d && f.exhibit.grade) { fail(res, '今年的展台已经交过了', 400); return false; }
+      var items = (req.body || {}).items || [];
+      if (!items.length || items.length !== 9) { fail(res, '要挑满 9 样产物才能参展', 400); return false; }
+      // 9 样都要在背包里（同一件按出现次数核对）；只登记不扣除
+      var need = {}, i, iid;
+      for (i = 0; i < items.length; i++) {
+        iid = String(items[i] || '');
+        if (!iid) { fail(res, '展台还有空位', 400); return false; }
+        need[iid] = (need[iid] || 0) + 1;
+      }
+      for (var k in need) {
+        if (!has(need, k)) continue;
+        if ((f.inv[k] || 0) < need[k]) { fail(res, '背包里没有这么多 ' + FARM.itemName(k), 400); return false; }
+      }
+      var g = FD.exhibitGrade(items);
+      FARM.goldAdd(f, g.gold);
+      f.exhibit = { day: d, items: items, grade: g.grade };
+      return { exhibit: f.exhibit, grade: g.grade, gold: g.gold };
     });
   });
 

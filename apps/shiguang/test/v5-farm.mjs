@@ -464,6 +464,124 @@ Math.random = realRandom;
 ok(d.chest && d.chest.gold >= 100 && d.chest.gold <= 300 && d.chest.gem === 1, 'pirate 5% 宝箱（金币 + 宝石）', d.chest);
 ok(d.farm.gold > 5000, '宝箱金币入账', d.farm.gold);
 
+// ==================== v5.5 节日小游戏 ====================
+console.log('\n== 16. v5.5 彩蛋节：生成 → 捡蛋 → 兑换 → 跨日拒绝 ==');
+setDay(13);   // 春 13 彩蛋节（festivalSeen[13] 已领过礼，不影响彩蛋）
+f = flags(); f.inv = {}; f.energy = 100; f.eggTaken = {}; f.eggHunt = { day: 0, found: 0 };
+f.eggRedeem = { day: 0, seed_strawberry: 0, speedgro: 0, gold: 0 };
+routes.FARM.save('1001');
+P = (await st()).data.farm;
+ok(Array.isArray(P.eggsLeft) && P.eggsLeft.length === 12, '彩蛋节当日下发 12 颗彩蛋', P.eggsLeft && P.eggsLeft.length);
+ok(P.eggHunt && P.eggHunt.total === 12 && P.eggHunt.found === 0, 'eggHunt 进度 0/12', JSON.stringify(P.eggHunt));
+ok(P.eggsLeft.every(function (e2) { return typeof e2.i === 'number' && e2.i >= 0 && e2.i < 12; }), '彩蛋带全天稳定索引');
+// 捡一颗：egg + ticket 入包、found 同步、剩余 11 颗
+const eggIdx = P.eggsLeft[0].i;
+d = await okCall('/v5/life/egg/pick', { i: eggIdx });
+ok(d.found === 1 && d.egg === 1 && d.ticket === 1, '捡蛋返回 found/egg/ticket', d);
+ok(d.farm.inv.egg >= 1 && d.farm.inv.ticket >= 1, '彩蛋与彩券入包', { egg: d.farm.inv.egg, t: d.farm.inv.ticket });
+ok(d.farm.eggHunt.found === 1, 'chip 数据 eggHunt.found 同步为 1', d.farm.eggHunt);
+P = (await st()).data.farm;
+ok(P.eggsLeft.length === 11, '已捡的蛋从剩余列表消失', P.eggsLeft.length);
+await badCall('/v5/life/egg/pick', { i: eggIdx }, '1001', '同一颗蛋不能重复捡');
+await badCall('/v5/life/egg/pick', { i: 99 }, '1001', '越界索引被拒绝');
+// 兑换：券不足拒绝 → 给券 → 换 200 金（1 张）→ 换种子（2 张）→ 当日重复拒绝
+f = flags(); f.inv.ticket = 1; routes.FARM.save('1001');
+await badCall('/v5/life/egg/redeem', { id: 'seed_strawberry' }, '1001', '彩券不够（要 2 张）不能兑种子');
+f = flags(); f.inv.ticket = 5; const goldBefore = f.gold; routes.FARM.save('1001');
+d = await okCall('/v5/life/egg/redeem', { id: 'gold' });
+ok(d.gold === 200 && d.farm.gold === goldBefore + 200, '彩券 1 张兑 200 金', d.gold);
+d = await okCall('/v5/life/egg/redeem', { id: 'seed_strawberry' });
+ok(d.n === 5 && d.farm.inv.seed_strawberry >= 5, '彩券 2 张兑草莓种子 ×5', d.n);
+ok(d.farm.inv.ticket === 2, '扣掉 2+1 张彩券', d.farm.inv.ticket);
+await badCall('/v5/life/egg/redeem', { id: 'gold' }, '1001', '同一奖励当日只能兑一次');
+await badCall('/v5/life/egg/redeem', { id: 'nothing' }, '1001', '未知兑换被拒绝');
+// 跨日：彩蛋消失、彩券失效
+setDay(14);
+await badCall('/v5/life/egg/pick', { i: 1 }, '1001', '非彩蛋节不能捡蛋');
+await badCall('/v5/life/egg/redeem', { id: 'gold' }, '1001', '彩券只能彩蛋节当天用');
+P = (await st()).data.farm;
+ok(Array.isArray(P.eggsLeft) && P.eggsLeft.length === 0, '非节日不下发彩蛋', P.eggsLeft && P.eggsLeft.length);
+
+console.log('\n== 17. v5.5 冰雪钓赛：三竿计分 → 第四竿不计 → 达标领奖 → 领后不计 ==');
+setDay(92);   // 冬 8 冰雪钓赛（FESTIVALS day [3,8]）
+f = flags(); f.fishContest = { day: 0, total: 0, rods: 0, claimed: 0 }; f.energy = 100; f.pendingFish = null;
+routes.FARM.save('1001');
+let contestSum = 0;
+for (let rod = 0; rod < 3; rod++) {
+  d = await okCall('/v5/life/fish/start', {});
+  ok(d.contest && d.contest.counting === true && d.contest.rods === rod, '第 ' + (rod + 1) + ' 竿计入赛制', d.contest);
+  d = await okCall('/v5/life/fish/result', { score: 0.95 });
+  if (!d.caught) {   // 极小概率脱钩（0.95 分远高于阈值），重试一次
+    d = await okCall('/v5/life/fish/start', {});
+    d = await okCall('/v5/life/fish/result', { score: 0.95 });
+  }
+  ok(d.caught && d.contestCounted === true, '第 ' + (rod + 1) + ' 竿 contestCounted=true', d.contestCounted);
+  contestSum = d.contest ? d.contest.total : contestSum;
+}
+ok(contestSum > 0, '三竿卖价累计 > 0', contestSum);
+P = (await st()).data.farm;
+ok(P.fishContest.rods === 3, 'fishContest.rods = 3', JSON.stringify(P.fishContest));
+d = await okCall('/v5/life/fish/start', {});
+ok(d.contest && d.contest.counting === false, '第 4 竿起不再计入', d.contest);
+d = await okCall('/v5/life/fish/result', { score: 0.95 });
+if (d && !d.caught) {
+  d = await okCall('/v5/life/fish/start', {});
+  d = await okCall('/v5/life/fish/result', { score: 0.95 });
+}
+ok(d.caught && d.contestCounted === false, '第 4 竿 contestCounted=false', d.contestCounted);
+// 未达标不可领（若三竿恰好 ≥300g 则先验证达标领奖）
+if (contestSum < 300) {
+  await badCall('/v5/life/fish/contest/claim', {}, '1001', '未达标不能领赛奖');
+  f = flags(); f.fishContest.total = 320; routes.FARM.save('1001');
+}
+const g0 = f.gold, bait0 = f.inv.bait || 0;
+d = await okCall('/v5/life/fish/contest/claim', {});
+ok(d.claimed === 1 && d.farm.gold === g0 + 800, '领奖 gold+800', d.farm.gold - g0);
+ok(d.farm.inv.bait === bait0 + 20, '领奖 bait+20', d.farm.inv.bait - bait0);
+await badCall('/v5/life/fish/contest/claim', {}, '1001', '赛奖只能领一次');
+// 已领奖继续钓不计分
+d = await okCall('/v5/life/fish/start', {});
+ok(d.contest && d.contest.counting === false, '领奖后甩竿不计分', d.contest);
+d = await okCall('/v5/life/fish/result', { score: 0.95 });
+ok(d.caught && d.contestCounted === false, '领奖后渔获照常、赛绩不动', d.contestCounted);
+// 非赛日不能领
+setDay(93);
+await badCall('/v5/life/fish/contest/claim', {}, '1001', '非冰雪钓赛日不能领奖');
+
+console.log('\n== 18. v5.5 丰收展：选 9 样 → 提交锁定 → 奖金入账 → 实物仍在 → 跨年重置 ==');
+setDay(72);   // 秋 16 丰收展（FESTIVALS day [2,16]）
+f = flags();
+const nine9 = ['parsnip_q3', 'melon_q3', 'pumpkin_q3', 'kale_q3', 'potato_q3', 'garlic_q3', 'tulip_q3', 'jazz_q3', 'cauliflower_q3'];
+f.inv = {};
+for (const it of nine9) f.inv[it] = 1;
+f.exhibit = { day: 0, items: null, grade: null };
+f.gold = 5000; routes.FARM.save('1001');
+await badCall('/v5/life/exhibit/submit', { items: nine9.slice(0, 8) }, '1001', '不足 9 样不能参展');
+await badCall('/v5/life/exhibit/submit', { items: nine9.slice(0, 8).concat(['nothing_here']) }, '1001', '不在背包的东西不能参展');
+const goldBeforeEx = f.gold;
+d = await okCall('/v5/life/exhibit/submit', { items: nine9 });
+ok(d.grade === 'S' && d.gold === 1200, '9 种全铱评 S 档 1200g', JSON.stringify({ grade: d.grade, gold: d.gold }));
+ok(d.farm.gold === goldBeforeEx + 1200, '奖金入账', d.farm.gold - goldBeforeEx);
+ok(d.farm.inv.parsnip_q3 === 1 && d.farm.inv.cauliflower_q3 === 1, '实物不扣', JSON.stringify({ p: d.farm.inv.parsnip_q3, c: d.farm.inv.cauliflower_q3 }));
+ok(d.farm.exhibit.grade === 'S' && d.farm.exhibit.day === 72, 'exhibit 状态锁定当日', JSON.stringify(d.farm.exhibit));
+await badCall('/v5/life/exhibit/submit', { items: nine9 }, '1001', '同一展台当日不能重复提交');
+// 旧 500g 固定档已删除：丰收展领礼不再发钱
+const g1 = (await st()).data.farm.gold;
+d = await okCall('/v5/life/festival', {});
+ok(d.gift && d.gift.indexOf('参展') >= 0, '丰收展领礼只给参展指引', d.gift);
+P = (await st()).data.farm;
+ok(P.gold === g1, '丰收展领礼不再固定发 500g', P.gold - g1);
+// 跨日不能参展；下一年的丰收展重置可再交
+setDay(73);
+await badCall('/v5/life/exhibit/submit', { items: nine9 }, '1001', '非丰收展日不能提交');
+setDay(184);   // 次年秋 16（丰收展 day [2,16]，一季 28 天 × 4 季 = 112 天/年）
+f = flags();
+f.inv = {};
+for (const it of nine9) f.inv[it] = 1;
+routes.FARM.save('1001');
+d = await okCall('/v5/life/exhibit/submit', { items: nine9 });
+ok(d.grade === 'S', '跨年丰收展重置，可再次参展', d.grade);
+
 console.log('\n农场系统联调：' + pass + ' 通过 / ' + fail + ' 失败');
 server.close();
 process.exit(fail ? 1 : 0);
