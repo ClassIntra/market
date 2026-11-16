@@ -497,6 +497,138 @@ function fetchSnapshotTencent() {
   });
 }
 
+// ============ 备用 K 线 / 分时 / 指数：腾讯 web.ifzq（HTTPS）============
+// 东财的三条 HTTPS 域名（push2 / push2his / push2ipv6）在本机校园网都会被
+// 「请求发出后立刻 RST」（socket hang up），实测 web.ifzq.gtimg.cn 的 HTTPS 通。
+// 没有这条兜底时：行情列表有价（走了 qt.gtimg 明文备用源），但详情页的分时、
+// 日/周/月 K 线全部 500 —— 学生看到的就是「证券获取不到数据」（2026-11-16 实踩）。
+var TEN_WEB_HOST = 'web.ifzq.gtimg.cn';
+
+function tencentSymbol(code) {
+  var c = market.normalizeCode(code);
+  var sh = c.charAt(0) === '6' || c.charAt(0) === '9';
+  return (sh ? 'sh' : 'sz') + c;
+}
+
+function fetchKlineTencent(code, klt, lmt) {
+  var symbol = tencentSymbol(code);
+  var period = klt === 102 ? 'week' : (klt === 103 ? 'month' : 'day');
+  var path = '/appstock/app/fqkline/get?param=' + symbol + ',' + period + ',,,' + lmt + ',qfq';
+  return httpGet(TEN_WEB_HOST, path, 'https://gu.qq.com/').then(function (body) {
+    var node = body && body.data && body.data[symbol];
+    var arr = node && (node['qfq' + period] || node[period]);
+    if (!arr || !arr.length) throw new Error('备用行情源暂无 K 线数据');
+    var rows = [];
+    var prev = 0;
+    for (var i = 0; i < arr.length; i++) {
+      var p = arr[i];
+      if (!p || p.length < 6) continue;
+      var close = num(p[2], 0);
+      if (!close || close <= 0) continue;
+      rows.push({
+        date: String(p[0]),
+        open: num(p[1], 0),
+        close: close,
+        high: num(p[3], 0),
+        low: num(p[4], 0),
+        volume: num(p[5], 0),
+        amount: 0,   // 腾讯 K 线不含成交额；前端量价图只用 volume
+        change_pct: prev > 0 ? Math.round((close - prev) / prev * 10000) / 100 : 0
+      });
+      prev = close;
+    }
+    if (!rows.length) throw new Error('备用行情源暂无 K 线数据');
+    if (rows.length > lmt) rows = rows.slice(rows.length - lmt);
+    var qt = (node.qt && node.qt[symbol]) || [];
+    return {
+      code: market.normalizeCode(code),
+      name: String(qt[1] || ''),
+      klines: rows,
+      source: 'tencent'
+    };
+  });
+}
+
+function fetchTrendsTencent(code) {
+  var symbol = tencentSymbol(code);
+  var path = '/appstock/app/minute/query?code=' + symbol;
+  return httpGet(TEN_WEB_HOST, path, 'https://gu.qq.com/').then(function (body) {
+    var node = body && body.data && body.data[symbol];
+    var arr = node && node.data && node.data.data;
+    if (!arr || !arr.length) throw new Error('备用行情源暂无分时数据');
+    var qt = (node.qt && node.qt[symbol]) || [];
+    var points = [];
+    for (var i = 0; i < arr.length; i++) {
+      var p = String(arr[i]).split(' ');
+      var raw = String(p[0] || '');
+      if (raw.length < 4) continue;
+      // 腾讯把 15:05–15:30 的盘后固定价格交易也拼在当日分时里；
+      // 图表时间轴到 15:00 为止，带进去会把整条线压缩变形。
+      if (raw > '1500') continue;
+      var price = num(p[1], 0);
+      if (!price || price <= 0) continue;
+      var cumVol = num(p[2], 0);
+      var cumAmount = num(p[3], 0);
+      // 腾讯分时给的是**累计**成交量（手）与累计成交额（元），均价 = 累计额 / 累计股数
+      var avg = cumVol > 0 ? Math.round(cumAmount / (cumVol * 100) * 100) / 100 : 0;
+      points.push({
+        time: raw.slice(0, 2) + ':' + raw.slice(2, 4) + ':00',
+        price: price,
+        avg: avg,
+        volume: cumVol
+      });
+    }
+    if (!points.length) throw new Error('备用行情源暂无分时数据');
+    return {
+      code: market.normalizeCode(code),
+      name: String(qt[1] || ''),
+      prev_close: num(qt[4], 0),
+      points: points,
+      source: 'tencent'
+    };
+  });
+}
+
+function fetchIndexesTencent() {
+  var qs = INDEXES.map(function (x) {
+    return (x.secid.charAt(0) === '1' ? 'sh' : 'sz') + x.code;
+  });
+  return httpGetPlain(TEN_HOST, '/q=' + qs.join(',')).then(function (buf) {
+    var body = decodeGbk(buf);
+    var re = /v_(?:sh|sz)(\d{6})="([^"]*)"/g;
+    var byCode = {};
+    var m;
+    while ((m = re.exec(body))) byCode[m[1]] = m[2];
+    var out = [];
+    for (var i = 0; i < INDEXES.length; i++) {
+      var f = String(byCode[INDEXES[i].code] || '').split('~');
+      if (f.length < 33) continue;
+      var price = num(f[3], 0);
+      if (price === null || price <= 0) continue;
+      out.push({
+        code: INDEXES[i].code,
+        name: String(f[1] || INDEXES[i].name),
+        price: price,
+        change: num(f[31], 0),
+        change_pct: num(f[32], 0)
+      });
+    }
+    return out;
+  });
+}
+
+// 主源（东财）优先；主源刚失败过时直接走备用源，避免每次详情请求都先吃一次 RST。
+// 与快照共用 preferBackupUntil：它们打的是同一批被掐断的东财域名。
+function requestDetailWithBackup(primary, backup) {
+  if (Date.now() < RT.preferBackupUntil) {
+    return backup().catch(function () { return primary(); });
+  }
+  return primary().catch(function (err0) {
+    RT.preferBackupUntil = Date.now() + PRIMARY_DOWN_MS;
+    return backup().catch(function () { throw err0; });
+  });
+}
+
 // 对外主入口：返回 { list, byCode, stale, error, at }
 // ---- 失败退避 ----
 // ⚠️ 校园网到东财是不通的（socket hang up）。而下面的 catch 分支只写 _snapshot、
@@ -668,7 +800,7 @@ function readCachedQuote(code) {
 }
 
 // ---- 指数 ----
-function getIndexes() {
+function fetchIndexesEastmoney() {
   var ids = INDEXES.map(function (x) { return x.secid; }).join(',');
   var path = '/api/qt/ulist.np/get?fltt=2&invt=2&fields=f2,f3,f4,f12,f14&secids=' + ids;
   return httpGet('push2.eastmoney.com', path).then(function (body) {
@@ -686,17 +818,20 @@ function getIndexes() {
         });
       }
     }
+    if (!out.length) throw new Error('行情源没有返回指数数据');
     return out;
-  }).catch(function () { return []; });
+  });
+}
+
+function getIndexes() {
+  return requestDetailWithBackup(fetchIndexesEastmoney, fetchIndexesTencent)
+    .catch(function () { return []; });
 }
 
 // ---- K 线 ----
 // klt: 101 日 / 102 周 / 103 月；fqt: 1 前复权
-function getKline(code, klt, limit) {
-  var c = market.normalizeCode(code);
-  if (!c || !UNIVERSE_MAP[c]) return Promise.reject(new Error('该股票不在可交易范围内'));
+function fetchKlineEastmoney(c, klt, lmt) {
   var secid = market.toSecId(c);
-  var lmt = Math.min(Math.max(parseInt(limit, 10) || 90, 20), 240);
   var path = '/api/qt/stock/kline/get?secid=' + secid +
     '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58' +
     '&klt=' + (klt || 101) + '&fqt=1&end=20500101&lmt=' + lmt;
@@ -722,10 +857,20 @@ function getKline(code, klt, limit) {
   });
 }
 
-// ---- 分时 ----
-function getTrends(code) {
+function getKline(code, klt, limit) {
   var c = market.normalizeCode(code);
   if (!c || !UNIVERSE_MAP[c]) return Promise.reject(new Error('该股票不在可交易范围内'));
+  // req.query.klt 是字符串，必须转成数字再比较，否则周/月线会静默退化成日线
+  var period = parseInt(klt, 10) === 102 ? 102 : (parseInt(klt, 10) === 103 ? 103 : 101);
+  var lmt = Math.min(Math.max(parseInt(limit, 10) || 90, 20), 240);
+  return requestDetailWithBackup(
+    function () { return fetchKlineEastmoney(c, period, lmt); },
+    function () { return fetchKlineTencent(c, period, lmt); }
+  );
+}
+
+// ---- 分时 ----
+function fetchTrendsEastmoney(c) {
   var secid = market.toSecId(c);
   var path = '/api/qt/stock/trends2/get?secid=' + secid +
     '&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1&iscr=0';
@@ -750,6 +895,15 @@ function getTrends(code) {
       points: rows
     };
   });
+}
+
+function getTrends(code) {
+  var c = market.normalizeCode(code);
+  if (!c || !UNIVERSE_MAP[c]) return Promise.reject(new Error('该股票不在可交易范围内'));
+  return requestDetailWithBackup(
+    function () { return fetchTrendsEastmoney(c); },
+    function () { return fetchTrendsTencent(c); }
+  );
 }
 
 // ---- 检索（只在本池内）----
