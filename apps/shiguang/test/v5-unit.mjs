@@ -117,6 +117,54 @@ world.spawns.forEach(s => {
 ok(farmBlocked === 0, '农场 ' + FA.FARM_W + '×' + FA.FARM_H + ' 格全部可走', farmBlocked);
 ok(farmSpawns === 0, '自家田里不刷怪', farmSpawns);
 
+// ---- v5.4 加工 / 采集 / 吃：farmdata 数据层 ----
+ok(Object.keys(FA.RECIPES || {}).length >= 17, 'v5.4 配方表齐全（数值表 18 条）', Object.keys(FA.RECIPES || {}).length);
+ok(Object.keys(FA.MACHINES || {}).length === 5, '5 台加工设备', Object.keys(FA.MACHINES || {}).length);
+ok(FA.MACHINES.furnace.cost === 300 && FA.MACHINES.keg.cost === 2500, '设备定价按 spec', FA.MACHINES.furnace.cost + '/' + FA.MACHINES.keg.cost);
+ok(FA.TOOL_UPGRADES.every(function (u) { return /_bar$/.test(u.bar); }), '工具升级改用锭', FA.TOOL_UPGRADES.map(function (u) { return u.bar; }).join(','));
+ok(Object.keys(FA.SELL || {}).length >= 16 && FA.SELL.copper_bar === 60 && FA.SELL.iridium_bar === 1000, '锭与加工品基价表', FA.SELL.copper_bar + '/' + FA.SELL.iridium_bar);
+ok(Object.keys(FA.EAT || {}).length >= 16, '可吃表覆盖料理与采集物', Object.keys(FA.EAT || {}).length);
+ok(FA.EAT.food_soup === 40 && typeof FA.EAT.starfruit === 'object' && FA.EAT.starfruit.maxEnergy === 34, '料理回体力 / 星果 +34 特殊', JSON.stringify(FA.EAT.food_soup) + '/' + JSON.stringify(FA.EAT.starfruit));
+ok(FA.ENERGY_CAP === 200, '体力上限 200 硬约束', FA.ENERGY_CAP);
+// 职业效果表：13 个 v5.4 兑现的职业 id 必须都能在 PROFESSIONS 里选到
+(function () {
+  const have = {};
+  for (const sk of Object.keys(FA.PROFESSIONS)) {
+    for (const tier of Object.keys(FA.PROFESSIONS[sk])) {
+      for (const p of FA.PROFESSIONS[sk][tier]) have[p[0]] = 1;
+    }
+  }
+  const need = ['blacksmith', 'prospector', 'geologist', 'pirate', 'forester', 'gatherer',
+    'lumberjack', 'botanist', 'trapper', 'fighter', 'scout', 'brute', 'defender'];
+  const missing = need.filter(function (id) { return !have[id]; });
+  ok(missing.length === 0, '13 个职业效果 id 都存在', missing.join(','));
+})();
+// 季节齐：四季都有采集物
+(function () {
+  const bySeason = {};
+  for (const f of FA.FORAGE) bySeason[f.s] = (bySeason[f.s] || 0) + 1;
+  ok(FA.FORAGE.length >= 12, 'v5.4 采集物 ≥12 种', FA.FORAGE.length);
+  ok([0, 1, 2, 3].every(function (s) { return (bySeason[s] || 0) >= 3; }), '四季采集物齐全', JSON.stringify(bySeason));
+})();
+// forageList：14~18 个、确定性、冷却格被排除、不落在自家田里
+(function () {
+  for (const day of [1, 13, 29, 57, 85, 113]) {
+    const l = FD.forageList(day, {});
+    ok(l.length >= 12, 'forageList(' + day + ') 数量 12~26', l.length);
+    const inFarm = l.filter(function (p) {
+      return p.x >= FA.FARM_X - 1 && p.x <= FA.FARM_X + FA.FARM_W && p.y >= FA.FARM_Y - 1 && p.y <= FA.FARM_Y + FA.FARM_H;
+    });
+    ok(inFarm.length === 0, 'forageList(' + day + ') 不长在自家田里', inFarm.length);
+  }
+  const l0 = FD.forageList(9, {});
+  ok(JSON.stringify(l0) === JSON.stringify(FD.forageList(9, {})), 'forageList 确定性（同参数同结果）');
+  const cd = {};
+  l0.forEach(function (p) { cd[p.x + ',' + p.y] = 9; });
+  const l1 = FD.forageList(9, cd);
+  ok(l1.length >= 12, '冷却后仍有新点（12~26）', l1.length);
+  ok(l1.every(function (p) { return !cd[p.x + ',' + p.y]; }), '冷却格（day 差 <3）被排除');
+})();
+
 // ---- 数据完整性 ----
 for (const k of Object.keys(D.MONSTERS)) {
   const m = D.MONSTERS[k];

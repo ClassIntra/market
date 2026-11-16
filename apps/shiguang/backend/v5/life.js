@@ -10,8 +10,16 @@ module.exports = function createLife(ctx) {
   var guard = ctx.FARM.guard, nowMs = ctx.nowMs, push = ctx.FARM.push;
   var has = ctx.FARM.has, merge = ctx.FARM.merge;
   var broadcast = ctx.FARM.broadcast, onlineIds = ctx.FARM.onlineIds;
+  var world = ctx.FARM.world;
+  var WG = require('./worldgen');
+  var TREE_TILE = {}; TREE_TILE[WG.TILE.TREE] = 1; TREE_TILE[WG.TILE.PINE] = 1; TREE_TILE[WG.TILE.DEADTREE] = 1;
 
   function day() { return FARM.dayNow(); }
+  function prof(f, id) { return f.profs && f.profs.indexOf(id) >= 0; }
+  function tileAt(x, y) {
+    if (!world || !world.grid || x < 0 || y < 0 || x >= world.size || y >= world.size) return -1;
+    return world.grid[y * world.size + x];
+  }
   function weekKey(d) { return Math.floor((d - 1) / 7); }
   function rel(f, npc) {
     if (!D.VILLAGERS[npc]) return null;
@@ -141,7 +149,11 @@ module.exports = function createLife(ctx) {
       if (floor > D.MINE_MAX) floor = D.MINE_MAX;
       if (floor > 1 && floor % 5 !== 0) { fail(res, '只能从电梯层下矿', 400); return false; }
       if (floor > (f.elevator || 0) + 1) { fail(res, '这层电梯还没到', 400); return false; }
-      f.mineRun = { floor: floor, hp: 40 + FD.levelOf(f.skills.combat || 0) * 10, stair: 0, digs: 0 };
+      // v5.4：fighter 洞里血上限 ×1.15、defender +25（职业在进洞那一刻生效）
+      var hp = 40 + FD.levelOf(f.skills.combat || 0) * 10;
+      if (prof(f, 'fighter')) hp = Math.round(hp * 1.15);
+      if (prof(f, 'defender')) hp += 25;
+      f.mineRun = { floor: floor, hp: hp, maxHp: hp, stair: 0, digs: 0 };
       f.mineFloor = floor;
       return { mine: f.mineRun };
     });
@@ -154,9 +166,10 @@ module.exports = function createLife(ctx) {
       if (f.energy <= 0) { fail(res, '体力见底了，回去睡一觉', 400); return false; }
       m.digs++;
       // 怪物：越深越常见，打赢给战斗经验，掉血
-      var monsterChance = Math.min(0.42, 0.12 + m.floor * 0.002);
+      // v5.4：scout 遇怪率 ×0.5，brute 承伤 ×0.85
+      var monsterChance = Math.min(0.42, 0.12 + m.floor * 0.002) * (prof(f, 'scout') ? 0.5 : 1);
       if (Math.random() < monsterChance) {
-        var dmg = 4 + Math.floor(m.floor / 12);
+        var dmg = Math.max(1, Math.round((4 + Math.floor(m.floor / 12)) * (prof(f, 'brute') ? 0.85 : 1)));
         m.hp -= dmg;
         FARM.xpAdd(f, 'combat', 6 + Math.floor(m.floor / 10));
         if (m.hp <= 0) {
@@ -173,6 +186,7 @@ module.exports = function createLife(ctx) {
         if (m.floor < o.from) continue;
         var w = o.id === 'stone' ? 3 : o.id === 'coal' ? 3 : o.id === 'gem' ? 1 : 4;
         if (o.id === 'iridium') w = 2;
+        if (o.id === 'coal' && prof(f, 'prospector')) w *= 2;   // 勘探者：煤更多
         for (var q = 0; q < w; q++) pool.push(o);
       }
       var got = [], n = 1 + (f.profs.indexOf('miner') >= 0 ? 1 : 0) + (f.tools.pickaxe >= 3 && Math.random() < 0.3 ? 1 : 0);
@@ -182,11 +196,22 @@ module.exports = function createLife(ctx) {
         var oq = FD.qualityRoll(0, '', Math.random()) > 1 ? 1 : 0;
         var iid = ore.id + (oq ? '_q' + oq : '');
         if (FARM.addItem(f, iid, 1)) got.push(iid);
+        // 地质学家：宝石成对（第二次必得）
+        if (ore.id === 'gem' && prof(f, 'geologist') && FARM.addItem(f, iid, 1)) got.push(iid);
         FARM.xpAdd(f, 'mining', ore.xp);
       }
       f.stats.ore = (f.stats.ore || 0) + got.length;
+      // 海盗：5% 挖出矿洞宝箱（金币 100~300 + 宝石 ×1），全班广播一声
+      var chest = null;
+      if (prof(f, 'pirate') && Math.random() < 0.05) {
+        var coins = 100 + Math.floor(Math.random() * 201);
+        FARM.goldAdd(f, coins);
+        FARM.addItem(f, 'gem', 1);
+        chest = { gold: coins, gem: 1 };
+        push(id, { k: 'farm-pirate', gold: coins, gem: 1 });
+      }
       if (!m.stair && (m.digs >= 2 || Math.random() < 0.35)) m.stair = 1;
-      return { mine: m, got: got };
+      return { mine: m, got: got, chest: chest };
     });
   });
 
@@ -215,6 +240,106 @@ module.exports = function createLife(ctx) {
     guard(uidOf(req), res, 0, function (id, rec, f) {
       f.mineRun = null;
       return { mine: null };
+    });
+  });
+
+  // ---------- v5.4 加工：设备 + 配方 ----------
+  router.post('/v5/life/craft', requireAuth, function (req, res) {
+    var b = req.body || {};
+    var def = D.RECIPES[String(b.id || '')];
+    var n = Math.floor(Number(b.n) || 1) === 5 ? 5 : 1;
+    guard(uidOf(req), res, def ? def.energy * n : 0, function (id, rec, f) {
+      if (!def) { fail(res, '没有这个配方', 400); return false; }
+      var md = D.MACHINES[def.machine];
+      if (!f.machines || !f.machines[def.machine]) {
+        fail(res, '还没有' + (md ? md.name : def.machine) + '，先去商店买一台', 400); return false;
+      }
+      // 先整轮校验材料，再统一扣：中途报错不能吞掉前面扣掉的材料
+      for (var k in def.inputs) {
+        if (!has(def.inputs, k)) continue;
+        var need = def.inputs[k] * n;
+        if ((f.inv[k] || 0) < need) {
+          fail(res, '材料不够：' + FARM.itemName(k) + '还差 ' + (need - (f.inv[k] || 0)) + ' 个', 400); return false;
+        }
+      }
+      for (var k2 in def.inputs) if (has(def.inputs, k2)) FARM.takeItem(f, k2, def.inputs[k2] * n);
+      if (!FARM.addItem(f, def.out, def.n * n)) { fail(res, '背包满了，先腾个位置', 400); return false; }
+      // 熔炼记采矿经验，其余记耕种经验；经验 = 单次体力 × 3
+      var skill = def.machine === 'furnace' ? 'mining' : 'farming';
+      var up = FARM.xpAdd(f, skill, def.energy * 3 * n);
+      if (up) push(id, { k: 'farm-level', skill: skill, lv: up.lv });
+      return { crafted: def.out, n: def.n * n, name: FARM.itemName(def.out), skill: skill };
+    });
+  });
+
+  // ---------- v5.4 吃：料理回体力，星果永久加体力上限 ----------
+  router.post('/v5/life/eat', requireAuth, function (req, res) {
+    var b = req.body || {};
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var item = String(b.item || '');
+      var base = item.split('_q')[0];
+      var def = D.EAT[base];
+      if (!def) { fail(res, '这个不能吃', 400); return false; }
+      if ((f.inv[item] || 0) < 1) { fail(res, '背包里没有 ' + FARM.itemName(item), 400); return false; }
+      if (typeof def === 'object') {
+        // starfruit：maxEnergy +34 永久，可重复吃，硬上限 200
+        var before = f.maxEnergy;
+        f.maxEnergy = Math.min(def.cap || D.ENERGY_CAP, f.maxEnergy + def.maxEnergy);
+        if (f.maxEnergy === before) { fail(res, '体力上限已经到头了（' + D.ENERGY_CAP + '）', 400); return false; }
+        FARM.takeItem(f, item, 1);
+        return { ate: item, gain: 0, maxEnergy: f.maxEnergy, energy: f.energy, capUp: f.maxEnergy - before };
+      }
+      if (f.energy >= f.maxEnergy) { fail(res, '体力已满', 400); return false; }
+      FARM.takeItem(f, item, 1);
+      f.energy = Math.min(f.maxEnergy, f.energy + def);
+      return { ate: item, gain: def, energy: f.energy, maxEnergy: f.maxEnergy };
+    });
+  });
+
+  // ---------- v5.4 野外采集 ----------
+  router.post('/v5/life/forage/pick', requireAuth, function (req, res) {
+    var b = req.body || {};
+    guard(uidOf(req), res, 0, function (id, rec, f) {
+      var x = Math.floor(Number(b.x)), y = Math.floor(Number(b.y));
+      var key = x + ',' + y;
+      var list = FD.forageList(day(), f.forageCd);
+      var found = null;
+      for (var i = 0; i < list.length; i++) if (list[i].x === x && list[i].y === y) found = list[i];
+      if (!found) { fail(res, '这里没有可以采集的东西', 400); return false; }
+      if (f.forageCd[key] === day()) { fail(res, '这株刚刚采过了', 400); return false; }
+      var botanist = prof(f, 'botanist'), gatherer = prof(f, 'gatherer');
+      var iid = found.item + (botanist ? '_q2' : '');
+      var got = [];
+      if (!FARM.addItem(f, iid, 1)) { fail(res, '背包满了', 400); return false; }
+      got.push(iid);
+      if (gatherer && Math.random() < 0.2 && FARM.addItem(f, iid, 1)) got.push(iid);   // 采集者：20% 双份
+      FARM.xpAdd(f, 'foraging', 12);
+      f.forageCd[key] = day();
+      f.stats.forage = (f.stats.forage || 0) + got.length;
+      if (!f.seenForage) f.seenForage = 1;
+      return { picked: found.item, got: got, name: FARM.itemName(iid), x: x, y: y };
+    });
+  });
+
+  // ---------- v5.4 砍树：服务端用世界数据校验树格 ----------
+  router.post('/v5/life/chop', requireAuth, function (req, res) {
+    var b = req.body || {};
+    // 斧头一次的力气（TOOL_ENERGY.axe=4，spec 没写，但砍树免费会让木材经济漏）
+    guard(uidOf(req), res, D.TOOL_ENERGY.axe, function (id, rec, f) {
+      var x = Math.floor(Number(b.x)), y = Math.floor(Number(b.y));
+      var key = x + ',' + y;
+      var t = tileAt(x, y);
+      if (!TREE_TILE[t]) { fail(res, '这里没有树可以砍', 400); return false; }
+      var cd = f.chopped[key];
+      if (cd && day() - cd < 3) { fail(res, '这棵树刚被砍过，过几天再来', 400); return false; }
+      var forester = prof(f, 'forester'), lumberjack = prof(f, 'lumberjack');
+      var woodN = 3 + Math.floor(Math.random() * 3) + (forester ? 1 : 0);   // 3~5（护林人 +1）
+      if (!FARM.addItem(f, 'wood', woodN)) { fail(res, '背包满了', 400); return false; }
+      var got = { wood: woodN };
+      if (Math.random() < (lumberjack ? 0.5 : 0.25) && FARM.addItem(f, 'hardwood', 1)) got.hardwood = 1;
+      FARM.xpAdd(f, 'foraging', 10);
+      f.chopped[key] = day();
+      return { chopped: key, got: got, x: x, y: y };
     });
   });
 

@@ -140,7 +140,9 @@
     ]
   };
 
-  function paintGlyph(g, kind, size) {
+  // v5.4：palette 是「字符→颜色」映射（o/+/-/# 键）。不传时行为与旧版逐字节一致：
+  // 只画 '#'，按行高取三档金属色；传了才把登记过的字符按映射色画出来。
+  function paintGlyph(g, kind, size, palette) {
     var rows = GLYPH[kind];
     if (!rows) return;
     var h = rows.length, w = rows[0].length;
@@ -148,9 +150,16 @@
     var ox = Math.round((size - w * s) / 2), oy = Math.round((size - h * s) / 2);
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (rows[y].charAt(x) !== '#') continue;
-        // 上亮下暗，做出金属感
-        var tone = y < h * 0.45 ? '#e8dcc0' : (y < h * 0.75 ? '#b9a988' : '#8b7c60');
+        var ch = rows[y].charAt(x);
+        if (ch !== '#') {
+          if (palette && palette[ch]) {
+            g.fillStyle = palette[ch];
+            g.fillRect(ox + x * s, oy + y * s, s, s);
+          }
+          continue;
+        }
+        var tone = palette && palette['#'] ? palette['#']
+          : (y < h * 0.45 ? '#e8dcc0' : (y < h * 0.75 ? '#b9a988' : '#8b7c60'));
         g.fillStyle = tone;
         g.fillRect(ox + x * s, oy + y * s, s, s);
       }

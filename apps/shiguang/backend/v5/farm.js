@@ -13,6 +13,7 @@ module.exports = function createFarm(ctx) {
   var ok = ctx.ok, fail = ctx.fail, push = ctx.push, broadcast = ctx.broadcast;
   var nowMs = ctx.nowMs, TOWN_SPAWN = ctx.TOWN_SPAWN, onlineIds = ctx.onlineIds;
   var SIMc = ctx.SIM;
+  var isBlockedWorld = ctx.isBlockedWorld;
 
   // 进程级日历（热挂载/热更新不重置 epoch）
   var CAL = global.__shiguang5FarmCal || (global.__shiguang5FarmCal = { epoch: Date.now(), lastDay: 0 });
@@ -37,6 +38,7 @@ module.exports = function createFarm(ctx) {
       relations: {}, bundles: {}, rooms: {}, greenhouse: false,
       festivalSeen: {}, todayTalk: {}, weekGifts: {}, lastWeek: 0,
       pendingFish: null, mineRun: null, spouse: '', houseLv: 0,
+      machines: {}, forageCd: {}, chopped: {}, seenForage: 0,
       stats: { harvest: 0, fish: 0, ore: 0, gift: 0, ship: 0 }
     };
   }
@@ -80,7 +82,7 @@ module.exports = function createFarm(ctx) {
           hay: '干草', wood: '木材', speedgro: '生长激素', quality_fert: '高级肥料',
           sprinkler: '洒水器', bait: '鱼饵', rod: '鱼竿', furnace: '熔炉', seeds: '混合种子',
           gem: '宝石', stone: '石头' };
-        n = FIX[base] || base;
+        n = FIX[base] || (D.ITEM_NAMES && D.ITEM_NAMES[base]) || base;
       }
     }
     return n + (q ? '★' + q : '');
@@ -88,15 +90,35 @@ module.exports = function createFarm(ctx) {
   function itemCategory(id) {
     if (!id) return 'other';
     var b = String(id).split('_q')[0];
-    if (b === 'hay' || b === 'wood' || b === 'stone' || b === 'speedgro' || b === 'quality_fert') return 'crop';
+    if (b === 'hay' || b === 'wood' || b === 'hardwood' || b === 'stone' || b === 'speedgro' || b === 'quality_fert') return 'crop';
     if (D.CROPS[b]) return /tulip|jazz|poppy|spangle|fairrose/.test(b) ? 'flower' : 'crop';
     if (b.indexOf('seed_') === 0) return 'crop';
     for (var i = 0; i < D.FISH.length; i++) if (D.FISH[i].id === b) return 'fish';
     for (var j = 0; j < D.ORES.length; j++) if (D.ORES[j].id === b) return b === 'gem' ? 'gem' : 'ore';
     if (/egg|milk|wool|truffle|feather/.test(b)) return 'animal';
+    // v5.4：锭按矿石、加工品 / 料理按食物归类（送礼口味与图鉴都用它）
+    if (/_bar$/.test(b)) return 'ore';
+    if (/^food_/.test(b) || b === 'mayonnaise' || b === 'cheese' || b === 'pale_ale' || b === 'beer') return 'food';
+    if (b === 'crab') return 'fish';
     if (b === 'bait' || b === 'rod' || b === 'furnace' || b === 'sprinkler' || b === 'seeds') return 'food';
     return 'other';
   }
+  // v5.4：加工产物 id 集合（artisan +40% 用）与采集物基价表，模块加载时算一次
+  // 锭归铁匠专属（blacksmith ×1.5），不吃工匠加成 —— 双倍叠加会让金属失控
+  var ARTISAN_OUT = {};
+  (function () {
+    for (var k in D.RECIPES) {
+      if (!has(D.RECIPES, k)) continue;
+      var out = String(D.RECIPES[k].out).split('_q')[0];
+      if (/_bar$/.test(out)) continue;
+      ARTISAN_OUT[out] = 1;
+    }
+  })();
+  var FORAGE_SELL = {};
+  (function () {
+    for (var i = 0; i < D.FORAGE.length; i++) FORAGE_SELL[D.FORAGE[i].id] = D.FORAGE[i].sell;
+  })();
+
   // 单件售价：只有「真正有价的东西」才能变现。未知物品返回 0 —— 不能给兜底价，
   // 否则任何随手捡到的杂物都能无限换钱，整个经济会漏。
   function unitPrice(f, k, perk) {
@@ -109,6 +131,15 @@ module.exports = function createFarm(ctx) {
     var u = AM[base] || 0;
     if (u) {
       if (f.profs.indexOf('rancher') >= 0) u = u * 1.2;
+      return Math.floor(u * FD.qualityMul(q));
+    }
+    // v5.4：锭 / 加工品 / 料理 / 硬木 / 蟹 / 野外采集物各有基价表
+    var fs = FORAGE_SELL[base];
+    if (fs) return Math.floor(fs * FD.qualityMul(q));
+    u = D.SELL[base] || 0;
+    if (u) {
+      if (/_bar$/.test(base) && f.profs.indexOf('blacksmith') >= 0) u *= 1.5;   // 铁匠：锭 +50%
+      if (ARTISAN_OUT[base] && f.profs.indexOf('artisan') >= 0) u *= 1.4;       // 工匠：加工品 +40%
       return Math.floor(u * FD.qualityMul(q));
     }
     if (base.indexOf('seed_') === 0) {          // 种子按半价回收，和商店一致
@@ -234,6 +265,10 @@ module.exports = function createFarm(ctx) {
     // 5. 节日 / 生日提醒
     var fes = FD.festivalOn(day);
     if (fes && !f.festivalSeen[day]) notices.push('今天是' + fes.name);
+    // 5.5 trapper：蟹笼每天清晨自己收一只蟹
+    if (f.profs && f.profs.indexOf('trapper') >= 0) {
+      if (addItem(f, 'crab', 1)) notices.push('蟹笼里收了一只蟹');
+    }
     var vk = Object.keys(D.VILLAGERS);
     for (var vi = 0; vi < vk.length; vi++) {
       var v = D.VILLAGERS[vk[vi]];
@@ -270,6 +305,17 @@ module.exports = function createFarm(ctx) {
       relations: f.relations, bundles: f.bundles, rooms: f.rooms, greenhouse: f.greenhouse,
       festivalSeen: f.festivalSeen, spouse: f.spouse, houseLv: f.houseLv,
       stats: f.stats, lastDay: f.lastDay, sleptDay: f.sleptDay, faint: f.faint,
+      machines: f.machines, forageCd: f.forageCd, chopped: f.chopped,
+      forage: (function () {
+        // 生成端就过滤掉不可达格：提示与实际可采保持一致，别让玩家对着栅栏发呆
+        var list = FD.forageList(dayNow(), f.forageCd), out = [];
+        for (var i = 0; i < list.length; i++) {
+          if (isBlockedWorld && isBlockedWorld(list[i].x + 0.5, list[i].y + 0.5)) continue;
+          out.push(list[i]);
+        }
+        return out;
+      })(),
+      recipes: D.RECIPES, eat: D.EAT,
       cal: c, data: D,
       prices: (function () { var o = {}; for (var k in f.inv) if (has(f.inv, k)) o[k] = unitPrice(f, k, ''); return o; })(),
       invCount: invCount(f), heartPts: D.HEART_PTS,
@@ -444,6 +490,11 @@ module.exports = function createFarm(ctx) {
         if (!D.ANIMALS[item]) { fail(res, '没有这种动物', 400); return false; }
         if ((f.animals || []).length >= 12) { fail(res, '棚里住满了', 400); return false; }
         unit = D.ANIMALS[item].cost; n = 1;
+      } else if (kind === 'machine') {
+        // v5.4：设备不进背包，买一台记一台（可重复买，只用于展示「第 N 台」）
+        item = String(b.id || '');
+        if (!D.MACHINES[item]) { fail(res, '没有这种设备', 400); return false; }
+        unit = D.MACHINES[item].cost; n = 1;
       } else if (kind === 'hay') { item = 'hay'; unit = 50; }
       else if (kind === 'wood') { item = 'wood'; unit = 10; }
       else if (kind === 'fert') {
@@ -469,6 +520,11 @@ module.exports = function createFarm(ctx) {
 
       var total = unit * n;
       if (f.gold < total) { fail(res, '金币不够，需要 ' + total + ' 金', 400); return false; }
+      if (kind === 'machine') {
+        goldAdd(f, -total);
+        f.machines[item] = (f.machines[item] || 0) + 1;
+        return { bought: item, machine: item, count: f.machines[item], name: D.MACHINES[item].name, cost: total };
+      }
       if (kind === 'animal') {
         goldAdd(f, -total);
         f.animalSeq = (f.animalSeq || 0) + 1;
@@ -634,6 +690,7 @@ module.exports = function createFarm(ctx) {
     energyUse: energyUse, merge: merge, has: has, push: push, broadcast: broadcast,
     onlineIds: onlineIds, TOWN_SPAWN: TOWN_SPAWN, S: S, fail: fail, ok: ok,
     uidOf: uidOf, requireAuth: requireAuth, router: router, nowMs: nowMs,
+    world: ctx.world,
     setEpochForDay: setEpochForDay, tick: tick,
     // 供 life.js 复用的动作包装
     guard: guard, defFarm: defFarm

@@ -365,7 +365,8 @@ var SOC = require('./social')({
 var FARM = require('./farm')({
   router: router, S: S, SIM: SIM, world: world, requireAuth: requireAuth,
   uidOf: uid, ok: ok, fail: fail, nowMs: nowMs, broadcast: broadcast,
-  onlineIds: onlineIds, push: push, TOWN_SPAWN: TOWN_SPAWN
+  onlineIds: onlineIds, push: push, TOWN_SPAWN: TOWN_SPAWN,
+  isBlockedWorld: function (x, y) { return W.isBlocked(world, x, y); }
 });
 var LIFE = require('./life')({
   router: router, FARM: FARM, requireAuth: requireAuth, uidOf: uid,

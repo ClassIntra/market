@@ -34,8 +34,286 @@
     '.##.........'
   ];
 
+  // ---- v5.4 多色字形：palette 传主色（与 farmItemColor 的 M 表一致） ----
+  // 字符约定：'#' 主色 / 'o' 亮部 / '+' 次色 / '.' 空白；不传 palette 时只画 '#'。
+  GLYPH.bar = [
+    '............',
+    '...oooooo...',
+    '..########..',
+    '...######...',
+    '............',
+    '...oooooo...',
+    '..########..',
+    '...######...',
+    '............',
+    '............'
+  ];
+  GLYPH.for_flower = [
+    '...++++++...',
+    '..++oooo++..',
+    '.+++oooo+++.',
+    '.+++oooo+++.',
+    '..++oooo++..',
+    '...++++++...',
+    '.....##.....',
+    '.....##.....',
+    '.....##.....',
+    '.....##.....',
+    '.....#......',
+    '............'
+  ];
+  GLYPH.for_root = [
+    '....##.##...',
+    '...###.###..',
+    '....#####...',
+    '.....###....',
+    '....+++++...',
+    '....+++++...',
+    '....++++....',
+    '.....+++....',
+    '.....++.....',
+    '......+.....',
+    '............',
+    '............'
+  ];
+  GLYPH.for_berry = [
+    '.....##.....',
+    '....#++#....',
+    '....#++#....',
+    '.....##.....',
+    '..##....##..',
+    '.#++#..#++#.',
+    '.#++#..#++#.',
+    '..##....##..',
+    '.....#......',
+    '....##......',
+    '............',
+    '............'
+  ];
+  GLYPH.for_fruit = [
+    '......##....',
+    '.....##.....',
+    '...######...',
+    '..+######+..',
+    '.++######++.',
+    '.++######++.',
+    '.++######++.',
+    '..+######+..',
+    '...######...',
+    '....####....',
+    '............',
+    '............'
+  ];
+  GLYPH.mayonnaise = [
+    '..oooooooo..',
+    '..oooooooo..',
+    '.##########.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.##########.',
+    '............',
+    '............',
+    '............'
+  ];
+  GLYPH.cheese = [
+    '.........##.',
+    '.......####.',
+    '.....######.',
+    '...########.',
+    '.+#########.',
+    '++#########.',
+    '+++o####o##.',
+    '.++########.',
+    '..########..',
+    '............',
+    '............',
+    '............'
+  ];
+  GLYPH.drink = [
+    '.##########.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.##########.',
+    '....##......',
+    '....##......',
+    '..#######...',
+    '............'
+  ];
+  GLYPH.machine_furnace = [
+    '..########..',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.##oooooo##.',
+    '.#oooooooo#.',
+    '.#oo++++oo#.',
+    '.#oo++++oo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '..########..',
+    '............',
+    '............'
+  ];
+  GLYPH.machine_mayo = [
+    '.....oo.....',
+    '....oooo....',
+    '............',
+    '.##########.',
+    '.#oooooooo#.',
+    '.#oo++++oo#.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.##########.',
+    '...##..##...',
+    '............',
+    '............'
+  ];
+  GLYPH.machine_cheese = [
+    '.....##.....',
+    '.....##.....',
+    '...######...',
+    '...######...',
+    '.##########.',
+    '.#oooooooo#.',
+    '.#oooooooo#.',
+    '.##########.',
+    '.#oooooooo#.',
+    '.##########.',
+    '............',
+    '............'
+  ];
+  GLYPH.machine_keg = [
+    '...######...',
+    '..########..',
+    '.##oooooo##.',
+    '.#oooooooo#.',
+    '.#o##oo##o#.',
+    '.#o##oo##o#.',
+    '.#oooooooo#.',
+    '.##oooooo##.',
+    '..########..',
+    '...######...',
+    '............',
+    '............'
+  ];
+  GLYPH.machine_stove = [
+    '..oooooooo..',
+    '..o......o..',
+    '..oooooooo..',
+    '.##########.',
+    '.#oooooooo#.',
+    '.#o++++++o#.',
+    '.#o++++++o#.',
+    '.#oooooooo#.',
+    '.##########.',
+    '.##......##.',
+    '............',
+    '............'
+  ];
+  var PAL_STEM = '#4b7a3e', PAL_LEAF = '#5c8a3c', PAL_DARK = '#3a2a20';
+  var FARM_ICON = {
+    copper_bar: { glyph: 'bar', pal: { '#': '#c98452', 'o': '#e8b088' } },
+    iron_bar: { glyph: 'bar', pal: { '#': '#c8cdd4', 'o': '#eef1f4' } },
+    gold_bar: { glyph: 'bar', pal: { '#': '#e5c45c', 'o': '#f6e2a0' } },
+    iridium_bar: { glyph: 'bar', pal: { '#': '#b9e6e2', 'o': '#e2f6f4' } },
+    hardwood: { glyph: 'bar', pal: { '#': '#8a6a48', 'o': '#b08a5e' } },
+    mayonnaise: { glyph: 'mayonnaise', pal: { '#': '#6b543c', 'o': '#f6efc0' } },
+    cheese: { glyph: 'cheese', pal: { '#': '#e8c060', '+': '#f2dc9a', 'o': '#b98a3a' } },
+    pale_ale: { glyph: 'drink', pal: { '#': '#6b4b2a', 'o': '#e8b84a' } },
+    beer: { glyph: 'drink', pal: { '#': '#5a3d20', 'o': '#d89830' } },
+    food_soup: { sprite: 'food_Beaf' },
+    food_stirfry: { sprite: 'food_Noodle' },
+    food_grilled: { sprite: 'food_Fish' },
+    food_sushi: { sprite: 'food_Sushi' },
+    food_bento: { sprite: 'food_Onigiri' },
+    food_cookie: { sprite: 'food_FortuneCookie' },
+    food_tea: { sprite: 'food_TeaLeaf' },
+    food_honey: { sprite: 'food_Honey' },
+    horseradish: { glyph: 'for_root', pal: { '+': '#e8e2d0', '#': PAL_LEAF } },
+    daffodil: { glyph: 'for_flower', pal: { '+': '#f0d858', 'o': '#f8eeaa', '#': PAL_STEM } },
+    leek: { glyph: 'for_root', pal: { '+': '#b8cc88', '#': PAL_LEAF } },
+    dandelion: { glyph: 'for_flower', pal: { '+': '#f0c840', 'o': '#f8e698', '#': PAL_STEM } },
+    spice_berry: { glyph: 'for_berry', pal: { '+': '#d86a4a', '#': PAL_DARK } },
+    sweet_pea: { glyph: 'for_flower', pal: { '+': '#c878d8', 'o': '#e4b4ec', '#': PAL_STEM } },
+    summer_grape: { glyph: 'for_berry', pal: { '+': '#8868b8', '#': PAL_DARK } },
+    hazelnut: { glyph: 'for_fruit', pal: { '+': '#c8a068', '#': '#a87848' } },
+    wild_plum: { glyph: 'for_fruit', pal: { '+': '#a878c8', '#': '#8858a8' } },
+    blackberry: { glyph: 'for_berry', pal: { '+': '#70708c', '#': PAL_DARK } },
+    crystal_fruit: { glyph: 'for_fruit', pal: { '+': '#d8f4f8', '#': '#a8e0e8' } },
+    snow_yam: { glyph: 'for_root', pal: { '+': '#e8d0b0', '#': PAL_LEAF } },
+    winter_root: { glyph: 'for_root', pal: { '+': '#c8a878', '#': PAL_LEAF } },
+    furnace: { glyph: 'machine_furnace', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } },
+    mayo_machine: { glyph: 'machine_mayo', pal: { '#': '#6b543c', 'o': '#e8e2d0', '+': '#f2d878' } },
+    cheese_press: { glyph: 'machine_cheese', pal: { '#': '#8a8078', 'o': '#e8c060' } },
+    keg: { glyph: 'machine_keg', pal: { '#': '#6b4b2a', 'o': '#a87848' } },
+    stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } }
+  };
+  // 种子 A 轨：按季节 + 价格档取精灵（低 ≤40 / 中 ≤80 / 高）
+  function seedSprite(cropId) {
+    var c = farmD().CROPS[cropId];
+    if (!c) return '';
+    var s = (c.s && c.s.length) ? c.s[0] : -1;
+    var t = c.seed <= 40 ? '1' : (c.seed <= 80 ? 'Big' : '');
+    if (s === 0) return t === '1' ? 'food_Seed1' : (t === 'Big' ? 'food_SeedBig1' : 'food_SeedLarge');
+    if (s === 1) return t === '1' ? 'food_Seed2' : (t === 'Big' ? 'food_SeedBig2' : 'food_SeedLarge');
+    if (s === 2) return t === '1' ? 'food_Seed3' : (t === 'Big' ? 'food_SeedBig3' : 'food_SeedLarge');
+    return 'food_SeedLargeWhite';
+  }
+  // 鱼 A 轨
+  function fishSprite(id) {
+    if (/^(bass|carp|ghostfish|sunfish|trout)$/.test(id)) return 'food_Fish';
+    if (/^(squid|octopus)$/.test(id)) return 'food_Octopus';
+    if (id === 'eel') return 'food_Shrimp';
+    if (/^(redsnapper|tuna)$/.test(id)) return 'food_Sushi2';
+    return '';
+  }
+  // v5.4：物品图标统一入口——图集精灵 / 多色字形 / 升级版色块三轨
+  function farmIcon(id, size) {
+    var base = String(id || '').split('_q')[0];
+    var sz = size || 16;
+    var wrap = el('span', 'sg5-farm-swatch');
+    var spec = FARM_ICON[base];
+    if (!spec && base.indexOf('seed_') === 0) {
+      var sp = seedSprite(base.slice(5));
+      if (sp) spec = { sprite: sp };
+    }
+    if (!spec) {
+      var fs = fishSprite(base);
+      if (fs) spec = { sprite: fs };
+    }
+    var cv = null;
+    if (spec && spec.glyph && GLYPH[spec.glyph]) {
+      cv = document.createElement('canvas');
+      cv.width = Math.max(10, sz - 2); cv.height = Math.max(10, sz - 2);
+      cv.className = 'sg5-farm-icon';
+      paintGlyph(cv.getContext('2d'), spec.glyph, sz - 2, spec.pal);
+    } else if (spec && spec.sprite && FR[spec.sprite] && S.atlas) {
+      cv = iconCanvas(spec.sprite, Math.max(10, sz - 2));
+      cv.className = 'sg5-farm-icon';
+    }
+    if (cv) wrap.appendChild(cv);
+    else wrap.style.background = farmItemColor(id);
+    var qc = farmQualityClass(id);
+    if (qc) wrap.className += ' ' + qc;
+    return wrap;
+  }
+  // v5.4：职业短标（20 个职业全部有，挂着的一眼能看到效果）
+  var PROF_MARK = {
+    tiller: '作物 +10%', rancher: '畜产 +20%', artisan: '加工品 +40%', agriculturist: '生长 +10%',
+    miner: '矿石 +1', geologist: '宝石成对', blacksmith: '锭 +50%', prospector: '煤 ×2',
+    forester: '木材 +1', gatherer: '采集 20% 双份', lumberjack: '硬木 50%', botanist: '采集必金星',
+    fisher: '鱼价 +25%', trapper: '每日蟹 ×1', angler: '鱼价 +50%', pirate: '矿洞 5% 宝箱',
+    fighter: '洞血 +15%', scout: '遇怪减半', brute: '承伤 -15%', defender: '洞血 +25'
+  };
+
   var FARM_TABS = [
-    ['field', '田地'], ['shop', '商店'], ['bag', '背包'],
+    ['field', '田地'], ['craft', '加工'], ['shop', '商店'], ['bag', '背包'],
     ['ship', '出货箱'], ['skill', '技能'], ['calendar', '日历']
   ];
 
@@ -70,8 +348,12 @@
       var parent = orig.parentNode;
       if (!parent) return;
       var next = orig.nextSibling;
-      var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () { onYes(); });
+      var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () {
+        farmSfx('menu', 0.3, 1.2);
+        onYes();
+      });
       var no = uiBtn('取消', 'sg5-btn-sm sg5-btn-ghost', function () {
+        farmSfx('cancel', 0.3, 1);
         if (yes.parentNode) yes.parentNode.removeChild(yes);
         if (no.parentNode) no.parentNode.removeChild(no);
         if (!orig.parentNode) {
@@ -323,6 +605,121 @@
       }]
     ]);
     body.appendChild(goods);
+
+    // ---- v5.4 加工设备：买一台永久可用，重复买只用于展示第 N 台 ----
+    var mach = farmSection(body, '加工设备', '熔炉烧锭、机子做蛋黄酱奶酪、桶酿酒、灶台做料理。买一台永久可用，放在自家田边。');
+    var ml = el('div', 'sg5-farm-list');
+    (function () {
+      var MAC = farmD().MACHINES || {};
+      for (var i = 0; i < MACHINE_ORDER.length; i++) {
+        (function (mk) {
+          var md = MAC[mk];
+          if (!md) return;
+          var owned = ((farmP() || {}).machines || {})[mk] || 0;
+          var row = el('div', 'sg5-farm-row');
+          row.appendChild(farmIcon(mk, 16));
+          row.appendChild(el('span', 'sg5-farm-rowname', md.name + (owned ? ' · 已有 ' + owned + ' 台' : '')));
+          row.appendChild(el('span', 'sg5-farm-rowsub', md.desc));
+          row.appendChild(opBtn(md.cost + 'g', 'sg5-btn-sm', function () {
+            farmAct('buy', { kind: 'machine', id: mk }).then(function (d) {
+              farmToast('买下了' + md.name + (d && d.count > 1 ? '（第 ' + d.count + ' 台）' : ''));
+            }, function (e) { farmToast(e.message, 'warn'); });
+          }));
+          ml.appendChild(row);
+        })(MACHINE_ORDER[i]);
+      }
+    })();
+    mach.appendChild(ml);
+    body.appendChild(mach);
+  }
+
+  // ---------- v5.4 加工页签：按设备分节，配方行 = 图标 + 材料 chips + 到手价 ----------
+  function canCraft(P, r, n) {
+    for (var k in r.inputs) {
+      if (!Object.prototype.hasOwnProperty.call(r.inputs, k)) continue;
+      if (((P.inv || {})[k] || 0) < r.inputs[k] * n) return false;
+    }
+    return (P.energy || 0) >= r.energy * n;
+  }
+  function craftPrice(P, outId) {
+    var ps = String(outId).split('_q'), base = ps[0], q = ps[1] ? Number(ps[1]) : 0;
+    var D = farmD();
+    var u = (D.SELL && D.SELL[base]) || 0;
+    if (!u) return 0;
+    if (q && D.QUALITY && D.QUALITY[q]) u *= D.QUALITY[q].mul;
+    var profs = P.profs || [];
+    if (/_bar$/.test(base) && profs.indexOf('blacksmith') >= 0) u *= 1.5;
+    if (profs.indexOf('artisan') >= 0) u *= 1.4;
+    return Math.floor(u);
+  }
+  function doCraft(id, n) {
+    lifeAct('craft', { id: id, n: n }).then(function (d) {
+      farmToast('做好了 ' + (d && d.name ? d.name : '东西') + ' ×' + (d && d.n ? d.n : 1));
+    }, function (e) { farmToast(e.message, 'warn'); });
+  }
+  function farmCraftBody(body) {
+    var P = farmP(); if (!P) return;
+    var D = farmD(), REC = P.recipes || D.RECIPES || {}, MAC = D.MACHINES || {};
+    var owned = P.machines || {};
+    (function () {
+      for (var i = 0; i < MACHINE_ORDER.length; i++) {
+        (function (mk) {
+          var md = MAC[mk];
+          if (!md) return;
+          var have = owned[mk] || 0;
+          var s = farmSection(body, md.name + (have ? ' · 已有 ' + have + ' 台' : ' · 还没有'), md.desc);
+          if (!have) {
+            var guide = el('div', 'sg5-farm-row');
+            guide.appendChild(el('span', 'sg5-farm-rowname', '商店有售'));
+            guide.appendChild(el('span', 'sg5-farm-rowsub', '「商店」页签 ' + md.cost + 'g 一台，买好就能用'));
+            s.appendChild(guide);
+            body.appendChild(s);
+            return;
+          }
+          var list = el('div', 'sg5-farm-list');
+          (function () {
+            for (var k in REC) {
+              if (!Object.prototype.hasOwnProperty.call(REC, k)) continue;
+              if (REC[k].machine !== mk) continue;
+              (function (k) {
+                var r = REC[k];
+                var row = el('div', 'sg5-farm-row sg5-farm-recipe');
+                row.appendChild(farmIcon(r.out, 16));
+                row.appendChild(el('span', 'sg5-farm-rowname', r.name));
+                var needs = el('span', 'sg5-farm-needs');
+                var lack = '';
+                (function () {
+                  for (var ik in r.inputs) {
+                    if (!Object.prototype.hasOwnProperty.call(r.inputs, ik)) continue;
+                    (function (ik) {
+                      var need = r.inputs[ik], haveN = (P.inv || {})[ik] || 0;
+                      // 复用献祭包的三态：off 缺 / have 够一次 / done 够五次
+                      needs.appendChild(el('span',
+                        'sg5-bundle-need ' + (haveN >= need ? (haveN >= need * 5 ? 'is-done' : 'is-have') : 'is-off'),
+                        farmItemName(ik) + ' ' + haveN + '/' + need));
+                      if (haveN < need) lack = '缺 ' + farmItemName(ik) + ' ×' + (need - haveN);
+                      else if (!lack && haveN < need * 5) lack = '材料只够 ×' + Math.floor(haveN / need);
+                    })(ik);
+                  }
+                })();
+                row.appendChild(needs);
+                row.appendChild(el('span', 'sg5-farm-rowsub', '到手 ' + craftPrice(P, r.out) + 'g · 体力 ' + r.energy + '/次'));
+                var b1 = opBtn('制作 ×1', 'sg5-btn-sm', function () { doCraft(k, 1); });
+                var b5 = opBtn('×5', 'sg5-btn-sm', function () { doCraft(k, 5); });
+                if (!canCraft(P, r, 1)) b1.disabled = true;
+                if (!canCraft(P, r, 5)) b5.disabled = true;
+                if (lack) row.appendChild(el('span', 'sg5-farm-lack', lack));
+                row.appendChild(b1);
+                row.appendChild(b5);
+                list.appendChild(row);
+              })(k);
+            }
+          })();
+          s.appendChild(list);
+          body.appendChild(s);
+        })(MACHINE_ORDER[i]);
+      }
+    })();
   }
 
   // ---------- 背包 / 箱子 ----------
@@ -342,9 +739,7 @@
             b.type = 'button';
             b.setAttribute('data-focus-key', 'item:' + k);
           }
-          var qc = farmQualityClass(k);
-          var sw = el('span', 'sg5-farm-swatch' + (qc ? ' ' + qc : ''));
-          sw.style.background = farmItemColor(k);
+          var sw = farmIcon(k, 16);
           b.appendChild(sw);
           b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
           b.appendChild(el('span', 'sg5-farm-itemnum', '×' + items[k]));
@@ -367,6 +762,37 @@
       var sel = S.farm.bagSel;
       var ops = el('div', 'sg5-farm-sel');
       ops.appendChild(el('div', 'sg5-farm-selname', farmItemName(sel) + ' ×' + (P.inv[sel] || 0)));
+      // v5.4：锭类加成价提示（铁匠 +50% 已含在 prices 里，这里把原价也亮出来）
+      var selBase = String(sel).split('_q')[0];
+      if (/(_bar)$/.test(selBase)) {
+        var D2 = farmD(), ps2 = String(sel).split('_q'), q2n = ps2[1] ? Number(ps2[1]) : 0;
+        var baseP = Math.floor((((D2.SELL || {})[selBase]) || 0) * (q2n && D2.QUALITY[q2n] ? D2.QUALITY[q2n].mul : 1));
+        var nowP = (P.prices && P.prices[sel]) || 0;
+        if (nowP > baseP) {
+          ops.appendChild(el('div', 'sg5-farm-note-inline', '原价 ' + baseP + 'g → 加成价 ' + nowP + 'g（铁匠 +50%）'));
+        }
+      }
+      // v5.4：能吃的物品追加「吃掉」；星果永久加体力上限，走两步确认
+      var eatDef = P.eat ? P.eat[selBase] : null;
+      if (selBase === 'starfruit') {
+        farmBtnRow(ops, [['吃下星果（体力上限永久 +34）', function () {
+          lifeAct('eat', { item: sel }).then(function (d) {
+            farmToast('体力上限升到 ' + d.maxEnergy + '，整个人都精神了');
+          }, function (e) { farmToast(e.message, 'warn'); });
+        }, 'sg5-btn-sm', true]]);
+      } else if (eatDef) {
+        var full = (P.energy || 0) >= (P.maxEnergy || 100);
+        var eb = opBtn('吃掉（+' + eatDef + ' 体力）', 'sg5-btn-sm', function () {
+          lifeAct('eat', { item: sel }).then(function (d) {
+            farmToast('吃掉了，体力 ' + d.energy + '/' + d.maxEnergy);
+          }, function (e) { farmToast(e.message, 'warn'); });
+        });
+        if (full) eb.disabled = true;
+        var eatRow = el('div', 'sg5-farm-ops');
+        eatRow.appendChild(eb);
+        if (full) eatRow.appendChild(el('span', 'sg5-farm-lack', '体力已满'));
+        ops.appendChild(eatRow);
+      }
       farmBtnRow(ops, [
         ['卖 1 个', function () {
           var it = {}; it[sel] = 1;
@@ -458,6 +884,8 @@
                     function (e) { farmToast(e.message, 'warn'); });
                 });
                 row.appendChild(b);
+                // v5.4：已选职业后面跟一枚短标，效果不用翻说明也能看见
+                if (chosen && PROF_MARK[o[0]]) row.appendChild(el('span', 'sg5-farm-profmark', PROF_MARK[o[0]]));
               })(opts[j]);
             }
           }
@@ -540,6 +968,7 @@
     var cont = el('div', 'sg5-farm-cont');
     if (!P) cont.appendChild(el('div', 'sg5-empty', '农场还没载入，稍等一下…'));
     else if (S.farm.tab === 'field') farmFieldBody(cont);
+    else if (S.farm.tab === 'craft') farmCraftBody(cont);
     else if (S.farm.tab === 'shop') farmShopBody(cont);
     else if (S.farm.tab === 'bag') farmBagBody(cont);
     else if (S.farm.tab === 'ship') farmShipBody(cont);

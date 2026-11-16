@@ -65,12 +65,13 @@ var CROPS = {
 };
 
 // 农具：等级 0=基础，1=铜，2=铁，3=金，4=铱。升级要钱 + 锭，且隔天取。
+// v5.4：升级材料从「矿石」改为「锭」——锭要用熔炉烧，工具线第一次和加工线咬合。
 var TOOL_NAMES = { hoe: '锄头', watercan: '浇水壶', axe: '斧头', pickaxe: '镐子', sickle: '镰刀' };
 var TOOL_UPGRADES = [
-  { lv: 1, name: '铜', cost: 2000, bars: 5, bar: 'copper', days: 1 },
-  { lv: 2, name: '铁', cost: 5000, bars: 5, bar: 'iron', days: 1 },
-  { lv: 3, name: '金', cost: 10000, bars: 5, bar: 'gold', days: 1 },
-  { lv: 4, name: '铱', cost: 25000, bars: 5, bar: 'iridium', days: 1 }
+  { lv: 1, name: '铜', cost: 2000, bars: 5, bar: 'copper_bar', days: 1 },
+  { lv: 2, name: '铁', cost: 5000, bars: 5, bar: 'iron_bar', days: 1 },
+  { lv: 3, name: '金', cost: 10000, bars: 5, bar: 'gold_bar', days: 1 },
+  { lv: 4, name: '铱', cost: 25000, bars: 5, bar: 'iridium_bar', days: 1 }
 ];
 // 基础体力消耗（固定，和原作一样：升级的价值在「一次能处理几格」，不在省力气）
 var TOOL_ENERGY = { hoe: 2, watercan: 2, axe: 4, pickaxe: 2, sickle: 2, fish: 8, mine: 3 };
@@ -188,6 +189,90 @@ var BUNDLES = [
 var SHOP_SEED_MARKUP = 1;     // 原作皮埃尔店按种子表原价
 var BACKPACK_COSTS = [2000, 10000];   // 12 → 24 → 36 格
 var CHEST_COST = 50;          // 木箱：50 木材（这里用金币折算，简化）
+
+// ==================== v5.4 加工 / 采集 / 食物 ====================
+// 设备：商店购买，P.machines 计数，拥有即用（不占背包格）
+var MACHINES = {
+  furnace:      { name: '熔炉',     cost: 300,  desc: '把矿石和煤烧成锭' },
+  mayo_machine: { name: '蛋黄酱机', cost: 2000, desc: '鸡蛋进去，蛋黄酱出来' },
+  cheese_press: { name: '奶酪机',   cost: 2000, desc: '牛奶压一压就是奶酪' },
+  keg:          { name: '酿造桶',   cost: 2500, desc: '酿啤酒和淡啤' },
+  stove:        { name: '灶台',     cost: 1500, desc: '把收成做成料理' }
+};
+
+// 配方：machine 要求设备，inputs 材料，out 产物，n 一次产几个，
+// energy 单次体力；eat 是吃下去回的体力（没有 eat 的产物不能吃）。
+var RECIPES = {
+  smelt_copper:     { machine: 'furnace',      name: '铜锭',       inputs: { copper: 5, coal: 1 },   out: 'copper_bar',   n: 1, energy: 3 },
+  smelt_iron:       { machine: 'furnace',      name: '铁锭',       inputs: { iron: 5, coal: 1 },     out: 'iron_bar',     n: 1, energy: 3 },
+  smelt_gold:       { machine: 'furnace',      name: '金锭',       inputs: { gold: 5, coal: 1 },     out: 'gold_bar',     n: 1, energy: 4 },
+  smelt_iridium:    { machine: 'furnace',      name: '铱锭',       inputs: { iridium: 5, coal: 2 },  out: 'iridium_bar',  n: 1, energy: 5 },
+  make_mayo:        { machine: 'mayo_machine', name: '蛋黄酱',     inputs: { egg: 1 },               out: 'mayonnaise',   n: 1, energy: 2 },
+  make_mayo_gold:   { machine: 'mayo_machine', name: '金星蛋黄酱', inputs: { big_egg: 1 },           out: 'mayonnaise_q2',n: 1, energy: 2 },
+  make_cheese:      { machine: 'cheese_press', name: '奶酪',       inputs: { milk: 1 },              out: 'cheese',       n: 1, energy: 2 },
+  make_cheese_gold: { machine: 'cheese_press', name: '金星奶酪',   inputs: { big_milk: 1 },          out: 'cheese_q2',    n: 1, energy: 2 },
+  make_pale_ale:    { machine: 'keg',          name: '淡啤',       inputs: { hops: 1 },              out: 'pale_ale',     n: 1, energy: 3 },
+  make_beer:        { machine: 'keg',          name: '啤酒',       inputs: { wheat: 1 },             out: 'beer',         n: 1, energy: 2 },
+  cook_soup:        { machine: 'stove',        name: '防风草汤',   inputs: { parsnip: 2 },           out: 'food_soup',    n: 1, energy: 3, eat: 40 },
+  cook_stirfry:     { machine: 'stove',        name: '炒时蔬',     inputs: { kale: 1, bokchoy: 1 },  out: 'food_stirfry', n: 1, energy: 3, eat: 35 },
+  cook_grilled:     { machine: 'stove',        name: '烤鲜鱼',     inputs: { bass: 1, carp: 1 },     out: 'food_grilled', n: 1, energy: 3, eat: 50 },
+  cook_sushi:       { machine: 'stove',        name: '寿司拼盘',   inputs: { tuna: 1, redsnapper: 1 }, out: 'food_sushi', n: 1, energy: 4, eat: 60 },
+  cook_bento:       { machine: 'stove',        name: '田庄便当',   inputs: { wheat: 2, egg: 1 },     out: 'food_bento',   n: 1, energy: 3, eat: 55 },
+  cook_cookie:      { machine: 'stove',        name: '幸运饼干',   inputs: { pumpkin: 1, wheat: 1 }, out: 'food_cookie',  n: 1, energy: 2, eat: 40 },
+  cook_tea:         { machine: 'stove',        name: '花茶',       inputs: { jazz: 2 },              out: 'food_tea',     n: 1, energy: 2, eat: 25 },
+  cook_honey:       { machine: 'stove',        name: '野蜜罐',     inputs: { poppy: 1, spangle: 1 }, out: 'food_honey',   n: 1, energy: 2, eat: 30 }
+};
+
+// 野外采集物：s 季节 0~3；sell 基价；eat 吃下去回的体力（没有就不能吃）。
+// 只在 meadow + forest 一带刷新，见 forageList()。
+var FORAGE = [
+  { id: 'horseradish',  name: '野山葵', s: 0, sell: 50,  eat: 25 },
+  { id: 'daffodil',     name: '黄水仙', s: 0, sell: 30 },
+  { id: 'leek',         name: '韭葱',   s: 0, sell: 60,  eat: 40 },
+  { id: 'dandelion',    name: '蒲公英', s: 0, sell: 40,  eat: 25 },
+  { id: 'spice_berry',  name: '香料椒', s: 1, sell: 80 },
+  { id: 'sweet_pea',    name: '甜豌豆', s: 1, sell: 50 },
+  { id: 'summer_grape', name: '夏葡萄', s: 1, sell: 80,  eat: 30 },
+  { id: 'hazelnut',     name: '榛果',   s: 2, sell: 90 },
+  { id: 'wild_plum',    name: '野梅',   s: 2, sell: 80,  eat: 25 },
+  { id: 'blackberry',   name: '黑莓',   s: 2, sell: 20,  eat: 25 },
+  { id: 'crystal_fruit',name: '水晶果', s: 3, sell: 150, eat: 30 },
+  { id: 'snow_yam',     name: '雪山药', s: 3, sell: 125, eat: 25 },
+  { id: 'winter_root',  name: '冬根',   s: 3, sell: 70,  eat: 25 }
+];
+
+// v5.4 新物品的卖出基价（锭 / 加工品 / 料理 / 硬木 / 蟹）。
+// 锭与加工品还吃职业加成：blacksmith 锭 ×1.5、artisan 加工品 ×1.4（见 farm.unitPrice）。
+var SELL = {
+  copper_bar: 60, iron_bar: 120, gold_bar: 250, iridium_bar: 1000,
+  mayonnaise: 190, cheese: 230, pale_ale: 420, beer: 200,
+  food_soup: 165, food_stirfry: 135, food_grilled: 220, food_sushi: 320,
+  food_bento: 250, food_cookie: 280, food_tea: 120, food_honey: 200,
+  hardwood: 15, crab: 120
+};
+
+// 新物品中文名（客户端 farmItemName / 服务端 itemName 共用这份）
+var ITEM_NAMES = {
+  copper_bar: '铜锭', iron_bar: '铁锭', gold_bar: '金锭', iridium_bar: '铱锭',
+  mayonnaise: '蛋黄酱', cheese: '奶酪', pale_ale: '淡啤', beer: '啤酒',
+  food_soup: '防风草汤', food_stirfry: '炒时蔬', food_grilled: '烤鲜鱼', food_sushi: '寿司拼盘',
+  food_bento: '田庄便当', food_cookie: '幸运饼干', food_tea: '花茶', food_honey: '野蜜罐',
+  hardwood: '硬木', crab: '蟹',
+  horseradish: '野山葵', daffodil: '黄水仙', leek: '韭葱', dandelion: '蒲公英',
+  spice_berry: '香料椒', sweet_pea: '甜豌豆', summer_grape: '夏葡萄',
+  hazelnut: '榛果', wild_plum: '野梅', blackberry: '黑莓',
+  crystal_fruit: '水晶果', snow_yam: '雪山药', winter_root: '冬根'
+};
+
+// 可吃表：料理与采集物 → 回的体力；starfruit 特殊（永久 +34 体力上限，上限 200）
+var ENERGY_CAP = 200;
+var EAT = {};
+(function () {
+  for (var k in RECIPES) if (hasOwn(RECIPES, k) && RECIPES[k].eat) EAT[RECIPES[k].out] = RECIPES[k].eat;
+  for (var i = 0; i < FORAGE.length; i++) if (FORAGE[i].eat) EAT[FORAGE[i].id] = FORAGE[i].eat;
+})();
+EAT.starfruit = { maxEnergy: 34, cap: ENERGY_CAP };
+function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
 
 // ---------- 纯函数 ----------
 
@@ -312,6 +397,54 @@ function seedList(day, greenhouse) {
   return out;
 }
 
+// ---------- v5.4 野外采集刷新（纯函数，不 require worldgen） ----------
+// 区域用常量矩形近似（farmdata 不能依赖地形数据）：
+//   meadow = 以镇中心 (128,128) 为圆心、距 12~50 的环；
+//   forest = 西南象限简化矩形 [96..160] × [150..190]。
+// farm 自家田 (112..124, 142..150) 落在环内，明确排除，免得采集点长在田垄上。
+// hash(day,x,y) 决定「今天哪格有什么」，服务器重启 / 客户端重进都不会变样。
+function fhash(x, y, s) {
+  var h = (x * 374761393 + y * 668265263 + (s || 0) * 2147483647) | 0;
+  h = (h ^ (h >>> 13)) * 1274126177 | 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function forageList(day, cooldown) {
+  var s = seasonOf(day), opts = [], out = [];
+  for (var i = 0; i < FORAGE.length; i++) if (FORAGE[i].s === s) opts.push(FORAGE[i]);
+  if (!opts.length) return out;
+  var cd = cooldown || {};
+  var want = 30 + Math.floor(fhash(day, 7, 11) * 8);      // 30~37 个候选，过滤阻挡格后约 14~18
+  var cand = [], seen = {}, x, y;
+  // meadow 环
+  for (y = 80; y <= 176; y += 2) {
+    for (x = 80; x <= 176; x += 2) {
+      var dx = x - 128, dy = y - 128;
+      if (dx * dx + dy * dy < 144 || dx * dx + dy * dy > 2500) continue;   // 12~50
+      // 自家田矩形排除
+      if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
+      if (fhash(x, y, day) > 0.06) continue;
+      cand.push(x + ',' + y);
+    }
+  }
+  // forest 矩形
+  for (y = 150; y <= 190; y += 2) {
+    for (x = 96; x <= 160; x += 2) {
+      if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
+      if (fhash(x, y, day + 77) > 0.10) continue;
+      cand.push(x + ',' + y);
+    }
+  }
+  cand.sort();                                   // 字典序即确定性顺序
+  for (var c = 0; c < cand.length && out.length < want; c++) {
+    var key = cand[c], taken = cd[key];
+    if (taken && day - taken < 3) continue;      // 冷却格（采集 / 砍树共用 3 天规则）
+    var xy = key.split(','), gx = Number(xy[0]), gy = Number(xy[1]);
+    var def = opts[Math.floor(fhash(gx, gy, day * 31 + c) * opts.length) % opts.length];
+    out.push({ x: gx, y: gy, item: def.id, name: def.name });
+  }
+  return out;
+}
+
 var DATA = {
   SEASONS: SEASONS, SEASON_DAYS: SEASON_DAYS, DAY_MS: DAY_MS,
   START_GOLD: START_GOLD, START_ENERGY: START_ENERGY,
@@ -322,7 +455,9 @@ var DATA = {
   ANIMALS: ANIMALS, FISH: FISH, MINE_MAX: MINE_MAX, ORES: ORES,
   VILLAGERS: VILLAGERS, GIFT_TASTE: GIFT_TASTE, FESTIVALS: FESTIVALS, BUNDLES: BUNDLES,
   BACKPACK_COSTS: BACKPACK_COSTS, HEART_PTS: HEART_PTS,
-  SHOP_SEED_MARKUP: SHOP_SEED_MARKUP, CHEST_COST: CHEST_COST
+  SHOP_SEED_MARKUP: SHOP_SEED_MARKUP, CHEST_COST: CHEST_COST,
+  MACHINES: MACHINES, RECIPES: RECIPES, FORAGE: FORAGE, SELL: SELL,
+  ITEM_NAMES: ITEM_NAMES, EAT: EAT, ENERGY_CAP: ENERGY_CAP
 };
 
 module.exports = {
@@ -333,5 +468,5 @@ module.exports = {
   cropPrice: cropPrice, fishPrice: fishPrice, animalPrice: animalPrice,
   levelOf: levelOf, xpToNext: xpToNext,
   heartsOf: heartsOf, tasteOf: tasteOf, giftPoints: giftPoints,
-  growthOf: growthOf, seedList: seedList
+  growthOf: growthOf, seedList: seedList, forageList: forageList
 };

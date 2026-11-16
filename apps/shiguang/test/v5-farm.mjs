@@ -132,7 +132,7 @@ await badCall('/v5/farm/till', { r: 2, c: 2 }, '1001', '体力不足时拒绝动
 d = await okCall('/v5/farm/sleep', {});
 ok(d.slept > 0 && d.farm.energy === 100, '睡觉回满体力');
 f = flags();
-f.gold = 99999; f.inv.copper = 20; f.inv.iron = 20; f.inv.gold = 20; f.inv.iridium = 20;
+f.gold = 99999; f.inv.copper_bar = 20; f.inv.iron_bar = 20; f.inv.gold_bar = 20; f.inv.iridium_bar = 20;
 routes.FARM.save('1001');
 d = await okCall('/v5/farm/tool', { tool: 'hoe' });
 ok(d.farm.toolOrder && d.farm.toolOrder.lv === 1 && d.farm.gold < 99999, '工具升级下单（扣 2000g + 5 铜锭）');
@@ -290,6 +290,179 @@ ok(d.x === FD.DATA.FARM_X + FD.DATA.FARM_W / 2, '服务端把人送到自家田�
 store.flush('1001');
 P = (await st()).data.farm;
 ok(P.gold >= 0 && P.cal.day >= 1 && P.spouse === 'smith', '落库后关键数据仍在');
+
+// ==================== v5.4 ====================
+console.log('\n== 13. v5.4 加工：设备 / 配方 / 锭 / 职业价格 ==');
+// 没有设备不能加工
+await badCall('/v5/life/craft', { id: 'make_mayo', n: 1 }, '1001', '没有蛋黄酱机不能做蛋黄酱');
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'furnace' });
+ok(d.machine === 'furnace' && d.count === 1 && d.farm.machines.furnace === 1, '300g 买下熔炉', d.count);
+// 材料不足
+f = flags(); f.inv.copper = 2; f.inv.coal = 1; f.energy = 100; routes.FARM.save('1001');
+await badCall('/v5/life/craft', { id: 'smelt_copper', n: 1 }, '1001', '铜矿石不够 5 个不能熔');
+// 正常熔炼：copper×5 + coal×1 → copper_bar，体力 -3，mining 经验
+f = flags(); f.inv.copper = 12; f.inv.coal = 3; f.energy = 100; routes.FARM.save('1001');
+const barBefore = f.inv.copper_bar || 0;
+d = await okCall('/v5/life/craft', { id: 'smelt_copper', n: 1 });
+ok(d.crafted === 'copper_bar' && d.n === 1, '熔出铜锭', d && d.crafted);
+ok(d.farm.inv.copper_bar === barBefore + 1 && d.farm.inv.copper === 7 && d.farm.inv.coal === 2, '扣 5 铜 1 煤', { bar: d.farm.inv.copper_bar, cu: d.farm.inv.copper, coal: d.farm.inv.coal });
+ok(d.farm.energy === 97, '熔炼扣 3 体力', d.farm.energy);
+ok(d.farm.skills.mining >= 9, '熔炼记采矿经验（energy×3）', d.farm.skills.mining);
+// ×5
+f = flags(); f.inv.copper = 25; f.inv.coal = 6; f.energy = 100; routes.FARM.save('1001');
+const barBefore5 = f.inv.copper_bar || 0;
+d = await okCall('/v5/life/craft', { id: 'smelt_copper', n: 5 });
+ok(d.n === 5 && d.farm.inv.copper_bar === barBefore5 + 5 && d.farm.energy === 85, '×5 一次熔 5 锭扣 15 体力', { bar: d.farm.inv.copper_bar, e: d.farm.energy });
+// 体力不够
+f = flags(); f.inv.copper = 5; f.inv.coal = 1; f.energy = 2; routes.FARM.save('1001');
+await badCall('/v5/life/craft', { id: 'smelt_copper', n: 1 }, '1001', '体力不够时拒绝制作');
+// 其余四台设备 + 重复购买计数
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'mayo_machine' });
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'cheese_press' });
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'keg' });
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'stove' });
+ok(d.farm.machines.stove === 1, '五台设备买齐', JSON.stringify(d.farm.machines));
+d = await okCall('/v5/farm/buy', { kind: 'machine', id: 'furnace' });
+ok(d.count === 2, '设备可重复购买、计数 +1（第 N 台）', d.count);
+// 蛋黄酱 / 奶酪 / 淡啤 / 料理
+f = flags(); f.inv.egg = 3; f.inv.milk = 2; f.inv.hops = 2; f.inv.parsnip = 4; f.energy = 100; routes.FARM.save('1001');
+d = await okCall('/v5/life/craft', { id: 'make_mayo', n: 1 });
+ok(d.crafted === 'mayonnaise' && d.farm.inv.mayonnaise === 1, '蛋黄酱机出蛋黄酱');
+d = await okCall('/v5/life/craft', { id: 'make_pale_ale', n: 1 });
+ok(d.crafted === 'pale_ale' && d.farm.inv.pale_ale === 1, '酿造桶出淡啤');
+d = await okCall('/v5/life/craft', { id: 'cook_soup', n: 1 });
+ok(d.crafted === 'food_soup' && d.farm.inv.food_soup === 1, '灶台出防风草汤');
+f = flags(); f.inv.big_egg = 1; routes.FARM.save('1001');
+d = await okCall('/v5/life/craft', { id: 'make_mayo_gold', n: 1 });
+ok(d.crafted === 'mayonnaise_q2', '大鸡蛋出金星蛋黄酱', d.crafted);
+// artisan：加工品 +40%（第 5 节已选），蛋黄酱 190 → 266
+f = flags(); f.inv.mayonnaise = 1; routes.FARM.save('1001');
+d = await okCall('/v5/farm/sell', { items: { mayonnaise: 1 } });
+ok(d.gold === 266, 'artisan 蛋黄酱 190 → 266', d.gold);
+// blacksmith：锭 +50%，铜锭 60 → 90
+f = flags(); f.skills.mining = 15000; f.inv.copper_bar = 1; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'mining', id: 'blacksmith' });
+d = await okCall('/v5/farm/sell', { items: { copper_bar: 1 } });
+// 主理人裁决：锭归铁匠专属（blacksmith ×1.5），不吃 artisan 加成 —— 60×1.5 = 90ok(d.gold === Math.floor(60 * 1.5), '铁匠锭价 ×1.5（artisan 不叠加金属）', d.gold);
+// payload 下发 recipes / machines / eat / forage
+P = (await st()).data.farm;
+ok(P.recipes && P.recipes.smelt_copper, 'payload 下发配方表');
+ok(P.machines && P.machines.furnace === 2, 'payload 下发设备计数');
+ok(P.eat && P.eat.food_soup === 40, 'payload 下发可吃表');
+ok(Array.isArray(P.forage) && P.forage.length >= 12 && P.forage.length <= 26, 'payload 下发当日采集点（已滤阻挡格）', P.forage.length);
+
+console.log('\n== 14. v5.4 野外采集 / 砍树 / 吃 ==');
+let cell = P.forage[0];
+d = await okCall('/v5/life/forage/pick', { x: cell.x, y: cell.y });
+ok(d.picked === cell.item && d.got.length === 1, '采到野味', d && d.got);
+ok(d.farm.forageCd[cell.x + ',' + cell.y] === routes.FARM.dayNow(), '采集格进入冷却登记');
+P = (await st()).data.farm;
+ok(!P.forage.some(function (p2) { return p2.x === cell.x && p2.y === cell.y; }), '冷却格从当日清单消失');
+await badCall('/v5/life/forage/pick', { x: cell.x, y: cell.y }, '1001', '同一格不能重复采');
+// botanist：采集必金星
+f = flags(); f.skills.foraging = 15000; f.energy = 100; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'foraging', id: 'botanist' });
+cell = P.forage[1];
+d = await okCall('/v5/life/forage/pick', { x: cell.x, y: cell.y });
+ok(d.got[0] === cell.item + '_q2', 'botanist 采集必金星', d.got);
+// gatherer：20% 双份（patch 随机数确定化）
+f = flags(); f.skills.foraging = 2150; f.energy = 100; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'foraging', id: 'gatherer' });
+cell = P.forage[2];
+const realRandom = Math.random;
+Math.random = () => 0.05;
+d = await okCall('/v5/life/forage/pick', { x: cell.x, y: cell.y });
+Math.random = realRandom;
+ok(d.got.length === 2, 'gatherer 20% 双份', d.got);
+// 砍树：世界里找真树
+const WG = require(SRC + 'worldgen.js');
+const world = WG.get();
+let tree1 = null, tree2 = null;
+for (let y = 2; y < 254 && !tree2; y++) {
+  for (let x = 2; x < 254; x++) {
+    if (world.grid[y * world.size + x] === WG.TILE.TREE) {
+      if (!tree1) tree1 = { x, y };
+      else { tree2 = { x, y }; break; }
+    }
+  }
+}
+ok(!!tree1 && !!tree2, '世界里找得到两棵树', JSON.stringify([tree1, tree2]));
+f = flags(); f.profs = []; f.energy = 100; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/life/chop', { x: tree1.x, y: tree1.y });
+ok(d.got.wood >= 3 && d.got.wood <= 5, '砍树得木材 3~5', d.got);
+await badCall('/v5/life/chop', { x: tree1.x, y: tree1.y }, '1001', '同一棵树 3 天内不能重复砍');
+await badCall('/v5/life/chop', { x: 0, y: 0 }, '1001', '非树格不能砍');
+// 护林人 +1、伐木工硬木 50%（10 级层先让出来再换选）
+f = flags(); f.profs = ['gatherer', 'forester']; f.skills.foraging = 15000; f.energy = 100; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'foraging', id: 'lumberjack' });
+ok(d.chosen === 'lumberjack', '换选伐木工', d && d.chosen);
+Math.random = () => 0.1;
+d = await okCall('/v5/life/chop', { x: tree2.x, y: tree2.y });
+Math.random = realRandom;
+ok(d.got.wood === 4 && d.got.hardwood === 1, '护林人木材 +1 · 伐木工出硬木', d.got);
+// 吃：料理回体力 / 满体力拒吃 / 不可吃
+f = flags(); f.inv.food_soup = 2; f.energy = 40; routes.FARM.save('1001');
+d = await okCall('/v5/life/eat', { item: 'food_soup' });
+ok(d.gain === 40 && d.farm.energy === 80, '吃防风草汤回 40 体力', { gain: d.gain, e: d.farm.energy });
+f = flags(); f.energy = f.maxEnergy; routes.FARM.save('1001');
+await badCall('/v5/life/eat', { item: 'food_soup' }, '1001', '体力已满时不能吃');
+f = flags(); f.inv.wood = 1; routes.FARM.save('1001');
+await badCall('/v5/life/eat', { item: 'wood' }, '1001', '木头不能吃');
+// 星果：+34 永久，上限 200，落库持久化
+f = flags(); f.inv.starfruit = 4; f.maxEnergy = 100; routes.FARM.save('1001');
+d = await okCall('/v5/life/eat', { item: 'starfruit' });
+ok(d.farm.maxEnergy === 134, '星果 maxEnergy +34', d.farm.maxEnergy);
+d = await okCall('/v5/life/eat', { item: 'starfruit' });
+d = await okCall('/v5/life/eat', { item: 'starfruit' });
+ok(d.farm.maxEnergy === 200, '星果上限 200', d.farm.maxEnergy);
+await badCall('/v5/life/eat', { item: 'starfruit' }, '1001', '到 200 后不能再吃');
+store.flush('1001');
+P = (await st()).data.farm;
+ok(P.maxEnergy === 200 && P.inv.starfruit === 1, 'maxEnergy 与剩余星果落库持久化', { cap: P.maxEnergy, left: P.inv.starfruit });
+
+console.log('\n== 15. v5.4 矿洞职业 / 工具升级只认锭 ==');
+// 工具升级：铜矿石不再是合格材料
+f = flags(); f.gold = 99999; f.toolOrder = null; f.inv.copper = 20; delete f.inv.copper_bar; routes.FARM.save('1001');
+await badCall('/v5/farm/tool', { tool: 'watercan' }, '1001', '升级只认铜锭，铜矿石不合格');
+f = flags(); f.inv.copper_bar = 5; routes.FARM.save('1001');
+d = await okCall('/v5/farm/tool', { tool: 'watercan' });
+ok(d.farm.toolOrder && d.farm.toolOrder.lv === 1, '5 个铜锭完成水壶升级下单', d.farm.toolOrder);
+// fighter / defender：洞血加成
+f = flags(); f.skills.combat = 2150; f.profs = ['fighter', 'defender']; f.energy = 100; f.mineRun = null; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+ok(d.mine.maxHp === Math.round(90 * 1.15) + 25, 'fighter ×1.15 + defender +25', d.mine);
+// geologist：宝石成对（floor 20 矿池里 r=0.95 恰好命中宝石位）
+f = flags(); f.skills.mining = 2150; f.elevator = Math.max(f.elevator || 0, 20); f.energy = 100; f.mineRun = null; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'mining', id: 'geologist' });
+d = await okCall('/v5/life/mine/enter', { floor: 20 });
+Math.random = () => 0.95;
+d = await okCall('/v5/life/mine/dig', {});
+Math.random = realRandom;
+ok(d.got.filter(function (g2) { return g2.indexOf('gem') === 0; }).length === 2, 'geologist 宝石成对', d.got);
+// prospector：煤权重 ×2（同 r 命中从铜变煤，确定性对照）
+await okCall('/v5/life/mine/leave', {});
+f = flags(); f.profs = []; f.energy = 100; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+Math.random = () => 0.65;
+const gotNoProf = (await okCall('/v5/life/mine/dig', {})).got[0];
+Math.random = realRandom;
+await okCall('/v5/life/mine/leave', {});
+f = flags(); f.skills.mining = 15000; f.profs = ['geologist']; f.energy = 100; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/farm/profession', { skill: 'mining', id: 'prospector' });
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+Math.random = () => 0.65;
+d = await okCall('/v5/life/mine/dig', {});
+Math.random = realRandom;
+ok(gotNoProf.indexOf('copper') === 0 && d.got[0].indexOf('coal') === 0, 'prospector 煤权重 ×2（同 r 从铜变煤）', { no: gotNoProf, yes: d.got[0] });
+// pirate：5% 矿洞宝箱（金币 100~300 + 宝石 ×1）
+await okCall('/v5/life/mine/leave', {});
+f = flags(); f.profs = ['pirate']; f.gold = 5000; f.energy = 100; f.mineRun = null; f.backpack = 36; routes.FARM.save('1001');
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+Math.random = () => 0.01;
+d = await okCall('/v5/life/mine/dig', {});
+Math.random = realRandom;
+ok(d.chest && d.chest.gold >= 100 && d.chest.gold <= 300 && d.chest.gem === 1, 'pirate 5% 宝箱（金币 + 宝石）', d.chest);
+ok(d.farm.gold > 5000, '宝箱金币入账', d.farm.gold);
 
 console.log('\n农场系统联调：' + pass + ' 通过 / ' + fail + ' 失败');
 server.close();

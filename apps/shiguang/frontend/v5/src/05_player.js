@@ -144,6 +144,10 @@
     me.comboIdx = 0;
     me.comboAt = 0;
     me.skillCd = 0;
+    // 冷却时间戳必须初始化为 0：`t > undefined` 恒 false，会让攻击/翻滚从此静默失效
+    me.atkCdUntil = 0;
+    me.rollCdUntil = 0;
+    me.skillCdUntil = 0;
     me.hurtAt = 0;
     me.dead = 0;
     me.moving = 0;
@@ -190,9 +194,9 @@
       if (!moving) { dx = [0, 0, -1, 1][me.face]; dy = [1, -1, 0, 0][me.face]; }
       var d = Math.sqrt(dx * dx + dy * dy) || 1;
       me.act = { type: 'roll', t: 0, dur: ROLL_MS, dx: dx / d, dy: dy / d };
-      me.invUntil = t + ROLL_INV_MS;
+      me.invUntil = t + ROLL_INV_MS / 1000;
       me.rollStartedAt = t;
-      me.rollCdUntil = t + ROLL_CD * (1 - ((S.stats && S.stats.dodgeCd) || 0) / 100);
+      me.rollCdUntil = t + (ROLL_CD * (1 - ((S.stats && S.stats.dodgeCd) || 0) / 100)) / 1000;
       S.net.roll = { at: t, rt: 0 };
       auSfx('jump', 0.28, 1.25);
       burst(me.x, me.y, 6, '#cfd8ff', 3.2);
@@ -296,7 +300,7 @@
     }
     me.act = { type: 'attack', t: 0, dur: dur, dx: dx, dy: dy, combo: nowIdx, hit: 0, mul: mul, wk: wk };
     me.face = playerFacing(dx, dy);
-    me.atkCdUntil = t + ATK_WINDUP + 40;
+    me.atkCdUntil = t + (ATK_WINDUP + 40) / 1000;
     auSfx(nowIdx === 2 ? 'sword2' : 'sword', 0.34, 0.92 + Math.random() * 0.16);
   }
 
@@ -394,7 +398,7 @@
     if (t < (me.skillCdUntil || 0)) return toast('技能还在冷却', 'warn');
     if ((me.mp || 0) < def.mp) return toast('灯火不够', 'warn');
     me.mp -= def.mp;
-    me.skillCdUntil = t + def.cd;
+    me.skillCdUntil = t + def.cd / 1000;
     me.act = { type: 'skill', t: 0, dur: 320, dx: me.dirX || 0, dy: me.dirY || 1 };
     var list = [];
     var ids = Object.keys(S.mobs);

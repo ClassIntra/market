@@ -36,7 +36,7 @@
       var F = D.FISH || [], O = D.ORES || [];
       for (var i = 0; i < F.length; i++) if (F[i].id === base) n = F[i].name;
       if (!n) for (var j = 0; j < O.length; j++) if (O[j].id === base) n = O[j].name;
-      if (!n) n = FIX[base] || base;
+      if (!n) n = FIX[base] || (D.ITEM_NAMES && D.ITEM_NAMES[base]) || base;
     }
     return n + (q ? ' ' + (D.QUALITY && D.QUALITY[q] ? D.QUALITY[q].name : '★' + q) : '');
   }
@@ -48,9 +48,18 @@
     for (var i = 0; i < F.length; i++) if (F[i].id === base) return '#8fc4d8';
     var O = D.ORES || [];
     for (var j = 0; j < O.length; j++) if (O[j].id === base) return '#a9a29a';
-    var M = { hay: '#d8c27a', wood: '#a9814f', coal: '#4a4a52', copper: '#c98452',
+    var M = { hay: '#d8c27a', wood: '#a9814f', hardwood: '#8a6a48', coal: '#4a4a52', copper: '#c98452',
       iron: '#c8cdd4', gold: '#e5c45c', iridium: '#b9e6e2', gem: '#b58ad8',
-      egg: '#f2e7c8', milk: '#eef1f4', wool: '#f0eade', truffle: '#8b6b52' };
+      egg: '#f2e7c8', milk: '#eef1f4', wool: '#f0eade', truffle: '#8b6b52',
+      crab: '#e87858',
+      copper_bar: '#c98452', iron_bar: '#c8cdd4', gold_bar: '#e5c45c', iridium_bar: '#b9e6e2',
+      mayonnaise: '#f6efc0', cheese: '#e8c060', pale_ale: '#e8b84a', beer: '#d89830',
+      food_soup: '#e8d8a0', food_stirfry: '#a8c860', food_grilled: '#d8a06a', food_sushi: '#e8e0c8',
+      food_bento: '#c8a878', food_cookie: '#d8b070', food_tea: '#88b080', food_honey: '#e0a840',
+      horseradish: '#e8e2d0', daffodil: '#f0d858', leek: '#b8cc88', dandelion: '#f0c840',
+      spice_berry: '#d86a4a', sweet_pea: '#c878d8', summer_grape: '#8868b8',
+      hazelnut: '#a87848', wild_plum: '#8858a8', blackberry: '#585878',
+      crystal_fruit: '#a8e0e8', snow_yam: '#e8d0b0', winter_root: '#c8a878' };
     return M[base] || '#c8b48a';
   }
   function farmQualityColor(id) {
@@ -100,6 +109,7 @@
   function farmAct(path, body) {
     return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
       if (d && d.farm) farmApply(d.farm);
+      actSfx('farm', path, d);
       S.farm.lastError = '';
       if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
       return d;
@@ -112,6 +122,7 @@
   function lifeAct(path, body) {
     return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
       if (d && d.farm) farmApply(d.farm);
+      actSfx('life', path, d);
       S.farm.lastError = '';
       if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
       return d;
@@ -123,7 +134,60 @@
   }
   function farmToast(text, kind) { toast(text, kind || ''); auSfx('menu', 0.2, 1.1); }
 
+  // ---------- v5.4 音效：夜里（18:00–06:00）自动把音量压到 6 折 ----------
+  function farmSfx(name, vol, rate) {
+    var v = vol == null ? 0.3 : vol;
+    try {
+      var clock = farmCal().clock || '';
+      var h = Number(String(clock).split(':')[0]) || 0;
+      if (h >= 18 || h < 6) v = v * 0.6;
+    } catch (e) {}
+    auSfx(name, v, rate || 1);
+  }
+  // 各动作的音效映射表（主理人定死）：[键, 音量, 音高]
+  var ACT_SFX = {
+    'farm/till': ['hit', 0.3, 0.7],
+    'farm/water': ['fx', 0.22, 1.3],
+    'farm/plant': ['fx', 0.2, 0.8],
+    'farm/fertilize': ['fx', 0.2, 1.0],
+    'farm/harvest': ['accept', 0.35, 1.1],
+    'farm/sell': ['coin', 0.45, 1.0],
+    'farm/ship': ['impact', 0.22, 1.3],
+    'farm/buy': ['coin', 0.4, 1.1],
+    'farm/tool': ['bonus', 0.45, 1.0],
+    'farm/profession': ['secret', 0.45, 1.2],
+    'life/craft': ['success', 0.4, 1.15],
+    'life/eat': ['accept', 0.3, 0.75],
+    'life/forage/pick': ['accept', 0.3, 1.3],
+    'life/chop': ['sword2', 0.4, 0.75],
+    'life/mine/dig': ['hit3', 0.35, 0.9],
+    'life/bundle': ['spirit', 0.45, 1.0],
+    'life/festival': ['bonus', 0.4, 1.25],
+    'life/marry': ['magic', 0.45, 1.15],
+    'life/bouquet': ['magic', 0.4, 1.1]
+  };
+  function actSfx(kind, path, d) {
+    var key = kind + '/' + path, s = ACT_SFX[key];
+    if (!s) return;
+    if (key === 'life/chop') {           // 砍树：斧声 + 一拍之后的闷响
+      farmSfx(s[0], s[1], s[2]);
+      setTimeout(function () { farmSfx('impact', 0.5, 0.8); }, 130);
+      return;
+    }
+    if (key === 'life/mine/dig') {       // 挖矿：正常是敲石声，被打晕是警报
+      farmSfx(d && d.down ? 'alert' : 'hit3', d && d.down ? 0.4 : 0.35, d && d.down ? 0.85 : 0.9);
+      return;
+    }
+    if (key === 'life/craft') {          // 熔炼低沉一些，其它加工亮一些
+      farmSfx('success', 0.4, d && d.skill === 'mining' ? 0.9 : 1.15);
+      return;
+    }
+    farmSfx(s[0], s[1], s[2]);
+  }
+
   // ---------- HUD：星露谷同款的时钟 / 季节 / 金币 / 体力 / 工具栏 ----------
+  // v5.4：设备在世界层的摆放顺序（与商店列表一致）
+  var MACHINE_ORDER = ['furnace', 'mayo_machine', 'cheese_press', 'keg', 'stove'];
   var FARM_TOOLS = [
     { id: 'hoe', name: '锄头', ch: '⊐', key: '1' },
     { id: 'watercan', name: '水壶', ch: '◔', key: '2' },
@@ -157,10 +221,6 @@
         b.setAttribute('aria-pressed', on ? 'true' : 'false');
       }
     }
-    if (UI.farmToolNext) {
-      var nx = farmNextAction();
-      setText(UI.farmToolNext, nx ? 'E：' + nx : '');
-    }
     if (UI.farmSeedLabel) {
       setText(UI.farmSeedLabel, S.farm.seed ? farmItemName(S.farm.seed) : '没种子了');
     }
@@ -168,6 +228,25 @@
       var fes = c.festival;
       UI.farmFestival.style.display = fes ? '' : 'none';
       if (fes) setText(UI.farmFestival, '✦ ' + fes.name);
+    }
+    if (UI.farmToolNext || UI.farmNear) farmHintPaint();
+  }
+  // v5.4：两条只读提示统一在这里刷（farmHudPaint 与每帧 socialTick 都调它；
+  // 走动 / 传送都要跟着变，setText 自带相等判断，不变就零开销）
+  function farmHintPaint() {
+    if (UI.farmToolNext) {
+      var nx = farmNextAction();
+      setText(UI.farmToolNext, nx ? 'E：' + nx : '');
+    }
+    if (UI.farmNear) {
+      // 优先级：采集物 > 树 > 田格工具提示（田格提示在 farmToolNext 里）
+      var nf = farmNearForage(), txt = '';
+      if (nf) txt = 'E：采集 ' + farmItemName(nf.item);
+      else {
+        var nt = farmNearTree();
+        if (nt) txt = nt.ready ? 'E：砍树' : '这棵树刚砍过，过几天再来';
+      }
+      setText(UI.farmNear, txt);
     }
   }
 
@@ -216,6 +295,9 @@
     var nextTip = el('div', 'sg5-farm-tool-next', '');
     UI.farmToolNext = nextTip;
     bar.appendChild(nextTip);
+    var nearTip = el('div', 'sg5-farm-near', '');
+    UI.farmNear = nearTip;
+    bar.appendChild(nearTip);
     var seedRow = el('div', 'sg5-farm-seedrow');
     seedRow.appendChild(el('span', 'sg5-farm-seedlabel', ''));
     UI.farmSeedLabel = seedRow.childNodes[0];
@@ -441,11 +523,111 @@
           crop: p.crop, grow: Math.min(1, (p.grow || 0) / need), ready: ready });
       }
     }
+    // ---- v5.4：野外采集物 / 冷却残桩 / 田下缘的加工设备 ----
+    var fi, fr = P.forage || [];
+    for (fi = 0; fi < fr.length; fi++) {
+      var fp = fr[fi];
+      if (fp.x < vr.x0 || fp.x > vr.x1 || fp.y < vr.y0 || fp.y > vr.y1) continue;
+      PROPS.push({ k: 'forage', x: fp.x, y: fp.y, s: (fp.x * 7 + fp.y * 13) % 7, item: fp.item });
+    }
+    var cdKeys = Object.keys(P.forageCd || {});
+    for (fi = 0; fi < cdKeys.length; fi++) {
+      var xy = cdKeys[fi].split(','), gx = Number(xy[0]), gy = Number(xy[1]);
+      if (gx < vr.x0 || gx > vr.x1 || gy < vr.y0 || gy > vr.y1) continue;
+      PROPS.push({ k: 'forage', x: gx, y: gy, s: 0, item: '', stub: 1 });
+    }
+    // 设备画在田下缘：按购买顺序每台占 2 格，一排放不下就封顶 6 台
+    var mi = 0, order = MACHINE_ORDER;
+    for (var oi = 0; oi < order.length; oi++) {
+      var cnt = (P.machines || {})[order[oi]] || 0;
+      for (var ci = 0; ci < cnt && mi < 6; ci++) {
+        PROPS.push({ k: 'machine', x: B.x + mi * 2, y: B.y + B.h, s: mi, kind: order[oi] });
+        mi++;
+      }
+    }
   };
+  // v5.4：采集物——12×12 阶梯三段 + 1px 描边 + ≤1px 摇摆 + 底部接触阴影；冷却格画残桩
+  function farmDrawForage(ctx, p) {
+    var u = TILE * S.zoom;
+    var sx = w2sX(p.x * TILE + TILE * 0.5);
+    var sy = w2sY(p.y * TILE + TILE);
+    if (p.stub) {
+      ctx.fillStyle = 'rgba(70,58,38,0.75)';
+      ctx.fillRect(Math.round(sx - 1), Math.round(sy - u * 0.16), 2, Math.round(u * 0.16));
+      return;
+    }
+    var col = farmItemColor(p.item) || '#a8c86a';
+    var sway = Math.round(Math.sin(S.time * 1.6 + (p.x * 7 + p.y * 13) % 7) * 1);
+    ctx.fillStyle = 'rgba(30,22,16,0.22)';
+    ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.2, u * 0.06, 0, 0, 6.2832); ctx.fill();
+    var h1 = u * 0.34, h2 = u * 0.22, h3 = u * 0.14;
+    var w1 = u * 0.42, w2 = u * 0.30, w3 = u * 0.18;
+    var baseY = sy - u * 0.06;
+    var bx = Math.round(sx + sway);
+    ctx.fillStyle = col;
+    ctx.fillRect(Math.round(bx - w1 / 2), Math.round(baseY - h1), Math.round(w1), Math.round(h1));
+    ctx.fillRect(Math.round(bx - w2 / 2), Math.round(baseY - h1 - h2), Math.round(w2), Math.round(h2));
+    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), Math.round(w3), Math.round(h3));
+    ctx.strokeStyle = 'rgba(38,28,20,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(bx - w1 / 2) + 0.5, Math.round(baseY - h1) + 0.5, Math.round(w1), Math.round(h1));
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), 2, 2);
+  }
+  // v5.4：加工设备——田下缘一排，5 种造型 + 两帧交替的工作烟
+  function farmDrawMachine(ctx, p) {
+    var u = TILE * S.zoom;
+    var sx = w2sX(p.x * TILE + TILE);
+    var sy = w2sY(p.y * TILE + TILE);
+    var col = farmItemColor(p.kind) || '#8a8078';
+    ctx.fillStyle = 'rgba(30,22,16,0.24)';
+    ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.42, u * 0.1, 0, 0, 6.2832); ctx.fill();
+    var w = Math.round(u * 0.72), h = Math.round(u * 0.6);
+    var x0 = Math.round(sx - w / 2), y0 = Math.round(sy - h);
+    ctx.fillStyle = col;
+    ctx.fillRect(x0, y0, w, h);
+    ctx.strokeStyle = 'rgba(38,28,20,0.8)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(x0, y0, w, Math.max(2, Math.round(h * 0.18)));
+    if (p.kind === 'furnace') {
+      ctx.fillStyle = '#e87830';
+      ctx.fillRect(Math.round(sx - u * 0.14), Math.round(sy - h * 0.42), Math.round(u * 0.28), Math.round(h * 0.3));
+    } else if (p.kind === 'keg') {
+      ctx.fillStyle = 'rgba(38,28,20,0.55)';
+      ctx.fillRect(x0, Math.round(y0 + h * 0.3), w, 2);
+      ctx.fillRect(x0, Math.round(y0 + h * 0.62), w, 2);
+    } else if (p.kind === 'stove') {
+      ctx.fillStyle = '#3a3a42';
+      ctx.fillRect(Math.round(sx - u * 0.2), Math.round(y0 - u * 0.16), Math.round(u * 0.4), Math.round(u * 0.16));
+    } else {
+      ctx.fillStyle = 'rgba(38,28,20,0.5)';
+      ctx.fillRect(Math.round(sx - u * 0.1), y0, Math.round(u * 0.2), Math.round(h * 0.3));
+    }
+    var frm = Math.floor(S.time * 2) % 2;
+    ctx.fillStyle = frm ? 'rgba(240,236,220,0.5)' : 'rgba(240,236,220,0.28)';
+    var puff = frm ? 3 : 2;
+    ctx.fillRect(Math.round(sx - puff / 2), Math.round(y0 - (frm ? 8 : 4)), puff, puff);
+  }
   var _drawPropFarm = drawProp;
   drawProp = function (ctx, p) {
     if (p && p.k === 'farmcrop') { farmDrawCrop(ctx, p); return; }
-    return _drawPropFarm(ctx, p);
+    if (p && p.k === 'forage') { farmDrawForage(ctx, p); return; }
+    if (p && p.k === 'machine') { farmDrawMachine(ctx, p); return; }
+    var r = _drawPropFarm(ctx, p);
+    // v5.4：刚砍过的树叠两道斧痕（前 3 天内），一亮一暗
+    if (p && (p.k === T.TREE || p.k === T.PINE || p.k === T.DEADTREE)) {
+      var P = farmP();
+      if (P && P.chopped && P.chopped[p.x + ',' + p.y]) {
+        var u = TILE * S.zoom;
+        var cx = w2sX(p.x * TILE + TILE * 0.5), cy = w2sY(p.y * TILE + TILE);
+        ctx.fillStyle = 'rgba(240,236,220,0.85)';
+        ctx.fillRect(Math.round(cx - u * 0.16), Math.round(cy - u * 0.5), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.22));
+        ctx.fillStyle = 'rgba(240,236,220,0.35)';
+        ctx.fillRect(Math.round(cx + u * 0.05), Math.round(cy - u * 0.44), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.18));
+      }
+    }
+    return r;
   };
 
   // ---------- 交互：站在田里按 E，按当前工具干活 ----------
@@ -473,6 +655,36 @@
     if (p && p.crop) return '浇水';
     if (p && p.tilled) return '播种';
     return '翻土';
+  }
+  // ---- v5.4：身边的采集物 / 树（farmbar 提示与世界层 E 键共用） ----
+  function farmNearForage() {
+    var P = farmP(), m = S.me;
+    if (!P || !m || !P.forage) return null;
+    var best = null, bd = 2.25;                       // 1.5 格（平方）
+    for (var i = 0; i < P.forage.length; i++) {
+      var f = P.forage[i];
+      var d = dist(m.x, m.y, f.x + 0.5, f.y + 0.5);
+      if (d < bd) { bd = d; best = f; }
+    }
+    return best;
+  }
+  function farmNearTree() {
+    var m = S.me;
+    if (!m || !S.map || !S.map.cells) return null;
+    var fx = Math.floor(m.x), fy = Math.floor(m.y);
+    var face = m.face || 0;
+    var dx = [0, 0, -1, 1][face], dy = [1, -1, 0, 0][face];
+    // 面前一格优先，四邻兜底
+    var cand = [[fx + dx, fy + dy], [fx + 1, fy], [fx - 1, fy], [fx, fy + 1], [fx, fy - 1]];
+    var P = farmP(), day = farmCal().day || 0;
+    for (var i = 0; i < cand.length; i++) {
+      var tx = cand[i][0], ty = cand[i][1];
+      var t = tileAt(tx, ty);
+      if (t !== T.TREE && t !== T.PINE && t !== T.DEADTREE) continue;
+      var cd = P && P.chopped ? P.chopped[tx + ',' + ty] : 0;
+      return { x: tx, y: ty, ready: !(cd && day - cd < 3) };
+    }
+    return null;
   }
   function farmSmartAction(r, c) {
     var P = farmP(); if (!P) return;
@@ -518,9 +730,32 @@
     }, function (e) { farmToast(e.message || '这会儿干不了', 'warn'); });
     return true;
   }
+  // 世界里飘字：复用战斗飘字的结构（金色小字往上飘）
+  function floatText(txt) {
+    var m = S.me;
+    if (m && S.texts) S.texts.push({ x: m.x, y: m.y - 1.2, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
+  }
+  // 世界里按 E：田区内严格按手上的工具干活；田区外先采集、再砍树，最后才轮到宝箱 / NPC
   var _doInteractFarm = doInteract;
   doInteract = function (t) {
     if (farmP() && farmNear() && farmWorldAction()) return;
+    var nf = farmNearForage();
+    if (nf) {
+      lifeAct('forage/pick', { x: nf.x, y: nf.y }).then(function (d) {
+        farmToast('采到了 ' + (d && d.name ? d.name : '野味'));
+        floatText('+' + (d && d.got ? d.got.length : 1));
+      }, function (e) { farmToast(e.message, 'warn'); });
+      return;
+    }
+    var nt = farmNearTree();
+    if (nt && nt.ready) {
+      lifeAct('chop', { x: nt.x, y: nt.y }).then(function (d) {
+        var g = d && d.got ? d.got : {};
+        farmToast('砍到木材 ×' + (g.wood || 0) + (g.hardwood ? ' · 硬木 ×1' : ''));
+        floatText('+木材');
+      }, function (e) { farmToast(e.message, 'warn'); });
+      return;
+    }
     return _doInteractFarm(t);
   };
 
@@ -534,6 +769,7 @@
     }
     if (k === 'farm-level') {
       var D = farmD();
+      farmSfx('levelup', 0.45, 1.3);
       farmToast((D.SKILL_NAMES ? D.SKILL_NAMES[e.skill] : e.skill) + '升到 ' + e.lv + ' 级！');
       farmState(); return true;
     }
@@ -586,11 +822,8 @@
       var c = farmCal(), ms = c.dayMs || 90000;
       setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
     }
-    // 脚下那格会随走动变化，只读提示也跟着走（setText 自带相等判断，不写就零开销）
-    if (UI.farmToolNext) {
-      var nx = farmNextAction();
-      setText(UI.farmToolNext, nx ? 'E：' + nx : '');
-    }
+    // v5.4：脚下 / 身边都会随走动变化，两条只读提示每帧跟着走
+    if (UI.farmToolNext || UI.farmNear) farmHintPaint();
     // 低频：面板开着或有待办时 6 秒拉一次；平时 15 秒，别给 5Hz 同步添负担
     var interval = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') ? 6 : 15;
     if (t - S.farm.lastPoll >= interval) {

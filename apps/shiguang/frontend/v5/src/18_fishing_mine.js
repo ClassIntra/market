@@ -195,6 +195,18 @@
     body.appendChild(s);
   }
 
+  // v5.4：矿洞里生效的职业，一眼一条短句
+  var MINE_PROF = {
+    fighter: '血量 +15%', defender: '血量 +25', scout: '遇怪减半', brute: '承伤 -15%',
+    prospector: '煤 ×2', geologist: '宝石成对', pirate: '5% 宝箱', miner: '矿石 +1'
+  };
+  function mineProfSummary() {
+    var P = farmP(); if (!P) return '';
+    var profs = P.profs || [], out = [];
+    for (var k in MINE_PROF) if (profs.indexOf(k) >= 0) out.push(MINE_PROF[k]);
+    return out.length ? '矿洞生效：' + out.join(' · ') : '';
+  }
+
   function mineBody(body) {
     var P = farmP(); if (!P) return;
     var D = farmD(), m = P.mineRun;
@@ -202,6 +214,8 @@
       '每 5 层有电梯，下次可直接下到那一层。镐子等级越高，一铲子能敲出越多矿石。');
     s.appendChild(el('div', 'sg5-farm-big', m ? '当前第 ' + m.floor + ' 层' : '还没下矿'));
     s.appendChild(el('div', 'sg5-note', '最深到过 ' + (P.mineBest || 0) + ' 层 · 电梯已通到第 ' + (P.elevator || 0) + ' 层 · 体力 ' + P.energy));
+    var profLine = mineProfSummary();
+    if (profLine) s.appendChild(el('div', 'sg5-farm-profline', profLine));
     if (!m) {
       var btns = [];
       var elev = Math.max(0, P.elevator || 0);
@@ -296,6 +310,18 @@
     else dexBody(cont);
     sh.body.appendChild(cont);
     return sh.root;
+  };
+
+  // v5.4：矿洞宝箱事件（pirate）→ 音效 + toast + 刷新农场状态
+  var _handleEventMine = handleEvent;
+  handleEvent = function (e) {
+    if (e && e.k === 'farm-pirate') {
+      farmSfx('secret', 0.5, 0.9);
+      farmToast('挖到了矿洞宝箱：' + (e.gold || 0) + ' 金 + 宝石 ×' + (e.gem || 1));
+      farmState();
+      return true;
+    }
+    return _handleEventMine(e);
   };
 
   // QTE 的定时器与按键监听必须随应用卸载一起走，热挂载才不会留下幽灵循环

@@ -271,6 +271,37 @@ await evalJs('__sg5.farm.act("goto",{}).then(function(d){if(d&&d.x!=null)__sg5.t
 await sleep(820);
 await shot('14-farm-world');
 
+// ---------- v5.4 加工页签 + 世界层采集物 ----------
+await evalJs('__sg5.farm.act("buy",{kind:"machine",id:"furnace"}).then(function(){return 1})');
+await sleep(420);
+await evalJs('__sg5.panel("farm")');
+await sleep(240);
+await evalJs('(function(){var t=document.querySelectorAll(".sg5-tab");for(var i=0;i<t.length;i++){if(t[i].textContent.indexOf("加工")>=0){t[i].click();return 1}}return 0})()');
+await sleep(360);
+await shot('16-panel-craft');
+const craft = await evalJs('JSON.stringify({rows:document.querySelectorAll(".sg5-farm-recipe").length,sects:document.querySelectorAll(".sg5-farm-cont .sg5-sect").length,near:!!document.querySelector(".sg5-farm-near")})');
+ok(craft.v && JSON.parse(craft.v).rows >= 4 && JSON.parse(craft.v).sects >= 5 && JSON.parse(craft.v).near, '加工页签：4 条熔炉配方 + 5 个设备分节 + 农场条提示位', craft.v);
+await evalJs('__sg5.panel("")');
+await sleep(200);
+const forageN = await evalJs('JSON.stringify((window.__sg5 && __sg5.state.farm && __sg5.state.farm.p && __sg5.state.farm.p.forage || []).length)');
+ok(forageN.v && JSON.parse(forageN.v) >= 14, '当日采集点已下发到浏览器（世界层渲染用）', forageN.v);
+// 传到最近一个采集点旁边：确认世界层画得出采集物、农场条会提示「E：采集」
+const fpRaw = await evalJs('JSON.stringify((window.__sg5.state.farm.p.forage || [])[0] || null)');
+const fp = fpRaw.v && fpRaw.v !== 'null' ? JSON.parse(fpRaw.v) : null;
+if (fp) {
+  await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x: fp.x + 0.5, y: fp.y + 1.5 })
+  });
+  await evalJs('__sg5.teleport(' + (fp.x + 0.5) + ',' + (fp.y + 1.5) + ')');
+  await sleep(700);
+  await shot('17-forage-world');
+  const nearTx = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-near")||{}).textContent||"")');
+  ok(nearTx.v && String(nearTx.v).indexOf('采集') >= 0, '农场条提示「E：采集」', nearTx.v);
+} else {
+  await shot('17-forage-world');
+}
+
 // 钓鱼 QTE：点「甩竿」后应出现绿条轨道
 await evalJs('__sg5.panel("mine")');
 await sleep(240);

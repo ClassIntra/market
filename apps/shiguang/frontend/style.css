@@ -1579,3 +1579,39 @@
 }
 /* 44px dock 里 24px 图标与 16px 键位徽标轻微叠压：图标整体上移，给键位让出下缘 */
 .sg5-dockbtn canvas { margin-top: -4px; }
+
+/* ==================== v5.4 加工 / 采集 / 砍树 ==================== */
+/* 沿用 v5.3 的木石像素体系；配方三态复用 .sg5-bundle-need，不新增语义 is-* 类 */
+
+/* 七个页签放得下：宽度收到 92px + 允许折行 */
+.sg5-tabs { flex-wrap: wrap; }
+.sg5-tab { min-width: 92px; }
+
+/* 农场条：E 键的「身边有什么」提示（采集物 > 树） */
+.sg5-farm-near {
+  margin-top: 2px; min-height: 20px;
+  color: var(--px-gold); font-size: 16px; line-height: 1.5;
+}
+
+/* 已选职业的短标 / 矿洞职业摘要 */
+.sg5-farm-profmark { font-size: 16px; color: var(--px-ink-2); margin: 2px 0 0 8px; }
+.sg5-farm-profline { font-size: 16px; color: var(--px-ink-2); margin: 4px 0; }
+
+/* 配方行：材料 chips 与「缺 xx ×n」灰字 */
+.sg5-farm-needs { display: flex; flex-wrap: wrap; flex: 1 1 auto; margin-right: 8px; }
+.sg5-farm-needs .sg5-bundle-need { margin: 0 4px 4px 0; padding: 2px 6px; }
+.sg5-farm-lack { font-size: 16px; color: var(--px-ink-3); margin-right: 6px; }
+.sg5-farm-note-inline { width: 100%; font-size: 16px; color: var(--px-ink-2); margin-top: 4px; }
+
+/* 物品 swatch 统一 16×16：1px 描边 + 左上 2×2 高光；精灵 / 字形图标塞在框内 */
+.sg5-farm-swatch {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-bottom: 4px; flex: 0 0 auto;
+  border: 1px solid #e8d7a8; background: #c8b48a;
+  position: relative; overflow: hidden;
+}
+.sg5-farm-swatch::after {
+  content: ''; position: absolute; left: 1px; top: 1px; width: 2px; height: 2px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.sg5-farm-swatch .sg5-farm-icon { display: block; image-rendering: pixelated; max-width: 100%; max-height: 100%; }

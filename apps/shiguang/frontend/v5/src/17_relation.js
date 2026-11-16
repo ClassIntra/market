@@ -42,9 +42,7 @@
           var b = el('button', 'sg5-farm-item');
           b.type = 'button';
           b.setAttribute('data-focus-key', 'gift:' + k);
-          var qc = farmQualityClass(k);
-          var sw = el('span', 'sg5-farm-swatch' + (qc ? ' ' + qc : ''));
-          sw.style.background = farmItemColor(k);
+          var sw = farmIcon(k, 16);
           b.appendChild(sw);
           b.appendChild(el('span', 'sg5-farm-itemname', farmItemName(k)));
           b.appendChild(el('span', 'sg5-farm-itemnum', '×' + P.inv[k]));
@@ -53,8 +51,12 @@
             var parent = grid;
             if (!parent || b.parentNode !== parent) return;
             var next = b.nextSibling;
-            var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () { onSend(k); });
+            var yes = uiBtn('确定', 'sg5-btn-sm sg5-btn-primary', function () {
+              farmSfx('menu', 0.3, 1.2);
+              onSend(k);
+            });
             var no = uiBtn('取消', 'sg5-btn-sm sg5-btn-ghost', function () {
+              farmSfx('cancel', 0.3, 1);
               if (yes.parentNode) yes.parentNode.removeChild(yes);
               if (no.parentNode) no.parentNode.removeChild(no);
               if (!b.parentNode) {

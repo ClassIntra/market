@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-15T13:04:31.819Z",
+  "updated_at": "2026-11-16T00:06:59.203Z",
   "apps": [
     {
       "name": "chess",
@@ -439,7 +439,7 @@
     {
       "name": "shiguang",
       "label": "拾光群岛",
-      "version": "5.3.1",
+      "version": "5.4.1",
       "description": "全班同在一片开放大世界里冒险：白天种田、钓鱼、下矿、走亲访友；入夜后长夜从雾里涌出来，大家回到灯边一起守夜。俯视角像素动作 RPG 遇上成熟农场经营：28 天一季的日历与天气、33 种作物与品质、体力与五级农具、出货箱次日结算、五级技能与职业、畜牧、绿条钓鱼、120 层矿洞、社区中心献祭、村民好感与结婚；外加四坡屋顶的小镇、四栋同一图层的房子、好友羁绊与六种双人互动。代码、美术、文案全部自研，玩法机制与数值对齐经典农场经营游戏。",
       "author": "ClassIntra",
       "files": [
@@ -556,21 +556,21 @@
         "backend/schema.sql": "2f9187d86b2b85e3a6cdbd171f8b79f884ef3c8f2a9672f5f1c1fa54e271c8f1",
         "backend/v5/config.js": "4fba3efded8fdf70ecdf539816e567aaa603886275ec77ad07b8b57c492f131c",
         "backend/v5/data.js": "583660e317b0d497cbd99b92b0d5cf9b5502b4ee02976ce8a935783f6fae274e",
-        "backend/v5/farm.js": "ced9e82cca17eae4d675483d527d520211b3b11bb8aee5d8793335e0dd1003ba",
-        "backend/v5/farmdata.js": "6fe552b8b211db12989077ff1cc69442cdfc12dc436480fb541398722b3c0b99",
-        "backend/v5/life.js": "03279d1f5116839224b5c7d024af9793224b7504c2f6f1c552c7d4d671b3e465",
+        "backend/v5/farm.js": "fa361c902a8673de9c2bbd3f37e6fba33fd09477c55cb6b4812af17ffb8604e2",
+        "backend/v5/farmdata.js": "5778b75eb6500659e923c956fc8e70026f69d373b83441d633d6719aab9e4c74",
+        "backend/v5/life.js": "33c6f1d6208aef51535050da591a63b0552c5f80723899c9a16bf1cd1fb4fb0a",
         "backend/v5/loot.js": "288a5e85d16bb42b34705fb3186e217cea346e36ebdb79d7864ff1d2e79586f7",
-        "backend/v5/routes.js": "b0f982ede4469d2499c095a75ececbf7fadb4f777d34bab478ae8a02fe79b299",
+        "backend/v5/routes.js": "80b6c2530751701b6b2515cb0c48a935ce540988ff72df4dd8814f70764d09db",
         "backend/v5/sim.js": "83adb8d87569cda6ab5597eb74f2340c92bdf9f7aa4fbdba4122751252c786e3",
         "backend/v5/social.js": "85d1b8a105a9e05ff894013ad9a6f4700f56469a875b95ca067cf5d34f4e2baa",
         "backend/v5/store.js": "d540c5c219e50ccda7fd74aa98d9d62edb823e6b846b860b9936f62c59dc8158",
         "backend/v5/worldgen.js": "bc6df7191006d190eae7ae13568b14d9d40edae479440748ab2ec4f6892c938b",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
-        "CHANGELOG.md": "a57c1be68db02378ad3325ef551ae470857af90fc587c71c07e8324c103a9185",
+        "CHANGELOG.md": "bce600320a2e5ea5a5d6d724e483c9a347502772111e39b584078f356e4a3e3a",
         "DESIGN-v5.md": "89b35633a69ac9e46983a8da33146f5a0d15dc12350a0b097c1c75ef16deaeb2",
-        "frontend/entry.js": "81ac5d26cde232e6f1a5824946aa04cefaba65bc45ee055f1888ada8144fb220",
+        "frontend/entry.js": "64769e295515eb091f72ac961f98e71765312b5d3a099755bfaf7f0a001ab9fb",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
-        "frontend/style.css": "6b71f8c340938785ad56aa3911c2fb12ce174ee0a3d31a89e5e59587152ebaae",
+        "frontend/style.css": "acaaf289b7a31530476749b2459f695c37b7712c17dc01863404b00000a051c5",
         "frontend/v5/atlas.json": "a00db589e8bfe64e3efd2f08b16fd926f2618c7181a6452180404d65791b19db",
         "frontend/v5/atlas.png": "7dbded1ec3cd382114b15c588b3d4cef52f1ebe000d8fcc5347743f85db1db35",
         "frontend/v5/build.mjs": "5f1797d10a05062eb8d7ea63c0ead5fcd721245003ea091901b5e26a7c61af31",
@@ -618,22 +618,22 @@
         "frontend/v5/src/02_audio.js": "e4bbeb533a46ba1c9a96ec70beb066779ccee91485d1ad8554d04697c744f2e4",
         "frontend/v5/src/03_world.js": "f028948c4918277edb36255b134b51f97163be12707a8e6613289d2d760ac7e5",
         "frontend/v5/src/04_landmarks.js": "ad3ba6973324ed56cff78e68ad6fd0bb91dec6c8f5c8ce49c76a0425b75d488e",
-        "frontend/v5/src/05_player.js": "9e2d4044571a8241aca1ce273f1ba4a866d3e09135cf8c23bd9626daf6e31737",
+        "frontend/v5/src/05_player.js": "bd75e95e9ef29a40762932741d098bd8e4ab6c231f1ac339792eb7f53393a595",
         "frontend/v5/src/06_data.js": "6d499c605d32a13f5a84acd0a40eb565fb6156d60b016334fcb488330ad1cac7",
         "frontend/v5/src/07_entity.js": "c88a72ef769e7c40c673f6bf564e5967bdaae1d1993059637ad9d25a01a30f76",
         "frontend/v5/src/08_mobs.js": "f0ec411617bb89490c0e8d229fb43ed9cc85cb4d0c9ac2dd1d39bf0330ba6434",
-        "frontend/v5/src/09_ui_hud.js": "4611c68900a607522943491858594569c60a9da0953dbab1443b62bf357a04a5",
-        "frontend/v5/src/10_ui_panels.js": "42ef9eaad983c9ef9917915367355e2c099ab6512ad2a1a3732ceed7625709db",
+        "frontend/v5/src/09_ui_hud.js": "0a1e0e7a782320cf34deec15a75fc6fabb07a0315f72e5793c9fa31c5e009477",
+        "frontend/v5/src/10_ui_panels.js": "c69eecc8f65eb6767eabc38d2db4e578cf782ad583599e333db5748d138f611e",
         "frontend/v5/src/11_net.js": "5b0defc75a4d3c89b8ee2268ca568e36058ab2b58f27f8f654333570abfccf0d",
         "frontend/v5/src/12_boot.js": "4a0b56288013810b9d47580cd846c6ce8315dd7b4074d4731b8a4b4355dbb0b5",
         "frontend/v5/src/13_social.js": "99805f414e7025f048aa8e9cf116757f5b9d9a6fa800f7b3bc91e89110b0af5a",
         "frontend/v5/src/14_social_ui.js": "3d2e949329e4353cc6b728e8185cf57f0d8792557c66c6d17fde680b51ff5dd6",
-        "frontend/v5/src/15_farm.js": "57372b0aeb6fd9fef8c973ff3978d3c091159bdaaf0700259029a2d0595807a8",
-        "frontend/v5/src/16_farm_ui.js": "709b1808e565816bfe43de36d409f77e717526cf523780afbece65389cf378c7",
-        "frontend/v5/src/17_relation.js": "2e067e8d9fc572b7396ca6fc6d43c7fc58152013a001ba1731ba9accdb243d9c",
-        "frontend/v5/src/18_fishing_mine.js": "9163d2e1e85630c98cdf13133ade89a549e990982adfcc39f83e2384715440ef",
+        "frontend/v5/src/15_farm.js": "582a97910e9f46fd731aaeacc3ac35eead11fa194b2965e9ed871426140e0262",
+        "frontend/v5/src/16_farm_ui.js": "28f176d30948fc954bd4c438fc4f6ef9ea9df431c804a0a57f08c01cb772a698",
+        "frontend/v5/src/17_relation.js": "a6a6ba9a7a2fed61973e30bc8a6925b8046abaf1b5fd8d8492b29b7ba6394cac",
+        "frontend/v5/src/18_fishing_mine.js": "af06f9315d2b5202fcba068c439686bcd209de0f483d32499f3c255984470d42",
         "icon.svg": "1ec7bf23838e39763b4bbf4730972922e7fa40cf44e1d18c64826b186def2915",
-        "manifest.json": "c7a5b5e5936a0e9acdef54264f519c33d3247c2cf69f904c79a57bc4b241bc96",
+        "manifest.json": "eda96f1d2da4625d2a9ab2a6efd79090f8a1ef9ad56acb784fbafea442eb7240",
         "preview.png": "2cb9e6ba46f3210bc8c9e14146a9c1201511472a2ec53e157319181c16a5d768",
         "README.md": "fc8f6b3edc187a479ff29573791b657832ac4e29af443d01cb91fbf6bbd05ea1",
         "screenshots/01-town-day.png": "e358e4f81de18e7b3f93c0fff0eb9481600c79e6c3ac45e9c9502bf23d2b1a05",
@@ -650,11 +650,11 @@
         "screenshots/12-farm-world.png": "ee422be239d82216806e1e6c9ab4d28697dd4eb06b636258d3b4f14301f18ba4",
         "screenshots/13-fishing-qte.png": "e68a65b7b75ed9ef31d0b765669531f6a77e248a0643ac085831547f6bcb6222",
         "test/v5-api.mjs": "47c1a99930bc80c9947109fe2ecf7ee9bd599920edc9ec752b55136607827636",
-        "test/v5-farm.mjs": "76f7d1c96e2036298c78c2e97fd389a63c7653565f7d92961b85844985a3e27e",
-        "test/v5-live.mjs": "5710b5a95e92f86048d788c3de6e58c885977b5495c9bd7adc4fb356e06d0685",
+        "test/v5-farm.mjs": "843e7815072ad9ccdcdba443def25be37e6e7e2486360b2a41f03a3de371dba7",
+        "test/v5-live.mjs": "8e03bb02ca8ec6caed270d6dfc08655bbac8a1f55a77ec4b20222320e5646be5",
         "test/v5-social.mjs": "f8b9fcd37c58c3cdd4221e4f141c8acbd2f40c233ee8f6140da9b5ea376ca138",
-        "test/v5-unit.mjs": "b0cdb2bfe28fbc200124a69162ab0857feb79b53be528ded9a24fbbf20942869",
-        "test/v5-visual.mjs": "c44b5fb6ea82c189c744e3e2969258ea61474707e56c31c6845508d64974d56e"
+        "test/v5-unit.mjs": "88e0559bfa030cf044c9603446021961a6d93cb3a9530318c1db743fd1a21388",
+        "test/v5-visual.mjs": "0f643044cc214fd8c2d3860abd248b7acaa625e6953ac6d172925fa57d5eb4b6"
       },
       "icon": "apps/shiguang/icon.svg",
       "screenshots": [
@@ -673,6 +673,14 @@
         "apps/shiguang/screenshots/13-fishing-qte.png"
       ],
       "changelog": [
+        {
+          "version": "5.4.1",
+          "notes": "修一个从 v5.1 就埋着的硬伤：玩家冷却时间戳从未初始化（undefined），t > undefined 恒为假——普攻/翻滚的本地预测分支从未触发过，触屏点攻击键没反应；技能因为有 ||0 保护一直正常，所以只有这两个键坏了。顺带修正四处毫秒/秒单位混用（攻击一次冷却 110 秒、翻滚 10 分钟、技能 66 分钟，恢复为 110ms/600ms/220ms/4s）。触屏探针 10 项 + 六套测试全绿。"
+        },
+        {
+          "version": "5.4.0",
+          "notes": "把断掉的循环接上：18 条配方的加工链（熔炉锭/蛋黄酱/奶酪/淡啤/8 道料理，第五页签「加工」，设备在田边随购买长出来）、四季采集物与斧头砍树（采集技能全链路生效）、13 个空头职业全部真实兑现（铁匠锭价/海盗宝箱/捕蟹者每日蟹/矿洞四职业）、料理可吃与星果永久体力上限、27 个音效全部接线、物品图标三轨制（图集精灵/多色像素字形/色块升级）。新增 farm 88 项联调，六套全绿。"
+        },
         {
           "version": "5.3.1",
           "notes": "UI 全面精修：16px 字号地板与色值归并到同一套木石变量、QTE 与农场条材质同源、flex gap 清除、状态语义唯一化、单滚动容器与面板焦点/滚动保持、不可逆操作两步确认、加载失败错误态、键盘与读屏最小清单、dock 三段分组；修复平板矮视口下农场条压住动作键导致点不动的硬伤（动作区提 z-index + 矮视口农场条上移收起），面板遮罩改为点击穿透，边看面板边打怪可行。新增三档视口布局探针 24 项。"
