@@ -84,15 +84,17 @@
       m.tellT = Math.max(0, (m.tellT || 0) - dt);
       if (m.dying != null) {
         m.dying -= dt;
-        if (m.dying <= 0) { delete S.mobs[ids[i]]; continue; }
+        if (m.dying <= 0) { spawnCorpse(m); delete S.mobs[ids[i]]; continue; }
       }
       // 完美闪避：怪物的出招在「我无敌」的窗口里落下
+      // v5.6 W4 s4 见切：判定窗口 ×1.6（220ms → 352ms），成功瞬间 0.15s 白边闪光
       if (m.state === 'act' && m.prevState !== 'act') {
         var me = S.me;
         if (me && !me.down) {
           var d = dist(me.x, me.y, m.rx, m.ry);
           if (d < (m.boss ? 4.2 : 3.0)) {
-            if (t < me.invUntil) perfectDodge(t);
+            var pw = me.pwBonus || 0;
+            if (t < me.invUntil + pw) perfectDodge(t, m);
             else hurtFlash();
           }
         }
@@ -103,15 +105,28 @@
     }
   }
 
-  function perfectDodge(t) {
+  function perfectDodge(t, m) {
     var me = S.me;
     if (me.perfectAt && t - me.perfectAt < 0.6) return;
     me.perfectAt = t;
     me.critReady = 1;
-    S.slow = { until: t + 0.42, scale: 0.3 };
+    // v5.6 W4：s4 见切 —— 子弹时间 ×1.6 + 白边闪光
+    var s4 = me.talentShadowLv >= 4;
+    S.slow = { until: t + (s4 ? 0.67 : 0.42), scale: 0.3 };
+    S.pdFlashUntil = t + 0.15;
+    // v5.6 W4：s5 影袭 —— 瞬移到目标背后 0.8 格（复用 dodge 残影），下一击暴击紫色
+    if (m && me.talentShadowLv >= 5) {
+      var ang = m.faceAng || 0;
+      var nx = m.rx - Math.cos(ang) * 0.8, ny = m.ry - Math.sin(ang) * 0.8;
+      if (!blockedAt(nx, ny)) {
+        me.x = nx; me.y = ny;
+        me.shadowStrike = 1;
+      }
+    }
     S.cam.shake = Math.max(S.cam.shake, 3);
     S.rings.push({ x: me.x, y: me.y, r: 0, max: 2.4, life: 0.45, max2: 0.45, col: '#bfe8ff' });
     S.texts.push({ x: me.x, y: me.y - 1.4, txt: '完美闪避', crit: 0, life: 0.9, max: 0.9, vy: -1.1, vx: 0, perfect: 1 });
+    burst(me.x, me.y, 6, '#bfe8ff', 3.6);   // 残影
     auSfx('secret', 0.42, 1.15);
   }
 

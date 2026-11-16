@@ -393,6 +393,53 @@ var MUSIC = {
   function easeOut(t) { return 1 - (1 - t) * (1 - t); }
   function easeIn(t) { return t * t; }
 
+  // v5.6 W1：带预算上限的 push（FIFO，超限 shift 最旧）。主循环另有 trimBudgets 兜底。
+  function capPush(arr, item, max) {
+    if (!arr) return;
+    if (arr.length >= max) arr.shift();
+    arr.push(item);
+  }
+
+  // v5.6 W3：颜色加深（'#rrggbb', -36）—— 作物果实二阶色用
+  function shadeHex(hex, amt) {
+    var r = parseInt(hex.substr(1, 2), 16), g = parseInt(hex.substr(3, 2), 16), b = parseInt(hex.substr(5, 2), 16);
+    r = Math.max(0, Math.min(255, r + amt));
+    g = Math.max(0, Math.min(255, g + amt));
+    b = Math.max(0, Math.min(255, b + amt));
+    return '#' + (r < 16 ? '0' : '') + r.toString(16) + (g < 16 ? '0' : '') + g.toString(16) + (b < 16 ? '0' : '') + b.toString(16);
+  }
+
+  // ---------------- §2.5 竞态守卫（v5.6 W1，Phase 2 裁定：丢弃不排队） ----------------
+  // 锁挂在 S 上（refreshPanel 重建 DOM 会丢锁，所以绝不挂 DOM）。
+  // 在途时再点：直接丢弃，第 3 次连续丢弃 panelBusy 弹一次 toast；触发的控件加 .is-busy。
+  // fn 返回 Promise 时自动在 finally 复位；同步返回时立即复位。
+  function sg5Gate(lock, el, fn) {
+    if (S[lock]) {
+      S[lock + '_drop'] = (S[lock + '_drop'] || 0) + 1;
+      if (lock === 'panelBusy' && S[lock + '_drop'] === 3) toast('别急，上一笔还在路上', 'warn');
+      if (el && el.className && el.className.indexOf && el.className.indexOf('is-busy') < 0) el.className += ' is-busy';
+      return null;
+    }
+    S[lock] = 1;
+    S[lock + '_drop'] = 0;
+    var fin = function () {
+      S[lock] = 0;
+      if (el && el.className && el.className.indexOf && el.className.indexOf('is-busy') >= 0) {
+        el.className = el.className.replace(/\s*is-busy/, '');
+      }
+    };
+    var r;
+    try { r = fn(); } catch (e) { fin(); throw e; }
+    if (r && typeof r.then === 'function') {
+      // 释放必须直接挂在 r 上（第一个 reaction）：派生一层 then 会让 fin 排到
+      // 调用方回调之后 —— 链式调用下一笔永远撞上「在途」而全部被丢弃。
+      try { r.then(fin, fin); } catch (e2) { fin(); }
+      return r;
+    }
+    fin();
+    return r;
+  }
+
   // ---------------- §3 DOM 小工 ----------
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -2981,6 +3028,9 @@ var MUSIC = {
     }
     if (!hits.length) return;
     var dmgBase = (S.stats.atk || 8) * me.act.mul;
+    // v5.6 W4 b2 连斩：末段（第 3 段）伤害 ×1.25（有 b2 天赋时），飘字放大 1.5 倍橙色
+    var finisher = me.act.combo === 2 && me.talentBladeLv >= 2;
+    if (finisher) dmgBase *= 1.25;
     for (var k = 0; k < hits.length; k++) {
       var mob = hits[k];
       var crit = Math.random() * 100 < (S.stats.crit || 5) || (me.critReady > 0 && k === 0);
@@ -2988,27 +3038,61 @@ var MUSIC = {
       var dmg = dmgBase * (crit ? 1 + (S.stats.critDmg || 50) / 100 : 1) * (0.9 + Math.random() * 0.2);
       dmg = Math.max(1, Math.round(dmg));
       var kbx = me.act.dx, kby = me.act.dy;
-      hitMob(mob, dmg, crit, kbx, kby, me.act.combo === 2);
-      S.net.queue.push({ m: mob.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(kbx * 10) / 10, ky: Math.round(kby * 10) / 10, h: me.act.combo === 2 ? 1 : 0 });
+      hitMob(mob, dmg, crit, kbx, kby, me.act.combo === 2, finisher);
+      S.net.queue.push({ m: mob.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(kbx * 10) / 10, ky: Math.round(kby * 10) / 10, h: me.act.combo === 2 ? 1 : 0, f: finisher ? 1 : 0 });
     }
     hitstop(crit ? 90 : HITSTOP);
     S.cam.shake = Math.max(S.cam.shake, hits.length > 2 ? 4 : 2.4);
     auSfx(easePick(['hit', 'hit2', 'hit3']), 0.42, 0.95 + Math.random() * 0.2);
+    // v5.6 W4 b5 剑舞：普攻每 5 次自动小回旋（0.6 倍半径与伤害，复用 spin 特效）
+    if (me.talentBladeLv >= 5) {
+      me.atkCount = (me.atkCount || 0) + 1;
+      if (me.atkCount >= 5) { me.atkCount = 0; autoSpin(me, t); }
+    }
+  }
+
+  // v5.6 W4 b5 剑舞：命中上报走 melee 通道（小回旋半径 0.6×2.8≈1.68 < HIT_REACH 3.2）
+  function autoSpin(me, t) {
+    var radius = 2.8 * 0.6;
+    var dmgBase = (S.stats.atk || 8) * 1.6 * 0.6;
+    var list = [];
+    var ids = Object.keys(S.mobs);
+    for (var i = 0; i < ids.length; i++) {
+      var m = S.mobs[ids[i]];
+      if (!m || m.dying) continue;
+      var d = dist(me.x, me.y, m.x, m.y);
+      if (d > radius + (m.boss ? 1.4 : 0.4)) continue;
+      var crit = Math.random() * 100 < (S.stats.crit || 5);
+      var dmg = Math.max(1, Math.round(dmgBase * (crit ? 1 + (S.stats.critDmg || 50) / 100 : 1)));
+      var dx = (m.x - me.x) / (d || 1), dy = (m.y - me.y) / (d || 1);
+      hitMob(m, dmg, crit, dx, dy, false, false);
+      list.push({ m: m.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(dx * 10) / 10, ky: Math.round(dy * 10) / 10, f: 0 });
+    }
+    S.rings.push({ x: me.x, y: me.y, r: 0, max: radius, life: 0.3, max2: 0.3, col: '#ffc9a8' });
+    auSfx('power', 0.28, 1.3);
+    if (list.length) {
+      for (var j = 0; j < list.length && j < 8; j++) S.net.queue.push(list[j]);
+    }
   }
 
   function easePick(a) { return a[(Math.random() * a.length) | 0]; }
 
-  function hitMob(m, dmg, crit, kx, ky, heavy) {
+  function hitMob(m, dmg, crit, kx, ky, heavy, finisher) {
     m.hpVis = Math.max(0, (m.hpVis == null ? m.hp : m.hpVis) - dmg);
     m.flash = 0.12;
     m.kx = (m.kx || 0) + kx * (heavy ? 0.55 : 0.25);
     m.ky = (m.ky || 0) + ky * (heavy ? 0.55 : 0.25);
     m.shakeT = 0.12;
     if (m.hpVis <= 0) m.dying = 0.28;
+    var me = S.me;
+    var purple = crit && me && me.shadowStrike;   // v5.6 W4 s5 影袭：下一击暴击紫色
+    if (purple) me.shadowStrike = 0;
     S.texts.push({
       x: m.x + (Math.random() - 0.5) * 0.3, y: m.y - (m.boss ? 2.2 : 0.9),
       txt: String(dmg), crit: crit, life: crit ? 0.9 : 0.7, max: crit ? 0.9 : 0.7,
-      vy: crit ? -1.5 : -1.1, vx: (Math.random() - 0.5) * 0.5
+      vy: crit ? -1.5 : -1.1, vx: (Math.random() - 0.5) * 0.5,
+      col: purple ? '#9a8aff' : (finisher ? '#ff8a6a' : ''),
+      big: finisher ? 1 : 0
     });
     burst(m.x, m.y - 0.2, crit ? 10 : 5, crit ? '#ffe08a' : '#ffb0a0', crit ? 4.5 : 3);
   }
@@ -3223,6 +3307,33 @@ var MUSIC = {
   }
 
   // 角色：4 列（下/上/左/右）× 7 行（走 4 帧 / 攻击 / 跳跃 / 倒地）
+  var tintCv = null;
+  function tintedSprite(name, col, row, dx, dy, w, h) {
+    // v5.6 W2 ⑥：受击真染红 —— 离屏 16×16 画帧 → source-atop 染 #d14b32 → 0.6 alpha 贴回
+    var f = FR[name];
+    if (!f || !S.atlas) return;
+    var ctx = S.ctx;
+    var W = Math.max(2, Math.round(w)), H = Math.max(2, Math.round(h));
+    if (!tintCv) tintCv = document.createElement('canvas');
+    if (tintCv.width !== W || tintCv.height !== H) { tintCv.width = W; tintCv.height = H; }
+    var tg = tintCv.getContext('2d');
+    tg.clearRect(0, 0, W, H);
+    tg.imageSmoothingEnabled = false;
+    var fw = f[4], fh = f[5];
+    var sx = f[0] + (col || 0) * fw, sy = f[1] + (row || 0) * fh;
+    tg.drawImage(S.atlas, sx, sy, fw, fh, 0, 0, W, H);
+    try {
+      tg.globalCompositeOperation = 'source-atop';
+      tg.fillStyle = '#d14b32';
+      tg.fillRect(0, 0, W, H);
+      tg.globalCompositeOperation = 'source-over';
+    } catch (e) {}
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.drawImage(tintCv, px(dx), px(dy), W, H);
+    ctx.restore();
+  }
+
   function drawCharacter(look, x, y, face, moving, animT, scale, tint) {
     var name = 'ch_' + (look || 'NinjaBlue');
     if (!FR[name]) name = 'ch_NinjaBlue';
@@ -3234,12 +3345,7 @@ var MUSIC = {
     var w = 16 * u, h = 16 * u;
     var dx = x - w / 2, dy = y - h + u * 0.5;
     if (tint) {
-      // 受击闪红：先画一份红色剪影，再叠正常——比 filter 便宜且兼容
-      var ctx = S.ctx;
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      sprite(name, col, row, dx, dy, w, h);
-      ctx.restore();
+      tintedSprite(name, col, row, dx, dy, w, h);
     } else {
       sprite(name, col, row, dx, dy, w, h);
     }
@@ -3294,10 +3400,12 @@ var MUSIC = {
     }
     ctx.restore();
     if (m.elite) {
-      // 精英：金色描边（用半透明金框代替滤镜）
-      ctx.strokeStyle = 'rgba(255,210,110,0.75)';
-      ctx.lineWidth = Math.max(1, S.zoom * 0.5);
-      ctx.strokeRect(px(dx), px(dy), px(w2), px(h2));
+      // v5.6 W2 ⑦：精英改为脚底椭圆金环（半透明，比金框更像「光环」）
+      var u3 = S.zoom * TILE;
+      S.ctx.fillStyle = 'rgba(255,210,110,0.5)';
+      S.ctx.beginPath();
+      S.ctx.ellipse(px(x), px(y + u3 * 0.34), u3 * (MOB_SIZE[m.kind] || 1) * 0.62, u3 * 0.18, 0, 0, 6.2832);
+      S.ctx.fill();
     }
   }
 
@@ -3354,7 +3462,7 @@ var MUSIC = {
     if (m.elite) {
       var lv = m.lv || 1;
       S.ctx.fillStyle = 'rgba(255,214,120,0.9)';
-      S.ctx.font = 'bold ' + Math.round(6 * (S.zoom / 3)) + 'px system-ui,sans-serif';
+      S.ctx.font = 'bold ' + Math.round(6 * (S.zoom / 3)) + 'px "SG5Pixel",monospace';
       S.ctx.textAlign = 'center';
       S.ctx.fillText('精英 Lv' + lv, x, y - 16 * S.zoom * (m.elite ? 1.22 : 1) - 4);
     }
@@ -3363,6 +3471,18 @@ var MUSIC = {
   function drawPlayer(p, isMe) {
     var x = w2sX(p.x * TILE), y = w2sY(p.y * TILE + TILE * 0.5);
     shadow(x, y + TILE * S.zoom * 0.4, 1.1);
+    // v5.6 W4 l4 共明：拥有者脚下 6 格淡金圆环（alpha 0.15 常驻）
+    if (isMe && S.me && S.me.talentLampLv >= 4) {
+      var ctxA = S.ctx;
+      var ua = TILE * S.zoom;
+      ctxA.save();
+      ctxA.globalAlpha = 0.15;
+      ctxA.fillStyle = '#ffd36a';
+      ctxA.beginPath();
+      ctxA.ellipse(x, y + ua * 0.35, ua * 6, ua * 2.1, 0, 0, 6.2832);
+      ctxA.fill();
+      ctxA.restore();
+    }
     if (p.down) {
       // 倒地：横躺的剪影 + 一圈提示
       var ctx = S.ctx;
@@ -3400,7 +3520,7 @@ var MUSIC = {
       ctx2.restore();
     }
     if (!isMe && p.name) {
-      S.ctx.font = Math.round(6.5 * (S.zoom / 3)) + 'px system-ui,sans-serif';
+      S.ctx.font = Math.round(6.5 * (S.zoom / 3)) + 'px "SG5Pixel",monospace';
       S.ctx.textAlign = 'center';
       var nameY = y - TILE * S.zoom - 2;
       S.ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -3435,17 +3555,287 @@ var MUSIC = {
   }
 
   function drawShots() {
+    // v5.6 W2 ⑤：弹幕改 3 层同心方块（像素风，径向渐变太「网页」）
     var ctx = S.ctx;
+    var layers = [['#ffd0ff', 2], ['#d878ff', 4], ['#a850ff', 6]];
+    var k = S.zoom / 3;
+    ctx.globalAlpha = 0.6;
     for (var i = 0; i < S.shots.length; i++) {
       var s = S.shots[i];
       var x = w2sX(s.rx * TILE), y = w2sY(s.ry * TILE);
-      var rr = 3.4 * (S.zoom / 3);
-      var g = ctx.createRadialGradient(x, y, 0, x, y, rr * 2.4);
-      g.addColorStop(0, 'rgba(255,220,255,0.95)');
-      g.addColorStop(0.45, 'rgba(220,120,255,0.55)');
-      g.addColorStop(1, 'rgba(180,80,255,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(x - rr * 2.4, y - rr * 2.4, rr * 4.8, rr * 4.8);
+      for (var l = 0; l < 3; l++) {
+        var r = layers[l][1] * k;
+        ctx.fillStyle = layers[l][0];
+        ctx.fillRect(px(x - r / 2), px(y - r / 2), px(r), px(r));
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---------------- v5.6 W3 奖励实体层 ----------------
+  // 世界层字形绘制：行串 8×8（'#' 主色 / 'o' 亮部 / '+' 次色 / '.' 空）
+  function drawGlyphWorld(ctx, rows, cx, cy, cell, pal) {
+    var h = rows.length, w = rows[0].length;
+    var ox = Math.round(cx - w * cell / 2), oy = Math.round(cy - h * cell);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y].charAt(x);
+        if (ch === '.') continue;
+        ctx.fillStyle = (pal && pal[ch]) || pal && pal['#'] || '#e8dcc0';
+        ctx.fillRect(ox + Math.round(x * cell), oy + Math.round(y * cell), Math.max(1, Math.round(cell)), Math.max(1, Math.round(cell)));
+      }
+    }
+  }
+  var ORB_GLYPH = {
+    orb_s: [
+      '..####..',
+      '.######.',
+      '########',
+      '########',
+      '########',
+      '.######.',
+      '..####..',
+      '........'
+    ],
+    orb_m: [
+      '..####..',
+      '.#oo##o.',
+      '########',
+      '#o####o#',
+      '#o####o#',
+      '########',
+      '.##oo##.',
+      '..####..'
+    ],
+    orb_l: [
+      '.######.',
+      '##oo####',
+      '#o####o#',
+      '########',
+      '########',
+      '#o####o#',
+      '##oo####',
+      '.######.'
+    ]
+  };
+  var ORB_TIER = [
+    { g: 'orb_s', cell: 0.034, r: 1.6, col: '#e8d7a8', hi: '#fff8dc' },
+    { g: 'orb_m', cell: 0.05, r: 2.0, col: '#ffd36a', hi: '#fff3c8' },
+    { g: 'orb_l', cell: 0.07, r: 2.4, col: '#ffb84a', hi: '#ffe9b0' }
+  ];
+
+  function orbTierOf(v) { return v <= 4 ? 0 : (v <= 15 ? 1 : 2); }
+
+  // 星屑珠 / 材料簇 / 金币袋：死亡位置散落（上抛 vx±0.8 / vy-1.2，落地反弹 1 次 vy×-0.35，散布 ±0.4）
+  function spawnOrbs(bx, by, list) {
+    if (!S.orbs) S.orbs = [];
+    if (bx == null || by == null) { bx = S.me ? S.me.x : 0; by = S.me ? S.me.y : 0; }
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      var tier = o.mat ? 0 : orbTierOf(o.v || 1);
+      capPush(S.orbs, {
+        x: bx + 0.5 + (Math.random() - 0.5) * 0.8, y: by + 0.5,
+        vx: (Math.random() - 0.5) * 1.6, vy: -1.2,
+        v: o.v || 0, mat: o.mat || '', pouch: o.pouch || 0,
+        tier: tier, phase: 'toss', t: 0, bounced: 0, age: 0
+      }, 320);
+    }
+  }
+
+  // 磁吸手感（Phase 2 终值）：上抛 90ms → 减速悬停 120ms → 8→14 格/s ease-in 吸附，<0.35 格结算
+  function updateOrbs(dt, t) {
+    var me = S.me;
+    updateCorpses(dt);
+    updatePillars(dt);
+    for (var i = S.orbs.length - 1; i >= 0; i--) {
+      var o = S.orbs[i];
+      o.age += dt;
+      o.t += dt;
+      if (o.phase === 'toss') {
+        o.x += o.vx * dt;
+        o.y += o.vy * dt;
+        o.vy += 3.2 * dt;
+        if (o.vy > 0 && !o.bounced) { o.vy *= -0.35; o.bounced = 1; }
+        if (o.t >= 0.09) { o.phase = 'hover'; o.t = 0; }
+      } else if (o.phase === 'hover') {
+        o.x += o.vx * dt * 0.3;
+        o.y += 0.5 * dt * 0.2;
+        if (o.t >= 0.12) { o.phase = 'wait'; o.t = 0; }
+      } else if (o.phase === 'wait') {
+        // 分档触发半径：小 1.6 / 中 2.0 / 大 2.4 格
+        var tr = o.pouch ? 2.6 : (ORB_TIER[o.tier] ? ORB_TIER[o.tier].r : 1.6);
+        if (me && !me.down && dist(o.x, o.y, me.x, me.y) < tr) { o.phase = 'magnet'; o.t = 0; }
+        else if (o.age > 2.0) { o.phase = 'fade'; o.t = 0; }
+      } else if (o.phase === 'magnet') {
+        if (!me || me.down) { o.phase = 'fade'; o.t = 0; continue; }
+        var d = dist(o.x, o.y, me.x, me.y);
+        // 8→14 格/s ease-in lerp 吸附
+        var k = Math.min(1, o.t / 0.35);
+        var spd = lerp(8, 14, easeIn(k));
+        var step2 = Math.min(d, spd * dt);
+        o.x += (me.x - o.x) / (d || 1) * step2;
+        o.y += (me.y - o.y) / (d || 1) * step2;
+        if (d < 0.35) collectOrb(o, t);
+        else if (o.t > 1.6) collectOrb(o, t);   // 吸太久强制结算，别留孤儿珠
+      } else if (o.phase === 'fade') {
+        if (o.t > 0.4) S.orbs.splice(i, 1);     // 他人视角无磁吸：2s 消散
+      }
+    }
+    // 同窗结算合并飘字：'+37' 一条，而不是 '+3'×12
+    if (S.orbMergeTxt && t - S.orbMergeAt > 0.25 && S.me) {
+      capPush(S.texts, { x: S.me.x, y: S.me.y - 1.4, txt: S.orbMergeTxt, crit: 0, life: 1.0, max: 1.0, vy: -1.1, vx: 0.15, gold: 1 }, 60);
+      S.orbMergeTxt = '';
+    }
+  }
+
+  function collectOrb(o, t) {
+    // 音效：80ms 窗口节流 1 次；连吸计数 pitch +1 半音封顶 +7（coin/gold 基音）
+    if (t - (S.orbSfxAt || 0) >= 0.08) {
+      S.orbSfxAt = t;
+      if (t - (S.orbStreakAt || 0) > 1.0) S.orbStreak = 0;
+      S.orbStreakAt = t;
+      var semi = Math.min(7, S.orbStreak);
+      auSfx(o.pouch || o.v > 15 ? 'gold' : 'coin', 0.26, Math.pow(2, semi / 12));
+      S.orbStreak++;
+    }
+    if (o.mat) {
+      capPush(S.texts, { x: o.x, y: o.y - 0.8, txt: '材料 +' + o.v, crit: 0, life: 0.8, max: 0.8, vy: -0.8, vx: -0.1, small: 1 }, 60);
+    } else if (o.pouch) {
+      capPush(S.texts, { x: o.x, y: o.y - 0.9, txt: '+' + o.v, crit: 1, life: 1.1, max: 1.1, vy: -1.2, vx: 0, gold: 1 }, 60);
+    } else {
+      // 合并窗口：普通珠的数值攒起来一次飘
+      S.orbMergeTxt = (S.orbMergeTxt ? S.orbMergeTxt.replace('+', '') : '');
+      S.orbMergeTxt = '+' + ((parseInt(S.orbMergeTxt, 10) || 0) + (o.v || 1));
+      S.orbMergeAt = t;
+    }
+    var idx = S.orbs.indexOf(o);
+    if (idx >= 0) S.orbs.splice(idx, 1);
+  }
+
+  function drawOrbs(ctx) {
+    var u = TILE * S.zoom;
+    for (var i = 0; i < S.orbs.length; i++) {
+      var o = S.orbs[i];
+      var x = w2sX(o.x * TILE), y = w2sY(o.y * TILE + TILE * 0.5);
+      var fade = o.phase === 'fade' ? 1 - o.t / 0.4 : 1;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, fade));
+      // 底部小接触影
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, u * 0.16, u * 0.05, 0, 0, 6.2832);
+      ctx.fill();
+      if (o.pouch) {
+        drawGlyphWorld(ctx, GLYPH.pouch, x, y - u * 0.12, u * 0.052, { '#': '#b98a3a', 'o': '#e8c060', '+': '#8a5f26' });
+      } else if (o.mat) {
+        drawGlyphWorld(ctx, GLYPH.mat, x, y - u * 0.1, u * 0.04, { '#': farmItemColorSafe(o.mat), 'o': '#ffffff' });
+      } else {
+        var T2 = ORB_TIER[o.tier];
+        drawGlyphWorld(ctx, ORB_GLYPH[T2.g], x, y - u * (0.08 + o.tier * 0.03), u * T2.cell, { '#': T2.col, 'o': T2.hi });
+      }
+      ctx.restore();
+    }
+  }
+  function farmItemColorSafe(id) {
+    try { return farmItemColor(id) || '#c8b48a'; } catch (e) { return '#c8b48a'; }
+  }
+
+  // ---- 尸体：三帧 1.4s，精英金环加强、Boss ring 2.4u + shake ----
+  function spawnCorpse(m) {
+    if (!S.corpses) S.corpses = [];
+    capPush(S.corpses, {
+      x: m.rx || m.x, y: m.ry || m.y, kind: m.kind, elite: m.elite, boss: m.boss,
+      face: m.face || 'r', scale: m.scale || 2.6, t: 0
+    }, 24);
+  }
+  function updateCorpses(dt) {
+    for (var i = S.corpses.length - 1; i >= 0; i--) {
+      var c = S.corpses[i];
+      c.t += dt;
+      if (c.t > 1.4) S.corpses.splice(i, 1);
+    }
+  }
+  function drawCorpses(ctx) {
+    var u = TILE * S.zoom;
+    for (var i = 0; i < S.corpses.length; i++) {
+      var c = S.corpses[i];
+      var shake = c.boss && c.t < 0.3 ? (Math.random() - 0.5) * 3 : 0;
+      var x = w2sX(c.x * TILE) + shake, y = w2sY(c.y * TILE + TILE * 0.5);
+      var alpha = c.t < 1.0 ? 1 : Math.max(0, 1 - (c.t - 1.0) / 0.4);
+      // 三帧：倒下 → 压扁 → 淡出（用同一帧三种姿态近似）
+      var fr2 = c.t < 0.25 ? 0.2 : (c.t < 0.7 ? 0.45 : 0.7);
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.translate(x, y);
+      ctx.rotate(Math.PI / 2);
+      var name = MOB_SPRITE[c.kind] || 'mon_Slime';
+      var f = FR[name];
+      if (f) {
+        var sc = (MOB_SIZE[c.kind] || 1) * (c.elite ? 1.1 : 1);
+        var w2 = f[4] * S.zoom * sc, h2 = f[5] * S.zoom * sc;
+        ctx.drawImage(S.atlas, f[0], f[1], f[4], f[5], -w2 * (1 - fr2 * 0.6) / 2, -h2 * fr2 / 2, w2 * (1 - fr2 * 0.6), h2 * fr2);
+      }
+      ctx.restore();
+      if (c.boss) {
+        ctx.fillStyle = 'rgba(255,120,90,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + u * 0.2, u * 2.4, u * 0.6, 0, 0, 6.2832);
+        ctx.fill();
+      } else if (c.elite) {
+        ctx.fillStyle = 'rgba(255,210,110,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + u * 0.18, u * 0.7, u * 0.22, 0, 0, 6.2832);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.fillRect(px(x - 1), px(y - 2), 2, 2);
+        ctx.fillRect(px(x + 4), px(y + 1), 2, 2);
+      }
+    }
+  }
+
+  // ---- 装备光柱：四档底圈 + 3 段阶梯光柱 + 3 帧浮动 ----
+  var PILLAR_COL = ['#c8bca8', '#8fd06a', '#6fb6ff', '#c07bff', '#ffb84a'];
+  function spawnPillar(bx, by, rarity) {
+    if (!S.pillars) S.pillars = [];
+    capPush(S.pillars, {
+      x: (bx == null ? (S.me ? S.me.x : 0) : bx + 0.5),
+      y: (by == null ? (S.me ? S.me.y : 0) : by + 0.5),
+      rarity: rarity || 0, t: 0
+    }, 12);
+  }
+  function updatePillars(dt) {
+    for (var i = S.pillars.length - 1; i >= 0; i--) {
+      var p = S.pillars[i];
+      p.t += dt;
+      if (p.t > 2.2) S.pillars.splice(i, 1);
+    }
+  }
+  function drawPillars(ctx) {
+    var u = TILE * S.zoom;
+    for (var i = 0; i < S.pillars.length; i++) {
+      var p = S.pillars[i];
+      var col = PILLAR_COL[Math.min(4, p.rarity)] || PILLAR_COL[0];
+      var x = w2sX(p.x * TILE), y = w2sY(p.y * TILE + TILE * 0.5);
+      var bob = Math.floor(p.t * 3) % 3;                 // 3 帧浮动
+      var fade = p.t < 1.6 ? 1 : Math.max(0, 1 - (p.t - 1.6) / 0.6);
+      ctx.save();
+      ctx.globalAlpha = 0.75 * fade;
+      // 底圈：稀有度越高越宽
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(2, u * 0.08);
+      ctx.beginPath();
+      ctx.ellipse(x, y, u * (0.4 + p.rarity * 0.08), u * (0.13 + p.rarity * 0.03), 0, 0, 6.2832);
+      ctx.stroke();
+      // 3 段阶梯光柱
+      var seg = [0.9, 0.62, 0.38];
+      ctx.fillStyle = col;
+      for (var s2 = 0; s2 < 3; s2++) {
+        var wseg = u * seg[s2] * (0.8 + p.rarity * 0.1);
+        var yy = y - u * (0.5 + s2 * 0.55) - bob * 2;
+        ctx.globalAlpha = (0.5 - s2 * 0.12) * fade;
+        ctx.fillRect(px(x - wseg / 2), px(yy), px(wseg), px(u * 0.42));
+      }
+      ctx.restore();
     }
   }
 
@@ -3508,18 +3898,18 @@ var MUSIC = {
       tx.y += tx.vy * dt;
       tx.vy += 2.4 * dt;
       var k3 = tx.life / tx.max;
-      var fs = (tx.crit ? 15 : 11) * (S.zoom / 3) * (0.7 + 0.3 * k3);
+      var fs = (tx.crit ? 15 : 11) * (S.zoom / 3) * (0.7 + 0.3 * k3) * (tx.big ? 1.5 : 1);
       ctx.save();
       ctx.globalAlpha = Math.min(1, k3 * 2);
-      ctx.font = 'bold ' + Math.round(fs) + 'px system-ui,-apple-system,sans-serif';
+      ctx.font = 'bold ' + Math.round(fs) + 'px "SG5Pixel",monospace';
       ctx.textAlign = 'center';
       var sx2 = w2sX(tx.x * TILE), sy2 = w2sY(tx.y * TILE);
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillText(tx.txt, sx2 + 1, sy2 + 1);
-      ctx.fillStyle = tx.crit ? '#ffd36a' : '#ffffff';
+      ctx.fillStyle = tx.col || (tx.crit ? '#ffd36a' : '#ffffff');
       ctx.fillText(tx.txt, sx2, sy2);
       if (tx.crit) {
-        ctx.font = 'bold ' + Math.round(fs * 0.5) + 'px system-ui,sans-serif';
+        ctx.font = 'bold ' + Math.round(fs * 0.5) + 'px "SG5Pixel",monospace';
         ctx.fillStyle = '#ffb0a0';
         ctx.fillText('暴击', sx2, sy2 - fs * 0.85);
       }
@@ -3596,6 +3986,7 @@ var MUSIC = {
     if (!S.dbgNoGround) drawWater(ctx, vr, S.time);
     // 大结构的落影必须在实体之前：影子在地上，不能在站在前面的人身上
     drawStructureShadows(ctx, vr);
+    drawCorpses(ctx);   // v5.6 W3：尸体贴地，画在所有站立实体之前
     buildDrawList(vr);
     for (var i = 0; i < DRAW.length; i++) {
       var d = DRAW[i];
@@ -3615,6 +4006,8 @@ var MUSIC = {
       }
     }
     drawShots();
+    drawPillars(ctx);   // v5.6 W3：装备光柱
+    drawOrbs(ctx);      // v5.6 W3：磁吸星屑珠 / 材料簇 / 金币袋
     drawEmotes();
     drawSocialFx(ctx);
     drawFx(dt);
@@ -3656,7 +4049,7 @@ var MUSIC = {
     ctx.closePath();
     ctx.fill();
     var fs = Math.round(7 * (S.zoom / 3)) + 2;
-    ctx.font = 'bold ' + fs + 'px system-ui,sans-serif';
+    ctx.font = 'bold ' + fs + 'px "SG5Pixel",monospace';
     ctx.textAlign = 'center';
     var ty2 = y - TILE * S.zoom - 3 + bob;
     var tw2 = ctx.measureText(n.name).width;
@@ -3754,15 +4147,17 @@ var MUSIC = {
       m.tellT = Math.max(0, (m.tellT || 0) - dt);
       if (m.dying != null) {
         m.dying -= dt;
-        if (m.dying <= 0) { delete S.mobs[ids[i]]; continue; }
+        if (m.dying <= 0) { spawnCorpse(m); delete S.mobs[ids[i]]; continue; }
       }
       // 完美闪避：怪物的出招在「我无敌」的窗口里落下
+      // v5.6 W4 s4 见切：判定窗口 ×1.6（220ms → 352ms），成功瞬间 0.15s 白边闪光
       if (m.state === 'act' && m.prevState !== 'act') {
         var me = S.me;
         if (me && !me.down) {
           var d = dist(me.x, me.y, m.rx, m.ry);
           if (d < (m.boss ? 4.2 : 3.0)) {
-            if (t < me.invUntil) perfectDodge(t);
+            var pw = me.pwBonus || 0;
+            if (t < me.invUntil + pw) perfectDodge(t, m);
             else hurtFlash();
           }
         }
@@ -3773,15 +4168,28 @@ var MUSIC = {
     }
   }
 
-  function perfectDodge(t) {
+  function perfectDodge(t, m) {
     var me = S.me;
     if (me.perfectAt && t - me.perfectAt < 0.6) return;
     me.perfectAt = t;
     me.critReady = 1;
-    S.slow = { until: t + 0.42, scale: 0.3 };
+    // v5.6 W4：s4 见切 —— 子弹时间 ×1.6 + 白边闪光
+    var s4 = me.talentShadowLv >= 4;
+    S.slow = { until: t + (s4 ? 0.67 : 0.42), scale: 0.3 };
+    S.pdFlashUntil = t + 0.15;
+    // v5.6 W4：s5 影袭 —— 瞬移到目标背后 0.8 格（复用 dodge 残影），下一击暴击紫色
+    if (m && me.talentShadowLv >= 5) {
+      var ang = m.faceAng || 0;
+      var nx = m.rx - Math.cos(ang) * 0.8, ny = m.ry - Math.sin(ang) * 0.8;
+      if (!blockedAt(nx, ny)) {
+        me.x = nx; me.y = ny;
+        me.shadowStrike = 1;
+      }
+    }
     S.cam.shake = Math.max(S.cam.shake, 3);
     S.rings.push({ x: me.x, y: me.y, r: 0, max: 2.4, life: 0.45, max2: 0.45, col: '#bfe8ff' });
     S.texts.push({ x: me.x, y: me.y - 1.4, txt: '完美闪避', crit: 0, life: 0.9, max: 0.9, vy: -1.1, vx: 0, perfect: 1 });
+    burst(me.x, me.y, 6, '#bfe8ff', 3.6);   // 残影
     auSfx('secret', 0.42, 1.15);
   }
 
@@ -3883,11 +4291,22 @@ var MUSIC = {
     var dx = Math.round((size - w) / 2), dy = Math.round((size - h) / 2);
     g.drawImage(S.atlas, f[0], f[1], f[4], f[5], dx, dy, w, h);
     // 素材里有一部分帧用「品红」当透明底。不去掉的话图标会顶着一块洋红。
+    // v5.6：阈值放宽 g<110，且边缘 1px 再抠一轮 —— 抗锯齿边上的残粉也要清掉。
     try {
       var img = g.getImageData(dx, dy, w, h);
       var d = img.data;
-      for (var i = 0; i < d.length; i += 4) {
-        if (d[i] > 190 && d[i + 2] > 190 && d[i + 1] < 90) d[i + 3] = 0;
+      for (var pass = 0; pass < 2; pass++) {
+        for (var i = 0; i < d.length; i += 4) {
+          if (d[i + 3] === 0) continue;
+          if (d[i] > 190 && d[i + 2] > 190 && d[i + 1] < 110) { d[i + 3] = 0; continue; }
+          if (pass === 1) {
+            // 第二轮只处理「贴着透明像素」的边缘残粉
+            var px2 = (i / 4) % w, py2 = Math.floor(i / 4 / w);
+            var edge = (px2 > 0 && d[(i - 4) + 3] === 0) || (px2 < w - 1 && d[i + 7] === 0) ||
+              (py2 > 0 && d[i - w * 4 + 3] === 0) || (py2 < h - 1 && d[i + w * 4 + 3] === 0);
+            if (edge && d[i] > 170 && d[i + 2] > 170 && d[i + 1] < 130) d[i + 3] = 0;
+          }
+        }
       }
       g.putImageData(img, dx, dy);
     } catch (e) {}
@@ -4026,6 +4445,198 @@ var MUSIC = {
       '............',
       '............',
       '............'
+    ],
+    // ---- v5.6 W3 奖励实体层（世界层渲染用，07_entity.drawGlyphWorld） ----
+    mat: [
+      '..####..',
+      '.######.',
+      '########',
+      '#o####o#',
+      '########',
+      '.######.',
+      '..####..',
+      '........'
+    ],
+    pouch: [
+      '.#########.',
+      '###########',
+      '##o#####o##',
+      '###+###o###',
+      '###########',
+      '##o##o#####',
+      '###########',
+      '.#########.',
+      '..#######..',
+      '...........'
+    ],
+    // ---- v5.6 W2 图标 GLYPH 化：矿石 / 宝石 / 煤 / 木材 / 石头 / 奶瓶 / 毛球 / 作物 / 资材 ----
+    ore: [
+      '....##....',
+      '...####...',
+      '..######..',
+      '.##o####o.',
+      '##########',
+      '.###oo###.',
+      '..######..',
+      '...####...',
+      '....##....',
+      '..........'
+    ],
+    gem: [
+      '...####...',
+      '..+####+..',
+      '.++####++.',
+      '##########',
+      '.########.',
+      '..######..',
+      '...####...',
+      '....##....',
+      '..........',
+      '..........'
+    ],
+    coal: [
+      '..........',
+      '..##..##..',
+      '.########.',
+      '##########',
+      '##o####o##',
+      '##########',
+      '.########.',
+      '..##..##..',
+      '..........',
+      '..........'
+    ],
+    wood_log: [
+      '..........',
+      '..######..',
+      '.#o####o#.',
+      '##########',
+      '#o##oo##o#',
+      '#o##oo##o#',
+      '##########',
+      '.#o####o#.',
+      '..######..',
+      '..........'
+    ],
+    stone_round: [
+      '..........',
+      '...####...',
+      '..######..',
+      '.########.',
+      '##########',
+      '##o####o##',
+      '.########.',
+      '..######..',
+      '...####...',
+      '..........'
+    ],
+    milk_bottle: [
+      '...####...',
+      '...####...',
+      '..######..',
+      '.########.',
+      '.########.',
+      '.#oooooo#.',
+      '.#oooooo#.',
+      '.########.',
+      '..######..',
+      '..........'
+    ],
+    wool: [
+      '..........',
+      '..##..##..',
+      '.########.',
+      '##o####o##',
+      '##########',
+      '##o####o##',
+      '.########.',
+      '..##..##..',
+      '..........',
+      '..........'
+    ],
+    crop_round: [
+      '..........',
+      '...####...',
+      '..######..',
+      '.########.',
+      '##########',
+      '##########',
+      '.##oo####.',
+      '..######..',
+      '...##.....',
+      '..........'
+    ],
+    crop_long: [
+      '..........',
+      '.....##...',
+      '....####..',
+      '...######.',
+      '..########',
+      '..########',
+      '..#######.',
+      '...#####..',
+      '....##....',
+      '..........'
+    ],
+    crop_cluster: [
+      '..##..##..',
+      '.####.####',
+      '.####.####',
+      '..##..##..',
+      '....##....',
+      '..######..',
+      '.########.',
+      '..######..',
+      '...####...',
+      '..........'
+    ],
+    crop_melon: [
+      '..........',
+      '...######.',
+      '..########',
+      '.#########',
+      '.#########',
+      '.#########',
+      '..#######.',
+      '...#####..',
+      '....###...',
+      '..........'
+    ],
+    flask: [
+      '...####...',
+      '...####...',
+      '...####...',
+      '..######..',
+      '.########.',
+      '.########.',
+      '.#oooooo#.',
+      '.#oooooo#.',
+      '.########.',
+      '..######..'
+    ],
+    bale: [
+      '..........',
+      '..######..',
+      '.########.',
+      '##o#o#o###',
+      '##########',
+      '###o#o#o##',
+      '##########',
+      '.########.',
+      '..######..',
+      '..........'
+    ],
+    sprinkler: [
+      '....##....',
+      '..#o##o#..',
+      '.#.o##o.#.',
+      '..#o##o#..',
+      '....##....',
+      '...####...',
+      '..######..',
+      '.########.',
+      '..######..',
+      '..........'
     ]
   };
 
@@ -4698,28 +5309,39 @@ var MUSIC = {
   };
 
   // ---------- 天赋 ----------
+  // v5.6 W4：文案改为读服务端下发的 talentDefs（enter 前空档兜底旧文案），mod 数值不下发
+  var TALENT_FALLBACK = {
+    blade: { name: '剑', color: '#ff8a6a', tiers: [
+      { id: 'b1', name: '锋利', desc: '攻击 +8%' }, { id: 'b2', name: '连斩', desc: '连击最后一段伤害 +25%' },
+      { id: 'b3', name: '破甲', desc: '对精英与守护者伤害 +15%' }, { id: 'b4', name: '嗜血', desc: '吸血 +3%' },
+      { id: 'b5', name: '剑舞', desc: '普攻每 5 次自动释放一次小回旋' } ] },
+    shadow: { name: '影', color: '#9a8aff', tiers: [
+      { id: 's1', name: '轻身', desc: '移速 +6%' }, { id: 's2', name: '残影', desc: '翻滚冷却 -20%' },
+      { id: 's3', name: '致命', desc: '暴击率 +8%' }, { id: 's4', name: '见切', desc: '完美闪避窗口 +60%，子弹时间更长' },
+      { id: 's5', name: '影袭', desc: '完美闪避后瞬移到敌人背后并暴击' } ] },
+    lamp: { name: '灯', color: '#ffd36a', tiers: [
+      { id: 'l1', name: '暖光', desc: '生命 +12%' }, { id: 'l2', name: '添油', desc: '灯火回复 +30%' },
+      { id: 'l3', name: '照夜', desc: '夜间视野 +50%，对幽灵伤害 +40%' }, { id: 'l4', name: '共明', desc: '身边 6 格内队友攻击 +10%' },
+      { id: 'l5', name: '不灭', desc: '致命伤害时保留 1 点生命（每 90 秒一次）' } ] }
+  };
   PANELS.talent = function () {
     var me = S.me;
-    var lines = {
-      blade: { name: '剑', color: '#ff8a6a', tiers: ['锋利 +8% 攻击', '连斩 收招 +25%', '破甲 对精英 +15%', '嗜血 吸血 +3%', '剑舞 每 5 次普攻自动回旋'] },
-      shadow: { name: '影', color: '#9a8aff', tiers: ['轻身 移速 +6%', '残影 翻滚冷却 -20%', '致命 暴击 +8%', '见切 完美闪避窗口 +60%', '影袭 完美闪避后瞬移背刺'] },
-      lamp: { name: '灯', color: '#ffd36a', tiers: ['暖光 生命 +12%', '添油 灯火回复 +30%', '照夜 夜视 +50%', '共明 队友攻击 +10%', '不灭 致命伤保留 1 点生命'] }
-    };
+    var defs = (S.me && S.me.talentDefs) || TALENT_FALLBACK;
     var left = me.talentLeft || 0;
     var sh = panelShell('天赋', '可用点数 ' + left + '（每 3 级 1 点）');
     var body = sh.body;
-    Object.keys(lines).forEach(function (key) {
-      var L = lines[key];
+    Object.keys(defs).forEach(function (key) {
+      var L = defs[key];
       var box = el('div', 'sg5-tline');
       var head = el('div', 'sg5-tline-head', L.name + ' 之线');
       head.style.color = L.color;
       box.appendChild(head);
       var have = (me.talents || {})[key] || 0;
-      L.tiers.forEach(function (txt, i) {
+      L.tiers.forEach(function (t, i) {
         var on = i < have;
         var node = el('div', 'sg5-tnode' + (on ? ' is-on' : ''));
         node.appendChild(el('span', 'sg5-tdot', String(i + 1)));
-        node.appendChild(el('span', 'sg5-ttxt', txt));
+        node.appendChild(el('span', 'sg5-ttxt', t.name + ' ' + t.desc));
         if (!on && i === have) {
           var b = uiBtn('学', 'sg5-btn-sm', function () { apiTalent(key); });
           b.disabled = left <= 0;
@@ -4831,11 +5453,56 @@ var MUSIC = {
     return sh.root;
   };
 
+  // v5.6 W3：材料可卖 —— 客户端侧售价表（与 backend/v5/data.js D.ITEMS.sell 一致）
+  var MAT_SELL = { gel: 2, wood: 3, feather: 5, spore: 5, scale: 8, firefly: 10, bone: 12, ore: 14, ice: 20, ember: 40 };
+  var MAT_NAME = {
+    gel: '果冻', wood: '灵竹', feather: '夜羽', spore: '孢子', scale: '泽鳞', firefly: '萤火',
+    bone: '骨片', ore: '星岩矿', ice: '永冻晶', ember: '长夜余烬', potion: '回血药', ether: '灯油'
+  };
+  S.shopTab = 'goods';
+
   // ---------- 商店 ----------
   PANELS.shop = function () {
     var me = S.me;
     var sh = panelShell('杂货铺', '星屑 ' + fmt(me.shards));
     var body = sh.body;
+    // v5.6 W3：材料页签 —— 消耗品 / 材料 两个子页
+    var tabs = el('div', 'sg5-tabs');
+    [['goods', '消耗品'], ['mats', '材料']].forEach(function (t) {
+      var on = S.shopTab === t[0];
+      var b = el('button', 'sg5-tab' + (on ? ' is-on' : ''), t[1]);
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.addEventListener('click', function () { S.shopTab = t[0]; refreshPanel('shop'); auSfx('menu', 0.2, 1.1); }, false);
+      tabs.appendChild(b);
+    });
+    body.appendChild(tabs);
+    if (S.shopTab === 'mats') {
+      var mats = me.mats || {};
+      var keys = Object.keys(mats).filter(function (k) { return MAT_SELL[k] && mats[k] > 0; });
+      if (!keys.length) {
+        body.appendChild(el('div', 'sg5-empty', '背包里还没有能卖的材料。打怪会掉。'));
+      }
+      keys.forEach(function (k) {
+        var n = mats[k];
+        var row = el('div', 'sg5-shoprow');
+        row.appendChild(iconCanvas(ITEM_ICON[k] || 'it_coin', 28));
+        var mid = el('div', 'sg5-shopmid');
+        mid.appendChild(el('div', 'sg5-shopname', MAT_NAME[k] || k));
+        mid.appendChild(el('div', 'sg5-shopdesc', '×' + n + ' · 卖 1 个得 ' + MAT_SELL[k] + ' 星屑' + (n > 1 ? ' · 全部得 ' + MAT_SELL[k] * n : '')));
+        row.appendChild(mid);
+        row.appendChild(uiBtn('卖 1', 'sg5-btn-sm', function () {
+          var m2 = {}; m2[k] = 1; apiSell({ mats: m2 });
+        }));
+        row.appendChild(uiBtn('全部', 'sg5-btn-sm sg5-btn-ghost', function () {
+          var m2 = {}; m2[k] = n; apiSell({ mats: m2 });
+        }));
+        body.appendChild(row);
+      });
+      body.appendChild(el('div', 'sg5-note', '材料换星屑，即时到账。星岩矿留着点天赋重铸更划算。'));
+      return sh.root;
+    }
     [['potion', '回血药', '回复 45% 生命', 15], ['ether', '灯油', '回复 60% 灯火', 12]].forEach(function (x) {
       var row = el('div', 'sg5-shoprow');
       row.appendChild(iconCanvas(ITEM_ICON[x[0]], 28));
@@ -4962,6 +5629,12 @@ var MUSIC = {
 
   function applyEnter(d) {
     var me = makeMe(d.me);
+    // v5.6 W4：天赋线等级挂到本地玩家（s4 见切窗口加成 / 剑舞 / 影袭都在本地判定）
+    me.talentShadowLv = (me.talents && me.talents.shadow) || 0;
+    me.talentBladeLv = (me.talents && me.talents.blade) || 0;
+    me.talentLampLv = (me.talents && me.talents.lamp) || 0;
+    me.pwBonus = me.talentShadowLv >= 4 ? (ROLL_INV_MS / 1000) * 0.6 : 0;
+    me.atkCount = 0;
     S.myId = d.me.id;
     S.zone = d.me.zone || 'town';
     S.stats = d.me.stats || {};
@@ -5146,17 +5819,26 @@ var MUSIC = {
         break;
       case 'loot':
         if (e.s) {
-          S.texts.push({ x: S.me.x, y: S.me.y - 1.2, txt: '+' + e.s, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
-          auSfx('coin', 0.3, 1.1);
+          // v5.6 W3：星屑不再直接飘字 —— 改为死亡位置散落磁吸星屑珠（e.orbs 拆珠数组）
+          if (e.orbs && e.orbs.length) {
+            spawnOrbs(e.px, e.py, e.orbs);
+          } else {
+            var lp = lootPos(e);
+            capPush(S.texts, { x: lp.x, y: lp.y - 1.2, txt: '+' + e.s, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 }, 60);
+            auSfx('coin', 0.3, 1.1);
+          }
         }
         if (e.it) {
           toast('获得 ' + rarityName(e.it.rarity) + '「' + e.it.name + '」', 'good');
           auSfx(e.it.rarity >= 3 ? 'gold' : 'bonus', 0.45, 1);
+          // v5.6 W3：装备光柱（四档底圈 + 3 段阶梯光柱 + 3 帧浮动）
+          if (e.px != null) spawnPillar(e.px, e.py, e.it.rarity || 0);
         }
         if (e.f) toast('背包满了 —— 去镇上卖掉一些吧', 'warn');
         if (e.m && e.m.length) {
+          // v5.6 W3：材料簇 —— 死亡位置散落材料珠
           for (var i = 0; i < e.m.length; i++) {
-            S.texts.push({ x: S.me.x, y: S.me.y - 1.6, txt: '材料 +' + e.m[i][1], crit: 0, life: 0.9, max: 0.9, vy: -0.8, vx: -0.2, small: 1 });
+            spawnOrbs(e.px, e.py, [{ v: e.m[i][1], mat: e.m[i][0] }]);
           }
         }
         break;
@@ -5235,7 +5917,38 @@ var MUSIC = {
       case 'cave-done':
         toast('洞窟清空：+' + e.shards + ' 星屑', 'good');
         break;
+      case 'cheat-death':
+        // v5.6 W4：不灭 —— 全屏白闪 0.2s + 金色 vignette + 1s 无敌
+        cheatDeathFx();
+        break;
     }
+  }
+
+  // v5.6 W3：loot 事件坐标 —— 优先服务端给的死亡坐标（px/py，e.x 已被 xp 占用），
+  // 兜底最近垂死怪，再兜底自己
+  function lootPos(e) {
+    if (e && e.px != null && e.py != null) return { x: e.px + 0.5, y: e.py + 0.5 };
+    var ids = Object.keys(S.mobs), best = null, bd = 99;
+    for (var i = 0; i < ids.length; i++) {
+      var m = S.mobs[ids[i]];
+      if (!m || !m.dying) continue;
+      var d = dist(S.me.x, S.me.y, m.rx, m.ry);
+      if (d < bd) { bd = d; best = m; }
+    }
+    if (best) return { x: best.rx, y: best.ry };
+    return { x: S.me.x, y: S.me.y };
+  }
+
+  // v5.6 W4：不灭触发特效（白闪走 hurtT 通道复用，金环 + toast 另行）
+  function cheatDeathFx() {
+    var me = S.me;
+    if (!me) return;
+    me.invUntil = S.time + 1.0;           // 1s 无敌（表现层；服务端另有权威判定）
+    S.cheatFxUntil = S.time + 0.2;        // 白闪
+    S.cheatVgUntil = S.time + 1.0;        // 金色 vignette
+    toast('灯火不灭！', 'good');
+    auSfx('levelup', 0.5, 0.8);
+    S.rings.push({ x: me.x, y: me.y, r: 0, max: 3.4, life: 0.7, max2: 0.7, col: '#ffd36a' });
   }
 
   function reGoal() {
@@ -5356,14 +6069,19 @@ var MUSIC = {
     }, function (err) { toast(err.message || '没有反应', 'warn'); });
   }
 
+  // v5.6 W1：panelBusy 单飞锁（buy/sell/forge/talent）—— 在途时点击丢弃，第 3 次连续丢弃弹 toast
   function apiBuy(id, n) {
-    apiPost('/shiguang/v5/shop', { id: id, n: n }).then(function (d) {
-      S.me.shards = d.shards;
-      S.me.mats = d.mats;
-      toast('买好了');
-      auSfx('coin', 0.35, 1.15);
-      refreshPanel('shop');
-    }, function (err) { toast(err.message || '买不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/shop', { id: id, n: n }).then(function (d) {
+        S.me.shards = d.shards;
+        S.me.mats = d.mats;
+        toast('买好了');
+        auSfx('coin', 0.35, 1.15);
+        refreshPanel('shop');
+      }, function (err) { toast(err.message || '买不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiUse(id) {
@@ -5397,38 +6115,53 @@ var MUSIC = {
     }, function (err) { toast(err.message || '卸不下来', 'warn'); });
   }
 
-  function apiSell(uids) {
-    apiPost('/shiguang/v5/sell', { uids: uids }).then(function (d) {
-      S.me.bag = d.bag;
-      S.me.shards = d.shards;
-      toast('卖了 ' + d.gain + ' 星屑');
-      auSfx('coin', 0.3, 1);
-      refreshPanel('bag');
-    }, function (err) { toast(err.message || '卖不了', 'warn'); });
+  // v5.6 W3：sell 扩参 —— uids（装备）或 mats（材料 {gel:5,...}）都走这一条
+  function apiSell(payload) {
+    var body = payload && payload.uids ? { uids: payload.uids } : (payload && payload.mats ? { mats: payload.mats } : { uids: payload });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/sell', body).then(function (d) {
+        S.me.bag = d.bag != null ? d.bag : S.me.bag;
+        S.me.mats = d.mats != null ? d.mats : S.me.mats;
+        S.me.shards = d.shards;
+        toast('卖了 ' + d.gain + ' 星屑');
+        auSfx('coin', 0.3, 1);
+        refreshPanel('bag');
+        if (curPanel === 'shop') refreshPanel('shop');
+      }, function (err) { toast(err.message || '卖不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiForge(slot) {
-    apiPost('/shiguang/v5/forge', { slot: slot, mat: 'ore' }).then(function (d) {
-      S.me.equip = d.equip;
-      S.me.shards = d.shards;
-      S.me.mats = d.mats;
-      S.stats = (function () { return S.stats; })();
-      toast('重铸完成：' + d.item.name);
-      auSfx('magic', 0.5, 0.9);
-      refreshPanel('forge');
-    }, function (err) { toast(err.message || '打不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/forge', { slot: slot, mat: 'ore' }).then(function (d) {
+        S.me.equip = d.equip;
+        S.me.shards = d.shards;
+        S.me.mats = d.mats;
+        toast('重铸完成：' + d.item.name);
+        auSfx('magic', 0.5, 0.9);
+        refreshPanel('forge');
+      }, function (err) { toast(err.message || '打不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiTalent(line) {
-    apiPost('/shiguang/v5/talent', { line: line }).then(function (d) {
-      S.me.talents = d.talents;
-      S.me.talentLeft = d.left;
-      S.stats = d.stats || S.stats;
-      S.me.maxHp = d.maxHp;
-      toast('点亮：' + d.tier.name);
-      auSfx('levelup', 0.4, 1.2);
-      refreshPanel('talent');
-    }, function (err) { toast(err.message || '点不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/talent', { line: line }).then(function (d) {
+        S.me.talents = d.talents;
+        S.me.talentLeft = d.left;
+        S.stats = d.stats || S.stats;
+        S.me.maxHp = d.maxHp;
+        toast('点亮：' + d.tier.name);
+        auSfx('levelup', 0.4, 1.2);
+        refreshPanel('talent');
+      }, function (err) { toast(err.message || '点不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiRest() {
@@ -5525,8 +6258,17 @@ var MUSIC = {
     S.zoom = clamp(z, 3, 4);
   }
 
-  function loop(ts) {
-    raf = window.requestAnimationFrame(loop);
+  // v5.6：实体预算。任何一层漏了 capPush 也不至于撑爆内存 —— 主循环每帧兜一次底。
+  function trimBudgets() {
+    if (S.parts.length > 400) S.parts.splice(0, S.parts.length - 400);
+    if (S.texts.length > 60) S.texts.splice(0, S.texts.length - 60);
+    if (S.orbs.length > 320) S.orbs.splice(0, S.orbs.length - 320);
+    if (S.corpses.length > 24) S.corpses.splice(0, S.corpses.length - 24);
+    if (S.pillars.length > 12) S.pillars.splice(0, S.pillars.length - 12);
+  }
+
+  // v5.6：帧步进拆出来 —— __sg5.tick(ms) 手动驱动时绝不重复排 rAF（否则回调指数增殖）。
+  function step(ts) {
     var t = ts / 1000;
     if (!lastT) lastT = t;
     var dt = Math.min(0.05, t - lastT);
@@ -5535,22 +6277,34 @@ var MUSIC = {
     S.time += dt;
 
     if (!document.hidden && S.ready && !S.paused) {
-      var freeze = S.hitstopUntil && S.time < S.hitstopUntil;
-      var scale = 1;
-      if (S.slow && S.time < S.slow.until) scale = S.slow.scale;
-      else if (S.slow) S.slow = null;
-      var ds = freeze ? 0 : dt * scale;
-      if (ds > 0) {
-        updatePlayer(ds, S.time);
-        resolveAttack(S.me, S.time);
-        updateMobs(ds, S.time);
-        updatePlayers(ds);
-        updateShots(ds);
-        ambient(ds);
+      // v5.6 W1：逐帧段整段包 try/catch —— 一行异常绝不能打断 rAF 链（用户「玩一半卡死」的根因）。
+      // catch 只记日志并继续下一帧；socialTick 内部的农场判定另有自己的双保险（15_farm）。
+      try {
+        var freeze = S.hitstopUntil && S.time < S.hitstopUntil;
+        var scale = 1;
+        if (S.slow && S.time < S.slow.until) scale = S.slow.scale;
+        else if (S.slow) S.slow = null;
+        var ds = freeze ? 0 : dt * scale;
+        if (ds > 0) {
+          updatePlayer(ds, S.time);
+          resolveAttack(S.me, S.time);
+          updateMobs(ds, S.time);
+          updatePlayers(ds);
+          updateShots(ds);
+          updateOrbs(ds, S.time);
+          ambient(ds);
+        }
+        camUpdate(dt);
+        trimBudgets();
+        renderWorld(freeze ? 0 : dt);
+        socialTick(S.time);
+      } catch (e) {
+        if (!loop.errAt || S.time - loop.errAt > 1) {
+          loop.errAt = S.time;
+          console.error('[sg5-loop]', e);
+        }
       }
-      camUpdate(dt);
-      renderWorld(freeze ? 0 : dt);
-      socialTick(S.time);
+      try {
       // HUD 不需要 60Hz
       if (S.time - hudAt > 0.2) { hudAt = S.time; uiUpdate(); }
       if (S.time - miniAt > 0.12) { miniAt = S.time; uiMini(); }
@@ -5567,7 +6321,36 @@ var MUSIC = {
           ctx.fillRect(0, 0, S.view.w, S.view.h);
         }
       }
+      // v5.6 W4 不灭：0.2s 白闪 + 1s 金色 vignette
+      if (S.cheatVgUntil && S.time < S.cheatVgUntil) {
+        var vg = ctx.createRadialGradient(S.view.w / 2, S.view.h / 2, Math.min(S.view.w, S.view.h) * 0.2,
+          S.view.w / 2, S.view.h / 2, Math.max(S.view.w, S.view.h) * 0.66);
+        vg.addColorStop(0, 'rgba(255,214,120,0)');
+        vg.addColorStop(1, 'rgba(255,196,90,' + (0.34 * clamp((S.cheatVgUntil - S.time) / 1.0, 0, 1)).toFixed(3) + ')');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, S.view.w, S.view.h);
+        if (S.time < (S.cheatVgUntil - 0.8)) {
+          ctx.fillStyle = 'rgba(255,248,230,' + (0.5 * (1 - (S.cheatVgUntil - 0.8 - S.time) / 0.2 > 0 ? (S.cheatVgUntil - 0.8 - S.time) / 0.2 : 0)).toFixed(3) + ')';
+          ctx.fillRect(0, 0, S.view.w, S.view.h);
+        }
+      } else if (S.cheatVgUntil && S.time >= S.cheatVgUntil) {
+        S.cheatVgUntil = 0;
+      }
+      // v5.6 W4 s4 见切：完美闪避成功瞬间的 0.15s 白边闪光
+      if (S.pdFlashUntil && S.time < S.pdFlashUntil) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = Math.max(3, S.zoom * 1.5);
+        ctx.strokeRect(1, 1, S.view.w - 2, S.view.h - 2);
+      }
+      } catch (e2) {
+        console.error('[sg5-loop-hud]', e2);
+      }
     }
+  }
+
+  function loop(ts) {
+    raf = window.requestAnimationFrame(loop);
+    step(ts);
   }
 
   // 环境粒子：每个区域有自己的「空气」
@@ -5610,6 +6393,14 @@ var MUSIC = {
     S.texts = [];
     S.beams = [];
     S.rings = [];
+    // v5.6 W3：奖励实体层（磁吸星屑珠 / 尸体 / 装备光柱）
+    S.orbs = [];
+    S.corpses = [];
+    S.pillars = [];
+    S.orbSfxAt = 0;
+    S.orbStreak = 0;
+    S.orbMergeTxt = '';
+    S.orbMergeAt = 0;
     S.mobs = {};
     S.players = {};
     S.mobs = {};
@@ -5786,8 +6577,16 @@ var MUSIC = {
 
     // 对外暴露一点调试接口（线上排查用，不影响玩家）
     try {
+      // v5.6 W1：手动驱动主循环（headless rAF 节流 / 截图机用）。advance 一次 ≈ 16ms。
       window.__sg5 = {
         state: S,
+        tick: function (ms) {
+          var n = Math.max(1, Math.min(600, Math.round((ms || 16) / 16)));
+          for (var i = 0; i < n; i++) {
+            try { step(performance.now()); } catch (e) {}
+          }
+          return S.time;
+        },
         mobs: function () { return S.mobs; },
         teleport: function (x, y) {
           if (S.me) { S.me.x = x; S.me.y = y; S.cam.x = x * TILE; S.cam.y = y * TILE; }
@@ -6708,31 +7507,36 @@ var MUSIC = {
       return null;
     });
   }
+  // v5.6 W1：farmBusy 全局单飞锁（farmAct/lifeAct 全部动作，含 mine）—— 在途时新请求直接丢弃。
   function farmAct(path, body) {
-    return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
-      if (d && d.farm) farmApply(d.farm);
-      actSfx('farm', path, d);
-      S.farm.lastError = '';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      return d;
-    }, function (e) {
-      S.farm.lastError = (e && e.message) || '操作没能完成';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      throw e;   // 保留调用方原有的 toast(err.message,'warn') 失败分支
-    });
+    return sg5Gate('farmBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
+        if (d && d.farm) farmApply(d.farm);
+        actSfx('farm', path, d);
+        S.farm.lastError = '';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        return d;
+      }, function (e) {
+        S.farm.lastError = (e && e.message) || '操作没能完成';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        throw e;   // 保留调用方原有的 toast(err.message,'warn') 失败分支
+      });
+    }) || Promise.resolve(null);
   }
   function lifeAct(path, body) {
-    return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
-      if (d && d.farm) farmApply(d.farm);
-      actSfx('life', path, d);
-      S.farm.lastError = '';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      return d;
-    }, function (e) {
-      S.farm.lastError = (e && e.message) || '操作没能完成';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      throw e;
-    });
+    return sg5Gate('farmBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
+        if (d && d.farm) farmApply(d.farm);
+        actSfx('life', path, d);
+        S.farm.lastError = '';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        return d;
+      }, function (e) {
+        S.farm.lastError = (e && e.message) || '操作没能完成';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        throw e;
+      });
+    }) || Promise.resolve(null);
   }
   function farmToast(text, kind) { toast(text, kind || ''); auSfx('menu', 0.2, 1.1); }
 
@@ -7155,25 +7959,56 @@ var MUSIC = {
       ctx.restore();
       return;
     }
-    // 成熟：按形状结果 / 开花
+    // 成熟：按 shape 族 6×6 像素形结果 / 开花（v5.6 W2 ④：2 阶色 + #17120d 描边）
+    var CROP_FRUIT = {
+      round: [
+        '.####.',
+        '######',
+        '######',
+        '######',
+        '.####.',
+        '..##..'
+      ],
+      berry: [
+        '..##..',
+        '.####.',
+        '######',
+        '.####.',
+        '..##..',
+        '...#..'
+      ],
+      root: [
+        '..##..',
+        '.####.',
+        '######',
+        '.####.',
+        '..##..',
+        '..##..'
+      ],
+      flower: [
+        '.#..#.',
+        '..##..',
+        '#o##o#',
+        '..##..',
+        '.#..#.',
+        '..##..'
+      ]
+    };
     if (def.shape === 'flower') {
-      ctx.fillStyle = col;
-      for (var a = 0; a < 5; a++) {
-        var ang = a * Math.PI * 2 / 5;
-        ctx.beginPath();
-        ctx.arc(sx + Math.cos(ang) * u * 0.11, top + Math.sin(ang) * u * 0.11, u * 0.085, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#f2d878'; ctx.beginPath(); ctx.arc(sx, top, u * 0.07, 0, Math.PI * 2); ctx.fill();
+      var crows = CROP_FRUIT.flower;
+      var ccell = u * 0.09;
+      drawGlyphWorldFarm(ctx, crows, sx, top + u * 0.18, ccell, { '#': col, 'o': '#f2d878' }, '#17120d');
+      drawGlyphWorldFarm(ctx, crows, sx, top + u * 0.18, ccell, { '#': col, 'o': '#f2d878' }, null);
     } else if (def.shape === 'berry' || def.shape === 'round' || def.shape === 'root') {
       ctx.fillStyle = '#5f9149';
       ctx.fillRect(sx - u * 0.24, top - u * 0.02, u * 0.48, u * 0.1);
       if (p.ready) {
-        ctx.fillStyle = col; ctx.strokeStyle = 'rgba(38,28,20,0.75)'; ctx.lineWidth = 1;
-        var rr = def.shape === 'root' ? u * 0.14 : u * 0.17;
-        ctx.beginPath(); ctx.arc(sx, top + u * 0.1, rr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillRect(sx - rr * 0.45, top + u * 0.02, Math.max(2, rr * 0.4), Math.max(2, rr * 0.35));
+        var frows = CROP_FRUIT[def.shape === 'root' ? 'root' : (def.shape === 'berry' ? 'berry' : 'round')];
+        var fcell = u * 0.09;
+        drawGlyphWorldFarm(ctx, frows, sx, top + u * 0.28, fcell, { '#': shadeHex(col, -36) }, '#17120d');
+        drawGlyphWorldFarm(ctx, frows, sx, top + u * 0.28, fcell, { '#': col }, null);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(Math.round(sx - fcell * 2), Math.round(top + u * 0.28 - fcell * 5), Math.max(1, Math.round(fcell)), Math.max(1, Math.round(fcell)));
       } else {
         ctx.fillStyle = '#79a95c';
         ctx.fillRect(sx - u * 0.16, top - u * 0.04, u * 0.32, u * 0.1);
@@ -7253,7 +8088,57 @@ var MUSIC = {
       }
     }
   };
-  // v5.4：采集物——12×12 阶梯三段 + 1px 描边 + ≤1px 摇摆 + 底部接触阴影；冷却格画残桩
+  // v5.6 W2 ①：采集物改四族 8×8 GLYPH 行串（浆果丛 / 根茎 / 花株 / 菌菇）+ 主色 + 描边 + 白高光
+  var FORAGE_GLYPH = {
+    berry: [
+      '........',
+      '.##..##.',
+      '#++##++#',
+      '#++##++#',
+      '.##..##.',
+      '..####..',
+      '...##...',
+      '..####..'
+    ],
+    root: [
+      '..##.##.',
+      '.######.',
+      '..####..',
+      '...##...',
+      '..++++..',
+      '..++++..',
+      '...++...',
+      '...++...'
+    ],
+    flower: [
+      '..++++..',
+      '.+o++o+.',
+      '+++++++.',
+      '.+++++..',
+      '..####..',
+      '..####..',
+      '...##...',
+      '...##...'
+    ],
+    shroom: [
+      '..####..',
+      '.+####+.',
+      '########',
+      '########',
+      '...##...',
+      '..+##+..',
+      '..+##+..',
+      '........'
+    ]
+  };
+  function forageFamily(id) {
+    var b = String(id || '').split('_q')[0];
+    if (/daffodil|dandelion|sweet_pea|tulip|jazz|poppy/.test(b)) return 'flower';
+    if (/berry|grape|plum|spice/.test(b)) return 'berry';
+    if (/root|leek|yam|radish|horseradish|winter/.test(b)) return 'root';
+    if (/spore|mushroom|shroom/.test(b)) return 'shroom';
+    return 'berry';
+  }
   function farmDrawForage(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE * 0.5);
@@ -7267,75 +8152,58 @@ var MUSIC = {
     var sway = Math.round(Math.sin(S.time * 1.6 + (p.x * 7 + p.y * 13) % 7) * 1);
     ctx.fillStyle = 'rgba(30,22,16,0.22)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.2, u * 0.06, 0, 0, 6.2832); ctx.fill();
-    var h1 = u * 0.34, h2 = u * 0.22, h3 = u * 0.14;
-    var w1 = u * 0.42, w2 = u * 0.30, w3 = u * 0.18;
-    var baseY = sy - u * 0.06;
+    var fam = forageFamily(p.item);
+    var rows = FORAGE_GLYPH[fam];
+    var cell = u * 0.055;                       // 8×8 → 约 0.44u 高
     var bx = Math.round(sx + sway);
-    ctx.fillStyle = col;
-    ctx.fillRect(Math.round(bx - w1 / 2), Math.round(baseY - h1), Math.round(w1), Math.round(h1));
-    ctx.fillRect(Math.round(bx - w2 / 2), Math.round(baseY - h1 - h2), Math.round(w2), Math.round(h2));
-    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), Math.round(w3), Math.round(h3));
-    ctx.strokeStyle = 'rgba(38,28,20,0.7)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(Math.round(bx - w1 / 2) + 0.5, Math.round(baseY - h1) + 0.5, Math.round(w1), Math.round(h1));
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), 2, 2);
+    // 1px 深色描边：先画一圈 #17120d 的底再叠主色
+    drawGlyphWorldFarm(ctx, rows, bx + 1, sy - u * 0.05, cell, null, '#17120d');
+    drawGlyphWorldFarm(ctx, rows, bx, sy - u * 0.05, cell, { '#': col, '+': shadeHex(col, -36), 'o': '#ffffff' });
+    // 1px 白高光
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(Math.round(bx - cell * 2), Math.round(sy - u * 0.05 - cell * 7), Math.max(1, Math.round(cell)), Math.max(1, Math.round(cell)));
   }
-  // v5.5：彩蛋——不摇（sway=0），接触阴影长轴 u*0.20 / 短轴 u*0.06；头顶小金星提示可捡
+  // 15_farm 内部的字形绘制（与 07_entity.drawGlyphWorld 同规则；offset 用于描边层）
+  function drawGlyphWorldFarm(ctx, rows, cx, bottomY, cell, pal, forceCol) {
+    var h = rows.length, w = rows[0].length;
+    var ox = Math.round(cx - w * cell / 2), oy = Math.round(bottomY - h * cell);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y].charAt(x);
+        if (ch === '.') continue;
+        ctx.fillStyle = forceCol || ((pal && pal[ch]) || (pal && pal['#']) || '#e8dcc0');
+        ctx.fillRect(ox + Math.round(x * cell), oy + Math.round(y * cell), Math.max(1, Math.round(cell)), Math.max(1, Math.round(cell)));
+      }
+    }
+  }
+  // v5.6 W2 ⑨：彩蛋改用 GLYPH.egg 放大 0.5u（与 chip / 图标同源，删矢量椭圆版）
   function farmDrawEgg(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE * 0.5);
     var sy = w2sY(p.y * TILE + TILE);
     ctx.fillStyle = 'rgba(30,22,16,0.22)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.20, u * 0.06, 0, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = '#f2e7c8';
-    ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.17, u * 0.14, u * 0.19, 0, 0, 6.2832); ctx.fill();
-    ctx.strokeStyle = 'rgba(201,150,63,0.85)'; ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,253,242,0.9)';
-    ctx.beginPath(); ctx.ellipse(sx - u * 0.045, sy - u * 0.23, u * 0.05, u * 0.07, -0.4, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = 'rgba(201,150,63,0.7)';
-    ctx.fillRect(Math.round(sx + u * 0.04), Math.round(sy - u * 0.24), 2, 2);
-    ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - u * 0.12), 2, 2);
+    drawGlyphWorldFarm(ctx, GLYPH.egg, sx, sy - u * 0.06, u * 0.5 / 12,
+      { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' }, null);
     var tw = 0.55 + 0.45 * Math.sin(S.time * 4 + p.i * 1.7);
     ctx.globalAlpha = tw; ctx.fillStyle = '#ffe9a0';
     ctx.fillRect(Math.round(sx + u * 0.2), Math.round(sy - u * 0.46), 3, 3);
     ctx.globalAlpha = 1;
   }
-  // v5.4：加工设备——田下缘一排，5 种造型 + 两帧交替的工作烟
+  // v5.6 W2 ②：加工设备改用 UI 层 GLYPH.machine_* 放大 0.7u（世界与 UI 同形）
+  var MACHINE_GLYPH = { furnace: 'machine_furnace', mayo_machine: 'machine_mayo', cheese_press: 'machine_cheese', keg: 'machine_keg', stove: 'machine_stove' };
   function farmDrawMachine(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE);
     var sy = w2sY(p.y * TILE + TILE);
-    var col = farmItemColor(p.kind) || '#8a8078';
     ctx.fillStyle = 'rgba(30,22,16,0.24)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.42, u * 0.1, 0, 0, 6.2832); ctx.fill();
-    var w = Math.round(u * 0.72), h = Math.round(u * 0.6);
-    var x0 = Math.round(sx - w / 2), y0 = Math.round(sy - h);
-    ctx.fillStyle = col;
-    ctx.fillRect(x0, y0, w, h);
-    ctx.strokeStyle = 'rgba(38,28,20,0.8)'; ctx.lineWidth = 1;
-    ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(x0, y0, w, Math.max(2, Math.round(h * 0.18)));
-    if (p.kind === 'furnace') {
-      ctx.fillStyle = '#e87830';
-      ctx.fillRect(Math.round(sx - u * 0.14), Math.round(sy - h * 0.42), Math.round(u * 0.28), Math.round(h * 0.3));
-    } else if (p.kind === 'keg') {
-      ctx.fillStyle = 'rgba(38,28,20,0.55)';
-      ctx.fillRect(x0, Math.round(y0 + h * 0.3), w, 2);
-      ctx.fillRect(x0, Math.round(y0 + h * 0.62), w, 2);
-    } else if (p.kind === 'stove') {
-      ctx.fillStyle = '#3a3a42';
-      ctx.fillRect(Math.round(sx - u * 0.2), Math.round(y0 - u * 0.16), Math.round(u * 0.4), Math.round(u * 0.16));
-    } else {
-      ctx.fillStyle = 'rgba(38,28,20,0.5)';
-      ctx.fillRect(Math.round(sx - u * 0.1), y0, Math.round(u * 0.2), Math.round(h * 0.3));
-    }
+    var rows = GLYPH[MACHINE_GLYPH[p.kind]] || GLYPH.machine_furnace;
+    drawGlyphWorldFarm(ctx, rows, sx, sy - u * 0.04, u * 0.7 / 12, null, null);
     var frm = Math.floor(S.time * 2) % 2;
     ctx.fillStyle = frm ? 'rgba(240,236,220,0.5)' : 'rgba(240,236,220,0.28)';
     var puff = frm ? 3 : 2;
-    ctx.fillRect(Math.round(sx - puff / 2), Math.round(y0 - (frm ? 8 : 4)), puff, puff);
+    ctx.fillRect(Math.round(sx - puff / 2), Math.round(sy - u * 0.04 - rows.length * (u * 0.7 / 12) - (frm ? 8 : 4)), puff, puff);
   }
   var _drawPropFarm = drawProp;
   drawProp = function (ctx, p) {
@@ -7344,20 +8212,38 @@ var MUSIC = {
     if (p && p.k === 'egg') { farmDrawEgg(ctx, p); return; }
     if (p && p.k === 'machine') { farmDrawMachine(ctx, p); return; }
     var r = _drawPropFarm(ctx, p);
-    // v5.4：刚砍过的树叠两道斧痕（前 3 天内），一亮一暗
+    // v5.6 W2 ③：斧痕改树干斜向阶梯缺口（wood 色内芯 + #17120d 边）；次日 1 道 50% alpha
     if (p && (p.k === T.TREE || p.k === T.PINE || p.k === T.DEADTREE)) {
       var P = farmP();
-      if (P && P.chopped && P.chopped[p.x + ',' + p.y]) {
+      var cdk = P && P.chopped ? P.chopped[p.x + ',' + p.y] : 0;
+      if (cdk) {
         var u = TILE * S.zoom;
         var cx = w2sX(p.x * TILE + TILE * 0.5), cy = w2sY(p.y * TILE + TILE);
-        ctx.fillStyle = 'rgba(240,236,220,0.85)';
-        ctx.fillRect(Math.round(cx - u * 0.16), Math.round(cy - u * 0.5), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.22));
-        ctx.fillStyle = 'rgba(240,236,220,0.35)';
-        ctx.fillRect(Math.round(cx + u * 0.05), Math.round(cy - u * 0.44), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.18));
+        var day = farmCal().day || 0;
+        var age = day - cdk;
+        if (age <= 2) {
+          drawAxeNotch(ctx, cx, cy, u, -1, age === 0 ? 1 : 0.5);
+          if (age >= 1) drawAxeNotch(ctx, cx, cy, u, 1, 0.5);
+        }
       }
     }
     return r;
   };
+  // 斜向阶梯缺口：3 级台阶往右下切进树干
+  function drawAxeNotch(ctx, cx, cy, u, side, alpha) {
+    var x0 = cx + side * u * 0.06, y0 = cy - u * 0.42;
+    var step = Math.max(2, Math.round(u * 0.09));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (var i = 0; i < 3; i++) {
+      var nx = Math.round(x0 + i * step * 0.7), ny = Math.round(y0 + i * step);
+      ctx.fillStyle = '#17120d';                          // 外沿
+      ctx.fillRect(nx - 1, ny - 1, step + 2, step + 2);
+      ctx.fillStyle = '#6d4b2e';                          // 木茬内芯
+      ctx.fillRect(nx, ny, step, step);
+    }
+    ctx.restore();
+  }
 
   // ---------- 交互：站在田里按 E，按当前工具干活 ----------
   function farmNear() {
@@ -7487,10 +8373,12 @@ var MUSIC = {
     }, function (e) { farmToast(e.message || '这会儿干不了', 'warn'); });
     return true;
   }
-  // 世界里飘字：复用战斗飘字的结构（金色小字往上飘）
-  function floatText(txt) {
+  // 世界里飘字：复用战斗飘字的结构（金色小字往上飘）。v5.6：支持目标坐标（彩蛋/采集/砍树）
+  function floatText(txt, x, y) {
     var m = S.me;
-    if (m && S.texts) S.texts.push({ x: m.x, y: m.y - 1.2, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
+    var px = (x != null && y != null) ? x + 0.5 : (m ? m.x : 0);
+    var py = (x != null && y != null) ? y : (m ? m.y - 1.2 : 0);
+    if (m && S.texts) capPush(S.texts, { x: px, y: py, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 }, 60);
   }
   // 世界里按 E：田区内严格按手上的工具干活；田区外先捡彩蛋、再采集、再砍树，最后才轮到宝箱 / NPC
   var _doInteractFarm = doInteract;
@@ -7500,7 +8388,7 @@ var MUSIC = {
     if (ne) {
       lifeAct('egg/pick', { i: ne.i }).then(function (d) {
         farmToast('捡到了彩蛋，还拿到一张彩蛋彩券（农场面板「商店」可兑换）');
-        floatText('+彩蛋');
+        floatText('+彩蛋', ne.x, ne.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -7508,7 +8396,7 @@ var MUSIC = {
     if (nf) {
       lifeAct('forage/pick', { x: nf.x, y: nf.y }).then(function (d) {
         farmToast('采到了 ' + (d && d.name ? d.name : '野味'));
-        floatText('+' + (d && d.got ? d.got.length : 1));
+        floatText('+' + (d && d.got ? d.got.length : 1), nf.x, nf.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -7517,7 +8405,7 @@ var MUSIC = {
       lifeAct('chop', { x: nt.x, y: nt.y }).then(function (d) {
         var g = d && d.got ? d.got : {};
         farmToast('砍到木材 ×' + (g.wood || 0) + (g.hardwood ? ' · 硬木 ×1' : ''));
-        floatText('+木材');
+        floatText('+木材', nt.x, nt.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -7546,7 +8434,7 @@ var MUSIC = {
     if (k === 'farm-bundle') { farmToast('献祭包完成：' + e.name + ' → ' + e.reward); farmState(); return true; }
     if (k === 'farm-greenhouse' || k === 'farm-mine-bottom') { farmToast(e.text); farmState(); return true; }
     if (k === 'farm-elevator') { farmToast('矿洞电梯：第 ' + e.floor + ' 层'); return true; }
-    if (k === 'farm-sleep') { farmToast('一觉睡到天亮，体力回满了'); return true; }
+    if (k === 'farm-sleep') { farmToast('歇下了 —— 体力回了一些（分段恢复）'); return true; }
     return false;
   }
   var _handleEventFarm = handleEvent;
@@ -7581,14 +8469,19 @@ var MUSIC = {
 
   var _socialTickFarm = socialTick;
   socialTick = function (t) {
-    _socialTickFarm(t);
+    // v5.6 W1：主循环 socialTick 段的农场侧双保险 —— 一行异常不拖累其余帧逻辑
+    try {
+      _socialTickFarm(t);
+    } catch (e) { console.error('[sg5-social]', e); }
     if (!S.ready || !farmP()) return;
-    if (UI.farmClock) {
-      var c = farmCal(), ms = c.dayMs || 90000;
-      setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
-    }
-    // v5.4：脚下 / 身边都会随走动变化，两条只读提示每帧跟着走
-    if (UI.farmToolNext || UI.farmNear) farmHintPaint();
+    try {
+      if (UI.farmClock) {
+        var c = farmCal(), ms = c.dayMs || 90000;
+        setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
+      }
+      // v5.4：脚下 / 身边都会随走动变化，两条只读提示每帧跟着走
+      if (UI.farmToolNext || UI.farmNear) farmHintPaint();
+    } catch (e2) { console.error('[sg5-social-farm]', e2); }
     // 低频：面板开着或有待办时 6 秒拉一次；平时 15 秒，别给 5Hz 同步添负担
     var interval = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') ? 6 : 15;
     if (t - S.farm.lastPoll >= interval) {
@@ -7626,6 +8519,8 @@ var MUSIC = {
     S.farm.lastPoll = 0; S.farm.rtBound = 0; S.farm.qte = null;
     S.farm.sel = null; S.farm.bagSel = null; S.farm.tool = 'hoe';
     S.farm.relGiftTo = ''; S.farm.loadState = 'loading'; S.farm.lastError = '';
+    // v5.6 W1：竞态锁随挂载复位（锁在 S 上，refreshPanel 不动它们）
+    S.farmBusy = 0; S.fishBusy = 0; S.panelBusy = 0;
     // v5.5：展台是瞬时视图；引导去重跨日持久（localStorage sg5hint 读回）
     S.farm.exhibitMode = false; S.farm.exhibitSel = [];
     farmHintLoad();
@@ -7909,8 +8804,34 @@ var MUSIC = {
     stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } },
     // v5.5 彩蛋节：蛋形与彩券字形（定义见 09_ui_hud.js 的 GLYPH）
     egg: { glyph: 'egg', pal: { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' } },
-    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } }
+    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } },
+    // ---- v5.6 W2 图标 GLYPH 化：矿石四档 / 宝石 / 煤 / 木材 / 石头 / 奶瓶 / 毛球 / 资材 ----
+    copper: { glyph: 'ore', pal: { '#': '#c98452', 'o': '#e8b088' } },
+    iron: { glyph: 'ore', pal: { '#': '#c8cdd4', 'o': '#eef1f4' } },
+    gold: { glyph: 'ore', pal: { '#': '#e5c45c', 'o': '#f6e2a0' } },
+    iridium: { glyph: 'ore', pal: { '#': '#b9e6e2', 'o': '#e2f6f4' } },
+    gem: { glyph: 'gem', pal: { '#': '#b58ad8', '+': '#9a6fc0', 'o': '#e8d8ff' } },
+    coal: { glyph: 'coal', pal: { '#': '#4a4a52', 'o': '#6a6a74' } },
+    stone: { glyph: 'stone_round', pal: { '#': '#a9a29a', 'o': '#c8c2b8' } },
+    milk: { glyph: 'milk_bottle', pal: { '#': '#eef1f4', 'o': '#b8d8e8' } },
+    big_milk: { glyph: 'milk_bottle', pal: { '#': '#eef1f4', 'o': '#d8b848' } },
+    wool: { glyph: 'wool', pal: { '#': '#f0eade', 'o': '#d8d0c0' } },
+    wood: { glyph: 'wood_log', pal: { '#': '#a9814f', 'o': '#c9a468' } },
+    speedgro: { glyph: 'flask', pal: { '#': '#8fc48a', 'o': '#c9e8c0' } },
+    quality_fert: { glyph: 'flask', pal: { '#': '#e8c860', 'o': '#f6e2a0' } },
+    sprinkler: { glyph: 'sprinkler', pal: { '#': '#9fb6c4', 'o': '#8fc4d8' } },
+    hay: { glyph: 'bale', pal: { '#': '#d8c27a', 'o': '#b09a58' } }
   };
+  // v5.6：通用作物果实按 CROPS.shape 映射到 4 字形（最大观感来源优先，pal 用 CROPS.col）
+  function cropGlyphOf(cropId) {
+    var c = (farmD().CROPS || {})[cropId];
+    if (!c) return null;
+    var g = { round: 'crop_round', berry: 'for_berry', root: 'for_root', flower: 'for_flower',
+      leaf: 'crop_round', stalk: 'crop_long', vine: 'crop_cluster' }[c.shape];
+    if (!g) return null;
+    var col = c.col || '#8db36a';
+    return { glyph: g, pal: { '#': col, '+': shadeHex(col, -36), 'o': '#ffffff' } };
+  }
   // 种子 A 轨：按季节 + 价格档取精灵（低 ≤40 / 中 ≤80 / 高）
   function seedSprite(cropId) {
     var c = farmD().CROPS[cropId];
@@ -7944,6 +8865,7 @@ var MUSIC = {
       var fs = fishSprite(base);
       if (fs) spec = { sprite: fs };
     }
+    if (!spec) spec = cropGlyphOf(base);   // v5.6：通用作物果实按 shape 出字形
     var cv = null;
     if (spec && spec.glyph && GLYPH[spec.glyph]) {
       cv = document.createElement('canvas');
@@ -8094,7 +9016,9 @@ var MUSIC = {
         }, function (e) { farmToast(e.message, 'warn'); });
       }, 'sg5-btn-primary'],
       ['收工睡觉', function () {
-        farmAct('sleep', {}).then(function () { farmToast('睡到天亮，体力回满'); }, function (e) { farmToast(e.message, 'warn'); });
+        farmAct('sleep', {}).then(function (d) {
+          farmToast('歇下了（第 ' + (d && d.n ? d.n : 1) + ' 觉，体力 ' + (d && d.energy != null ? d.energy : '?') + '/' + (farmP() ? farmP().maxEnergy : '?') + '）');
+        }, function (e) { farmToast(e.message, 'warn'); });
       }],
       ['切换种子（Q）', function () { farmCycleSeed(); refreshPanel('farm'); }],
       ['小镇 / 献祭', function () { S.farm.tab = 'field'; openPanel('relation'); }]
@@ -8703,6 +9627,8 @@ var MUSIC = {
           row.appendChild(el('span', 'sg5-farm-rowsub', lv >= 10 ? '满级' : xp + ' / ' + D.SKILL_XP[lv] + '（还差 ' + next + '）'));
           var tier = lv >= 10 ? 10 : lv >= 5 ? 5 : 0;
           if (tier && D.PROFESSIONS[sk] && D.PROFESSIONS[sk][tier]) {
+            // v5.6 W2 布局⑤：Lv10 行拆两组 —— 数据行在上，职业按钮 .sg5-farm-skill-ops 在下
+            var ops = el('div', 'sg5-farm-skill-ops');
             var opts = D.PROFESSIONS[sk][tier];
             for (var j = 0; j < opts.length; j++) {
               (function (o) {
@@ -8712,11 +9638,12 @@ var MUSIC = {
                   farmAct('profession', { skill: sk, id: o[0] }).then(function () { farmToast('选了「' + o[1] + '」'); },
                     function (e) { farmToast(e.message, 'warn'); });
                 });
-                row.appendChild(b);
+                ops.appendChild(b);
                 // v5.4：已选职业后面跟一枚短标，效果不用翻说明也能看见
-                if (chosen && PROF_MARK[o[0]]) row.appendChild(el('span', 'sg5-farm-profmark', PROF_MARK[o[0]]));
+                if (chosen && PROF_MARK[o[0]]) ops.appendChild(el('span', 'sg5-farm-profmark', PROF_MARK[o[0]]));
               })(opts[j]);
             }
+            row.appendChild(ops);
           }
           list.appendChild(row);
         })(D.SKILLS[i]);
@@ -9215,6 +10142,7 @@ var MUSIC = {
     document.removeEventListener('keyup', qteUp, false);
     document.removeEventListener('mouseup', qteUp, false);
     S.farm.qte = null;
+    S.fishBusy = 0;   // v5.6：清理时兜底放锁，别让 fishBusy 卡死
   }
   function qteStop(success) {
     var q = S.farm.qte; if (!q) return;
@@ -9225,7 +10153,10 @@ var MUSIC = {
     document.removeEventListener('keyup', qteUp, false);
     document.removeEventListener('mouseup', qteUp, false);
     S.farm.qte = null;
+    // v5.6：fishBusy 覆盖到 result 结算完成才释放
+    S.fishBusy = 1;
     lifeAct('fish/result', { score: score }).then(function (d) {
+      S.fishBusy = 0;
       if (d && d.caught) {
         farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g' +
           (d.contestCounted === false ? ' · 本竿不计入赛绩（前 3 竿已计满）' : ''));
@@ -9235,6 +10166,7 @@ var MUSIC = {
       focusCast();
     }, function (e) {
       farmToast(e.message || '鱼跑了', 'warn');
+      S.fishBusy = 0;
       focusCast();
     });
   }
@@ -9291,10 +10223,13 @@ var MUSIC = {
         ' · 甩一次竿花 ' + (D.TOOL_ENERGY ? D.TOOL_ENERGY.fish : 8) + ' 体力'));
       farmBtnRow(s, [
         ['甩竿', function () {
-          lifeAct('fish/start', {}).then(function (d) {
-            if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
-            else farmToast('这会儿没鱼咬钩', 'warn');
-          }, function (e) { farmToast(e.message, 'warn'); });
+          // v5.6 W1：fishBusy 覆盖甩竿 → result 整个周期（在途时再点直接丢弃）
+          sg5Gate('fishBusy', document.activeElement, function () {
+            return lifeAct('fish/start', {}).then(function (d) {
+              if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
+              else farmToast('这会儿没鱼咬钩', 'warn');
+            }, function (e) { farmToast(e.message, 'warn'); });
+          });
         }, 'sg5-btn-primary', null, 'op:cast'],
         ['按 H 收起', function () { closePanel(); }]
       ]);

@@ -8,7 +8,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const NM = 'D:/NetWork/Integration/ClassIntra/server/node_modules/';
-const SRC = 'D:/NetWork/Integration/market/apps/shiguang/backend/v5/';
+const SRC = (process.env.SG5_APP || 'D:/NetWork/Integration/market/apps/shiguang') + '/backend/v5/';
 const express = require(NM + 'express');
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -286,6 +286,34 @@ if (cave) {
 // ---------------- 表情 ----------------
 const em = await call('/v5/emote', { e: 'wave' });
 ok(em.code === 200, '表情可用', em.data);
+
+// ---------------- 终局：长夜之主点亮长夜之心（v5.6 P0-1 死锁修复回归） ----------------
+// 场景：先把前五区灯塔置亮，只留 abyss 未点亮。world boss 未点亮时必须能刷（玩家要打它点灯），
+// 击杀后 towers.abyss 点亮 → enter 的 goal 归空（客户端第七章文案），再 sync 不再唤醒（不印钞）。
+const ABYSS_TOWER = T.towers.abyss;
+['forest', 'swamp', 'crag', 'frost'].forEach((z) => routes.STORE.lightTower(z, '1001'));
+await goTo('1001', ABYSS_TOWER.x + 0.5, ABYSS_TOWER.y + 4.5);
+await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+const sAbyss = await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+const abyssRow = (sAbyss.data.m || []).find((m) => m[10] === 1);
+ok(!!abyssRow, '长夜之心未点亮时长夜之主可被唤醒（世界 boss 保留可刷）', (sAbyss.data.m || []).filter((m) => m[10] === 1).length);
+if (abyssRow && SIM.mobs[abyssRow[0]]) {
+  routes.SIM.killMob(SIM.mobs[abyssRow[0]], '1001');
+  await sleep(120);
+  const t3 = await call('/v5/profile');
+  ok(!!t3.data.towers.abyss, '击杀长夜之主点亮 towers.abyss（第七章解锁）', t3.data.towers);
+  const e2 = await call('/v5/enter', {});
+  ok(e2.data.goal === null, '六灯全亮后 goal 归空（客户端进入第七章文案）', e2.data.goal);
+  // 印钞机：点亮后再站回塔前，唤醒逻辑必须沉默
+  await goTo('1001', ABYSS_TOWER.x + 0.5, ABYSS_TOWER.y + 4.5);
+  await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+  const sAbyss2 = await call('/v5/sync', { x: ABYSS_TOWER.x + 0.5, y: ABYSS_TOWER.y + 4.5, f: 0, mv: 0, mp: 40 });
+  const reBorn = (sAbyss2.data.m || []).filter((m) => m[10] === 1).length;
+  ok(reBorn === 0, '点亮后长夜之主不再重刷（印钞机验证）', reBorn);
+  ok(!Object.keys(SIM.mobs).some((k) => SIM.mobs[k] && SIM.mobs[k].bossZone === 'abyss'), '在线怪表无 abyss 守护者', Object.keys(SIM.mobs).filter((k) => SIM.mobs[k] && SIM.mobs[k].bossZone === 'abyss').length);
+} else {
+  ok(false, '长夜之主唤醒失败，后续点灯断言跳过');
+}
 
 // ---------------- 离开 ----------------
 const lv = await call('/v5/leave', {});

@@ -28,7 +28,7 @@ module.exports = function createFarm(ctx) {
   function defFarm() {
     return {
       gold: D.START_GOLD, energy: D.START_ENERGY, maxEnergy: D.START_ENERGY,
-      lastDay: 0, sleptDay: 0, faint: 0,
+      lastDay: 0, sleptDay: 0, faint: 0, sleepN: 0, sleepDay: 0, mineDay: null,
       plots: {}, inv: {}, ship: {}, shipTotal: 0, chest: {},
       tools: { hoe: 0, watercan: 0, axe: 0, pickaxe: 0, sickle: 0, rod: 0 },
       toolOrder: null, sprinklers: {},
@@ -199,10 +199,12 @@ module.exports = function createFarm(ctx) {
       advanceOne(id, f, d, notices);
       f.lastDay = d;
     }
-    f.energy = f.maxEnergy;                  // 新的一天体力回满
+    // v5.6 W3：新的一天不再自动回满体力 —— 恢复只来自睡觉（分段）；跨日清零当日睡次
+    f.sleepN = 0; f.sleepDay = 0;
     f.todayTalk = {};
     if (f.mineRun) f.mineRun = null;
     if (f.pendingFish) f.pendingFish = null;
+    if (f.mineDay) f.mineDay = { day: today, n: 0 };
     S.markDirty(id);
     if (notices.length) push(id, { k: 'farm-dawn', day: today, n: notices.length, msg: notices[0] });
   }
@@ -280,8 +282,8 @@ module.exports = function createFarm(ctx) {
       var v = D.VILLAGERS[vk[vi]];
       if (v.birthday[0] === season && v.birthday[1] === FD.dayInSeason(day)) notices.push('今天是' + v.name + '的生日');
     }
-    // 6. 昏厥惩罚（前一天体力耗尽没收工）
-    if (f.energy <= 0 && f.sleptDay < day - 1) {
+    // 6. 昏厥惩罚（v5.6：当日没收工昏厥（没睡 + 耗尽），或睡了但跨日时体力仍 ≤0 → 扣 10% 金币）
+    if (f.energy <= 0) {
       var loss = Math.min(1000, Math.floor(f.gold * 0.1));
       goldAdd(f, -loss); f.faint++;
       notices.push('昨晚累倒在地，花了 ' + loss + ' 金');
@@ -686,9 +688,13 @@ module.exports = function createFarm(ctx) {
     guard(uidOf(req), res, 0, function (id, rec, f) {
       var day = dayNow();
       f.sleptDay = day;
-      f.energy = f.maxEnergy;
-      push(id, { k: 'farm-sleep', day: day });
-      return { slept: day };
+      // v5.6 W3：睡觉分段恢复 —— 当日第 1 次 +60% max，第 2 次起每次 +30%，封顶 maxEnergy；不跳时间
+      if (f.sleepDay !== day) { f.sleepN = 0; f.sleepDay = day; }
+      f.sleepN = (f.sleepN || 0) + 1;
+      var gain = Math.round(f.maxEnergy * (f.sleepN === 1 ? 0.6 : 0.3));
+      f.energy = Math.min(f.maxEnergy, (f.energy || 0) + gain);
+      push(id, { k: 'farm-sleep', day: day, n: f.sleepN, energy: f.energy });
+      return { slept: day, n: f.sleepN, energy: f.energy };
     });
   });
 

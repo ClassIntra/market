@@ -109,31 +109,36 @@
       return null;
     });
   }
+  // v5.6 W1：farmBusy 全局单飞锁（farmAct/lifeAct 全部动作，含 mine）—— 在途时新请求直接丢弃。
   function farmAct(path, body) {
-    return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
-      if (d && d.farm) farmApply(d.farm);
-      actSfx('farm', path, d);
-      S.farm.lastError = '';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      return d;
-    }, function (e) {
-      S.farm.lastError = (e && e.message) || '操作没能完成';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      throw e;   // 保留调用方原有的 toast(err.message,'warn') 失败分支
-    });
+    return sg5Gate('farmBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/farm/' + path, body || {}).then(function (d) {
+        if (d && d.farm) farmApply(d.farm);
+        actSfx('farm', path, d);
+        S.farm.lastError = '';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        return d;
+      }, function (e) {
+        S.farm.lastError = (e && e.message) || '操作没能完成';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        throw e;   // 保留调用方原有的 toast(err.message,'warn') 失败分支
+      });
+    }) || Promise.resolve(null);
   }
   function lifeAct(path, body) {
-    return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
-      if (d && d.farm) farmApply(d.farm);
-      actSfx('life', path, d);
-      S.farm.lastError = '';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      return d;
-    }, function (e) {
-      S.farm.lastError = (e && e.message) || '操作没能完成';
-      if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
-      throw e;
-    });
+    return sg5Gate('farmBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/life/' + path, body || {}).then(function (d) {
+        if (d && d.farm) farmApply(d.farm);
+        actSfx('life', path, d);
+        S.farm.lastError = '';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        return d;
+      }, function (e) {
+        S.farm.lastError = (e && e.message) || '操作没能完成';
+        if (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') refreshPanel(curPanel);
+        throw e;
+      });
+    }) || Promise.resolve(null);
   }
   function farmToast(text, kind) { toast(text, kind || ''); auSfx('menu', 0.2, 1.1); }
 
@@ -556,25 +561,56 @@
       ctx.restore();
       return;
     }
-    // 成熟：按形状结果 / 开花
+    // 成熟：按 shape 族 6×6 像素形结果 / 开花（v5.6 W2 ④：2 阶色 + #17120d 描边）
+    var CROP_FRUIT = {
+      round: [
+        '.####.',
+        '######',
+        '######',
+        '######',
+        '.####.',
+        '..##..'
+      ],
+      berry: [
+        '..##..',
+        '.####.',
+        '######',
+        '.####.',
+        '..##..',
+        '...#..'
+      ],
+      root: [
+        '..##..',
+        '.####.',
+        '######',
+        '.####.',
+        '..##..',
+        '..##..'
+      ],
+      flower: [
+        '.#..#.',
+        '..##..',
+        '#o##o#',
+        '..##..',
+        '.#..#.',
+        '..##..'
+      ]
+    };
     if (def.shape === 'flower') {
-      ctx.fillStyle = col;
-      for (var a = 0; a < 5; a++) {
-        var ang = a * Math.PI * 2 / 5;
-        ctx.beginPath();
-        ctx.arc(sx + Math.cos(ang) * u * 0.11, top + Math.sin(ang) * u * 0.11, u * 0.085, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#f2d878'; ctx.beginPath(); ctx.arc(sx, top, u * 0.07, 0, Math.PI * 2); ctx.fill();
+      var crows = CROP_FRUIT.flower;
+      var ccell = u * 0.09;
+      drawGlyphWorldFarm(ctx, crows, sx, top + u * 0.18, ccell, { '#': col, 'o': '#f2d878' }, '#17120d');
+      drawGlyphWorldFarm(ctx, crows, sx, top + u * 0.18, ccell, { '#': col, 'o': '#f2d878' }, null);
     } else if (def.shape === 'berry' || def.shape === 'round' || def.shape === 'root') {
       ctx.fillStyle = '#5f9149';
       ctx.fillRect(sx - u * 0.24, top - u * 0.02, u * 0.48, u * 0.1);
       if (p.ready) {
-        ctx.fillStyle = col; ctx.strokeStyle = 'rgba(38,28,20,0.75)'; ctx.lineWidth = 1;
-        var rr = def.shape === 'root' ? u * 0.14 : u * 0.17;
-        ctx.beginPath(); ctx.arc(sx, top + u * 0.1, rr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillRect(sx - rr * 0.45, top + u * 0.02, Math.max(2, rr * 0.4), Math.max(2, rr * 0.35));
+        var frows = CROP_FRUIT[def.shape === 'root' ? 'root' : (def.shape === 'berry' ? 'berry' : 'round')];
+        var fcell = u * 0.09;
+        drawGlyphWorldFarm(ctx, frows, sx, top + u * 0.28, fcell, { '#': shadeHex(col, -36) }, '#17120d');
+        drawGlyphWorldFarm(ctx, frows, sx, top + u * 0.28, fcell, { '#': col }, null);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(Math.round(sx - fcell * 2), Math.round(top + u * 0.28 - fcell * 5), Math.max(1, Math.round(fcell)), Math.max(1, Math.round(fcell)));
       } else {
         ctx.fillStyle = '#79a95c';
         ctx.fillRect(sx - u * 0.16, top - u * 0.04, u * 0.32, u * 0.1);
@@ -654,7 +690,57 @@
       }
     }
   };
-  // v5.4：采集物——12×12 阶梯三段 + 1px 描边 + ≤1px 摇摆 + 底部接触阴影；冷却格画残桩
+  // v5.6 W2 ①：采集物改四族 8×8 GLYPH 行串（浆果丛 / 根茎 / 花株 / 菌菇）+ 主色 + 描边 + 白高光
+  var FORAGE_GLYPH = {
+    berry: [
+      '........',
+      '.##..##.',
+      '#++##++#',
+      '#++##++#',
+      '.##..##.',
+      '..####..',
+      '...##...',
+      '..####..'
+    ],
+    root: [
+      '..##.##.',
+      '.######.',
+      '..####..',
+      '...##...',
+      '..++++..',
+      '..++++..',
+      '...++...',
+      '...++...'
+    ],
+    flower: [
+      '..++++..',
+      '.+o++o+.',
+      '+++++++.',
+      '.+++++..',
+      '..####..',
+      '..####..',
+      '...##...',
+      '...##...'
+    ],
+    shroom: [
+      '..####..',
+      '.+####+.',
+      '########',
+      '########',
+      '...##...',
+      '..+##+..',
+      '..+##+..',
+      '........'
+    ]
+  };
+  function forageFamily(id) {
+    var b = String(id || '').split('_q')[0];
+    if (/daffodil|dandelion|sweet_pea|tulip|jazz|poppy/.test(b)) return 'flower';
+    if (/berry|grape|plum|spice/.test(b)) return 'berry';
+    if (/root|leek|yam|radish|horseradish|winter/.test(b)) return 'root';
+    if (/spore|mushroom|shroom/.test(b)) return 'shroom';
+    return 'berry';
+  }
   function farmDrawForage(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE * 0.5);
@@ -668,75 +754,58 @@
     var sway = Math.round(Math.sin(S.time * 1.6 + (p.x * 7 + p.y * 13) % 7) * 1);
     ctx.fillStyle = 'rgba(30,22,16,0.22)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.2, u * 0.06, 0, 0, 6.2832); ctx.fill();
-    var h1 = u * 0.34, h2 = u * 0.22, h3 = u * 0.14;
-    var w1 = u * 0.42, w2 = u * 0.30, w3 = u * 0.18;
-    var baseY = sy - u * 0.06;
+    var fam = forageFamily(p.item);
+    var rows = FORAGE_GLYPH[fam];
+    var cell = u * 0.055;                       // 8×8 → 约 0.44u 高
     var bx = Math.round(sx + sway);
-    ctx.fillStyle = col;
-    ctx.fillRect(Math.round(bx - w1 / 2), Math.round(baseY - h1), Math.round(w1), Math.round(h1));
-    ctx.fillRect(Math.round(bx - w2 / 2), Math.round(baseY - h1 - h2), Math.round(w2), Math.round(h2));
-    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), Math.round(w3), Math.round(h3));
-    ctx.strokeStyle = 'rgba(38,28,20,0.7)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(Math.round(bx - w1 / 2) + 0.5, Math.round(baseY - h1) + 0.5, Math.round(w1), Math.round(h1));
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillRect(Math.round(bx - w3 / 2), Math.round(baseY - h1 - h2 - h3), 2, 2);
+    // 1px 深色描边：先画一圈 #17120d 的底再叠主色
+    drawGlyphWorldFarm(ctx, rows, bx + 1, sy - u * 0.05, cell, null, '#17120d');
+    drawGlyphWorldFarm(ctx, rows, bx, sy - u * 0.05, cell, { '#': col, '+': shadeHex(col, -36), 'o': '#ffffff' });
+    // 1px 白高光
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(Math.round(bx - cell * 2), Math.round(sy - u * 0.05 - cell * 7), Math.max(1, Math.round(cell)), Math.max(1, Math.round(cell)));
   }
-  // v5.5：彩蛋——不摇（sway=0），接触阴影长轴 u*0.20 / 短轴 u*0.06；头顶小金星提示可捡
+  // 15_farm 内部的字形绘制（与 07_entity.drawGlyphWorld 同规则；offset 用于描边层）
+  function drawGlyphWorldFarm(ctx, rows, cx, bottomY, cell, pal, forceCol) {
+    var h = rows.length, w = rows[0].length;
+    var ox = Math.round(cx - w * cell / 2), oy = Math.round(bottomY - h * cell);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y].charAt(x);
+        if (ch === '.') continue;
+        ctx.fillStyle = forceCol || ((pal && pal[ch]) || (pal && pal['#']) || '#e8dcc0');
+        ctx.fillRect(ox + Math.round(x * cell), oy + Math.round(y * cell), Math.max(1, Math.round(cell)), Math.max(1, Math.round(cell)));
+      }
+    }
+  }
+  // v5.6 W2 ⑨：彩蛋改用 GLYPH.egg 放大 0.5u（与 chip / 图标同源，删矢量椭圆版）
   function farmDrawEgg(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE * 0.5);
     var sy = w2sY(p.y * TILE + TILE);
     ctx.fillStyle = 'rgba(30,22,16,0.22)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.20, u * 0.06, 0, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = '#f2e7c8';
-    ctx.beginPath(); ctx.ellipse(sx, sy - u * 0.17, u * 0.14, u * 0.19, 0, 0, 6.2832); ctx.fill();
-    ctx.strokeStyle = 'rgba(201,150,63,0.85)'; ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,253,242,0.9)';
-    ctx.beginPath(); ctx.ellipse(sx - u * 0.045, sy - u * 0.23, u * 0.05, u * 0.07, -0.4, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = 'rgba(201,150,63,0.7)';
-    ctx.fillRect(Math.round(sx + u * 0.04), Math.round(sy - u * 0.24), 2, 2);
-    ctx.fillRect(Math.round(sx - u * 0.05), Math.round(sy - u * 0.12), 2, 2);
+    drawGlyphWorldFarm(ctx, GLYPH.egg, sx, sy - u * 0.06, u * 0.5 / 12,
+      { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' }, null);
     var tw = 0.55 + 0.45 * Math.sin(S.time * 4 + p.i * 1.7);
     ctx.globalAlpha = tw; ctx.fillStyle = '#ffe9a0';
     ctx.fillRect(Math.round(sx + u * 0.2), Math.round(sy - u * 0.46), 3, 3);
     ctx.globalAlpha = 1;
   }
-  // v5.4：加工设备——田下缘一排，5 种造型 + 两帧交替的工作烟
+  // v5.6 W2 ②：加工设备改用 UI 层 GLYPH.machine_* 放大 0.7u（世界与 UI 同形）
+  var MACHINE_GLYPH = { furnace: 'machine_furnace', mayo_machine: 'machine_mayo', cheese_press: 'machine_cheese', keg: 'machine_keg', stove: 'machine_stove' };
   function farmDrawMachine(ctx, p) {
     var u = TILE * S.zoom;
     var sx = w2sX(p.x * TILE + TILE);
     var sy = w2sY(p.y * TILE + TILE);
-    var col = farmItemColor(p.kind) || '#8a8078';
     ctx.fillStyle = 'rgba(30,22,16,0.24)';
     ctx.beginPath(); ctx.ellipse(sx, sy - 1, u * 0.42, u * 0.1, 0, 0, 6.2832); ctx.fill();
-    var w = Math.round(u * 0.72), h = Math.round(u * 0.6);
-    var x0 = Math.round(sx - w / 2), y0 = Math.round(sy - h);
-    ctx.fillStyle = col;
-    ctx.fillRect(x0, y0, w, h);
-    ctx.strokeStyle = 'rgba(38,28,20,0.8)'; ctx.lineWidth = 1;
-    ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(x0, y0, w, Math.max(2, Math.round(h * 0.18)));
-    if (p.kind === 'furnace') {
-      ctx.fillStyle = '#e87830';
-      ctx.fillRect(Math.round(sx - u * 0.14), Math.round(sy - h * 0.42), Math.round(u * 0.28), Math.round(h * 0.3));
-    } else if (p.kind === 'keg') {
-      ctx.fillStyle = 'rgba(38,28,20,0.55)';
-      ctx.fillRect(x0, Math.round(y0 + h * 0.3), w, 2);
-      ctx.fillRect(x0, Math.round(y0 + h * 0.62), w, 2);
-    } else if (p.kind === 'stove') {
-      ctx.fillStyle = '#3a3a42';
-      ctx.fillRect(Math.round(sx - u * 0.2), Math.round(y0 - u * 0.16), Math.round(u * 0.4), Math.round(u * 0.16));
-    } else {
-      ctx.fillStyle = 'rgba(38,28,20,0.5)';
-      ctx.fillRect(Math.round(sx - u * 0.1), y0, Math.round(u * 0.2), Math.round(h * 0.3));
-    }
+    var rows = GLYPH[MACHINE_GLYPH[p.kind]] || GLYPH.machine_furnace;
+    drawGlyphWorldFarm(ctx, rows, sx, sy - u * 0.04, u * 0.7 / 12, null, null);
     var frm = Math.floor(S.time * 2) % 2;
     ctx.fillStyle = frm ? 'rgba(240,236,220,0.5)' : 'rgba(240,236,220,0.28)';
     var puff = frm ? 3 : 2;
-    ctx.fillRect(Math.round(sx - puff / 2), Math.round(y0 - (frm ? 8 : 4)), puff, puff);
+    ctx.fillRect(Math.round(sx - puff / 2), Math.round(sy - u * 0.04 - rows.length * (u * 0.7 / 12) - (frm ? 8 : 4)), puff, puff);
   }
   var _drawPropFarm = drawProp;
   drawProp = function (ctx, p) {
@@ -745,20 +814,38 @@
     if (p && p.k === 'egg') { farmDrawEgg(ctx, p); return; }
     if (p && p.k === 'machine') { farmDrawMachine(ctx, p); return; }
     var r = _drawPropFarm(ctx, p);
-    // v5.4：刚砍过的树叠两道斧痕（前 3 天内），一亮一暗
+    // v5.6 W2 ③：斧痕改树干斜向阶梯缺口（wood 色内芯 + #17120d 边）；次日 1 道 50% alpha
     if (p && (p.k === T.TREE || p.k === T.PINE || p.k === T.DEADTREE)) {
       var P = farmP();
-      if (P && P.chopped && P.chopped[p.x + ',' + p.y]) {
+      var cdk = P && P.chopped ? P.chopped[p.x + ',' + p.y] : 0;
+      if (cdk) {
         var u = TILE * S.zoom;
         var cx = w2sX(p.x * TILE + TILE * 0.5), cy = w2sY(p.y * TILE + TILE);
-        ctx.fillStyle = 'rgba(240,236,220,0.85)';
-        ctx.fillRect(Math.round(cx - u * 0.16), Math.round(cy - u * 0.5), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.22));
-        ctx.fillStyle = 'rgba(240,236,220,0.35)';
-        ctx.fillRect(Math.round(cx + u * 0.05), Math.round(cy - u * 0.44), Math.max(2, Math.round(u * 0.06)), Math.round(u * 0.18));
+        var day = farmCal().day || 0;
+        var age = day - cdk;
+        if (age <= 2) {
+          drawAxeNotch(ctx, cx, cy, u, -1, age === 0 ? 1 : 0.5);
+          if (age >= 1) drawAxeNotch(ctx, cx, cy, u, 1, 0.5);
+        }
       }
     }
     return r;
   };
+  // 斜向阶梯缺口：3 级台阶往右下切进树干
+  function drawAxeNotch(ctx, cx, cy, u, side, alpha) {
+    var x0 = cx + side * u * 0.06, y0 = cy - u * 0.42;
+    var step = Math.max(2, Math.round(u * 0.09));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (var i = 0; i < 3; i++) {
+      var nx = Math.round(x0 + i * step * 0.7), ny = Math.round(y0 + i * step);
+      ctx.fillStyle = '#17120d';                          // 外沿
+      ctx.fillRect(nx - 1, ny - 1, step + 2, step + 2);
+      ctx.fillStyle = '#6d4b2e';                          // 木茬内芯
+      ctx.fillRect(nx, ny, step, step);
+    }
+    ctx.restore();
+  }
 
   // ---------- 交互：站在田里按 E，按当前工具干活 ----------
   function farmNear() {
@@ -888,10 +975,12 @@
     }, function (e) { farmToast(e.message || '这会儿干不了', 'warn'); });
     return true;
   }
-  // 世界里飘字：复用战斗飘字的结构（金色小字往上飘）
-  function floatText(txt) {
+  // 世界里飘字：复用战斗飘字的结构（金色小字往上飘）。v5.6：支持目标坐标（彩蛋/采集/砍树）
+  function floatText(txt, x, y) {
     var m = S.me;
-    if (m && S.texts) S.texts.push({ x: m.x, y: m.y - 1.2, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
+    var px = (x != null && y != null) ? x + 0.5 : (m ? m.x : 0);
+    var py = (x != null && y != null) ? y : (m ? m.y - 1.2 : 0);
+    if (m && S.texts) capPush(S.texts, { x: px, y: py, txt: txt, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 }, 60);
   }
   // 世界里按 E：田区内严格按手上的工具干活；田区外先捡彩蛋、再采集、再砍树，最后才轮到宝箱 / NPC
   var _doInteractFarm = doInteract;
@@ -901,7 +990,7 @@
     if (ne) {
       lifeAct('egg/pick', { i: ne.i }).then(function (d) {
         farmToast('捡到了彩蛋，还拿到一张彩蛋彩券（农场面板「商店」可兑换）');
-        floatText('+彩蛋');
+        floatText('+彩蛋', ne.x, ne.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -909,7 +998,7 @@
     if (nf) {
       lifeAct('forage/pick', { x: nf.x, y: nf.y }).then(function (d) {
         farmToast('采到了 ' + (d && d.name ? d.name : '野味'));
-        floatText('+' + (d && d.got ? d.got.length : 1));
+        floatText('+' + (d && d.got ? d.got.length : 1), nf.x, nf.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -918,7 +1007,7 @@
       lifeAct('chop', { x: nt.x, y: nt.y }).then(function (d) {
         var g = d && d.got ? d.got : {};
         farmToast('砍到木材 ×' + (g.wood || 0) + (g.hardwood ? ' · 硬木 ×1' : ''));
-        floatText('+木材');
+        floatText('+木材', nt.x, nt.y - 0.6);
       }, function (e) { farmToast(e.message, 'warn'); });
       return;
     }
@@ -947,7 +1036,7 @@
     if (k === 'farm-bundle') { farmToast('献祭包完成：' + e.name + ' → ' + e.reward); farmState(); return true; }
     if (k === 'farm-greenhouse' || k === 'farm-mine-bottom') { farmToast(e.text); farmState(); return true; }
     if (k === 'farm-elevator') { farmToast('矿洞电梯：第 ' + e.floor + ' 层'); return true; }
-    if (k === 'farm-sleep') { farmToast('一觉睡到天亮，体力回满了'); return true; }
+    if (k === 'farm-sleep') { farmToast('歇下了 —— 体力回了一些（分段恢复）'); return true; }
     return false;
   }
   var _handleEventFarm = handleEvent;
@@ -982,14 +1071,19 @@
 
   var _socialTickFarm = socialTick;
   socialTick = function (t) {
-    _socialTickFarm(t);
+    // v5.6 W1：主循环 socialTick 段的农场侧双保险 —— 一行异常不拖累其余帧逻辑
+    try {
+      _socialTickFarm(t);
+    } catch (e) { console.error('[sg5-social]', e); }
     if (!S.ready || !farmP()) return;
-    if (UI.farmClock) {
-      var c = farmCal(), ms = c.dayMs || 90000;
-      setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
-    }
-    // v5.4：脚下 / 身边都会随走动变化，两条只读提示每帧跟着走
-    if (UI.farmToolNext || UI.farmNear) farmHintPaint();
+    try {
+      if (UI.farmClock) {
+        var c = farmCal(), ms = c.dayMs || 90000;
+        setText(UI.farmClock, farmClock((Date.now() - S.farm.epoch) / ms));
+      }
+      // v5.4：脚下 / 身边都会随走动变化，两条只读提示每帧跟着走
+      if (UI.farmToolNext || UI.farmNear) farmHintPaint();
+    } catch (e2) { console.error('[sg5-social-farm]', e2); }
     // 低频：面板开着或有待办时 6 秒拉一次；平时 15 秒，别给 5Hz 同步添负担
     var interval = (curPanel === 'farm' || curPanel === 'relation' || curPanel === 'mine') ? 6 : 15;
     if (t - S.farm.lastPoll >= interval) {
@@ -1027,6 +1121,8 @@
     S.farm.lastPoll = 0; S.farm.rtBound = 0; S.farm.qte = null;
     S.farm.sel = null; S.farm.bagSel = null; S.farm.tool = 'hoe';
     S.farm.relGiftTo = ''; S.farm.loadState = 'loading'; S.farm.lastError = '';
+    // v5.6 W1：竞态锁随挂载复位（锁在 S 上，refreshPanel 不动它们）
+    S.farmBusy = 0; S.fishBusy = 0; S.panelBusy = 0;
     // v5.5：展台是瞬时视图；引导去重跨日持久（localStorage sg5hint 读回）
     S.farm.exhibitMode = false; S.farm.exhibitSel = [];
     farmHintLoad();

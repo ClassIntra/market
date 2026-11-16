@@ -264,28 +264,39 @@
   };
 
   // ---------- 天赋 ----------
+  // v5.6 W4：文案改为读服务端下发的 talentDefs（enter 前空档兜底旧文案），mod 数值不下发
+  var TALENT_FALLBACK = {
+    blade: { name: '剑', color: '#ff8a6a', tiers: [
+      { id: 'b1', name: '锋利', desc: '攻击 +8%' }, { id: 'b2', name: '连斩', desc: '连击最后一段伤害 +25%' },
+      { id: 'b3', name: '破甲', desc: '对精英与守护者伤害 +15%' }, { id: 'b4', name: '嗜血', desc: '吸血 +3%' },
+      { id: 'b5', name: '剑舞', desc: '普攻每 5 次自动释放一次小回旋' } ] },
+    shadow: { name: '影', color: '#9a8aff', tiers: [
+      { id: 's1', name: '轻身', desc: '移速 +6%' }, { id: 's2', name: '残影', desc: '翻滚冷却 -20%' },
+      { id: 's3', name: '致命', desc: '暴击率 +8%' }, { id: 's4', name: '见切', desc: '完美闪避窗口 +60%，子弹时间更长' },
+      { id: 's5', name: '影袭', desc: '完美闪避后瞬移到敌人背后并暴击' } ] },
+    lamp: { name: '灯', color: '#ffd36a', tiers: [
+      { id: 'l1', name: '暖光', desc: '生命 +12%' }, { id: 'l2', name: '添油', desc: '灯火回复 +30%' },
+      { id: 'l3', name: '照夜', desc: '夜间视野 +50%，对幽灵伤害 +40%' }, { id: 'l4', name: '共明', desc: '身边 6 格内队友攻击 +10%' },
+      { id: 'l5', name: '不灭', desc: '致命伤害时保留 1 点生命（每 90 秒一次）' } ] }
+  };
   PANELS.talent = function () {
     var me = S.me;
-    var lines = {
-      blade: { name: '剑', color: '#ff8a6a', tiers: ['锋利 +8% 攻击', '连斩 收招 +25%', '破甲 对精英 +15%', '嗜血 吸血 +3%', '剑舞 每 5 次普攻自动回旋'] },
-      shadow: { name: '影', color: '#9a8aff', tiers: ['轻身 移速 +6%', '残影 翻滚冷却 -20%', '致命 暴击 +8%', '见切 完美闪避窗口 +60%', '影袭 完美闪避后瞬移背刺'] },
-      lamp: { name: '灯', color: '#ffd36a', tiers: ['暖光 生命 +12%', '添油 灯火回复 +30%', '照夜 夜视 +50%', '共明 队友攻击 +10%', '不灭 致命伤保留 1 点生命'] }
-    };
+    var defs = (S.me && S.me.talentDefs) || TALENT_FALLBACK;
     var left = me.talentLeft || 0;
     var sh = panelShell('天赋', '可用点数 ' + left + '（每 3 级 1 点）');
     var body = sh.body;
-    Object.keys(lines).forEach(function (key) {
-      var L = lines[key];
+    Object.keys(defs).forEach(function (key) {
+      var L = defs[key];
       var box = el('div', 'sg5-tline');
       var head = el('div', 'sg5-tline-head', L.name + ' 之线');
       head.style.color = L.color;
       box.appendChild(head);
       var have = (me.talents || {})[key] || 0;
-      L.tiers.forEach(function (txt, i) {
+      L.tiers.forEach(function (t, i) {
         var on = i < have;
         var node = el('div', 'sg5-tnode' + (on ? ' is-on' : ''));
         node.appendChild(el('span', 'sg5-tdot', String(i + 1)));
-        node.appendChild(el('span', 'sg5-ttxt', txt));
+        node.appendChild(el('span', 'sg5-ttxt', t.name + ' ' + t.desc));
         if (!on && i === have) {
           var b = uiBtn('学', 'sg5-btn-sm', function () { apiTalent(key); });
           b.disabled = left <= 0;
@@ -397,11 +408,56 @@
     return sh.root;
   };
 
+  // v5.6 W3：材料可卖 —— 客户端侧售价表（与 backend/v5/data.js D.ITEMS.sell 一致）
+  var MAT_SELL = { gel: 2, wood: 3, feather: 5, spore: 5, scale: 8, firefly: 10, bone: 12, ore: 14, ice: 20, ember: 40 };
+  var MAT_NAME = {
+    gel: '果冻', wood: '灵竹', feather: '夜羽', spore: '孢子', scale: '泽鳞', firefly: '萤火',
+    bone: '骨片', ore: '星岩矿', ice: '永冻晶', ember: '长夜余烬', potion: '回血药', ether: '灯油'
+  };
+  S.shopTab = 'goods';
+
   // ---------- 商店 ----------
   PANELS.shop = function () {
     var me = S.me;
     var sh = panelShell('杂货铺', '星屑 ' + fmt(me.shards));
     var body = sh.body;
+    // v5.6 W3：材料页签 —— 消耗品 / 材料 两个子页
+    var tabs = el('div', 'sg5-tabs');
+    [['goods', '消耗品'], ['mats', '材料']].forEach(function (t) {
+      var on = S.shopTab === t[0];
+      var b = el('button', 'sg5-tab' + (on ? ' is-on' : ''), t[1]);
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.addEventListener('click', function () { S.shopTab = t[0]; refreshPanel('shop'); auSfx('menu', 0.2, 1.1); }, false);
+      tabs.appendChild(b);
+    });
+    body.appendChild(tabs);
+    if (S.shopTab === 'mats') {
+      var mats = me.mats || {};
+      var keys = Object.keys(mats).filter(function (k) { return MAT_SELL[k] && mats[k] > 0; });
+      if (!keys.length) {
+        body.appendChild(el('div', 'sg5-empty', '背包里还没有能卖的材料。打怪会掉。'));
+      }
+      keys.forEach(function (k) {
+        var n = mats[k];
+        var row = el('div', 'sg5-shoprow');
+        row.appendChild(iconCanvas(ITEM_ICON[k] || 'it_coin', 28));
+        var mid = el('div', 'sg5-shopmid');
+        mid.appendChild(el('div', 'sg5-shopname', MAT_NAME[k] || k));
+        mid.appendChild(el('div', 'sg5-shopdesc', '×' + n + ' · 卖 1 个得 ' + MAT_SELL[k] + ' 星屑' + (n > 1 ? ' · 全部得 ' + MAT_SELL[k] * n : '')));
+        row.appendChild(mid);
+        row.appendChild(uiBtn('卖 1', 'sg5-btn-sm', function () {
+          var m2 = {}; m2[k] = 1; apiSell({ mats: m2 });
+        }));
+        row.appendChild(uiBtn('全部', 'sg5-btn-sm sg5-btn-ghost', function () {
+          var m2 = {}; m2[k] = n; apiSell({ mats: m2 });
+        }));
+        body.appendChild(row);
+      });
+      body.appendChild(el('div', 'sg5-note', '材料换星屑，即时到账。星岩矿留着点天赋重铸更划算。'));
+      return sh.root;
+    }
     [['potion', '回血药', '回复 45% 生命', 15], ['ether', '灯油', '回复 60% 灯火', 12]].forEach(function (x) {
       var row = el('div', 'sg5-shoprow');
       row.appendChild(iconCanvas(ITEM_ICON[x[0]], 28));

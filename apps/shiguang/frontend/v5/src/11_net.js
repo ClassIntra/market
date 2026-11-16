@@ -43,6 +43,12 @@
 
   function applyEnter(d) {
     var me = makeMe(d.me);
+    // v5.6 W4：天赋线等级挂到本地玩家（s4 见切窗口加成 / 剑舞 / 影袭都在本地判定）
+    me.talentShadowLv = (me.talents && me.talents.shadow) || 0;
+    me.talentBladeLv = (me.talents && me.talents.blade) || 0;
+    me.talentLampLv = (me.talents && me.talents.lamp) || 0;
+    me.pwBonus = me.talentShadowLv >= 4 ? (ROLL_INV_MS / 1000) * 0.6 : 0;
+    me.atkCount = 0;
     S.myId = d.me.id;
     S.zone = d.me.zone || 'town';
     S.stats = d.me.stats || {};
@@ -227,17 +233,26 @@
         break;
       case 'loot':
         if (e.s) {
-          S.texts.push({ x: S.me.x, y: S.me.y - 1.2, txt: '+' + e.s, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 });
-          auSfx('coin', 0.3, 1.1);
+          // v5.6 W3：星屑不再直接飘字 —— 改为死亡位置散落磁吸星屑珠（e.orbs 拆珠数组）
+          if (e.orbs && e.orbs.length) {
+            spawnOrbs(e.px, e.py, e.orbs);
+          } else {
+            var lp = lootPos(e);
+            capPush(S.texts, { x: lp.x, y: lp.y - 1.2, txt: '+' + e.s, crit: 0, life: 1.0, max: 1.0, vy: -0.9, vx: 0.2, gold: 1 }, 60);
+            auSfx('coin', 0.3, 1.1);
+          }
         }
         if (e.it) {
           toast('获得 ' + rarityName(e.it.rarity) + '「' + e.it.name + '」', 'good');
           auSfx(e.it.rarity >= 3 ? 'gold' : 'bonus', 0.45, 1);
+          // v5.6 W3：装备光柱（四档底圈 + 3 段阶梯光柱 + 3 帧浮动）
+          if (e.px != null) spawnPillar(e.px, e.py, e.it.rarity || 0);
         }
         if (e.f) toast('背包满了 —— 去镇上卖掉一些吧', 'warn');
         if (e.m && e.m.length) {
+          // v5.6 W3：材料簇 —— 死亡位置散落材料珠
           for (var i = 0; i < e.m.length; i++) {
-            S.texts.push({ x: S.me.x, y: S.me.y - 1.6, txt: '材料 +' + e.m[i][1], crit: 0, life: 0.9, max: 0.9, vy: -0.8, vx: -0.2, small: 1 });
+            spawnOrbs(e.px, e.py, [{ v: e.m[i][1], mat: e.m[i][0] }]);
           }
         }
         break;
@@ -316,7 +331,38 @@
       case 'cave-done':
         toast('洞窟清空：+' + e.shards + ' 星屑', 'good');
         break;
+      case 'cheat-death':
+        // v5.6 W4：不灭 —— 全屏白闪 0.2s + 金色 vignette + 1s 无敌
+        cheatDeathFx();
+        break;
     }
+  }
+
+  // v5.6 W3：loot 事件坐标 —— 优先服务端给的死亡坐标（px/py，e.x 已被 xp 占用），
+  // 兜底最近垂死怪，再兜底自己
+  function lootPos(e) {
+    if (e && e.px != null && e.py != null) return { x: e.px + 0.5, y: e.py + 0.5 };
+    var ids = Object.keys(S.mobs), best = null, bd = 99;
+    for (var i = 0; i < ids.length; i++) {
+      var m = S.mobs[ids[i]];
+      if (!m || !m.dying) continue;
+      var d = dist(S.me.x, S.me.y, m.rx, m.ry);
+      if (d < bd) { bd = d; best = m; }
+    }
+    if (best) return { x: best.rx, y: best.ry };
+    return { x: S.me.x, y: S.me.y };
+  }
+
+  // v5.6 W4：不灭触发特效（白闪走 hurtT 通道复用，金环 + toast 另行）
+  function cheatDeathFx() {
+    var me = S.me;
+    if (!me) return;
+    me.invUntil = S.time + 1.0;           // 1s 无敌（表现层；服务端另有权威判定）
+    S.cheatFxUntil = S.time + 0.2;        // 白闪
+    S.cheatVgUntil = S.time + 1.0;        // 金色 vignette
+    toast('灯火不灭！', 'good');
+    auSfx('levelup', 0.5, 0.8);
+    S.rings.push({ x: me.x, y: me.y, r: 0, max: 3.4, life: 0.7, max2: 0.7, col: '#ffd36a' });
   }
 
   function reGoal() {
@@ -437,14 +483,19 @@
     }, function (err) { toast(err.message || '没有反应', 'warn'); });
   }
 
+  // v5.6 W1：panelBusy 单飞锁（buy/sell/forge/talent）—— 在途时点击丢弃，第 3 次连续丢弃弹 toast
   function apiBuy(id, n) {
-    apiPost('/shiguang/v5/shop', { id: id, n: n }).then(function (d) {
-      S.me.shards = d.shards;
-      S.me.mats = d.mats;
-      toast('买好了');
-      auSfx('coin', 0.35, 1.15);
-      refreshPanel('shop');
-    }, function (err) { toast(err.message || '买不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/shop', { id: id, n: n }).then(function (d) {
+        S.me.shards = d.shards;
+        S.me.mats = d.mats;
+        toast('买好了');
+        auSfx('coin', 0.35, 1.15);
+        refreshPanel('shop');
+      }, function (err) { toast(err.message || '买不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiUse(id) {
@@ -478,38 +529,53 @@
     }, function (err) { toast(err.message || '卸不下来', 'warn'); });
   }
 
-  function apiSell(uids) {
-    apiPost('/shiguang/v5/sell', { uids: uids }).then(function (d) {
-      S.me.bag = d.bag;
-      S.me.shards = d.shards;
-      toast('卖了 ' + d.gain + ' 星屑');
-      auSfx('coin', 0.3, 1);
-      refreshPanel('bag');
-    }, function (err) { toast(err.message || '卖不了', 'warn'); });
+  // v5.6 W3：sell 扩参 —— uids（装备）或 mats（材料 {gel:5,...}）都走这一条
+  function apiSell(payload) {
+    var body = payload && payload.uids ? { uids: payload.uids } : (payload && payload.mats ? { mats: payload.mats } : { uids: payload });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/sell', body).then(function (d) {
+        S.me.bag = d.bag != null ? d.bag : S.me.bag;
+        S.me.mats = d.mats != null ? d.mats : S.me.mats;
+        S.me.shards = d.shards;
+        toast('卖了 ' + d.gain + ' 星屑');
+        auSfx('coin', 0.3, 1);
+        refreshPanel('bag');
+        if (curPanel === 'shop') refreshPanel('shop');
+      }, function (err) { toast(err.message || '卖不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiForge(slot) {
-    apiPost('/shiguang/v5/forge', { slot: slot, mat: 'ore' }).then(function (d) {
-      S.me.equip = d.equip;
-      S.me.shards = d.shards;
-      S.me.mats = d.mats;
-      S.stats = (function () { return S.stats; })();
-      toast('重铸完成：' + d.item.name);
-      auSfx('magic', 0.5, 0.9);
-      refreshPanel('forge');
-    }, function (err) { toast(err.message || '打不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/forge', { slot: slot, mat: 'ore' }).then(function (d) {
+        S.me.equip = d.equip;
+        S.me.shards = d.shards;
+        S.me.mats = d.mats;
+        toast('重铸完成：' + d.item.name);
+        auSfx('magic', 0.5, 0.9);
+        refreshPanel('forge');
+      }, function (err) { toast(err.message || '打不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiTalent(line) {
-    apiPost('/shiguang/v5/talent', { line: line }).then(function (d) {
-      S.me.talents = d.talents;
-      S.me.talentLeft = d.left;
-      S.stats = d.stats || S.stats;
-      S.me.maxHp = d.maxHp;
-      toast('点亮：' + d.tier.name);
-      auSfx('levelup', 0.4, 1.2);
-      refreshPanel('talent');
-    }, function (err) { toast(err.message || '点不了', 'warn'); });
+    var r = sg5Gate('panelBusy', document.activeElement, function () {
+      return apiPost('/shiguang/v5/talent', { line: line }).then(function (d) {
+        S.me.talents = d.talents;
+        S.me.talentLeft = d.left;
+        S.stats = d.stats || S.stats;
+        S.me.maxHp = d.maxHp;
+        toast('点亮：' + d.tier.name);
+        auSfx('levelup', 0.4, 1.2);
+        refreshPanel('talent');
+      }, function (err) { toast(err.message || '点不了', 'warn'); });
+    });
+    if (!r) return;
+    r.then(function () {}, function () {});
   }
 
   function apiRest() {

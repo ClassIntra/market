@@ -100,6 +100,11 @@ function ensureLive(id, rec) {
     mp: st.mp, maxMp: st.mp, stats: st, down: 0, dead: 0,
     name: S.userName(id), look: rec.look, level: rec.level || 1
   });
+  // v5.6 W4：把天赋挂到运行时玩家身上（sim 战斗结算直接读）
+  p.talents = st.talents || {};
+  p.cheatDeath = st.talents ? (st.talents.cheatDeath || 0) : 0;
+  // s4 见切：服务端完美闪避判定窗口 ×1.6（150ms → 240ms）
+  p.perfectBonus = ((st.talents && st.talents.perfect) || 0) / 100 * 150;
   return p;
 }
 
@@ -121,6 +126,10 @@ function refreshStats(id) {
   p.maxHp = st.hp;
   p.maxMp = st.mp;
   p.hp = Math.max(1, Math.min(st.hp, Math.round(st.hp * ratio)));
+  // v5.6 W4：天赋变化（点天赋 / 换装）同步到运行时玩家
+  p.talents = st.talents || {};
+  p.cheatDeath = st.talents ? (st.talents.cheatDeath || 0) : 0;
+  p.perfectBonus = ((st.talents && st.talents.perfect) || 0) / 100 * 150;
   return st;
 }
 
@@ -155,6 +164,19 @@ function broadcast(event, payload, targetIds) {
 }
 
 // ---------------- 成长与奖励 ----------------
+// v5.6 W4：天赋三线精简定义（enter 下发；mod 数值不下发）
+function talentDefsPayload() {
+  var out = {};
+  Object.keys(D.TALENTS).forEach(function (line) {
+    var L = D.TALENTS[line];
+    out[line] = {
+      name: L.name, color: L.color,
+      tiers: L.tiers.map(function (t) { return { id: t.id, name: t.name, desc: t.desc }; })
+    };
+  });
+  return out;
+}
+
 function xpAdd(rec, id, amount) {
   if (!amount) return 0;
   rec.xp = (rec.xp || 0) + amount;
@@ -201,6 +223,21 @@ function grantKill(m, shares, killer, night) {
     rec.shards = (rec.shards || 0) + shards;
     xpAdd(rec, id, xp);
 
+    // v5.6 W3：星屑拆珠数组（纯表现，权威结算在上一行已入包，一字不动）
+    // 普通怪：S = (2+lv×1.6)×夜1.5×rand，拆 N=clamp(ceil(S/3),2,8) 均分，余数加末颗；
+    // 精英/boss：1 颗大珠全额 + pouch（金币袋）。
+    var orbs = [];
+    var pouch = 0;
+    if (m.elite || m.boss) {
+      orbs.push({ v: shards });
+      pouch = 1;
+    } else {
+      var nOrbs = Math.max(2, Math.min(8, Math.ceil(shards / 3)));
+      var base = Math.floor(shards / nOrbs);
+      var rem = shards - base * nOrbs;
+      for (var oi = 0; oi < nOrbs; oi++) orbs.push({ v: oi === nOrbs - 1 ? base + rem : base });
+    }
+
     // 材料
     var mats = D.ZONE_MATS[zone] || D.ZONE_MATS.meadow;
     var dropped = { shards: shards, xp: xp, mats: [], item: null };
@@ -237,7 +274,8 @@ function grantKill(m, shares, killer, night) {
     rec.stats = rec.stats || {};
     rec.stats.kills = (rec.stats.kills || 0) + 1;
 
-    push(id, { k: 'loot', s: dropped.shards, x: dropped.xp, m: dropped.mats, it: dropped.item, f: dropped.full || 0 });
+    push(id, { k: 'loot', s: dropped.shards, x: dropped.xp, m: dropped.mats, it: dropped.item, f: dropped.full || 0,
+      px: Math.round(m.x * 10) / 10, py: Math.round(m.y * 10) / 10, orbs: orbs, pouch: pouch });
     S.markDirty(id);
   });
 
@@ -263,8 +301,10 @@ function grantKill(m, shares, killer, night) {
   // 支线进度（在某区打 N 只）
   if (SOC) SOC.onKill(m, list, killer, night);
 
-  // 守护者：点亮灯塔（全服进度）。世界 Boss（潮汐首领）不点灯 —— 那是反扑，不是守护者。
-  if (m.boss && m.bossZone && !m.world) {
+  // 守护者：点亮灯塔（全服进度）。潮汐首领不点灯 —— 那是反扑，不是守护者。
+  // v5.6 P0-1 终局死锁：长夜之主是 world boss，但它是 abyss 的守护者（data.js lights:true）——
+  // 击杀必须点亮 towers.abyss，否则第七章永远不可达，全服主线卡死。
+  if (m.boss && m.bossZone && (!m.world || m.lights)) {
     var first = S.lightTower(m.bossZone, killer || list[0] || '');
     var nm = S.userName(killer || list[0] || '');
     var zn = zoneName(m.bossZone);
@@ -305,6 +345,10 @@ SIM.start({
   },
   onDead: function (id) {
     push(id, { k: 'dead' });
+  },
+  // v5.6 W4 l5 不灭：致命伤被天赋拦下时通知客户端（白闪 + 金环 + 1s 无敌）
+  onCheatDeath: function (id) {
+    push(id, { k: 'cheat-death' });
   },
   onRevive: function (id, by) {
     push(id, { k: 'revived', by: S.userName(by) });
@@ -442,6 +486,8 @@ router.post('/v5/enter', requireAuth, function (req, res) {
       look: rec.look, name: S.userName(id), zone: zoneAt(p.x, p.y),
       stats: { atk: st.atk, crit: st.crit, critDmg: st.critDmg, leech: st.leech, mpGain: st.mpGain, speed: st.speed, dodgeCd: st.dodgeCd, skill: st.skill, night: st.night, weaponKind: st.weaponKind },
       equip: rec.equip, bag: rec.bag, mats: rec.mats, talents: rec.talents, skills: rec.skills,
+      // v5.6 W4：天赋文案定义随 enter 下发（mod 数值不下发，客户端只渲染）
+      talentDefs: talentDefsPayload(),
       waystones: rec.waystones || ['ws_town'], dex: rec.dex || {}, isNew: !!rec.isNew
     },
     players: online,
@@ -795,8 +841,30 @@ router.post('/v5/sell', requireAuth, function (req, res) {
   var id = uid(req);
   var b = req.body || {};
   var rec = S.load(id, TOWN_SPAWN);
-  var list = Array.isArray(b.uids) ? b.uids : (b.uid ? [b.uid] : []);
   var gain = 0, sold = 0;
+  // v5.6 W3：sell 扩参 —— mats:{gel:5,...} 按 D.ITEMS[id].sell 折星屑扣 rec.mats
+  if (b.mats && typeof b.mats === 'object') {
+    var list2 = [];
+    Object.keys(b.mats).forEach(function (k) {
+      var n = Math.max(0, Math.floor(Number(b.mats[k]) || 0));
+      if (!n) return;
+      var def = D.ITEMS[k];
+      if (!def || !def.sell) return;
+      if ((rec.mats || {})[k] == null || (rec.mats[k] || 0) < n) return;
+      list2.push([k, n, def.sell]);
+    });
+    if (!list2.length) return fail(res, '没有可卖的材料');
+    list2.forEach(function (row) {
+      rec.mats[row[0]] -= row[1];
+      if (rec.mats[row[0]] <= 0) delete rec.mats[row[0]];
+      gain += row[1] * row[2];
+      sold += row[1];
+    });
+    rec.shards = (rec.shards || 0) + gain;
+    S.markDirty(id);
+    return ok(res, { sold: sold, gain: gain, shards: rec.shards, mats: rec.mats, bag: rec.bag });
+  }
+  var list = Array.isArray(b.uids) ? b.uids : (b.uid ? [b.uid] : []);
   for (var i = 0; i < list.length; i++) {
     for (var j = 0; j < (rec.bag || []).length; j++) {
       if (rec.bag[j].uid !== list[i]) continue;

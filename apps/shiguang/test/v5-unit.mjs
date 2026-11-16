@@ -3,7 +3,7 @@
 // 用法：node market/apps/shiguang/test/v5-unit.mjs
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const B = 'D:/NetWork/Integration/market/apps/shiguang/backend/v5/';
+const B = (process.env.SG5_APP || 'D:/NetWork/Integration/market/apps/shiguang') + '/backend/v5/';
 
 let pass = 0, fail = 0;
 const bad = [];

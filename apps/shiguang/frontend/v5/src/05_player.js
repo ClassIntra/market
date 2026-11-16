@@ -362,6 +362,9 @@
     }
     if (!hits.length) return;
     var dmgBase = (S.stats.atk || 8) * me.act.mul;
+    // v5.6 W4 b2 连斩：末段（第 3 段）伤害 ×1.25（有 b2 天赋时），飘字放大 1.5 倍橙色
+    var finisher = me.act.combo === 2 && me.talentBladeLv >= 2;
+    if (finisher) dmgBase *= 1.25;
     for (var k = 0; k < hits.length; k++) {
       var mob = hits[k];
       var crit = Math.random() * 100 < (S.stats.crit || 5) || (me.critReady > 0 && k === 0);
@@ -369,27 +372,61 @@
       var dmg = dmgBase * (crit ? 1 + (S.stats.critDmg || 50) / 100 : 1) * (0.9 + Math.random() * 0.2);
       dmg = Math.max(1, Math.round(dmg));
       var kbx = me.act.dx, kby = me.act.dy;
-      hitMob(mob, dmg, crit, kbx, kby, me.act.combo === 2);
-      S.net.queue.push({ m: mob.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(kbx * 10) / 10, ky: Math.round(kby * 10) / 10, h: me.act.combo === 2 ? 1 : 0 });
+      hitMob(mob, dmg, crit, kbx, kby, me.act.combo === 2, finisher);
+      S.net.queue.push({ m: mob.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(kbx * 10) / 10, ky: Math.round(kby * 10) / 10, h: me.act.combo === 2 ? 1 : 0, f: finisher ? 1 : 0 });
     }
     hitstop(crit ? 90 : HITSTOP);
     S.cam.shake = Math.max(S.cam.shake, hits.length > 2 ? 4 : 2.4);
     auSfx(easePick(['hit', 'hit2', 'hit3']), 0.42, 0.95 + Math.random() * 0.2);
+    // v5.6 W4 b5 剑舞：普攻每 5 次自动小回旋（0.6 倍半径与伤害，复用 spin 特效）
+    if (me.talentBladeLv >= 5) {
+      me.atkCount = (me.atkCount || 0) + 1;
+      if (me.atkCount >= 5) { me.atkCount = 0; autoSpin(me, t); }
+    }
+  }
+
+  // v5.6 W4 b5 剑舞：命中上报走 melee 通道（小回旋半径 0.6×2.8≈1.68 < HIT_REACH 3.2）
+  function autoSpin(me, t) {
+    var radius = 2.8 * 0.6;
+    var dmgBase = (S.stats.atk || 8) * 1.6 * 0.6;
+    var list = [];
+    var ids = Object.keys(S.mobs);
+    for (var i = 0; i < ids.length; i++) {
+      var m = S.mobs[ids[i]];
+      if (!m || m.dying) continue;
+      var d = dist(me.x, me.y, m.x, m.y);
+      if (d > radius + (m.boss ? 1.4 : 0.4)) continue;
+      var crit = Math.random() * 100 < (S.stats.crit || 5);
+      var dmg = Math.max(1, Math.round(dmgBase * (crit ? 1 + (S.stats.critDmg || 50) / 100 : 1)));
+      var dx = (m.x - me.x) / (d || 1), dy = (m.y - me.y) / (d || 1);
+      hitMob(m, dmg, crit, dx, dy, false, false);
+      list.push({ m: m.id, d: dmg, c: crit ? 1 : 0, kx: Math.round(dx * 10) / 10, ky: Math.round(dy * 10) / 10, f: 0 });
+    }
+    S.rings.push({ x: me.x, y: me.y, r: 0, max: radius, life: 0.3, max2: 0.3, col: '#ffc9a8' });
+    auSfx('power', 0.28, 1.3);
+    if (list.length) {
+      for (var j = 0; j < list.length && j < 8; j++) S.net.queue.push(list[j]);
+    }
   }
 
   function easePick(a) { return a[(Math.random() * a.length) | 0]; }
 
-  function hitMob(m, dmg, crit, kx, ky, heavy) {
+  function hitMob(m, dmg, crit, kx, ky, heavy, finisher) {
     m.hpVis = Math.max(0, (m.hpVis == null ? m.hp : m.hpVis) - dmg);
     m.flash = 0.12;
     m.kx = (m.kx || 0) + kx * (heavy ? 0.55 : 0.25);
     m.ky = (m.ky || 0) + ky * (heavy ? 0.55 : 0.25);
     m.shakeT = 0.12;
     if (m.hpVis <= 0) m.dying = 0.28;
+    var me = S.me;
+    var purple = crit && me && me.shadowStrike;   // v5.6 W4 s5 影袭：下一击暴击紫色
+    if (purple) me.shadowStrike = 0;
     S.texts.push({
       x: m.x + (Math.random() - 0.5) * 0.3, y: m.y - (m.boss ? 2.2 : 0.9),
       txt: String(dmg), crit: crit, life: crit ? 0.9 : 0.7, max: crit ? 0.9 : 0.7,
-      vy: crit ? -1.5 : -1.1, vx: (Math.random() - 0.5) * 0.5
+      vy: crit ? -1.5 : -1.1, vx: (Math.random() - 0.5) * 0.5,
+      col: purple ? '#9a8aff' : (finisher ? '#ff8a6a' : ''),
+      big: finisher ? 1 : 0
     });
     burst(m.x, m.y - 0.2, crit ? 10 : 5, crit ? '#ffe08a' : '#ffb0a0', crit ? 4.5 : 3);
   }

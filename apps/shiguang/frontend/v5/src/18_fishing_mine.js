@@ -81,6 +81,7 @@
     document.removeEventListener('keyup', qteUp, false);
     document.removeEventListener('mouseup', qteUp, false);
     S.farm.qte = null;
+    S.fishBusy = 0;   // v5.6：清理时兜底放锁，别让 fishBusy 卡死
   }
   function qteStop(success) {
     var q = S.farm.qte; if (!q) return;
@@ -91,7 +92,10 @@
     document.removeEventListener('keyup', qteUp, false);
     document.removeEventListener('mouseup', qteUp, false);
     S.farm.qte = null;
+    // v5.6：fishBusy 覆盖到 result 结算完成才释放
+    S.fishBusy = 1;
     lifeAct('fish/result', { score: score }).then(function (d) {
+      S.fishBusy = 0;
       if (d && d.caught) {
         farmToast('钓上了 ' + d.name + (d.perfect ? ' · 完美！' : '') + '，值 ' + d.price + 'g' +
           (d.contestCounted === false ? ' · 本竿不计入赛绩（前 3 竿已计满）' : ''));
@@ -101,6 +105,7 @@
       focusCast();
     }, function (e) {
       farmToast(e.message || '鱼跑了', 'warn');
+      S.fishBusy = 0;
       focusCast();
     });
   }
@@ -157,10 +162,13 @@
         ' · 甩一次竿花 ' + (D.TOOL_ENERGY ? D.TOOL_ENERGY.fish : 8) + ' 体力'));
       farmBtnRow(s, [
         ['甩竿', function () {
-          lifeAct('fish/start', {}).then(function (d) {
-            if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
-            else farmToast('这会儿没鱼咬钩', 'warn');
-          }, function (e) { farmToast(e.message, 'warn'); });
+          // v5.6 W1：fishBusy 覆盖甩竿 → result 整个周期（在途时再点直接丢弃）
+          sg5Gate('fishBusy', document.activeElement, function () {
+            return lifeAct('fish/start', {}).then(function (d) {
+              if (d && d.fish) { qteStart(d); refreshPanel('mine'); }
+              else farmToast('这会儿没鱼咬钩', 'warn');
+            }, function (e) { farmToast(e.message, 'warn'); });
+          });
         }, 'sg5-btn-primary', null, 'op:cast'],
         ['按 H 收起', function () { closePanel(); }]
       ]);

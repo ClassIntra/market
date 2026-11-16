@@ -22,8 +22,17 @@
     S.zoom = clamp(z, 3, 4);
   }
 
-  function loop(ts) {
-    raf = window.requestAnimationFrame(loop);
+  // v5.6：实体预算。任何一层漏了 capPush 也不至于撑爆内存 —— 主循环每帧兜一次底。
+  function trimBudgets() {
+    if (S.parts.length > 400) S.parts.splice(0, S.parts.length - 400);
+    if (S.texts.length > 60) S.texts.splice(0, S.texts.length - 60);
+    if (S.orbs.length > 320) S.orbs.splice(0, S.orbs.length - 320);
+    if (S.corpses.length > 24) S.corpses.splice(0, S.corpses.length - 24);
+    if (S.pillars.length > 12) S.pillars.splice(0, S.pillars.length - 12);
+  }
+
+  // v5.6：帧步进拆出来 —— __sg5.tick(ms) 手动驱动时绝不重复排 rAF（否则回调指数增殖）。
+  function step(ts) {
     var t = ts / 1000;
     if (!lastT) lastT = t;
     var dt = Math.min(0.05, t - lastT);
@@ -32,22 +41,34 @@
     S.time += dt;
 
     if (!document.hidden && S.ready && !S.paused) {
-      var freeze = S.hitstopUntil && S.time < S.hitstopUntil;
-      var scale = 1;
-      if (S.slow && S.time < S.slow.until) scale = S.slow.scale;
-      else if (S.slow) S.slow = null;
-      var ds = freeze ? 0 : dt * scale;
-      if (ds > 0) {
-        updatePlayer(ds, S.time);
-        resolveAttack(S.me, S.time);
-        updateMobs(ds, S.time);
-        updatePlayers(ds);
-        updateShots(ds);
-        ambient(ds);
+      // v5.6 W1：逐帧段整段包 try/catch —— 一行异常绝不能打断 rAF 链（用户「玩一半卡死」的根因）。
+      // catch 只记日志并继续下一帧；socialTick 内部的农场判定另有自己的双保险（15_farm）。
+      try {
+        var freeze = S.hitstopUntil && S.time < S.hitstopUntil;
+        var scale = 1;
+        if (S.slow && S.time < S.slow.until) scale = S.slow.scale;
+        else if (S.slow) S.slow = null;
+        var ds = freeze ? 0 : dt * scale;
+        if (ds > 0) {
+          updatePlayer(ds, S.time);
+          resolveAttack(S.me, S.time);
+          updateMobs(ds, S.time);
+          updatePlayers(ds);
+          updateShots(ds);
+          updateOrbs(ds, S.time);
+          ambient(ds);
+        }
+        camUpdate(dt);
+        trimBudgets();
+        renderWorld(freeze ? 0 : dt);
+        socialTick(S.time);
+      } catch (e) {
+        if (!loop.errAt || S.time - loop.errAt > 1) {
+          loop.errAt = S.time;
+          console.error('[sg5-loop]', e);
+        }
       }
-      camUpdate(dt);
-      renderWorld(freeze ? 0 : dt);
-      socialTick(S.time);
+      try {
       // HUD 不需要 60Hz
       if (S.time - hudAt > 0.2) { hudAt = S.time; uiUpdate(); }
       if (S.time - miniAt > 0.12) { miniAt = S.time; uiMini(); }
@@ -64,7 +85,36 @@
           ctx.fillRect(0, 0, S.view.w, S.view.h);
         }
       }
+      // v5.6 W4 不灭：0.2s 白闪 + 1s 金色 vignette
+      if (S.cheatVgUntil && S.time < S.cheatVgUntil) {
+        var vg = ctx.createRadialGradient(S.view.w / 2, S.view.h / 2, Math.min(S.view.w, S.view.h) * 0.2,
+          S.view.w / 2, S.view.h / 2, Math.max(S.view.w, S.view.h) * 0.66);
+        vg.addColorStop(0, 'rgba(255,214,120,0)');
+        vg.addColorStop(1, 'rgba(255,196,90,' + (0.34 * clamp((S.cheatVgUntil - S.time) / 1.0, 0, 1)).toFixed(3) + ')');
+        ctx.fillStyle = vg;
+        ctx.fillRect(0, 0, S.view.w, S.view.h);
+        if (S.time < (S.cheatVgUntil - 0.8)) {
+          ctx.fillStyle = 'rgba(255,248,230,' + (0.5 * (1 - (S.cheatVgUntil - 0.8 - S.time) / 0.2 > 0 ? (S.cheatVgUntil - 0.8 - S.time) / 0.2 : 0)).toFixed(3) + ')';
+          ctx.fillRect(0, 0, S.view.w, S.view.h);
+        }
+      } else if (S.cheatVgUntil && S.time >= S.cheatVgUntil) {
+        S.cheatVgUntil = 0;
+      }
+      // v5.6 W4 s4 见切：完美闪避成功瞬间的 0.15s 白边闪光
+      if (S.pdFlashUntil && S.time < S.pdFlashUntil) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = Math.max(3, S.zoom * 1.5);
+        ctx.strokeRect(1, 1, S.view.w - 2, S.view.h - 2);
+      }
+      } catch (e2) {
+        console.error('[sg5-loop-hud]', e2);
+      }
     }
+  }
+
+  function loop(ts) {
+    raf = window.requestAnimationFrame(loop);
+    step(ts);
   }
 
   // 环境粒子：每个区域有自己的「空气」
@@ -107,6 +157,14 @@
     S.texts = [];
     S.beams = [];
     S.rings = [];
+    // v5.6 W3：奖励实体层（磁吸星屑珠 / 尸体 / 装备光柱）
+    S.orbs = [];
+    S.corpses = [];
+    S.pillars = [];
+    S.orbSfxAt = 0;
+    S.orbStreak = 0;
+    S.orbMergeTxt = '';
+    S.orbMergeAt = 0;
     S.mobs = {};
     S.players = {};
     S.mobs = {};
@@ -283,8 +341,16 @@
 
     // 对外暴露一点调试接口（线上排查用，不影响玩家）
     try {
+      // v5.6 W1：手动驱动主循环（headless rAF 节流 / 截图机用）。advance 一次 ≈ 16ms。
       window.__sg5 = {
         state: S,
+        tick: function (ms) {
+          var n = Math.max(1, Math.min(600, Math.round((ms || 16) / 16)));
+          for (var i = 0; i < n; i++) {
+            try { step(performance.now()); } catch (e) {}
+          }
+          return S.time;
+        },
         mobs: function () { return S.mobs; },
         teleport: function (x, y) {
           if (S.me) { S.me.x = x; S.me.y = y; S.cam.x = x * TILE; S.cam.y = y * TILE; }

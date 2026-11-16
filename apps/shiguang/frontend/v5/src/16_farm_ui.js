@@ -255,8 +255,34 @@
     stove: { glyph: 'machine_stove', pal: { '#': '#4a4038', 'o': '#5a5048', '+': '#e87830' } },
     // v5.5 彩蛋节：蛋形与彩券字形（定义见 09_ui_hud.js 的 GLYPH）
     egg: { glyph: 'egg', pal: { '#': '#f2e7c8', 'o': '#fffdf2', '+': '#c9963f' } },
-    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } }
+    ticket: { glyph: 'ticket', pal: { '#': '#c9963f', 'o': '#ffd27a' } },
+    // ---- v5.6 W2 图标 GLYPH 化：矿石四档 / 宝石 / 煤 / 木材 / 石头 / 奶瓶 / 毛球 / 资材 ----
+    copper: { glyph: 'ore', pal: { '#': '#c98452', 'o': '#e8b088' } },
+    iron: { glyph: 'ore', pal: { '#': '#c8cdd4', 'o': '#eef1f4' } },
+    gold: { glyph: 'ore', pal: { '#': '#e5c45c', 'o': '#f6e2a0' } },
+    iridium: { glyph: 'ore', pal: { '#': '#b9e6e2', 'o': '#e2f6f4' } },
+    gem: { glyph: 'gem', pal: { '#': '#b58ad8', '+': '#9a6fc0', 'o': '#e8d8ff' } },
+    coal: { glyph: 'coal', pal: { '#': '#4a4a52', 'o': '#6a6a74' } },
+    stone: { glyph: 'stone_round', pal: { '#': '#a9a29a', 'o': '#c8c2b8' } },
+    milk: { glyph: 'milk_bottle', pal: { '#': '#eef1f4', 'o': '#b8d8e8' } },
+    big_milk: { glyph: 'milk_bottle', pal: { '#': '#eef1f4', 'o': '#d8b848' } },
+    wool: { glyph: 'wool', pal: { '#': '#f0eade', 'o': '#d8d0c0' } },
+    wood: { glyph: 'wood_log', pal: { '#': '#a9814f', 'o': '#c9a468' } },
+    speedgro: { glyph: 'flask', pal: { '#': '#8fc48a', 'o': '#c9e8c0' } },
+    quality_fert: { glyph: 'flask', pal: { '#': '#e8c860', 'o': '#f6e2a0' } },
+    sprinkler: { glyph: 'sprinkler', pal: { '#': '#9fb6c4', 'o': '#8fc4d8' } },
+    hay: { glyph: 'bale', pal: { '#': '#d8c27a', 'o': '#b09a58' } }
   };
+  // v5.6：通用作物果实按 CROPS.shape 映射到 4 字形（最大观感来源优先，pal 用 CROPS.col）
+  function cropGlyphOf(cropId) {
+    var c = (farmD().CROPS || {})[cropId];
+    if (!c) return null;
+    var g = { round: 'crop_round', berry: 'for_berry', root: 'for_root', flower: 'for_flower',
+      leaf: 'crop_round', stalk: 'crop_long', vine: 'crop_cluster' }[c.shape];
+    if (!g) return null;
+    var col = c.col || '#8db36a';
+    return { glyph: g, pal: { '#': col, '+': shadeHex(col, -36), 'o': '#ffffff' } };
+  }
   // 种子 A 轨：按季节 + 价格档取精灵（低 ≤40 / 中 ≤80 / 高）
   function seedSprite(cropId) {
     var c = farmD().CROPS[cropId];
@@ -290,6 +316,7 @@
       var fs = fishSprite(base);
       if (fs) spec = { sprite: fs };
     }
+    if (!spec) spec = cropGlyphOf(base);   // v5.6：通用作物果实按 shape 出字形
     var cv = null;
     if (spec && spec.glyph && GLYPH[spec.glyph]) {
       cv = document.createElement('canvas');
@@ -440,7 +467,9 @@
         }, function (e) { farmToast(e.message, 'warn'); });
       }, 'sg5-btn-primary'],
       ['收工睡觉', function () {
-        farmAct('sleep', {}).then(function () { farmToast('睡到天亮，体力回满'); }, function (e) { farmToast(e.message, 'warn'); });
+        farmAct('sleep', {}).then(function (d) {
+          farmToast('歇下了（第 ' + (d && d.n ? d.n : 1) + ' 觉，体力 ' + (d && d.energy != null ? d.energy : '?') + '/' + (farmP() ? farmP().maxEnergy : '?') + '）');
+        }, function (e) { farmToast(e.message, 'warn'); });
       }],
       ['切换种子（Q）', function () { farmCycleSeed(); refreshPanel('farm'); }],
       ['小镇 / 献祭', function () { S.farm.tab = 'field'; openPanel('relation'); }]
@@ -1049,6 +1078,8 @@
           row.appendChild(el('span', 'sg5-farm-rowsub', lv >= 10 ? '满级' : xp + ' / ' + D.SKILL_XP[lv] + '（还差 ' + next + '）'));
           var tier = lv >= 10 ? 10 : lv >= 5 ? 5 : 0;
           if (tier && D.PROFESSIONS[sk] && D.PROFESSIONS[sk][tier]) {
+            // v5.6 W2 布局⑤：Lv10 行拆两组 —— 数据行在上，职业按钮 .sg5-farm-skill-ops 在下
+            var ops = el('div', 'sg5-farm-skill-ops');
             var opts = D.PROFESSIONS[sk][tier];
             for (var j = 0; j < opts.length; j++) {
               (function (o) {
@@ -1058,11 +1089,12 @@
                   farmAct('profession', { skill: sk, id: o[0] }).then(function () { farmToast('选了「' + o[1] + '」'); },
                     function (e) { farmToast(e.message, 'warn'); });
                 });
-                row.appendChild(b);
+                ops.appendChild(b);
                 // v5.4：已选职业后面跟一枚短标，效果不用翻说明也能看见
-                if (chosen && PROF_MARK[o[0]]) row.appendChild(el('span', 'sg5-farm-profmark', PROF_MARK[o[0]]));
+                if (chosen && PROF_MARK[o[0]]) ops.appendChild(el('span', 'sg5-farm-profmark', PROF_MARK[o[0]]));
               })(opts[j]);
             }
+            row.appendChild(ops);
           }
           list.appendChild(row);
         })(D.SKILLS[i]);

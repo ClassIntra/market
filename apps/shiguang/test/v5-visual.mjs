@@ -205,6 +205,19 @@ async function key(code, keyName, down) {
 }
 
 let pass = 0, fail = 0;
+// v5.6 W1：条件轮询替代固定 sleep —— 3/22 的随机挂全来自「盲等 N ms 后断言」
+async function waitFor(expr, timeout, label) {
+  const t0 = Date.now();
+  for (;;) {
+    const r = await evalJs(expr);
+    if (!r.err && r.v) return true;
+    if (Date.now() - t0 > (timeout || 6000)) {
+      console.log('  waitFor 超时:', label || expr);
+      return false;
+    }
+    await sleep(200);
+  }
+}
 function ok(c, n, extra) { if (c) { pass++; console.log('  ✓', n); } else { fail++; console.log('  ✗', n, extra === undefined ? '' : JSON.stringify(extra)); } }
 
 // ---------- 载入 ----------
@@ -241,7 +254,8 @@ await sleep(320);
 await fetch(`http://127.0.0.1:${HTTP_PORT}/test/rich`, { method: 'POST' });
 for (const p of ['char', 'bag', 'map', 'dex', 'talent', 'help', 'social']) {
   await evalJs('__sg5.panel("' + p + '")');
-  await sleep(420);
+  await waitFor('!!document.querySelector(".sg5-panel .sg5-phead")', 5000, 'panel ' + p);
+  await sleep(260);
   await shot('07-panel-' + p);
 }
 await evalJs('__sg5.panel("")');
@@ -256,10 +270,11 @@ await evalJs('__sg5.farm.act("buy",{kind:"seed",id:"seed_parsnip",n:5})'
   + '.then(function(){return __sg5.farm.act("till",{r:1,c:1})})'
   + '.then(function(){return __sg5.farm.act("plant",{r:1,c:1,seed:"seed_parsnip"})})'
   + '.then(function(){return __sg5.farm.act("water",{r:1,c:1})}).then(function(){return 1})');
-await sleep(520);
+await waitFor('(window.__sg5.state.farm.p.plots||{})["1,1"] && (window.__sg5.state.farm.p.plots["1,1"].crop||"")==="parsnip" && window.__sg5.state.farm.p.plots["1,1"].watered===1', 6000, '田 1,1 种下并浇了水');
 for (const p of ['farm', 'relation', 'mine']) {
   await evalJs('__sg5.panel("' + p + '")');
-  await sleep(460);
+  await waitFor('!!document.querySelector(".sg5-panel .sg5-phead")', 5000, 'panel ' + p);
+  await sleep(300);
   await shot('13-panel-' + p);
 }
 await evalJs('__sg5.panel("")');
@@ -277,7 +292,7 @@ await sleep(420);
 await evalJs('__sg5.panel("farm")');
 await sleep(240);
 await evalJs('(function(){var t=document.querySelectorAll(".sg5-tab");for(var i=0;i<t.length;i++){if(t[i].textContent.indexOf("加工")>=0){t[i].click();return 1}}return 0})()');
-await sleep(360);
+await waitFor('document.querySelectorAll(".sg5-farm-recipe").length >= 4', 6000, '加工配方渲染');
 await shot('16-panel-craft');
 const craft = await evalJs('JSON.stringify({rows:document.querySelectorAll(".sg5-farm-recipe").length,sects:document.querySelectorAll(".sg5-farm-cont .sg5-sect").length,near:!!document.querySelector(".sg5-farm-near")})');
 ok(craft.v && JSON.parse(craft.v).rows >= 4 && JSON.parse(craft.v).sects >= 5 && JSON.parse(craft.v).near, '加工页签：4 条熔炉配方 + 5 个设备分节 + 农场条提示位', craft.v);
@@ -308,8 +323,8 @@ await sleep(240);
 await evalJs('(function(){var t=document.querySelectorAll(".sg5-tab");for(var i=0;i<t.length;i++){if(t[i].textContent==="钓鱼"){t[i].click();return 1}}return 0})()');
 await sleep(320);
 await evalJs('(function(){var b=document.querySelectorAll(".sg5-btn-primary");for(var i=0;i<b.length;i++){if(b[i].textContent==="甩竿"){b[i].click();return 1}}return 0})()');
-await sleep(680);
-const qte = await evalJs('!!document.querySelector(".sg5-qte")');
+const qteReady = await waitFor('!!document.querySelector(".sg5-qte")', 6000, '钓鱼绿条出现');
+const qte = { v: qteReady };
 ok(qte.v === true, '钓鱼绿条小游戏已启动', qte.v);
 await shot('15-fishing-qte');
 await evalJs('__sg5.panel("")');
@@ -337,12 +352,12 @@ if (egg0) {
     body: JSON.stringify({ x: egg0.x + 0.5, y: egg0.y + 1.3 })
   });
   await evalJs('__sg5.teleport(' + (egg0.x + 0.5) + ',' + (egg0.y + 1.3) + ')');
-  await sleep(900);
+  await waitFor('(document.querySelector(".sg5-farm-eggchip")||{textContent:""}).textContent.indexOf("彩蛋节 · 0/12")>=0', 6000, '彩蛋 chip 0/12');
   const chipTx = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-eggchip")||{}).textContent||"")');
   ok(String(chipTx.v).indexOf('彩蛋节 · 0/12') >= 0, 'farmbar 彩蛋 chip 显示 0/12', chipTx.v);
   await shot('18-egg-world');
   await evalJs('__sg5.farm.life("egg/pick",{i:' + egg0.i + '}).then(function(){return 1})');
-  await sleep(700);
+  await waitFor('(document.querySelector(".sg5-farm-eggchip")||{textContent:""}).textContent.indexOf("彩蛋节 · 1/12")>=0', 6000, '彩蛋 chip 1/12');
   const chipTx2 = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-eggchip")||{}).textContent||"")');
   ok(String(chipTx2.v).indexOf('彩蛋节 · 1/12') >= 0, '捡蛋后 chip 变 1/12', chipTx2.v);
   // 走到下一颗蛋旁：农场条应提示「E：捡彩蛋」
@@ -354,7 +369,7 @@ if (egg0) {
       body: JSON.stringify({ x: egg1.x + 0.5, y: egg1.y + 1.3 })
     });
     await evalJs('__sg5.teleport(' + (egg1.x + 0.5) + ',' + (egg1.y + 1.3) + ')');
-    await sleep(900);
+    await waitFor('(document.querySelector(".sg5-farm-near")||{textContent:""}).textContent.indexOf("捡彩蛋")>=0', 6000, '农场条提示捡彩蛋');
     const nearTx2 = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-near")||{}).textContent||"")');
     ok(String(nearTx2.v).indexOf('捡彩蛋') >= 0, '农场条提示「E：捡彩蛋」', nearTx2.v);
   }
@@ -363,7 +378,7 @@ if (egg0) {
 await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
 await evalJs('(function(){try{localStorage.removeItem("sg5hint")}catch(e){} window.__sg5.state.farm.hintSeen={}; var h=document.querySelector(".sg5-hint"); if(h) h.className="sg5-hint"; return 1})()');
 await evalJs('__sg5.farm.act("goto",{}).then(function(d){if(d&&d.x!=null)__sg5.teleport(d.x,d.y);return d&&d.x})');
-await sleep(800);
+await waitFor('!!document.querySelector(".sg5-hint.is-on")', 7000, '新手引导条弹出');
 const hintTx = await evalJs('JSON.stringify((document.querySelector(".sg5-hint.is-on")||{}).textContent||"")');
 ok(String(hintTx.v).indexOf('翻土') >= 0 || String(hintTx.v).indexOf('采集') >= 0 || String(hintTx.v).indexOf('彩蛋') >= 0,
   '新手引导条已弹出（till/forage/egg 任一）', hintTx.v);
@@ -381,7 +396,8 @@ await evalJs('__sg5.farm.setDay(72)');
 await sleep(800);
 await evalJs('(function(){var F=window.__sg5.state.farm; F.tab="bag"; F.exhibitMode=true; F.exhibitSel=["parsnip_q3","melon_q3","pumpkin_q3","kale_q3","potato_q3","garlic_q3","tulip_q3","jazz_q3","cauliflower_q3"]; return 1})()');
 await evalJs('__sg5.panel("farm")');
-await sleep(500);
+await waitFor('document.querySelectorAll(".sg5-exhibit-cell").length === 9', 6000, '展台九格渲染');
+await sleep(260);
 await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
 const booth = await evalJs('JSON.stringify({cells:document.querySelectorAll(".sg5-exhibit-cell").length,prev:(document.querySelector(".sg5-farm-cal .sg5-farm-calclock")||{}).textContent||""})');
 ok(booth.v && JSON.parse(booth.v).cells === 9, '展台 3×3 九格渲染', booth.v);
@@ -393,7 +409,7 @@ await sleep(800);
 await evalJs('__sg5.panel("")');
 await evalJs('(function(){var F=window.__sg5.state.farm; F.exhibitMode=true; F.tab="bag"; return 1})()');
 await evalJs('__sg5.panel("farm")');
-await sleep(400);
+await waitFor('(document.querySelector(".sg5-farm-calclock")||{textContent:""}).textContent.indexOf("S 级 · 奖金已入账")>=0', 6000, '展台成绩态');
 const grade = await evalJs('JSON.stringify((document.querySelector(".sg5-farm-calclock")||{}).textContent||"")');
 ok(String(grade.v).indexOf('S 级 · 奖金已入账') >= 0, '提交后展台进入成绩态', grade.v);
 // 收尾：回背包视图、把人送回镇上（后面的「出生在拾光镇」断言依赖出生点位）
@@ -485,7 +501,8 @@ await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, { method: 'POST', hea
 await evalJs('__sg5.teleport(' + (tower.x + 0.5) + ',' + (tower.y + 2.6) + ')');
 await fetch(`http://127.0.0.1:${HTTP_PORT}/test/god`, { method: 'POST' });
 await evalJs('__sg5.lockPhase("day", 0.32)');
-await sleep(2600);
+await waitFor('Object.keys(__sg5.state.mobs).filter(function(k){return __sg5.state.mobs[k].boss}).length >= 1', 9000, '守护者出现');
+await sleep(600);
 await shot('08-tower');
 const boss = await evalJs('JSON.stringify({boss: Object.keys(__sg5.state.mobs).filter(function(k){return __sg5.state.mobs[k].boss}).length, goal: !!__sg5.state.goal})');
 console.log('  tower:', boss.v);

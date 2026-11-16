@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const require = createRequire(import.meta.url);
 const NM = 'D:/NetWork/Integration/ClassIntra/server/node_modules/';
-const SRC = 'D:/NetWork/Integration/market/apps/shiguang/backend/v5/';
+const SRC = (process.env.SG5_APP || 'D:/NetWork/Integration/market/apps/shiguang') + '/backend/v5/';
 const express = require(NM + 'express');
 const FD = require(SRC + 'farmdata.js');
 const app = express();
@@ -34,7 +34,7 @@ async function call(p, body, uid) {
 }
 function st(uid) { return call('/v5/farm/state', undefined, uid); }
 function setDay(n) { routes.FARM.setEpochForDay(n); }
-function flags(uid) { const f = routes.FARM.of(uid || '1001'); routes.FARM.save(uid || '1001'); return f; }
+function flags(uid) { const f = routes.FARM.of(uid || '1001'); f.mineDay = null; routes.FARM.save(uid || '1001'); return f; }
 async function okCall(p, b, uid) {
   const r = await call(p, b, uid);
   ok(r && r.code === 200, p + ' 成功', r);
@@ -130,7 +130,12 @@ let f = flags();
 f.energy = 1; routes.FARM.save('1001');
 await badCall('/v5/farm/till', { r: 2, c: 2 }, '1001', '体力不足时拒绝动作');
 d = await okCall('/v5/farm/sleep', {});
-ok(d.slept > 0 && d.farm.energy === 100, '睡觉回满体力');
+// v5.6：睡觉分段恢复 —— 当日第 1 次 +60% max（100→61），第 2 次起 +30%，封顶 max
+ok(d.slept > 0 && d.n === 1 && d.farm.energy === 61, '睡觉分段恢复：第 1 觉 +60%（61/100）', d.farm && d.farm.energy);
+d = await okCall('/v5/farm/sleep', {});
+ok(d.n === 2 && d.farm.energy === 91, '第 2 觉 +30%（91/100）', d.farm && d.farm.energy);
+d = await okCall('/v5/farm/sleep', {});
+ok(d.n === 3 && d.farm.energy === 100, '封顶 maxEnergy（100/100）', d.farm && d.farm.energy);
 f = flags();
 f.gold = 99999; f.inv.copper_bar = 20; f.inv.iron_bar = 20; f.inv.gold_bar = 20; f.inv.iridium_bar = 20;
 routes.FARM.save('1001');
@@ -225,6 +230,10 @@ P = (await st()).data.farm;
 ok(P.mineBest >= 1 && P.elevator >= 0, '矿洞进度已落库', { best: P.mineBest, elevator: P.elevator });
 d = await okCall('/v5/life/mine/leave', {});
 ok(d.mine === null, '离开矿洞');
+// v5.6：矿洞当日限 3 次（本节已进过 1 次，再进 2 次后第 4 次拒绝；跨日由 settle 清零）
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+d = await okCall('/v5/life/mine/enter', { floor: 1 });
+await badCall('/v5/life/mine/enter', { floor: 1 }, '1001', '矿洞当日限 3 次，第 4 次拒绝');
 
 console.log('\n== 10. 村民好感 / 礼物 / 花束 / 结婚 ==');
 d = await okCall('/v5/life/talk', { npc: 'shop' });

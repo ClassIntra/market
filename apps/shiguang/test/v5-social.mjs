@@ -8,7 +8,7 @@
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const NM = 'D:/NetWork/Integration/ClassIntra/server/node_modules/';
-const SRC = 'D:/NetWork/Integration/market/apps/shiguang/backend/v5/';
+const SRC = (process.env.SG5_APP || 'D:/NetWork/Integration/market/apps/shiguang') + '/backend/v5/';
 const express = require(NM + 'express');
 const app = express();
 app.use(express.json({ limit: '1mb' }));

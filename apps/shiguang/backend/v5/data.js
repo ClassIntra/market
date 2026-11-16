@@ -90,7 +90,7 @@ var BOSSES = {
   frost:  { name: '冰魂·霜',     sprite: 'GiantSpirit',      hp: 10000, atk: 52, lv: 27, xp: 5200,
             phases: ['nova', 'shards', 'freeze'],         title: '' },
   abyss:  { name: '长夜之主',     sprite: 'DemonCyclop',      hp: 30000, atk: 64, lv: 30, xp: 20000,
-            phases: ['nova', 'summon:ghost', 'dash', 'beam'], title: '它不是怪物。它是所有熄灭的灯。', world: true }
+            phases: ['nova', 'summon:ghost', 'dash', 'beam'], title: '它不是怪物。它是所有熄灭的灯。', world: true, lights: true }
 };
 
 // ---------------- 武器 ----------------

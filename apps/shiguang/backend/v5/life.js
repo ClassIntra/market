@@ -157,14 +157,23 @@ module.exports = function createLife(ctx) {
   });
 
   // ---------- 矿洞：120 层 / 每 5 层电梯 / 矿石 / 楼梯 ----------
+  // v5.6：矿洞当日限次 —— 每次下矿记 1 次，满 3 次拒绝（跨日自动重置）
+  function mineDayCount(f) {
+    if (!f.mineDay || f.mineDay.day !== day()) { f.mineDay = { day: day(), n: 0 }; }
+    return f.mineDay.n;
+  }
   router.post('/v5/life/mine/enter', requireAuth, function (req, res) {
     var b = req.body || {};
     guard(uidOf(req), res, 0, function (id, rec, f) {
+      var n = mineDayCount(f);
+      if (n >= 3) { fail(res, '今天挖够了，明天再来', 400); return false; }
       var floor = Math.floor(Number(b.floor) || 1);
       if (floor < 1) floor = 1;
       if (floor > D.MINE_MAX) floor = D.MINE_MAX;
       if (floor > 1 && floor % 5 !== 0) { fail(res, '只能从电梯层下矿', 400); return false; }
       if (floor > (f.elevator || 0) + 1) { fail(res, '这层电梯还没到', 400); return false; }
+      // 校验全过才计数：被拒绝的进入不消耗当日次数
+      f.mineDay.n = n + 1;
       // v5.4：fighter 洞里血上限 ×1.15、defender +25（职业在进洞那一刻生效）
       var hp = 40 + FD.levelOf(f.skills.combat || 0) * 10;
       if (prof(f, 'fighter')) hp = Math.round(hp * 1.15);

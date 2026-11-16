@@ -97,6 +97,53 @@
   function easeOut(t) { return 1 - (1 - t) * (1 - t); }
   function easeIn(t) { return t * t; }
 
+  // v5.6 W1：带预算上限的 push（FIFO，超限 shift 最旧）。主循环另有 trimBudgets 兜底。
+  function capPush(arr, item, max) {
+    if (!arr) return;
+    if (arr.length >= max) arr.shift();
+    arr.push(item);
+  }
+
+  // v5.6 W3：颜色加深（'#rrggbb', -36）—— 作物果实二阶色用
+  function shadeHex(hex, amt) {
+    var r = parseInt(hex.substr(1, 2), 16), g = parseInt(hex.substr(3, 2), 16), b = parseInt(hex.substr(5, 2), 16);
+    r = Math.max(0, Math.min(255, r + amt));
+    g = Math.max(0, Math.min(255, g + amt));
+    b = Math.max(0, Math.min(255, b + amt));
+    return '#' + (r < 16 ? '0' : '') + r.toString(16) + (g < 16 ? '0' : '') + g.toString(16) + (b < 16 ? '0' : '') + b.toString(16);
+  }
+
+  // ---------------- §2.5 竞态守卫（v5.6 W1，Phase 2 裁定：丢弃不排队） ----------------
+  // 锁挂在 S 上（refreshPanel 重建 DOM 会丢锁，所以绝不挂 DOM）。
+  // 在途时再点：直接丢弃，第 3 次连续丢弃 panelBusy 弹一次 toast；触发的控件加 .is-busy。
+  // fn 返回 Promise 时自动在 finally 复位；同步返回时立即复位。
+  function sg5Gate(lock, el, fn) {
+    if (S[lock]) {
+      S[lock + '_drop'] = (S[lock + '_drop'] || 0) + 1;
+      if (lock === 'panelBusy' && S[lock + '_drop'] === 3) toast('别急，上一笔还在路上', 'warn');
+      if (el && el.className && el.className.indexOf && el.className.indexOf('is-busy') < 0) el.className += ' is-busy';
+      return null;
+    }
+    S[lock] = 1;
+    S[lock + '_drop'] = 0;
+    var fin = function () {
+      S[lock] = 0;
+      if (el && el.className && el.className.indexOf && el.className.indexOf('is-busy') >= 0) {
+        el.className = el.className.replace(/\s*is-busy/, '');
+      }
+    };
+    var r;
+    try { r = fn(); } catch (e) { fin(); throw e; }
+    if (r && typeof r.then === 'function') {
+      // 释放必须直接挂在 r 上（第一个 reaction）：派生一层 then 会让 fin 排到
+      // 调用方回调之后 —— 链式调用下一笔永远撞上「在途」而全部被丢弃。
+      try { r.then(fin, fin); } catch (e2) { fin(); }
+      return r;
+    }
+    fin();
+    return r;
+  }
+
   // ---------------- §3 DOM 小工 ----------
   function el(tag, cls, text) {
     var e = document.createElement(tag);

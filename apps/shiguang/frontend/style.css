@@ -1673,3 +1673,95 @@ div.sg5-exhibit-cell, .sg5-exhibit-cell:disabled { cursor: default; }
 .sg5-farm-eggchip { cursor: pointer; border-color: #a7657f; color: #ffd8e6; background: #5c2f46; }
 .sg5-farm-eggchip:hover { filter: brightness(1.15); }
 .sg5-farm-eggchip.is-full { color: #cdf5c0; border-color: #6c8c50; background: #32402a; }
+
+
+/* ==================== v5.6 稳定性 / 质感 / 断链 ==================== */
+
+/* ---- 层级终表（从下到上）：canvas 0 / HUD auto / farmbar 2 / actions 3 / pmenu 4 /
+   invite 5 / hint·actpicker 6 / panels 7 / chapter 8 / dead 9 / toast 10 / loading 11 / intro 12 ---- */
+.sg5-farmbar { z-index: 2; }
+.sg5-actions { z-index: 3; }
+.sg5-pmenu { z-index: 4; }
+.sg5-invite { z-index: 5; bottom: 224px; right: 14px; }
+.sg5-hint { z-index: 6; bottom: 120px; }
+.sg5-actpicker { z-index: 6; }
+.sg5-panels { z-index: 7; }
+.sg5-chapter { z-index: 8; }
+.sg5-dead { z-index: 9; }
+.sg5-toast { z-index: 10; }
+.sg5-loading { z-index: 11; }
+.sg5-intro { z-index: 12; }
+/* 死亡时把常驻 HUD 压暗锁死：动作键 / 农场条 / 邀请卡 / 提示条不许盖在死亡遮罩上 */
+.sg5-hud.is-dead .sg5-farmbar,
+.sg5-hud.is-dead .sg5-actions,
+.sg5-hud.is-dead .sg5-invite,
+.sg5-hud.is-dead .sg5-hint { opacity: .25; pointer-events: none; }
+.sg5-party { pointer-events: none; }
+
+/* 潮汐横幅下移一格：让出 boss 血条的位置 */
+.sg5-tide { top: 156px; }
+
+/* ---- UI 一致性 ---- */
+.sg5-toast { font-size: 16px; }
+.sg5-toast-tip { font-size: 16px; }
+.sg5-goal { font-size: 16px; }
+.sg5-feedrow { font-size: 16px; }
+.sg5-invite-text { font-size: 16px; }
+.sg5-chatline { font-size: 16px; }
+.sg5-input { font-size: 16px; }
+.sg5-slot-label { font-size: 16px; }
+.sg5-person-lv { font-size: 16px; }
+.sg5-tide-name { font-size: 18px; }
+/* hint：去 3px 左条改 2px line 框 + 左上 8×8 金角标（◆） */
+.sg5-hint {
+  border: 2px solid var(--px-line);
+  border-left: 2px solid var(--px-line);
+  padding: 8px 12px 10px 24px;
+}
+.sg5-hint::before {
+  content: '◆';
+  position: absolute;
+  left: 7px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  line-height: 8px;
+  font-size: 10px;
+  color: var(--px-gold-2);
+}
+/* v5.5 画外色归并：粉系 → toast-warn 暖红系；杂色 → 调色板 */
+.sg5-farm-festival { background: #7a3a28; border-color: #b06a50; color: #ffd0be; }
+.sg5-farm-festival-h { color: #ffd0be; }
+.sg5-farm-eggchip { border-color: #b06a50; color: #ffd0be; background: #7a3a28; }
+.sg5-farm-seedlabel { color: var(--px-jade); }
+.sg5-farm-weather { color: #8fc4d8; }
+/* 展台格子 1px → 2px 边 */
+.sg5-exhibit-cell { border: 2px solid #6b543c; }
+
+/* ---- 布局 10 项 ---- */
+/* ① 面板高度按视口留 dock 一行：不再用 86% / farm calc 两处旧值 */
+.sg5-panel { max-height: calc(100% - 108px); }
+.sg5-panel-farm { max-height: calc(100% - 108px); }
+/* ③ 装备面板双滚动：.sg5-list 不再自限 44vh */
+.sg5-list { max-height: none; }
+/* ⑤ 技能页 Lv10 行拆两组：数据行在上、职业操作行在下 */
+.sg5-farm-skill-ops {
+  flex-basis: 100%;
+  display: flex; flex-wrap: wrap;
+  margin-left: 126px; margin-top: 2px;
+}
+/* ⑥ 人列表操作按钮折行后的行距 */
+.sg5-person-ops { margin-bottom: 4px; }
+
+/* ⑦ 窄屏 feed 抬高 6px，给农场条 / 提示条让缝 */
+@media (max-width: 780px) {
+  .sg5-feed { bottom: 58px; }
+}
+/* ④ 1100px 内七页签折行不挤破 */
+@media (max-width: 1100px) {
+  .sg5-tab { min-width: 84px; padding: 6px 8px 8px; }
+}
+/* ⑧ farmbar / invite 微调后留 10px 缝：invite 已在上方收窄到 right:14 */
+
+/* ---- 竞态守卫视觉：在途时触发的控件压暗并锁死 ---- */
+.sg5-root .is-busy { opacity: .5; pointer-events: none; }

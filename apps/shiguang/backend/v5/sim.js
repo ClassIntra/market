@@ -119,9 +119,11 @@ function damagePlayer(p, amount, src) {
   p.hurtAt = t;          // 脱战计时：5 秒不回血
   events.push({ t: 'phit', u: p.uid, d: amount, x: p.x, y: p.y, src: src });
   if (p.hp <= 0) {
+    // v5.6 W4 l5 不灭：保留 1 点生命，90s CD，触发时 1s 无敌 + 通知客户端
     if (p.cheatDeath && (!p.cheatAt || t - p.cheatAt > 90000)) {
-      p.hp = 1; p.cheatAt = t;
+      p.hp = 1; p.cheatAt = t; p.invUntil = t + 1000;
       events.push({ t: 'cheat', u: p.uid });
+      if (hooks.onCheatDeath) hooks.onCheatDeath(p.uid);
       return;
     }
     p.hp = 0; p.down = t;
@@ -466,12 +468,30 @@ function playerHit(uid, hit, stats) {
   if (dist(p.x, p.y, m.x, m.y) > reach) return null;
   p.lastHit = t;
   // 伤害上限：攻击力 × 招式倍率上限 × 暴击上限 × 容差
+  // v5.6 W4：b2 连斩末段（hit.f=1）cap ×1.25；l3 照夜对幽灵 ×1.4；l4 共明 6 格内 aura ×1.1
+  var tl = (p.talents && typeof p.talents === 'object') ? p.talents : {};
   var maxMul = hit.kind === 'skill' ? 3.6 * (1 + (stats.skill || 0) / 100) : 2.6;
+  if (hit.f && (tl.finisher || (stats.talents && stats.talents.finisher))) maxMul *= 1.25;
   var critMax = 1 + (stats.critDmg || 50) / 100;
   var nightMul = dayPhase(t).night ? 1 + (stats.night || 0) / 100 : 1;
   var eliteMul = (m.elite || m.boss) ? 1 + ((stats.talents && stats.talents.eliteDmg) || 0) / 100 : 1;
   var cap = stats.atk * maxMul * critMax * nightMul * eliteMul * 1.5 * C.DMG_TOLERANCE; // ×1.5：天赋/光环/完美闪避等
   var dmg = Math.max(1, Math.min(Math.round(hit.dmg || 0), Math.round(cap)));
+  // 服务端侧的天赋加成（客户端上报值之上再乘，走 cap 预留的 ×1.5 容差）
+  if (m.kind === 'ghost' && (tl.nightSight || tl.nightGaze || (stats.talents && (stats.talents.nightSight || stats.talents.nightGaze)))) {
+    dmg = Math.max(1, Math.round(dmg * 1.4));
+  }
+  if (tl.aura || (stats.talents && stats.talents.aura)) {
+    var near = 0;
+    Object.keys(players).forEach(function (oid) {
+      if (near) return;
+      var o = players[oid];
+      if (!o || oid === uid || now() - o.seen > C.ONLINE_TTL_MS) return;
+      if (!o.talents || !o.talents.aura) return;
+      if (dist(o.x, o.y, p.x, p.y) <= 6) near = 1;
+    });
+    if (near) dmg = Math.max(1, Math.round(dmg * 1.1));
+  }
   // 骷髅：正面减伤 70%
   var def = D.MONSTERS[m.kind];
   if (def && def.ai === 'shield' && m.state !== 'stun') {
