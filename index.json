@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-16T09:21:38.957Z",
+  "updated_at": "2026-11-16T09:25:00.066Z",
   "apps": [
     {
       "name": "chess",
@@ -574,7 +574,7 @@
         "backend/v5/store.js": "f28d0aa939778a4d9e35ead92d00a0fd161e15a31271280115c189f3ae607da9",
         "backend/v5/worldgen.js": "bf5b6f5e92b524b18cbcd14d995613649c0001703b5a8a5f885b830a7095d03c",
         "backend/world.js": "6e1dcadfd34838756b770c1bcb5f75371b00ddb670afef958ef284b19617af76",
-        "CHANGELOG.md": "5ba23098e7a3bd3adcce09fe79a7b7cc5d52aab0ca06ad958ebcad48ee3203e3",
+        "CHANGELOG.md": "5cb79c5ea5ea76d1e7959a8501d0e1460d530cd733985c85b1b8052337b782b7",
         "DESIGN-v5.md": "89b35633a69ac9e46983a8da33146f5a0d15dc12350a0b097c1c75ef16deaeb2",
         "frontend/entry.js": "3cc39bbfc08e3fc4b361e883a354f734d831e7b93a068db465dc73177f4c9e6c",
         "frontend/fonts/unifont-ex.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
