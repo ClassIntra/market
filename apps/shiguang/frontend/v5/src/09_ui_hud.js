@@ -745,7 +745,7 @@
     UI.chText.textContent = c.text;
     UI.chEl.className = 'sg5-chapter is-on';
     auSfx('success', 0.5, 1);
-    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 5200);
+    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 8000);   // v5.7：剧情变长，多留 2.8 秒
   }
 
   function drawFace(look) {

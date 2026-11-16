@@ -695,7 +695,8 @@ var MUSIC = {
     for (var j = 0; j < size * size; j++) zi[j] = B36.indexOf(data.zones.charAt(j) || '1');
     S.map = {
       size: size, cells: cells, zoneIdx: zi, zones: data.zonesMeta, town: data.town,
-      towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile
+      towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile,
+      relics: data.relics || []   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
     };
     S.chests = {};
     S.waystones = data.waystones;
@@ -1269,6 +1270,14 @@ var MUSIC = {
         }
       }
     }
+    // 守塔人遗物（《灯火纪》）：坐标精确，不在 tile 扫描里，单独收进视野
+    var relics = S.map.relics || [];
+    for (var ri = 0; ri < relics.length; ri++) {
+      var rl = relics[ri];
+      if (rl.x >= vr.x0 && rl.x <= vr.x1 && rl.y >= vr.y0 && rl.y <= vr.y1) {
+        PROPS.push({ k: 'relic', x: rl.x, y: rl.y, s: 0.5, z: zoneOf(rl.x, rl.y), id: rl.id });
+      }
+    }
   }
 
   function blitSprite(ctx, cv, cx, bottom, scale) {
@@ -1314,6 +1323,30 @@ var MUSIC = {
       case 'bush':
         blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx + sway, sy + z * 0.2, z * 0.8);
         break;
+      case 'relic': {
+        // 守塔人遗物石碑：三阶灰石 + 金色灯语刻痕 + 碑顶引导光点（未寻得更亮更闪）
+        var u2 = TILE * z;
+        var lit2 = S.loreCollected && S.loreCollected.indexOf(p.id) >= 0;
+        propShadow(ctx, sx, sy + z * 0.4, 0.9);
+        ctx.fillStyle = '#17120d';
+        ctx.fillRect(sx - u2 * 0.26, sy - u2 * 0.92, u2 * 0.52, u2 * 0.92);
+        ctx.fillStyle = '#847b6c';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.86, u2 * 0.40, u2 * 0.80);
+        ctx.fillStyle = '#a29a8e';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.86, u2 * 0.40, u2 * 0.16);
+        ctx.fillStyle = '#6a6156';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.22, u2 * 0.40, u2 * 0.16);
+        ctx.fillStyle = '#5a5248';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.58, u2 * 0.24, u2 * 0.05);
+        ctx.fillStyle = '#c9963f';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.44, u2 * 0.24, u2 * 0.06);
+        ctx.fillStyle = '#5a5248';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.30, u2 * 0.24, u2 * 0.05);
+        var twk = lit2 ? 0.35 : (0.62 + Math.sin(S.time * 2.2 + p.x * 1.7) * 0.22);
+        ctx.fillStyle = lit2 ? 'rgba(255,210,122,' + twk.toFixed(2) + ')' : 'rgba(207,232,255,' + twk.toFixed(2) + ')';
+        ctx.fillRect(sx - z * 1.5, sy - u2 * 1.08, z * 3, z * 3);
+        break;
+      }
     }
   }
 
@@ -3158,6 +3191,12 @@ var MUSIC = {
   function doInteract(t) {
     var me = S.me;
     var best = null, bd = 2.2, bkind = '';
+    // 守塔人遗物（《灯火纪》）：叙事点优先级最高 —— 走近就该读
+    for (var ri = 0; ri < (S.map.relics || []).length; ri++) {
+      var rl = S.map.relics[ri];
+      var dr = dist(me.x, me.y, rl.x + 0.5, rl.y + 0.5);
+      if (dr < bd) { bd = dr; best = rl; bkind = 'relic'; }
+    }
     // 宝箱
     for (var i = 0; i < S.map.chests.length; i++) {
       var c = S.map.chests[i];
@@ -3184,6 +3223,7 @@ var MUSIC = {
       if (d4 < bd) { bd = d4; best = n; bkind = 'npc'; }
     }
     if (!best) return toast('这里没有可以交互的东西');
+    if (bkind === 'relic') return loreOpenRelic(best);
     if (bkind === 'chest') return apiChest(best);
     if (bkind === 'waystone') return apiWaystone(best);
     if (bkind === 'tower') {
@@ -3265,15 +3305,27 @@ var MUSIC = {
   };
   var ZONE_ORDER = ['meadow', 'forest', 'swamp', 'crag', 'frost', 'abyss'];
 
-  // 七章《灯火纪》：按点亮灯塔的座数推进（全服进度，不是个人）
+  // 《灯火纪》九章（v5.7）：按点亮灯塔的座数推进（全服进度）。at 0..7 为点灯数，
+  // at 8 为终章（六域 + 长夜之心全亮后触发一次）。intro 在图鉴「世界」页签可重读。
   var CHAPTERS = [
-    { at: 0, title: '第一章 · 长夜从西边来', text: '镇上的灯还亮着。守灯人栗说，西边的草原上有一盏灯灭了 —— 从那天起，史莱姆开始聚成群。' },
-    { at: 1, title: '第二章 · 草原的老国王', text: '巨蛙王倒下去的时候，雾退了一点点。原来长夜不是天气，它是活的。' },
-    { at: 2, title: '第三章 · 林中的眼睛', text: '雾隐林里挂满了眼睛。天狗说它只是守着林子的边界 —— 守到忘了自己在守什么。' },
-    { at: 3, title: '第四章 · 被偷走的萤火', text: '萤火泽的灯全都不见了。金爪把它们吞进肚子里，照亮自己过冬。' },
-    { at: 4, title: '第五章 · 战争早就结束了', text: '赤武士还在等一道不会再来的命令。他守的山，已经塌了一半。' },
-    { at: 5, title: '第六章 · 冰下的敲击', text: '霜屿的冰下面有东西在敲。它不是要出来，它是要你别再往里走。' },
-    { at: 6, title: '第七章 · 所有熄灭的灯', text: '长夜之心里没有怪物，只有一地熄灭的灯。最后一盏，在你手上。' }
+    { at: 0, title: '序章 · 灯数着你们', text: '镇上的灯还亮着。守灯人栗说：「你听见了吗？长夜在数我们的灯。」',
+      intro: '灯塔的火比昨天暗了一指宽。栗翻出名册核对 —— 名册上少了一个名字，不是谁走了，是「昨天」少了一天。雾灾之后，长夜每年偷走几个日子，没人追得上。栗看着新来的你们，把守灯人的铜钥匙擦了三遍，终于开口：六座灯塔，六位前辈，六段没人敢忘也不敢提的事。「去把它们重新点起来。别学我师父 —— 她连自己是怎么回去的都忘了。」' },
+    { at: 1, title: '第一章 · 长夜从西边来', text: '西边的草原上有一盏灯灭了。从那天起，史莱姆开始聚成群。',
+      intro: '草原灯塔是栗的师父宁姑娘守的。她烧掉了「羊群回家的铃铛声」，灯亮了一百年 —— 直到前天，灯芯里的最后一缕铃音散了。草原上现在只剩下雾。栗说：「把她重新点起来。这次，别拿一个人的记忆去换。」' },
+    { at: 2, title: '第二章 · 草原的老国王', text: '巨蛙王倒下去的时候，雾退了一点点。原来长夜不是天气，它是活的。',
+      intro: '灯重新亮起来的那一刻，草原上所有朝一个方向倒的草，齐齐立正了一次。宁姑娘塔里的日记最后一句是：「铃铛不响了，羊还是会回家的 —— 路我记在灯里了。」栗把这句抄在镇口的告示板上，很多人围看。那天夜里，第一次有雾停在了灯塔的光圈外，像在排队。' },
+    { at: 3, title: '第三章 · 林中的眼睛', text: '雾隐林里挂满了眼睛。天狗说它只是守着林子的边界 —— 守到忘了自己在守什么。',
+      intro: '林子里那些「眼睛」，是哑叔的结绳。他天生不能说话，守塔前靠结绳跟所有人说话；烧掉「妻子的名字」之后，他忘了最后一个绳结念什么，只好在每棵树上刻满同一个字。天狗说：「他托我看绳。我不识字，我就看着。」你们把绳结解开的那个傍晚，林子里所有的树响了一声 —— 很多人说是风，栗说不是。' },
+    { at: 4, title: '第四章 · 被偷走的萤火', text: '萤火泽的灯全都不见了。金爪把它们吞进肚子里，照亮自己过冬。',
+      intro: '阿潮在泽上找了妹妹十三年，最后烧掉「妹妹的脸」点灯 —— 她说这样就不会再认错人。塔亮以后她不唱了，萤火泽安静了十五年。你们的船靠近灯塔时，泽面浮起一层萤火，按一条谁也没走过的路线排开，绕塔三圈又散开。老船工说：「那是她妹妹小时候回家要走的路。阿潮没烧掉这个 —— 她烧的是脸，没烧路。」' },
+    { at: 5, title: '第五章 · 战争早就结束了', text: '赤武士还在等一道不会再来的命令。他守的山，已经塌了一半。',
+      intro: '石翁是六人里唯一硬抗过长夜的 —— 他不肯烧记忆，凿子在手里攥了四十年，塔门梁上「拿你最舍不得的换」那行字就是他凿的。他最后还是烧了，烧掉「自己修过的每一座塔」。此后他站在自己塔前像站在陌生人面前，一直到灯把他也收进去。你们在他塔门口看到那套锈凿子，谁也没伸手。' },
+    { at: 6, title: '第六章 · 冰下的敲击', text: '霜屿的冰下面有东西在敲。它不是要出来 —— 它是要你别再往里走。',
+      intro: '霜屿的塔是孩子们守的。雾灾留下一群孤儿，最小的负责喊「起风了」，最大的负责把「明天见」三个字刻进冰里。他们把各自父母的声音烧进灯里，约定谁也不许哭 —— 说好了哭的要去堵烟囱。最后一个孩子走的时候，把没说完的「明天见」冻进了应声冰。你们到的那天，冰下的敲击停了；冰面上，有人听见冰自己敲了两下。' },
+    { at: 7, title: '第七章 · 所有熄灭的灯', text: '长夜之心里没有怪物，只有一地熄灭的灯。最后一盏，在你手上。',
+      intro: '峡谷尽头，夜屑落满一地灯，摆得整整齐齐。中央那座最大的塔，门上刻着「缺一份 —— 缺的那份，不在我手里」。第一代大守塔人拾，当年把全镇的灯收进这座塔，替所有人扛住大雾灾；他把「最珍贵的」烧了七次，每次都差一点 —— 因为他不肯烧最后那段：全镇的人把灯交到他手上的脸。他把它们留到了今天，留成了长夜本身。' },
+    { at: 8, title: '终章 · 长夜有了名字', text: '最后一盏灯亮起来的那一刻，长夜没有退 —— 它停下了，第一次，安安静静地停在光的边上。',
+      intro: '你们把这段夜交给灯的时候，灯没有烧掉它 —— 它把「一起记住的」和「没能等到天亮的」接在了一起。雾不再贴着地面走，幽灵远远地站在光圈外看灯，像看一个讲了很多遍的故事。栗把名册翻到最后一页，写上：「历·灯后元年，长夜改称冬夜。」那天晚上，镇上所有的门框都改高了一寸 —— 不再需要弯腰了。' }
   ];
 
 
@@ -5013,7 +5065,7 @@ var MUSIC = {
     UI.chText.textContent = c.text;
     UI.chEl.className = 'sg5-chapter is-on';
     auSfx('success', 0.5, 1);
-    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 5200);
+    setTimeout(function () { UI.chEl.className = 'sg5-chapter'; }, 8000);   // v5.7：剧情变长，多留 2.8 秒
   }
 
   function drawFace(look) {
@@ -5358,8 +5410,28 @@ var MUSIC = {
   PANELS.dex = function () {
     var me = S.me;
     var dex = me.dex || {};
-    var sh = panelShell('怪物图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
+    // v5.7：图鉴分「怪物 / 世界」两页签 —— 世界承载《灯火纪》编年史、守塔人日记与风物志
+    var sh = panelShell('图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
     var body = sh.body;
+    var cur = S.farm && S.farm.dexTab === 'world' ? 'world' : 'mob';
+    var tabs = el('div', 'sg5-tabs');
+    [['mob', '怪物'], ['world', '世界']].forEach(function (t) {
+      var tb = el('button', 'sg5-tab' + (cur === t[0] ? ' is-on' : ''), t[1]);
+      tb.type = 'button';
+      tb.setAttribute('data-focus-key', 'dextab:' + t[0]);
+      tb.addEventListener('click', function () {
+        S.farm = S.farm || {}; S.farm.dexTab = t[0];
+        refreshPanel('dex');
+      }, false);
+      tabs.appendChild(tb);
+    });
+    body.appendChild(tabs);
+    var page = el('div', 'sg5-farm-cont');
+    if (cur === 'world') {
+      loreWorldTab(page);
+      body.appendChild(page);
+      return sh.root;
+    }
     var mobName = {
       slime: '果冻史莱姆', slime2: '薄荷史莱姆', bamboo: '竹精', mouse: '偷灯鼠', eye: '雾眼',
       mushroom: '孢子菇', owl: '夜枭', beast: '林兽', snake: '泽蛇', frog: '泽蛙法师',
@@ -5375,9 +5447,9 @@ var MUSIC = {
       cell.appendChild(el('div', 'sg5-dexct', n ? '×' + n : '未见过'));
       grid.appendChild(cell);
     });
-    body.appendChild(grid);
+    page.appendChild(grid);
 
-    body.appendChild(el('div', 'sg5-sect', '灯塔（全服进度）'));
+    page.appendChild(el('div', 'sg5-sect', '灯塔（全服进度）'));
     var tg = el('div', 'sg5-towers');
     ZONE_ORDER.forEach(function (z) {
       var lit = !!S.towers[z];
@@ -5386,12 +5458,13 @@ var MUSIC = {
       row.appendChild(el('span', 'sg5-tstate', lit ? '已点亮' : '长夜笼罩'));
       tg.appendChild(row);
     });
-    body.appendChild(tg);
+    page.appendChild(tg);
 
-    body.appendChild(el('div', 'sg5-sect', '宝箱'));
+    page.appendChild(el('div', 'sg5-sect', '宝箱'));
     var total = (S.map.chests || []).length;
     var got = Object.keys(S.chests).length;
-    body.appendChild(el('div', 'sg5-note', '已开启 ' + got + ' / ' + total + ' 个宝箱（个人进度）'));
+    page.appendChild(el('div', 'sg5-note', '已开启 ' + got + ' / ' + total + ' 个宝箱（个人进度）'));
+    body.appendChild(page);
     return sh.root;
   };
 
@@ -5543,10 +5616,10 @@ var MUSIC = {
   }
 
   function storyTalk() {
-    var lit = Object.keys(S.towers).length;
-    var idx = Math.min(CHAPTERS.length - 1, lit);
-    showChapter(idx);
+    // v5.7《灯火纪》：栗的独白随点亮座数推进 —— 这是主线之外最重要的情感锚点
     closePanel();
+    loreCard('守灯人 栗', '名册 · 铜钥匙 · 灯火', loreKeeperLine(), 'plain');
+    auSfx('menu', 0.3, 1.1);
   }
 
   // ---------- 设置 ----------
@@ -5572,6 +5645,10 @@ var MUSIC = {
     // v5.4 新增说明（新 DOM 新文案，原有键位表逐字节未动）
     body.appendChild(el('div', 'sg5-note',
       'v5.4：靠近野味/树木按 E 采集或砍树 · 斧头不用装进工具栏 · 加工在农场面板「加工」页签'));
+    body.appendChild(el('div', 'sg5-note',
+      'v5.7《灯火纪》：世界变大了 —— 六域之外还有长夜之心。草原、林间、冰原上散落着守塔人的石碑，' +
+      '碑顶发亮就是还没读过的日记；走近按 E 阅读并收下，图鉴的「世界」页签可以随时重读。' +
+      '每点亮一座灯塔，全班都会听到那位守塔人的灯语。'));
     body.appendChild(el('div', 'sg5-sect', '关于'));
     body.appendChild(el('div', 'sg5-note',
       '一个班同在一片大世界里：白天探索、打怪、攒材料；入夜后长夜从雾里涌出来，' +
@@ -6608,6 +6685,8 @@ var MUSIC = {
         roll: function () { IN.roll = 1; },
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
+        interact: function () { IN.use = 1; },   // v5.7：语义别名（visual 探针用 interact 触发 E）
+        testEvent: function (e) { handleEvent(e); },   // v5.7：注入事件（灯语仪式卡等）回归用
         toast: toast,
         social: function () {
           return { friends: S.friends.length, nearby: S.nearby.length, acts: Object.keys(S.acts || {}).length,
@@ -10435,6 +10514,172 @@ var MUSIC = {
     _mountQte(container, context);
     if (S.onDestroyAll) S.onDestroyAll.push(function () { qteCleanup(); });
   };
+
+
+  // ======================== 19_lore.js ========================
+// ==================== 19_lore 《灯火纪》世界观与剧情（v5.7） ====================
+// 职责：lore 文本下发与缓存、遗物收集交互、lore 阅读卡、灯语仪式卡、栗的独白、终章触发。
+// 设计：卡片独立于面板系统（curPanel 单例），叠在世界层上；阅读不打断世界运行。
+
+var loreState = { loaded: false, data: null, wrap: null };
+
+function loreLoad() {
+  return apiGet('/shiguang/v5/lore').then(function (d) {
+    loreState.data = d || {};
+    S.loreCollected = d.collected || [];
+    loreState.loaded = true;
+  }).catch(function () { /* 拉不到不阻塞游戏；图鉴里显示「暂未载入」 */ });
+}
+
+// 进世界后拉一次（重连也会刷新，收集进度以服务端为准）
+var _applyEnterLore = applyEnter;
+applyEnter = function (d) {
+  _applyEnterLore(d);
+  loreLoad();
+  // 终章：六域 + 长夜之心全亮（goal 归空）且没看过终章 → 触发一次
+  try {
+    if (!d.goal && Object.keys(S.towers || {}).length >= 7 && !S.seenFinale) {
+      S.seenFinale = 1;
+      try { S.storage.set('finale', '1'); } catch (e) {}
+      setTimeout(function () { showChapter(8); auSfx('spirit', 0.4, 0.9); }, 1200);
+    }
+  } catch (e) {}
+};
+
+// ---------- 世界层遗物：走近按 E ----------
+function loreOpenRelic(relic) {
+  apiPost('/shiguang/v5/lore/collect', { id: relic.id }).then(function (r) {
+    S.loreCollected = r.collected || S.loreCollected;
+    var fresh = S.loreCollected.indexOf(relic.id) >= 0;
+    var diary = r.diary || {};
+    var first = fresh && !loreState._seen;
+    loreState._seen = 1;
+    loreCard(diary.title || '守塔人遗物', diary.zone ? ZONE_NAMES[diary.zone] || '' : '', diary.text || '', first);
+    if (first) {
+      toast('收下了「' + (diary.title || '守塔人遗物') + '」—— 图鉴·世界 可重读', 'good');
+      auSfx('secret', 0.4, 1.1);
+    }
+  }).catch(function (e) { toast(e.message || '读完这一页需要一点时间，再试一次', 'warn'); });
+}
+
+// ---------- 阅读卡（复用面板框语言，独立于 curPanel） ----------
+function loreWrap() {
+  if (!loreState.wrap) {
+    loreState.wrap = el('div', 'sg5-lore');
+    UI.hud.appendChild(loreState.wrap);
+    loreState.wrap.addEventListener('click', function (ev) {
+      if (ev.target === loreState.wrap) loreCardClose();
+    }, false);
+  }
+  return loreState.wrap;
+}
+
+function loreCardClose() {
+  if (loreState.wrap) {
+    loreState.wrap.className = 'sg5-lore';
+    setTimeout(function () {
+      if (loreState.wrap && loreState.wrap.className.indexOf('is-on') < 0) clearNode(loreState.wrap);
+    }, 260);
+  }
+}
+
+// kind: 'diary' 日记页（含收下按钮） | 'lamp' 灯语仪式卡（更庄重，自动可关） | 'plain' 栗的独白等
+function loreCard(title, sub, text, kind) {
+  var wrap = loreWrap();
+  clearNode(wrap);
+  var card = el('div', 'sg5-lorecard' + (kind === 'lamp' ? ' sg5-lampword' : ''));
+  card.appendChild(el('div', 'sg5-lorecard-title', title || ''));
+  if (sub) card.appendChild(el('div', 'sg5-lorecard-sub', sub));
+  var body = el('div', 'sg5-lorecard-text', text || '');
+  card.appendChild(body);
+  if (kind === 'lamp') {
+    card.appendChild(el('div', 'sg5-lorecard-note', '这一晚，请和整个班一起记住。'));
+    var b1 = uiBtn('记住这一晚', 'sg5-btn-primary', function () { loreCardClose(); auSfx('accept', 0.35, 1.0); });
+    card.appendChild(b1);
+  } else {
+    card.appendChild(uiBtn(kind === 'diary' ? '收下这一页' : '合上', 'sg5-btn', function () { loreCardClose(); }));
+  }
+  wrap.appendChild(card);
+  wrap.className = 'sg5-lore is-on';
+  var firstBtn = card.querySelector('button');
+  if (firstBtn) { try { firstBtn.focus(); } catch (e) {} }
+}
+
+// ---------- 灯语仪式卡（点亮灯塔的瞬间，全班同时看到） ----------
+var _handleEventLore = handleEvent;
+handleEvent = function (e) {
+  if (e && e.k === 'lampword') {
+    var zn = e.n || (ZONE_NAMES[e.z] || '');
+    loreCard(e.z === 'finale' ? '终章 · 灯火名录' : zn + ' · 灯语', e.z === 'finale' ? '第一代大守塔人 拾' : '守塔人的最后一句话', e.t, 'lamp');
+    auSfx('spirit', 0.45, e.z === 'finale' ? 0.9 : 1.15);
+    auSfx('bonus', 0.3, 1.0);
+    S.cam.shake = Math.max(S.cam.shake || 0, 2.2);
+    return;
+  }
+  return _handleEventLore(e);
+};
+
+// ---------- 栗的独白（守灯人之家「听她说话」） ----------
+function loreKeeperLine() {
+  var lit = Object.keys(S.towers || {}).length;
+  var lines = (loreState.data && loreState.data.keeperLines) || [];
+  var pick = null;
+  for (var i = 0; i < lines.length; i++) if (lines[i].at <= lit) pick = lines[i];
+  return pick ? pick.text : '「灯还亮着。去把剩下的点亮 —— 我在这儿等你们回来吃晚饭。」';
+}
+
+// ---------- 图鉴「世界」页签渲染（PANELS.dex 调用） ----------
+function loreWorldTab(body) {
+  var d = loreState.data;
+  if (!d) {
+    body.appendChild(el('div', 'sg5-empty', '世界还没载入，稍后再来翻一翻。'));
+    return;
+  }
+  var lit = Object.keys(S.towers || {}).length;
+
+  // 编年史：按点灯进度解锁
+  body.appendChild(el('div', 'sg5-sect', '编年史'));
+  for (var i = 0; i < d.codex.length; i++) {
+    var cx = d.codex[i];
+    var open = lit >= cx.at;
+    var box = el('div', 'sg5-lorew-row' + (open ? ' is-have' : ' is-off'));
+    box.appendChild(el('div', 'sg5-lorew-title', open ? cx.title : '？？？（点亮 ' + cx.at + ' 座灯塔后解锁）'));
+    if (open) box.appendChild(el('div', 'sg5-lorew-text', cx.text));
+    body.appendChild(box);
+  }
+
+  // 守塔人日记：20 页收集
+  body.appendChild(el('div', 'sg5-sect', '守塔人日记 · ' + (S.loreCollected || []).length + ' / ' + d.diaries.length));
+  var zoneSeen = {};
+  for (var di = 0; di < d.diaries.length; di++) {
+    var dy = d.diaries[di];
+    if (!zoneSeen[dy.zone]) {
+      zoneSeen[dy.zone] = 1;
+      body.appendChild(el('div', 'sg5-lorew-zone', ZONE_NAMES[dy.zone] || dy.zone));
+    }
+    var got = (S.loreCollected || []).indexOf(dy.id) >= 0;
+    var row = el('div', 'sg5-lorew-row' + (got ? ' is-have' : ' is-off'));
+    row.appendChild(el('div', 'sg5-lorew-title', got ? dy.title : '一页未寻得的日记'));
+    if (got) {
+      row.appendChild(el('div', 'sg5-lorew-text', dy.text));
+    } else {
+      row.appendChild(el('div', 'sg5-lorew-text sg5-lorew-hint', '在这片区域的草丛、林间与岩缝里，找一块碑顶发亮的石碑。'));
+    }
+    body.appendChild(row);
+  }
+
+  // 风物志：按点亮进度逐步解锁（塔亮 = 真正「到过」那片地）
+  body.appendChild(el('div', 'sg5-sect', '风物志'));
+  var gz = d.gazetteer || {};
+  Object.keys(gz).forEach(function (zk) {
+    var g = gz[zk];
+    var open = zk === 'town' || !!S.towers[zk];
+    var row = el('div', 'sg5-lorew-row' + (open ? ' is-have' : ' is-off'));
+    row.appendChild(el('div', 'sg5-lorew-title', open ? g.title : (ZONE_NAMES[zk] || zk) + ' · 未踏足'));
+    if (open) row.appendChild(el('div', 'sg5-lorew-text', g.text));
+    body.appendChild(row);
+  });
+}
 
   window.ClassIntraMarket.define({ name: NAME, mount: mount, unmount: unmount });
 })();

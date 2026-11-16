@@ -313,8 +313,28 @@
   PANELS.dex = function () {
     var me = S.me;
     var dex = me.dex || {};
-    var sh = panelShell('怪物图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
+    // v5.7：图鉴分「怪物 / 世界」两页签 —— 世界承载《灯火纪》编年史、守塔人日记与风物志
+    var sh = panelShell('图鉴', '击杀 ' + Object.keys(dex).length + ' 种怪物');
     var body = sh.body;
+    var cur = S.farm && S.farm.dexTab === 'world' ? 'world' : 'mob';
+    var tabs = el('div', 'sg5-tabs');
+    [['mob', '怪物'], ['world', '世界']].forEach(function (t) {
+      var tb = el('button', 'sg5-tab' + (cur === t[0] ? ' is-on' : ''), t[1]);
+      tb.type = 'button';
+      tb.setAttribute('data-focus-key', 'dextab:' + t[0]);
+      tb.addEventListener('click', function () {
+        S.farm = S.farm || {}; S.farm.dexTab = t[0];
+        refreshPanel('dex');
+      }, false);
+      tabs.appendChild(tb);
+    });
+    body.appendChild(tabs);
+    var page = el('div', 'sg5-farm-cont');
+    if (cur === 'world') {
+      loreWorldTab(page);
+      body.appendChild(page);
+      return sh.root;
+    }
     var mobName = {
       slime: '果冻史莱姆', slime2: '薄荷史莱姆', bamboo: '竹精', mouse: '偷灯鼠', eye: '雾眼',
       mushroom: '孢子菇', owl: '夜枭', beast: '林兽', snake: '泽蛇', frog: '泽蛙法师',
@@ -330,9 +350,9 @@
       cell.appendChild(el('div', 'sg5-dexct', n ? '×' + n : '未见过'));
       grid.appendChild(cell);
     });
-    body.appendChild(grid);
+    page.appendChild(grid);
 
-    body.appendChild(el('div', 'sg5-sect', '灯塔（全服进度）'));
+    page.appendChild(el('div', 'sg5-sect', '灯塔（全服进度）'));
     var tg = el('div', 'sg5-towers');
     ZONE_ORDER.forEach(function (z) {
       var lit = !!S.towers[z];
@@ -341,12 +361,13 @@
       row.appendChild(el('span', 'sg5-tstate', lit ? '已点亮' : '长夜笼罩'));
       tg.appendChild(row);
     });
-    body.appendChild(tg);
+    page.appendChild(tg);
 
-    body.appendChild(el('div', 'sg5-sect', '宝箱'));
+    page.appendChild(el('div', 'sg5-sect', '宝箱'));
     var total = (S.map.chests || []).length;
     var got = Object.keys(S.chests).length;
-    body.appendChild(el('div', 'sg5-note', '已开启 ' + got + ' / ' + total + ' 个宝箱（个人进度）'));
+    page.appendChild(el('div', 'sg5-note', '已开启 ' + got + ' / ' + total + ' 个宝箱（个人进度）'));
+    body.appendChild(page);
     return sh.root;
   };
 
@@ -498,10 +519,10 @@
   }
 
   function storyTalk() {
-    var lit = Object.keys(S.towers).length;
-    var idx = Math.min(CHAPTERS.length - 1, lit);
-    showChapter(idx);
+    // v5.7《灯火纪》：栗的独白随点亮座数推进 —— 这是主线之外最重要的情感锚点
     closePanel();
+    loreCard('守灯人 栗', '名册 · 铜钥匙 · 灯火', loreKeeperLine(), 'plain');
+    auSfx('menu', 0.3, 1.1);
   }
 
   // ---------- 设置 ----------
@@ -527,6 +548,10 @@
     // v5.4 新增说明（新 DOM 新文案，原有键位表逐字节未动）
     body.appendChild(el('div', 'sg5-note',
       'v5.4：靠近野味/树木按 E 采集或砍树 · 斧头不用装进工具栏 · 加工在农场面板「加工」页签'));
+    body.appendChild(el('div', 'sg5-note',
+      'v5.7《灯火纪》：世界变大了 —— 六域之外还有长夜之心。草原、林间、冰原上散落着守塔人的石碑，' +
+      '碑顶发亮就是还没读过的日记；走近按 E 阅读并收下，图鉴的「世界」页签可以随时重读。' +
+      '每点亮一座灯塔，全班都会听到那位守塔人的灯语。'));
     body.appendChild(el('div', 'sg5-sect', '关于'));
     body.appendChild(el('div', 'sg5-note',
       '一个班同在一片大世界里：白天探索、打怪、攒材料；入夜后长夜从雾里涌出来，' +

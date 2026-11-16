@@ -10,8 +10,8 @@ var SEASON_DAYS = 28;
 var DAY_MS = 90000;          // 一个游戏日的真实时长：班级一节课能走过好几季
 var START_GOLD = 500;
 var START_ENERGY = 100;
-var FARM_X = 112;            // 镇子正南的草甸，不与房屋 / 地标冲突
-var FARM_Y = 142;
+var FARM_X = 176;            // 镇子正南的草甸，不与房屋 / 地标冲突
+var FARM_Y = 206;
 var FARM_W = 12;
 var FARM_H = 8;
 
@@ -399,9 +399,9 @@ function seedList(day, greenhouse) {
 
 // ---------- v5.4 野外采集刷新（纯函数，不 require worldgen） ----------
 // 区域用常量矩形近似（farmdata 不能依赖地形数据）：
-//   meadow = 以镇中心 (128,128) 为圆心、距 12~50 的环；
-//   forest = 西南象限简化矩形 [96..160] × [150..190]。
-// farm 自家田 (112..124, 142..150) 落在环内，明确排除，免得采集点长在田垄上。
+//   meadow = 以镇中心 (192,192) 为圆心、距 18~74 的环；
+//   forest = 西南象限简化矩形 [144..240] × [225..285]。
+// farm 自家田 (176..188, 206..214) 落在环内，明确排除，免得采集点长在田垄上。
 // hash(day,x,y) 决定「今天哪格有什么」，服务器重启 / 客户端重进都不会变样。
 function fhash(x, y, s) {
   var h = (x * 374761393 + y * 668265263 + (s || 0) * 2147483647) | 0;
@@ -416,10 +416,10 @@ function forageList(day, cooldown) {
   var want = 30 + Math.floor(fhash(day, 7, 11) * 8);      // 30~37 个候选，过滤阻挡格后约 14~18
   var cand = [], seen = {}, x, y;
   // meadow 环
-  for (y = 80; y <= 176; y += 2) {
-    for (x = 80; x <= 176; x += 2) {
-      var dx = x - 128, dy = y - 128;
-      if (dx * dx + dy * dy < 144 || dx * dx + dy * dy > 2500) continue;   // 12~50
+  for (y = 120; y <= 264; y += 2) {
+    for (x = 120; x <= 264; x += 2) {
+      var dx = x - 192, dy = y - 192;
+      if (dx * dx + dy * dy < 324 || dx * dx + dy * dy > 5476) continue;   // 18~74
       // 自家田矩形排除
       if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
       if (fhash(x, y, day) > 0.06) continue;
@@ -427,8 +427,8 @@ function forageList(day, cooldown) {
     }
   }
   // forest 矩形
-  for (y = 150; y <= 190; y += 2) {
-    for (x = 96; x <= 160; x += 2) {
+  for (y = 225; y <= 285; y += 2) {
+    for (x = 144; x <= 240; x += 2) {
       if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
       if (fhash(x, y, day + 77) > 0.10) continue;
       cand.push(x + ',' + y);
@@ -460,13 +460,13 @@ function eggList(day, uid) {
   var salt = 0, s = String(uid || '');
   for (var i = 0; i < s.length; i++) salt = (salt * 31 + s.charCodeAt(i)) | 0;
   var main = [], wide = [], x, y;
-  for (y = 80; y <= 176; y++) {
-    for (x = 80; x <= 176; x++) {
-      var dx = x - 128, dy = y - 128, d2 = dx * dx + dy * dy;
+  for (y = 120; y <= 264; y++) {
+    for (x = 120; x <= 264; x++) {
+      var dx = x - 192, dy = y - 192, d2 = dx * dx + dy * dy;
       if (x >= FARM_X - 1 && x <= FARM_X + FARM_W && y >= FARM_Y - 1 && y <= FARM_Y + FARM_H) continue;
-      if (d2 >= 144 && d2 <= 2500) {            // 主环：距镇中心 12~50
+      if (d2 >= 324 && d2 <= 5476) {            // 主环：距镇中心 18~74
         if (fhash(x, y, day * 7 + 1009 + salt) <= 0.02) main.push({ x: x, y: y });
-      } else if (d2 > 2500 && d2 <= 3844) {     // 放宽环：50~62，仅补齐用
+      } else if (d2 > 5476 && d2 <= 8649) {     // 放宽环：74~93，仅补齐用
         if (fhash(x, y, day * 7 + 4001 + salt) <= 0.08) wide.push({ x: x, y: y });
       }
     }

@@ -22,8 +22,8 @@ const SIM = require(B + 'sim.js');
 const t0 = Date.now();
 const world = W.get();
 const genMs = Date.now() - t0;
-ok(world.size === 256, '世界 256×256', world.size);
-ok(world.grid.length === 256 * 256, '网格长度', world.grid.length);
+ok(world.size === 384, '世界 384×384', world.size);
+ok(world.grid.length === world.size * world.size, '网格长度', world.grid.length);
 ok(genMs < 4000, '生成耗时可接受', genMs + 'ms');
 
 const counts = {};
@@ -56,7 +56,7 @@ world.landmarks.caves.forEach(function (cv) {
 
 // ---- 连通性：从镇门能走到的可走格比例 ----
 function flood(sx, sy) {
-  const WID = 256;
+  const WID = world.size;
   const seen = new Uint8Array(WID * WID);
   const q = [sy * WID + sx];
   seen[q[0]] = 1;
@@ -82,16 +82,16 @@ ok(fl.n / walkable > 0.55, '主大陆连通（可达/可走）', (fl.n / walkabl
 // 每座灯塔、每块传送石都必须在可达集合里，否则玩家永远到不了
 for (const k of Object.keys(world.landmarks.towers)) {
   const t = world.landmarks.towers[k];
-  ok(fl.seen[Math.floor(t.y) * 256 + Math.floor(t.x)] === 1, '灯塔 ' + k + ' 可从镇子走到');
+  ok(fl.seen[Math.floor(t.y) * world.size + Math.floor(t.x)] === 1, '灯塔 ' + k + ' 可从镇子走到');
 }
 for (const w of world.landmarks.waystones) {
-  ok(fl.seen[Math.floor(w.y) * 256 + Math.floor(w.x)] === 1, '传送石 ' + w.id + ' 可达');
+  ok(fl.seen[Math.floor(w.y) * world.size + Math.floor(w.x)] === 1, '传送石 ' + w.id + ' 可达');
 }
 for (const cv of world.landmarks.caves) {
-  ok(fl.seen[Math.floor(cv.y) * 256 + Math.floor(cv.x)] === 1, '洞窟 ' + cv.id + ' 可达');
+  ok(fl.seen[Math.floor(cv.y) * world.size + Math.floor(cv.x)] === 1, '洞窟 ' + cv.id + ' 可达');
 }
 let chestReach = 0;
-for (const c of world.landmarks.chests) if (fl.seen[c.y * 256 + c.x] === 1) chestReach++;
+for (const c of world.landmarks.chests) if (fl.seen[c.y * world.size + c.x] === 1) chestReach++;
 ok(chestReach / world.landmarks.chests.length > 0.8, '宝箱可达率', (chestReach / world.landmarks.chests.length * 100).toFixed(0) + '%');
 
 // ---- 刷怪点 ----

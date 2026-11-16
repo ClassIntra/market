@@ -372,6 +372,8 @@
         roll: function () { IN.roll = 1; },
         skill: function () { IN.skill = 1; },
         use: function () { IN.use = 1; },
+        interact: function () { IN.use = 1; },   // v5.7：语义别名（visual 探针用 interact 触发 E）
+        testEvent: function (e) { handleEvent(e); },   // v5.7：注入事件（灯语仪式卡等）回归用
         toast: toast,
         social: function () {
           return { friends: S.friends.length, nearby: S.nearby.length, acts: Object.keys(S.acts || {}).length,

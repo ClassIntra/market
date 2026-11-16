@@ -43,7 +43,8 @@
     for (var j = 0; j < size * size; j++) zi[j] = B36.indexOf(data.zones.charAt(j) || '1');
     S.map = {
       size: size, cells: cells, zoneIdx: zi, zones: data.zonesMeta, town: data.town,
-      towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile
+      towers: data.towers, waystones: data.waystones, chests: data.chests, tile: data.tile,
+      relics: data.relics || []   // v5.7 守塔人遗物地标（走近按 E 阅读《灯火纪》日记）
     };
     S.chests = {};
     S.waystones = data.waystones;
@@ -617,6 +618,14 @@
         }
       }
     }
+    // 守塔人遗物（《灯火纪》）：坐标精确，不在 tile 扫描里，单独收进视野
+    var relics = S.map.relics || [];
+    for (var ri = 0; ri < relics.length; ri++) {
+      var rl = relics[ri];
+      if (rl.x >= vr.x0 && rl.x <= vr.x1 && rl.y >= vr.y0 && rl.y <= vr.y1) {
+        PROPS.push({ k: 'relic', x: rl.x, y: rl.y, s: 0.5, z: zoneOf(rl.x, rl.y), id: rl.id });
+      }
+    }
   }
 
   function blitSprite(ctx, cv, cx, bottom, scale) {
@@ -662,6 +671,30 @@
       case 'bush':
         blitSprite(ctx, SPR.bush[(p.s * SPR.bush.length) | 0], sx + sway, sy + z * 0.2, z * 0.8);
         break;
+      case 'relic': {
+        // 守塔人遗物石碑：三阶灰石 + 金色灯语刻痕 + 碑顶引导光点（未寻得更亮更闪）
+        var u2 = TILE * z;
+        var lit2 = S.loreCollected && S.loreCollected.indexOf(p.id) >= 0;
+        propShadow(ctx, sx, sy + z * 0.4, 0.9);
+        ctx.fillStyle = '#17120d';
+        ctx.fillRect(sx - u2 * 0.26, sy - u2 * 0.92, u2 * 0.52, u2 * 0.92);
+        ctx.fillStyle = '#847b6c';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.86, u2 * 0.40, u2 * 0.80);
+        ctx.fillStyle = '#a29a8e';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.86, u2 * 0.40, u2 * 0.16);
+        ctx.fillStyle = '#6a6156';
+        ctx.fillRect(sx - u2 * 0.20, sy - u2 * 0.22, u2 * 0.40, u2 * 0.16);
+        ctx.fillStyle = '#5a5248';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.58, u2 * 0.24, u2 * 0.05);
+        ctx.fillStyle = '#c9963f';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.44, u2 * 0.24, u2 * 0.06);
+        ctx.fillStyle = '#5a5248';
+        ctx.fillRect(sx - u2 * 0.12, sy - u2 * 0.30, u2 * 0.24, u2 * 0.05);
+        var twk = lit2 ? 0.35 : (0.62 + Math.sin(S.time * 2.2 + p.x * 1.7) * 0.22);
+        ctx.fillStyle = lit2 ? 'rgba(255,210,122,' + twk.toFixed(2) + ')' : 'rgba(207,232,255,' + twk.toFixed(2) + ')';
+        ctx.fillRect(sx - z * 1.5, sy - u2 * 1.08, z * 3, z * 3);
+        break;
+      }
     }
   }
 

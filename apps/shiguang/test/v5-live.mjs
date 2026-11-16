@@ -142,7 +142,7 @@ ok(ex.panel, 'HUD hotbar 已渲染');
 const instRes = await fetch(BASE + '/api/market/installed', { headers: { Authorization: 'Bearer ' + token } });
 const instJson = await instRes.json();
 const inst = ((instJson.data && instJson.data.apps) || []).filter(function (a) { return a.name === 'shiguang'; })[0];
-ok(inst && inst.version === '5.6.0', '宿主已安装版本 5.6.0', inst && inst.version);
+ok(inst && inst.version === '5.7.0', '宿主已安装版本 5.7.0', inst && inst.version);
 
 const v52 = await evalJs('JSON.stringify({acts:Object.keys(__sg5.state.acts||{}).length,friends:Array.isArray(__sg5.state.friends),nearby:Array.isArray(__sg5.state.nearby),bonds:!!__sg5.state.bonds,soc:__sg5.social(),socialBtn:!!document.querySelector(".sg5-dockbtn[data-panel=social]"),dock:[].slice.call(document.querySelectorAll(".sg5-dockbtn")).map(function(b){return b.getAttribute("data-panel")+":"+b.getAttribute("title")})})');
 console.log('  v5.2:', v52.v);

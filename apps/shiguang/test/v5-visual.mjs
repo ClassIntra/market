@@ -422,6 +422,45 @@ await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
 await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
 await sleep(400);
 
+// ---------- 《灯火纪》lore（v5.7）：石碑世界层 / 遗物阅读卡 / 图鉴世界页签 / 灯语仪式卡 ----------
+await waitFor('!!(window.__sg5&&__sg5.state&&__sg5.state.map&&__sg5.state.map.relics&&__sg5.state.map.relics.length===20)', 8000, '20 处遗物入世界');
+const relic0 = await evalJs('JSON.stringify(__sg5.state.map.relics[0])');
+const rel = relic0.v ? JSON.parse(relic0.v) : {};
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ x: rel.x + 0.5, y: rel.y + 1.5 })
+});
+await evalJs('__sg5.teleport(' + (rel.x + 0.5) + ',' + (rel.y + 1.5) + ')');
+await sleep(600);
+await waitFor('!!document.querySelector(".sg5-actions")', 4000, '世界层就绪');
+await evalJs('__sg5.interact()');
+await waitFor('!!document.querySelector(".sg5-lorecard")', 6000, '遗物阅读卡弹出');
+await shot('21-lore-card');
+const loreTxt = await evalJs('JSON.stringify((document.querySelector(".sg5-lorecard-text")||{}).textContent||"")');
+ok(String(loreTxt.v).length > 60, '日记正文已渲染（守塔人故事）', String(loreTxt.v).slice(0, 30));
+await evalJs('(function(){var b=document.querySelector(".sg5-lorecard button");if(b)b.click();return 1})()');
+await sleep(400);
+await waitFor('!document.querySelector(".sg5-lore.is-on")', 4000, 'lore 卡可关闭');
+// 图鉴世界页签
+await evalJs('__sg5.panel("dex")');
+await evalJs('(function(){var t=[].slice.call(document.querySelectorAll(".sg5-tab")).filter(function(x){return x.textContent==="世界"})[0];if(t)t.click();return 1})()');
+await waitFor('(document.querySelectorAll(".sg5-lorew-row").length>=5)', 6000, '图鉴世界页签渲染');
+await waitFor('(document.body.textContent.indexOf("守塔人日记")>=0)', 4000, '日记收集进度可见');
+await shot('22-dex-world');
+// 灯语仪式卡（模拟点亮广播）
+await evalJs('__sg5.testEvent&&__sg5.testEvent({k:"lampword",z:"meadow",n:"晨光草原",t:"铃铛不响了，羊还是会回家的 —— 路我记在灯里了。替我喂猫。"})');
+await sleep(500);
+await waitFor('!!document.querySelector(".sg5-lampword")', 5000, '灯语仪式卡弹出');
+await shot('23-lampword');
+await evalJs('(function(){var b=document.querySelector(".sg5-lampword button");if(b)b.click();return 1})()');
+await evalJs('__sg5.panel("")');
+await fetch(`http://127.0.0.1:${HTTP_PORT}/test/teleport`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ x: world.town.cx + 0.5, y: world.town.cy + 0.2 })
+});
+await evalJs('__sg5.teleport(' + (world.town.cx + 0.5) + ',' + (world.town.cy + 0.2) + ')');
+await sleep(400);
+
 // ---------- 邀请卡 / 双人互动特效 ----------
 await evalJs('__sg5.card()');
 await sleep(520);

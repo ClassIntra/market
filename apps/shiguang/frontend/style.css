@@ -1765,3 +1765,39 @@ div.sg5-exhibit-cell, .sg5-exhibit-cell:disabled { cursor: default; }
 
 /* ---- 竞态守卫视觉：在途时触发的控件压暗并锁死 ---- */
 .sg5-root .is-busy { opacity: .5; pointer-events: none; }
+
+/* ==================== v5.7 《灯火纪》lore 卡 / 图鉴世界页签 ==================== */
+/* 全屏 lore 容器：遮罩极淡（阅读不打断世界），卡片可交互 */
+.sg5-lore {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(4, 3, 2, 0.45);
+  pointer-events: none; z-index: 6;
+}
+.sg5-lore.is-on { display: flex; pointer-events: auto; }
+.sg5-lorecard {
+  width: min(560px, 92%); max-height: 78%;
+  background: linear-gradient(180deg, #2e2619, #17120b);
+  border: 2px solid var(--px-line); border-radius: var(--radius-xs);
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.42), inset 0 2px 0 rgba(255, 236, 190, 0.14), inset 0 -2px 0 rgba(0, 0, 0, 0.5);
+  padding: 18px 20px 16px; overflow-y: auto;
+  animation: sg5-lore-in 220ms ease-out;
+}
+.sg5-lampword { border-color: var(--px-gold-2); box-shadow: 0 10px 0 rgba(0, 0, 0, 0.42), inset 0 0 0 2px rgba(255, 210, 122, 0.22), inset 0 2px 0 rgba(255, 236, 190, 0.16); }
+@keyframes sg5-lore-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.sg5-lorecard-title { font-size: 20px; color: var(--px-gold); line-height: 1.3; text-shadow: 0 2px 0 #000; margin-bottom: 4px; }
+.sg5-lorecard-sub { font-size: 16px; color: var(--px-ink-2); margin-bottom: 10px; }
+.sg5-lorecard-text { font-size: 16px; line-height: 1.9; color: var(--px-ink); margin-bottom: 14px; white-space: pre-line; }
+.sg5-lampword .sg5-lorecard-text { font-size: 18px; line-height: 2.1; color: var(--px-ink); }
+.sg5-lorecard-note { font-size: 16px; color: var(--px-ink-2); margin-bottom: 12px; }
+.sg5-lorecard .sg5-btn { margin-bottom: 4px; }
+
+/* 图鉴 · 世界页签 */
+.sg5-lorew-row { background: #2c231b; border: 1px solid #4a3828; padding: 8px 10px; margin-bottom: 6px; }
+.sg5-lorew-row.is-off { opacity: 0.72; }
+.sg5-lorew-row.is-have { border-left: 3px solid var(--px-gold-2); }
+.sg5-lorew-title { font-size: 16px; color: var(--px-ink); margin-bottom: 4px; }
+.sg5-lorew-row.is-off .sg5-lorew-title { color: var(--px-ink-3); }
+.sg5-lorew-text { font-size: 16px; line-height: 1.85; color: var(--px-ink-2); white-space: pre-line; }
+.sg5-lorew-hint { color: var(--px-ink-3); }
+.sg5-lorew-zone { font-size: 16px; color: var(--px-gold); margin: 10px 0 6px; text-shadow: 0 1px 0 #000; }

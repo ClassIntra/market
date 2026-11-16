@@ -2,7 +2,7 @@
 'use strict';
 
 module.exports = {
-  WORLD_SIZE: 256,          // 地图边长（格），一格 16px
+  WORLD_SIZE: 384,          // 地图边长（格），一格 16px
   TICK_MS: 100,             // 世界模拟 10Hz
   ONLINE_TTL_MS: 20000,     // 超过这么久没同步视为离线
   VIEW_RADIUS: 26,          // 同步时下发玩家周围多少格内的实体

@@ -24,6 +24,7 @@ var realtimeBus = host.realtimeBus;
 
 var C = require('./config');
 var D = require('./data');
+var LORE = require('./lore');   // v5.7《灯火纪》世界观与剧情
 var W = require('./worldgen');
 var L = require('./loot');
 var S = require('./store');
@@ -320,6 +321,17 @@ function grantKill(m, shares, killer, night) {
         S.markDirty(id);
         push(id, { k: 'tower', z: m.bossZone, n: zn, b: nm });
       });
+      // 《灯火纪》v5.7：灯亮的一刻，把这位守塔人的灯语念给全班听 —— 这是仪式的核心
+      var lwz = LORE.lampwords[m.bossZone];
+      if (lwz) ids.forEach(function (id) { push(id, { k: 'lampword', z: m.bossZone, t: lwz, n: zn }); });
+      // 第七盏（长夜之心）点亮且六域全亮 → 终章
+      if (m.bossZone === 'abyss') {
+        var allLit = true;
+        Object.keys(world.landmarks.towers).forEach(function (zz) {
+          if (zz !== 'abyss' && !S.towers()[zz]) allLit = false;
+        });
+        if (allLit) ids.forEach(function (id) { push(id, { k: 'lampword', z: 'finale', t: LORE.finale, n: '长夜之心' }); });
+      }
     } else {
       S.feed('tower', killer || '', nm + ' 又一次守住了' + zn + '的灯塔');
     }
@@ -418,7 +430,7 @@ var LIFE = require('./life')({
 });
 
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 7;   // 5.3：清出农场空地并移走田里的刷怪点，旧缓存必须失效
+var TERRAIN_VERSION = 8;   // v5.7：地图扩至 384、守塔人遗物入世界，旧缓存必须失效
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
     version: TERRAIN_VERSION,
@@ -429,6 +441,7 @@ router.get('/v5/terrain', function (req, res) {
     towers: world.landmarks.towers,
     waystones: world.landmarks.waystones,
     chests: world.landmarks.chests,
+    relics: world.landmarks.relics,   // v5.7 守塔人遗物地标（客户端画石碑/书本，按 E 阅读）
     caves: world.landmarks.caves,
     zonesMeta: D.ZONES,
     quests: D.QUESTS,
@@ -436,6 +449,36 @@ router.get('/v5/terrain', function (req, res) {
     dayMs: C.DAY_MS,
     lights: S.towers()
   });
+});
+
+// ---------------- 《灯火纪》世界观与剧情（v5.7） ----------------
+// 一次性下发全部文本（约 10KB，客户端缓存），collected 是该玩家已收集的遗物页。
+router.get('/v5/lore', requireAuth, function (req, res) {
+  var rec = S.load(uid(req), TOWN_SPAWN);
+  rec.lore = rec.lore || { relics: [] };
+  ok(res, {
+    codex: LORE.codex, gazetteer: LORE.gazetteer, chapters: LORE.chapters,
+    keeperLines: LORE.keeperLines, diaries: LORE.diaries,
+    lamps: LORE.lampwords, finale: LORE.finale,
+    collected: rec.lore.relics
+  });
+});
+
+// 收集遗物：走近世界层的石碑/书本按 E 后调用。幂等；正文回传供 lore 卡展示。
+router.post('/v5/lore/collect', requireAuth, function (req, res) {
+  var rec = S.load(uid(req), TOWN_SPAWN);
+  rec.lore = rec.lore || { relics: [] };
+  var id = String(req.body && req.body.id || '');
+  var diary = null;
+  for (var i = 0; i < LORE.diaries.length; i++) {
+    if (LORE.diaries[i].id === id) { diary = LORE.diaries[i]; break; }
+  }
+  if (!diary) return fail(res, '没有这份守塔人遗物', 400);
+  if (rec.lore.relics.indexOf(id) < 0) {
+    rec.lore.relics.push(id);
+    S.markDirty(uid(req));
+  }
+  ok(res, { collected: rec.lore.relics, diary: diary });
 });
 
 // ---------------- 进入世界 ----------------

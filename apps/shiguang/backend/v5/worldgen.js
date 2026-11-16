@@ -58,8 +58,8 @@ function fbm(x, y, s, oct) {
 
 // ---------------- 区域布局 ----------------
 var CX = SIZE / 2, CY = SIZE / 2;
-var TOWN_R = 10;        // 镇子半径（17 格见方：一屏能看全，这是「家」的最低要求）
-var MEADOW_R = 50;      // 草原外沿
+var TOWN_R = 14;        // 镇子半径（17 格见方：一屏能看全，这是「家」的最低要求）
+var MEADOW_R = 74;      // 草原外沿
 // 外环四个扇区（角度：0 = 东，逆时针为正 —— 屏幕坐标 y 向下，所以 atan2(-dy, dx)）
 // 长夜之心不在扇区里，是东北角的一块飞地，从霜屿与星坠岩之间的峡谷进入。
 var SECTORS = [
@@ -68,7 +68,7 @@ var SECTORS = [
   { zone: 'crag',   a0: 290, a1: 360 },  // 东南
   { zone: 'frost',  a0: 0,   a1: 100 }   // 东 → 北
 ];
-var ABYSS = { x: 214, y: 42, r: 30 };
+var ABYSS = { x: 321, y: 63, r: 45 };
 
 function angleDeg(dx, dy) {
   var a = Math.atan2(-dy, dx) * 180 / Math.PI;
@@ -102,35 +102,35 @@ function polar(deg, r) {
 }
 var ZONE_CENTER = {
   town: { x: CX, y: CY },
-  meadow: polar(250, 34),
-  forest: polar(150, 88),
-  swamp: polar(245, 90),
-  crag: polar(325, 88),
-  frost: polar(45, 86),
+  meadow: polar(250, 51),
+  forest: polar(150, 132),
+  swamp: polar(245, 135),
+  crag: polar(325, 132),
+  frost: polar(45, 129),
   abyss: { x: ABYSS.x, y: ABYSS.y }
 };
 
 function buildLandmarks() {
-  var L = { towers: {}, waystones: [], chests: [], caves: [], npcs: [], camps: [], shrines: [] };
+  var L = { towers: {}, waystones: [], chests: [], caves: [], npcs: [], camps: [], shrines: [], relics: [] };
   // 区域灯塔（守护者 Boss 的场地）
-  L.towers.meadow = polar(300, 38);
-  L.towers.forest = polar(150, 104);
-  L.towers.swamp = polar(240, 106);
-  L.towers.crag = polar(322, 104);
-  L.towers.frost = polar(50, 104);
+  L.towers.meadow = polar(300, 57);
+  L.towers.forest = polar(150, 156);
+  L.towers.swamp = polar(240, 159);
+  L.towers.crag = polar(322, 156);
+  L.towers.frost = polar(50, 156);
   L.towers.abyss = { x: ABYSS.x + 4, y: ABYSS.y - 4 };
   // 传送石：每区一块，靠近从镇子过来的入口
   L.waystones.push({ id: 'ws_town', x: CX + 3, y: CY + 6, zone: 'town' });
-  L.waystones.push({ id: 'ws_meadow', x: polar(120, 36).x, y: polar(120, 36).y, zone: 'meadow' });
-  L.waystones.push({ id: 'ws_forest', x: polar(150, 64).x, y: polar(150, 64).y, zone: 'forest' });
-  L.waystones.push({ id: 'ws_swamp', x: polar(245, 64).x, y: polar(245, 64).y, zone: 'swamp' });
-  L.waystones.push({ id: 'ws_crag', x: polar(325, 64).x, y: polar(325, 64).y, zone: 'crag' });
-  L.waystones.push({ id: 'ws_frost', x: polar(45, 64).x, y: polar(45, 64).y, zone: 'frost' });
+  L.waystones.push({ id: 'ws_meadow', x: polar(120, 54).x, y: polar(120, 54).y, zone: 'meadow' });
+  L.waystones.push({ id: 'ws_forest', x: polar(150, 96).x, y: polar(150, 96).y, zone: 'forest' });
+  L.waystones.push({ id: 'ws_swamp', x: polar(245, 96).x, y: polar(245, 96).y, zone: 'swamp' });
+  L.waystones.push({ id: 'ws_crag', x: polar(325, 96).x, y: polar(325, 96).y, zone: 'crag' });
+  L.waystones.push({ id: 'ws_frost', x: polar(45, 96).x, y: polar(45, 96).y, zone: 'frost' });
   L.waystones.push({ id: 'ws_abyss', x: ABYSS.x - 18, y: ABYSS.y + 16, zone: 'abyss' });
   // 洞窟：每区一处，位置贴着灯塔外侧（玩家打到灯塔时顺路就能看见洞口）
   var caveAt = {
-    meadow: polar(288, 46), forest: polar(168, 96), swamp: polar(258, 98),
-    crag: polar(338, 96), frost: polar(32, 96), abyss: { x: ABYSS.x + 12, y: ABYSS.y + 10 }
+    meadow: polar(288, 69), forest: polar(168, 144), swamp: polar(258, 147),
+    crag: polar(338, 144), frost: polar(32, 144), abyss: { x: ABYSS.x + 18, y: ABYSS.y + 15 }
   };
   Object.keys(caveAt).forEach(function (z) {
     L.caves.push({ id: 'cave_' + z, zone: z, x: caveAt[z].x, y: caveAt[z].y });
@@ -244,10 +244,20 @@ function generate() {
   // 宝箱、营地：在可走格上按区散布（确定性）
   scatterChests(grid, zones, landmarks);
 
-  // 刷怪点：自家田里不该刷怪，种地不是打怪
+  // 守塔人遗物（《灯火纪》v5.7）：每页日记一个地标，走近按 E 阅读
+  buildRelics(grid, zones, landmarks);
+
+  // 刷怪点：自家田里不该刷怪，种地不是打怪；遗物格同样不刷
   var spawns = buildSpawns(grid, zones, landmarks).filter(function (s) {
     return !(s.x >= FA.FARM_X - 1 && s.x <= FA.FARM_X + FA.FARM_W + 1 &&
       s.y >= FA.FARM_Y - 1 && s.y <= FA.FARM_Y + FA.FARM_H + 1);
+  });
+  spawns = spawns.filter(function (s) {
+    for (var ri = 0; ri < landmarks.relics.length; ri++) {
+      var rl = landmarks.relics[ri];
+      if (Math.abs(rl.x - s.x) + Math.abs(rl.y - s.y) < 4) return false;
+    }
+    return true;
   });
 
   return { size: SIZE, grid: grid, zones: zones, landmarks: landmarks, spawns: spawns };
@@ -350,12 +360,51 @@ function clearArea(grid, cx, cy, r, floor) {
 
 var ZONE_NAMES = ['town', 'meadow', 'forest', 'swamp', 'crag', 'frost', 'abyss'];
 
+// 守塔人遗物（《灯火纪》）：把 lore.diaries 的 20 页按域散进世界。
+// 第 i 页放在离域中心 (10 + i*14) 格的环带上（镇域特判用小半径），
+// 确定性 hash 选格，必须与日记同域、可走、不在农场；失败兜底到传送石旁。
+function buildRelics(grid, zones, L) {
+  var lore = require('./lore');
+  var FD = require('./farmdata');
+  var byZone = {};
+  lore.diaries.forEach(function (d) { (byZone[d.zone] = byZone[d.zone] || []).push(d); });
+  var centers = { town: { x: CX, y: CY }, abyss: { x: ABYSS.x, y: ABYSS.y } };
+  Object.keys(ZONE_CENTER).forEach(function (z) { if (!centers[z]) centers[z] = ZONE_CENTER[z]; });
+  Object.keys(byZone).forEach(function (z) {
+    var c = centers[z];
+    var list = byZone[z];
+    for (var i = 0; i < list.length; i++) {
+      var want = z === 'town' ? (6 + i * 3) : (16 + i * 22);
+      var ok = false;
+      for (var t = 0; t < 500 && !ok; t++) {
+        var ang = hash2(t + i * 173, 91, 1301) * 6.2832;
+        var r = want + (hash2(t, 92, 1302) - 0.5) * (z === 'town' ? 5 : 14);
+        var x = Math.round(c.x + Math.cos(ang) * r);
+        var y = Math.round(c.y + Math.sin(ang) * r);
+        if (x < 4 || y < 4 || x > SIZE - 5 || y > SIZE - 5) continue;
+        var ii = y * SIZE + x;
+        if (BLOCK[grid[ii]] || grid[ii] === TILE.WATER || grid[ii] === TILE.BRIDGE) continue;
+        if (zoneAt(x, y) !== z) continue;   // zones[] 存的是 ZONE_IDX 数字，必须用 zoneAt() 的字符串口径比较
+        if (x >= FD.DATA.FARM_X - 2 && x <= FD.DATA.FARM_X + FD.DATA.FARM_W + 1 &&
+            y >= FD.DATA.FARM_Y - 2 && y <= FD.DATA.FARM_Y + FD.DATA.FARM_H + 1) continue;
+        L.relics.push({ id: list[i].id, x: x, y: y });
+        ok = true;
+      }
+      if (!ok) {
+        var ws = null;
+        for (var wi = 0; wi < L.waystones.length; wi++) if (L.waystones[wi].zone === z) ws = L.waystones[wi];
+        if (ws) L.relics.push({ id: list[i].id, x: ws.x + 3 + i * 2, y: ws.y + 2 });
+      }
+    }
+  });
+}
+
 function scatterChests(grid, zones, L) {
   // 每区 6~10 个宝箱，优先放在「死胡同」和树林深处 —— 让探索有回报
-  var per = { meadow: 8, forest: 10, swamp: 10, crag: 10, frost: 10, abyss: 6 };
+  var per = { meadow: 18, forest: 22, swamp: 22, crag: 22, frost: 22, abyss: 13 };
   var count = {};
   var id = 0;
-  for (var tries = 0; tries < 60000; tries++) {
+  for (var tries = 0; tries < 90000; tries++) {
     var x = 8 + Math.floor(hash2(tries, 1, 401) * (SIZE - 16));
     var y = 8 + Math.floor(hash2(tries, 2, 401) * (SIZE - 16));
     var i = y * SIZE + x;

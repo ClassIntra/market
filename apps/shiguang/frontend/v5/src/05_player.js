@@ -492,6 +492,12 @@
   function doInteract(t) {
     var me = S.me;
     var best = null, bd = 2.2, bkind = '';
+    // 守塔人遗物（《灯火纪》）：叙事点优先级最高 —— 走近就该读
+    for (var ri = 0; ri < (S.map.relics || []).length; ri++) {
+      var rl = S.map.relics[ri];
+      var dr = dist(me.x, me.y, rl.x + 0.5, rl.y + 0.5);
+      if (dr < bd) { bd = dr; best = rl; bkind = 'relic'; }
+    }
     // 宝箱
     for (var i = 0; i < S.map.chests.length; i++) {
       var c = S.map.chests[i];
@@ -518,6 +524,7 @@
       if (d4 < bd) { bd = d4; best = n; bkind = 'npc'; }
     }
     if (!best) return toast('这里没有可以交互的东西');
+    if (bkind === 'relic') return loreOpenRelic(best);
     if (bkind === 'chest') return apiChest(best);
     if (bkind === 'waystone') return apiWaystone(best);
     if (bkind === 'tower') {

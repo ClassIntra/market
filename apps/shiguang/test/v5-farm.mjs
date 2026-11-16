@@ -358,7 +358,7 @@ P = (await st()).data.farm;
 ok(P.recipes && P.recipes.smelt_copper, 'payload 下发配方表');
 ok(P.machines && P.machines.furnace === 2, 'payload 下发设备计数');
 ok(P.eat && P.eat.food_soup === 40, 'payload 下发可吃表');
-ok(Array.isArray(P.forage) && P.forage.length >= 12 && P.forage.length <= 26, 'payload 下发当日采集点（已滤阻挡格）', P.forage.length);
+ok(Array.isArray(P.forage) && P.forage.length >= 12 && P.forage.length <= 44, 'payload 下发当日采集点（已滤阻挡格，384 地图上限 44）', P.forage.length);
 
 console.log('\n== 14. v5.4 野外采集 / 砍树 / 吃 ==');
 let cell = P.forage[0];

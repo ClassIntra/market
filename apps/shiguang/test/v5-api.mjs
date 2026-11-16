@@ -52,11 +52,29 @@ async function goTo(uid, x, y) {
 const terrain = await call('/v5/terrain');
 ok(terrain.code === 200, '地形接口返回 200', terrain.code);
 const T = terrain.data;
-ok(T.size === 256 && T.cells.length === 65536, '地形尺寸 256×256', T.cells && T.cells.length);
-ok(T.zones.length === 65536, '区域图长度一致');
+ok(T.size === 384 && T.cells.length === T.size * T.size, '地形尺寸（v5.7 起 384×384）', T.cells && T.cells.length);
+ok(T.zones.length === T.size * T.size, '区域图长度一致');
 ok(Object.keys(T.towers).length === 6, '6 座灯塔');
 ok(T.waystones.length === 7, '7 块传送石');
-ok(T.chests.length >= 40, '宝箱数量', T.chests.length);
+ok(T.chests.length >= 80, '宝箱数量（384 地图）', T.chests.length);
+
+// ---------------- 《灯火纪》lore（v5.7） ----------------
+ok(Array.isArray(T.relics) && T.relics.length === 20, '守塔人遗物 20 处入世界', T.relics && T.relics.length);
+const loreRes = await call('/v5/lore');
+ok(loreRes.code === 200 && loreRes.data, 'lore 接口 200');
+const LO = loreRes.data;
+ok(LO.codex.length === 5 && LO.chapters.length === 9, '编年史 5 篇 / 主线九章', LO.chapters && LO.chapters.length);
+ok(LO.diaries.length === 20, '守塔人日记 20 页', LO.diaries.length);
+ok(LO.keeperLines.length >= 7 && LO.finale && LO.lamps.meadow, '栗的独白 / 终章 / 灯语齐备');
+ok(Array.isArray(LO.collected) && LO.collected.length === 0, '初始收集为空');
+const col1 = await call('/v5/lore/collect', { id: 'd_meadow_1' });
+ok(col1.code === 200 && col1.data.collected.indexOf('d_meadow_1') >= 0, '收集遗物入档');
+const col2 = await call('/v5/lore/collect', { id: 'd_meadow_1' });
+ok(col2.code === 200 && col2.data.collected.length === 1, '重复收集幂等', col2.data.collected.length);
+const colBad = await call('/v5/lore/collect', { id: 'd_fake_99' });
+ok(colBad.code !== 200, '未知遗物被拒绝');
+const colAll = await call('/v5/lore');
+ok(colAll.data.collected.indexOf('d_meadow_1') >= 0, '收集进度持久化');
 
 // ---------------- 进入 ----------------
 const enter = await call('/v5/enter', {});
