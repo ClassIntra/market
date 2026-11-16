@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-16T09:25:00.066Z",
+  "updated_at": "2026-11-16T09:43:39.012Z",
   "apps": [
     {
       "name": "chess",
@@ -548,6 +548,13 @@
         "apps/shiguang/screenshots/15-exhibit-booth.png",
         "apps/shiguang/screenshots/16-lore-diary.png",
         "apps/shiguang/screenshots/17-lampword.png",
+        "apps/shiguang/screenshots/18-night-nyx.png",
+        "apps/shiguang/screenshots/19-night-card.png",
+        "apps/shiguang/screenshots/20-dex-world.png",
+        "apps/shiguang/screenshots/21-lore-card.png",
+        "apps/shiguang/screenshots/22-finale-lamp.png",
+        "apps/shiguang/screenshots/23-roster.png",
+        "apps/shiguang/screenshots/24-lampword.png",
         "apps/shiguang/test/v5-api.mjs",
         "apps/shiguang/test/v5-farm.mjs",
         "apps/shiguang/test/v5-live.mjs",
@@ -662,6 +669,13 @@
         "screenshots/15-exhibit-booth.png": "9c289217775be427df95b891f90d2b053dfcaba98805708543da7c2d6cbafaed",
         "screenshots/16-lore-diary.png": "7931c5e9100a2f4ce70283860a534c09139603bdad96865ea5b60188975f363b",
         "screenshots/17-lampword.png": "f8a03d3c29d5f07733da9c906be88999df5977cfb1b96c5ce915eb9382eb5327",
+        "screenshots/18-night-nyx.png": "909673dee25fd07fa2e56ed0ebecc762e965464c87e4ba13efb07eec37b8f452",
+        "screenshots/19-night-card.png": "6638bda5d1698c0a49ae99478a341fe98a4b3542d4282fba706a011602573c7e",
+        "screenshots/20-dex-world.png": "14ecafd47929b288212ebba581cd65ccf9b6a4aa422c59312bb038ff53bea8a2",
+        "screenshots/21-lore-card.png": "2ba235b8ae8b07ffe0b915253f08468a71552cb6394bf19694185f5c8a815bb3",
+        "screenshots/22-finale-lamp.png": "6c5e0507b884700cd1944c0d07033171ff4903f3fe23e5bafa855ed7429316b4",
+        "screenshots/23-roster.png": "00046236b018a977d93069fc8bfeaee6acef8738342c65255f1fad0c5251914d",
+        "screenshots/24-lampword.png": "14714c1151c79359a02e4c260c5deea1bfa6984726a6874e72e1cd0e38f302c9",
         "test/v5-api.mjs": "9322761366363777083404af5c1c51353545e9760fbdd72455daa12e05b7f9fe",
         "test/v5-farm.mjs": "dbdfda7193fc3ef96c2ad9801ebebaae4af5ac2c1f3587e12b9d53628cdb54da",
         "test/v5-live.mjs": "58df308b411907bab234aea6d6284a2f51de935a6c8e7f4e956be632608021f7",
@@ -688,9 +702,20 @@
         "apps/shiguang/screenshots/14-egg-hunt.png",
         "apps/shiguang/screenshots/15-exhibit-booth.png",
         "apps/shiguang/screenshots/16-lore-diary.png",
-        "apps/shiguang/screenshots/17-lampword.png"
+        "apps/shiguang/screenshots/17-lampword.png",
+        "apps/shiguang/screenshots/18-night-nyx.png",
+        "apps/shiguang/screenshots/19-night-card.png",
+        "apps/shiguang/screenshots/20-dex-world.png",
+        "apps/shiguang/screenshots/21-lore-card.png",
+        "apps/shiguang/screenshots/22-finale-lamp.png",
+        "apps/shiguang/screenshots/23-roster.png",
+        "apps/shiguang/screenshots/24-lampword.png"
       ],
       "changelog": [
+        {
+          "version": "5.8.0",
+          "notes": "《夜语》与联机手感：同步 5Hz→10Hz + 命中/技能合包 + 两条同步在途与乱序保护；进世界 terrain/meta 版本校验缓存；服务端热路径减负（40 人 10Hz 压测 0 失败）。《夜语》：20 页夜语残页与守塔人日记同格，入夜才浮现（黄昏最后 15% 渐显）；长夜之主倒下后开「守夜仪式」——全班塔下举灯同守 60 秒，天亮点亮最后一盏灯并生成「灯火名录」；图鉴世界页签昼/夜双面进度，未获得的夜语正文不下发。测试 unit 1208 / api 106 / social 46 / farm 298 / stability 14 / visual 33 / live 22 全绿。"
+        },
         {
           "version": "5.7.0",
           "notes": "《灯火纪》：世界从 256×256 扩到 384×384（面积 2.25 倍），宝箱按面积加密到 119 个。主线从七章一句话扩为序章到终章九章、每章可重读引言；完整世界观（灯烧的是被记住的事、雾是不肯散的事、长夜是没能等到天亮的人）。20 页守塔人日记散落世界（石碑顶发亮即可读），每点亮一座灯塔全班同看那位守塔人的灯语，终章「长夜有了名字」。图鉴新增「世界」页签（编年史/日记收集/风物志），栗的独白随进度推进。"
