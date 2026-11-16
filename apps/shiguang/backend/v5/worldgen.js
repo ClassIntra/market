@@ -242,6 +242,8 @@ function generate() {
   }
 
   // 宝箱、营地：在可走格上按区散布（确定性）
+  // v5.7.1 先封掉「空气墙」口袋：≤8 格的可走孤岛（视觉上是草地，走进去出不来）
+  sealPockets(grid, zones, landmarks);
   scatterChests(grid, zones, landmarks);
 
   // 守塔人遗物（《灯火纪》v5.7）：每页日记一个地标，走近按 E 阅读
@@ -397,6 +399,45 @@ function buildRelics(grid, zones, L) {
       }
     }
   });
+}
+
+// v5.7.1：把 ≤8 格的可走孤岛封成地形。384 地图上水域/崖壁把草地切成大量小口袋，
+// 玩家「看着能走、走进去出不来」，体感就是空气墙。含道路/广场/任何地标的块不封。
+function sealPockets(grid, zones, L) {
+  var seen = new Uint8Array(SIZE * SIZE);
+  var passThrough = {};
+  passThrough[TILE.DIRT] = 1; passThrough[TILE.BRIDGE] = 1; passThrough[TILE.FLOOR] = 1;
+  var markSet = {};
+  function mark(list) { (list || []).forEach(function (p) { markSet[((p.y | 0) * SIZE + (p.x | 0))] = 1; }); }
+  mark(L.waystones);
+  Object.keys(L.towers).forEach(function (k) { mark([L.towers[k]]); });
+  mark(L.caves); mark(L.chests); mark(L.relics); mark(L.npcs); mark(L.camps); mark(L.shrines);
+  for (var i0 = 0; i0 < SIZE * SIZE; i0++) {
+    if (seen[i0] || BLOCK[grid[i0]]) continue;
+    var q = [i0], comp = [i0];
+    seen[i0] = 1;
+    while (q.length) {
+      var cur = q.pop();
+      var cx = cur % SIZE, cy = (cur / SIZE) | 0;
+      for (var di = 0; di < 4; di++) {
+        var nx = cx + (di === 0 ? 1 : di === 1 ? -1 : 0);
+        var ny = cy + (di === 2 ? 1 : di === 3 ? -1 : 0);
+        if (nx < 0 || ny < 0 || nx >= SIZE || ny >= SIZE) continue;
+        var ni = ny * SIZE + nx;
+        if (!seen[ni] && !BLOCK[grid[ni]]) { seen[ni] = 1; q.push(ni); comp.push(ni); }
+      }
+    }
+    if (comp.length > 8) continue;
+    var keep = false;
+    for (var ci = 0; ci < comp.length; ci++) {
+      if (passThrough[grid[comp[ci]]] || markSet[comp[ci]]) { keep = true; break; }
+    }
+    if (keep) continue;
+    var z = ZONE_NAMES[zones[comp[0]]];
+    if (z === 'town') continue;   // 镇内广场本就是 FLOOR，不存在封镇
+    var fill = (z === 'crag' || z === 'frost') ? TILE.ROCK : (z === 'abyss' ? TILE.CLIFF : TILE.TREE);
+    for (var fi = 0; fi < comp.length; fi++) grid[comp[fi]] = fill;
+  }
 }
 
 function scatterChests(grid, zones, L) {

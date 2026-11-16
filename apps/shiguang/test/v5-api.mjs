@@ -41,7 +41,7 @@ async function call(p, body, uid) {
 // 只是省掉「从镇上走 40 格」的时间（行走本身由 sim 的位置上限保证）。
 async function goTo(uid, x, y) {
   const rec = store.load(uid, { x: x, y: y });
-  rec.x = x; rec.y = y;
+  rec.x = x; rec.y = y; rec.flags = rec.flags || {}; rec.flags.terrainV = 9;   // v5.7.1 enter 做地形版本迁移（flags JSON 列），测试传送必须同版本
   store.flush(uid);
   store.evict(uid);
   SIM.removePlayer(uid);

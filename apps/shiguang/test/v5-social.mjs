@@ -42,7 +42,7 @@ async function call(p, body, uid) {
 // 把玩家挪到指定坐标：改存档再重建在线态，不绕过任何游戏内距离校验
 async function goTo(uid, x, y) {
   const rec = store.load(uid, { x, y });
-  rec.x = x; rec.y = y;
+  rec.x = x; rec.y = y; rec.flags = rec.flags || {}; rec.flags.terrainV = 9;   // v5.7.1 enter 做地形版本迁移（flags JSON 列），测试传送必须同版本
   store.flush(uid);
   store.evict(uid);
   SIM.removePlayer(uid);

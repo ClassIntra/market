@@ -430,7 +430,7 @@ var LIFE = require('./life')({
 });
 
 // ---------------- 地形（一次，客户端缓存） ----------------
-var TERRAIN_VERSION = 8;   // v5.7：地图扩至 384、守塔人遗物入世界，旧缓存必须失效
+var TERRAIN_VERSION = 9;   // v5.7.1：孤岛封偿（空气墙修复），旧缓存必须失效
 router.get('/v5/terrain', function (req, res) {
   ok(res, {
     version: TERRAIN_VERSION,
@@ -486,6 +486,16 @@ router.post('/v5/enter', requireAuth, function (req, res) {
   var id = uid(req);
   var rec;
   try { rec = S.load(id, TOWN_SPAWN); } catch (e) { return fail(res, '世界暂时进不去，再试一次', 500); }
+
+  // v5.7.1 旧存档迁移：世界扩图（256→384）后旧坐标语义全变（旧镇心 128,128 在新图是野地），
+  // 存档没带地形版本标记的一律视为旧图坐标 → 送回镇心一次。
+  // 版本号存 flags（JSON 列）而不是新列 —— SQL 表没有 tv 字段，裸属性不会被持久化。
+  if (!rec.flags || rec.flags.terrainV !== TERRAIN_VERSION) {
+    rec.flags = rec.flags || {};
+    rec.flags.terrainV = TERRAIN_VERSION;
+    rec.x = TOWN_SPAWN.x; rec.y = TOWN_SPAWN.y;
+    S.markDirty(id);
+  }
 
   // 自愈：坐标不可走 / 越界 → 挪到最近的可走格并落库
   if (!walkable(rec.x, rec.y)) {
@@ -1006,7 +1016,7 @@ router.post('/v5/respawn', requireAuth, function (req, res) {
   p.x = TOWN_SPAWN.x; p.y = TOWN_SPAWN.y;
   p.hp = Math.max(1, Math.round(p.maxHp * C.RESPAWN_HP_RATIO));
   p.mp = p.maxMp;
-  rec.x = p.x; rec.y = p.y; rec.hp = Math.round(p.hp);
+  rec.x = p.x; rec.y = p.y; rec.hp = Math.round(p.hp); rec.flags = rec.flags || {}; rec.flags.terrainV = TERRAIN_VERSION;
   S.markDirty(id);
   ok(res, { x: p.x, y: p.y, hp: Math.round(p.hp), mp: Math.round(p.mp) });
 });
