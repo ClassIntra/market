@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14b8a6"/>
+      <stop offset="0.55" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#115e59"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#f2d9a6"/>
+      <stop offset="0.55" stop-color="#e6c489"/>
+      <stop offset="1" stop-color="#cfa15f"/>
+    </linearGradient>
+    <radialGradient id="blackStone" cx="0.34" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#7b818c"/>
+      <stop offset="0.28" stop-color="#3a3d44"/>
+      <stop offset="0.72" stop-color="#15171b"/>
+      <stop offset="1" stop-color="#030405"/>
+    </radialGradient>
+    <radialGradient id="whiteStone" cx="0.34" cy="0.3" r="0.82">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#f6f3ec"/>
+      <stop offset="0.88" stop-color="#dcd6ca"/>
+      <stop offset="1" stop-color="#bfb7a8"/>
+    </radialGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#062e2a" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="176" height="176" rx="42" fill="url(#bg)"/>
+  <rect x="34" y="34" width="124" height="124" rx="14" fill="url(#wood)"/>
+  <g stroke="#6b451d" stroke-opacity="0.72" stroke-width="2">
+    <path d="M49 49h94M49 68h94M49 87h94M49 106h94M49 125h94M49 144h94"/>
+    <path d="M49 49v95M68 49v95M87 49v95M106 49v95M125 49v95M144 49v95"/>
+  </g>
+  <g fill="#5a3a16">
+    <circle cx="87" cy="87" r="2.6"/>
+    <circle cx="125" cy="87" r="2.6"/>
+    <circle cx="87" cy="125" r="2.6"/>
+    <circle cx="125" cy="125" r="2.6"/>
+    <circle cx="106" cy="106" r="2.6"/>
+  </g>
+  <circle cx="106" cy="106" r="21" fill="url(#blackStone)" filter="url(#shadow)"/>
+  <circle cx="87" cy="125" r="21" fill="url(#whiteStone)" stroke="#b8b0a2" stroke-width="1.4" filter="url(#shadow)"/>
+  <circle cx="99" cy="97" r="6" fill="#ffffff" fill-opacity="0.2"/>
+  <circle cx="80" cy="116" r="6.5" fill="#ffffff" fill-opacity="0.82"/>
+</svg>

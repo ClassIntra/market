@@ -1,0 +1,39 @@
+{
+  "name": "weiqi",
+  "type": "app",
+  "version": "1.4.0",
+  "sdk": "1",
+  "label": "围棋",
+  "description": "支持 9/13/19 路、人机练习（服务器安装 KataGo 时自动启用强力 AI，未安装时回退三档本地 AI；Web Worker 后台思考不卡界面，开局手册/战术定手，AI 分析候选/胜率/形势，引擎异常自动兜底走子）、本地双人、房间联机（4 位房间码、观战、快捷聊天、双方确认数子、跨班对局）、SGF 打谱复盘与整盘 AI 复盘（逐手评级妙手/本手/俗手/失误/恶手）、断线恢复的原生 DOM 围棋；含落子二次确认、猜先、提子音效与终局结果复制；中国数子法，让子局白先，含劫争/自杀/超级劫判定。",
+  "author": "ClassIntra",
+  "icon": "./icon.svg",
+  "color": "#0f766e",
+  "category": "desktop",
+  "order": 22,
+  "defaultEnabled": true,
+  "canDisable": true,
+  "capabilities": [
+    "data.storage",
+    "data.http",
+    "data.realtime",
+    "system.clipboard",
+    "system.share",
+    "system.navigate",
+    "ui.modal",
+    "device.filePicker",
+    "device.vibrate"
+  ],
+  "frontend": {
+    "route": "/weiqi",
+    "routeName": "Weiqi",
+    "entry": "./frontend/entry.js",
+    "style": "./frontend/style.css"
+  },
+  "layout": {
+    "mode": "fullscreen"
+  },
+  "backend": {
+    "mountPath": "/api/weiqi",
+    "entry": "./backend/routes.js"
+  }
+}
