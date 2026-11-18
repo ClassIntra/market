@@ -707,7 +707,9 @@ function createRoom(req, res) {
       relayBus.relayOnly('weiqi_room_directory_sync', { room_code: code, server_id: SELF_SERVER_ID, size: size });
     } catch (e) {}
   }
-  return sendState(res, code, room, 201, true);
+  // 宿主 SDK 只把 code === 200 视为成功，这里必须返回 200（不能用 201），
+  // 否则房间已经建好，前端却会显示「请求失败」。
+  return sendState(res, code, room, 200, true);
 }
 
 function joinRoom(req, res) {
@@ -1005,7 +1007,8 @@ function postMessage(req, res) {
   ).get(result.lastInsertRowid);
   var message = chatMessageView(row);
   notifyRoomMessage(code, message);
-  return res.status(201).json({ code: 201, data: message });
+  // 同上：宿主 SDK 只接受 code === 200，发送聊天也必须返回 200。
+  return res.status(200).json({ code: 200, data: message });
 }
 
 // ============ 历史（供复盘扩展） ============

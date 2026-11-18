@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-17T22:44:14.049Z",
+  "updated_at": "2026-11-18T23:43:09.892Z",
   "apps": [
     {
       "name": "chess",
@@ -973,7 +973,7 @@
       "hashes": {
         "backend/cleanup.js": "6baf9427e784d07dae6f01602bd274867116f9b271e1a4a0e52d48375d0ac199",
         "backend/engine.js": "8448a4080909dc3e9a4df7f9f956dd45b3bd81976b5effd73c7c39e730ec0111",
-        "backend/routes.js": "ce339efa0e736c8e1143d8d4b29dd09becff7344722750dc6dd70c3e0d1d06cb",
+        "backend/routes.js": "24ee558f5d1c3a232862b5a3fdc2ca98df8c6fef261fe23fc3f66a096e6434bd",
         "core/go-core.js": "d9c365e04fa7c237ee93c9be61cbcf0e5b43fa58114a9ac4dc273bb70ef48145",
         "frontend/ai-worker.js": "3c07b24d3a721fcc7671dac6565279e7b66c8d32308e4bf063201cc4bf4c955c",
         "frontend/entry.js": "14b5b7142580cd08a8387c8f59c7ba532572eb52cc51af5d0f711b909f18c215",
