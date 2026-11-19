@@ -1348,6 +1348,8 @@
       layoutBoard();
       showToast('已进入复盘，可点「AI 复盘」逐手评级');
       announce('进入复盘');
+      // 若终局时已自动入队后台复盘，这里直接接上进度/结果。
+      ensureReviewLoaded();
     }
 
     function restartSameGame() {
@@ -1533,6 +1535,8 @@
       renderInfo();
       renderMoves();
       maybeAutoSaveFinishedGame();
+      // 终局即把复盘排进服务端后台队列，用户可以直接离开。
+      autoStartServerReview();
       if (tab === 'chat') renderChat();
       updateTabs();
       requestDraw();
@@ -1853,7 +1857,7 @@
         ]));
         if (reviewReport.status === 'running') {
           rbox.appendChild(t('p', 'weiqi-analysis-loading', {
-            text: '正在逐手分析 ' + reviewReport.done + '/' + reviewReport.total + '，可停止…'
+            text: '后台复盘进行中 ' + reviewReport.done + '/' + reviewReport.total + '；可以先离开，回来即见结果'
           }));
           rbox.appendChild(buildReviewChart(reviewReport));
         } else if (reviewReport.status === 'done') {
@@ -2017,14 +2021,18 @@
         if (reviewReport && reviewReport.status === 'running') {
           var progress = t('div', 'weiqi-review-progress');
           progress.appendChild(t('span', null, { text: 'AI 复盘 ' + reviewReport.done + '/' + reviewReport.total }));
+          // 复盘在服务端后台跑，这里只是不再刷新进度，任务不会停。
           progress.appendChild(t('button', 'weiqi-btn weiqi-btn-sm weiqi-btn-quiet', {
-            type: 'button', 'data-action': 'review-cancel', text: '停止'
+            type: 'button', 'data-action': 'review-cancel', text: '停止刷新'
           }));
           panelMoves.appendChild(progress);
-        } else {
-          var reportLabel = reviewReport && reviewReport.status === 'done' ? '重新 AI 复盘' : 'AI 复盘（本手 / 俗手 / 妙手）';
+        } else if (reviewReport && reviewReport.status === 'done') {
           panelMoves.appendChild(t('button', 'weiqi-btn weiqi-btn-sm weiqi-btn-block weiqi-moves-auto', {
-            type: 'button', 'data-action': 'review-analyze', text: reportLabel
+            type: 'button', 'data-action': 'review-analyze', text: 'AI 复盘（已完成）', disabled: 'disabled'
+          }));
+        } else {
+          panelMoves.appendChild(t('button', 'weiqi-btn weiqi-btn-sm weiqi-btn-block weiqi-moves-auto', {
+            type: 'button', 'data-action': 'review-analyze', text: 'AI 复盘（本手 / 俗手 / 妙手）'
           }));
         }
         if (reviewReport && reviewReport.status === 'done') {
@@ -3446,101 +3454,83 @@
       return wrap;
     }
 
-    // 用「着法前/后两个局面的黑胜率」估算这一手的损失；
-    // 如果实战着法在候选里，直接用候选与最佳着法的胜率差，更准。
-    //
-    // ⚠️ 两套阈值，别混用（2026-11-19 修复「评手不准」）：
-    //   - 实战着法在候选里（有依据）：候选胜率是同一棵搜索树里的横向对比，
-    //     16 visits 下精度约 ±0.02，用严阈值。
-    //   - 不在候选里（只有局面差）：posLoss 是两棵不同搜索树的纵向差，
-    //     混着对手先手权与低预算噪声，实测能虚高 0.1~0.3，
-    //     必须用宽阈值，否则正常手会被成片误判成失误/恶手。
-    //   另修妙手判定：gap 原来取「最佳与最差候选的差」，几乎恒 ≥0.08，
-    //   等于「与 AI 首选一致就是妙手」；改为「最佳与次佳的差」，
-    //   只有唯一明显好手时才可能是妙手。
-    function classifyReviewMove(index, prev, curr, move) {
-      var mover = move.color;
-      var posLoss = mover === BLACK ? prev.blackWin - curr.blackWin : curr.blackWin - prev.blackWin;
-      var bestWin = null;
-      var best = null;
-      var i;
-      for (i = 0; i < prev.candidates.length; i++) {
-        var c = prev.candidates[i];
-        if (!c || !isFinite(c.blackWinrate)) continue;
-        var w = Number(c.blackWinrate);
-        if (bestWin === null || (mover === BLACK ? w > bestWin : w < bestWin)) {
-          bestWin = w;
-          best = c;
-        }
-      }
-      var played = null;
-      if (!move.pass) {
-        for (i = 0; i < prev.candidates.length; i++) {
-          var p = prev.candidates[i];
-          if (Number(p.row) === move.row && Number(p.col) === move.col) { played = p; break; }
-        }
-      }
-      var loss = posLoss;
-      if (played && bestWin !== null) {
-        var pw = Number(played.blackWinrate);
-        var direct = mover === BLACK ? bestWin - pw : pw - bestWin;
-        if (isFinite(direct) && direct > -0.02) loss = direct;
-      }
-      if (!isFinite(loss) || loss < 0) loss = 0;
-      // 妙手依据：最佳与「次佳」的差（原实现取最差候选，恒为大值，是 bug）
-      var secondGap = 0;
-      if (bestWin !== null) {
-        var secondWin = null;
-        for (i = 0; i < prev.candidates.length; i++) {
-          var w2 = Number(prev.candidates[i].blackWinrate);
-          if (!isFinite(w2) || w2 === bestWin) continue;
-          if (secondWin === null || (mover === BLACK ? w2 > secondWin : w2 < secondWin)) secondWin = w2;
-        }
-        if (secondWin !== null) secondGap = Math.abs(bestWin - secondWin);
-      }
-      var isBest = !!(played && bestWin !== null && Math.abs(Number(played.blackWinrate) - bestWin) < 0.005);
-      var hasEvidence = !!played;
-      var grade;
-      if (isBest && secondGap >= 0.06 && loss <= 0.015) grade = 'brilliant';
-      else if (hasEvidence) {
-        if (loss <= 0.025) grade = 'proper';
-        else if (loss <= 0.06) grade = 'vulgar';
-        else if (loss <= 0.15) grade = 'mistake';
-        else grade = 'blunder';
-      } else {
-        if (loss <= 0.05) grade = 'proper';
-        else if (loss <= 0.12) grade = 'vulgar';
-        else if (loss <= 0.25) grade = 'mistake';
-        else grade = 'blunder';
-      }
-      return {
-        index: index,
-        color: mover,
-        row: move.row,
-        col: move.col,
-        pass: !!move.pass,
-        grade: grade,
-        loss: loss,
-        bestRow: best ? Number(best.row) : null,
-        bestCol: best ? Number(best.col) : null,
-        bestWin: bestWin,
-        playedWin: played ? Number(played.blackWinrate) : null
-      };
-    }
+    // 逐手评级（本手/俗手/妙手/失误/恶手）已移到服务端 ai-shared.js：
+    // 整盘复盘改为后台任务后，前端只消费服务端算好的 results/summary，
+    // 避免两处阈值漂移导致「复盘页和后台结果评级不一致」。
 
     function cancelReviewReport(silent) {
       reviewReportToken += 1;
       if (reviewReport && reviewReport.status === 'running') {
         reviewReport.status = 'error';
-        reviewReport.error = '已停止';
-        if (!silent) showToast('已停止复盘分析');
+        reviewReport.error = '已停止刷新';
+        if (!silent) showToast('已停止刷新；后台复盘仍在继续，稍后回来即可看到结果');
       }
       movesKey = '';
       renderMoves();
       renderInfo();
     }
 
-    function startReviewReport() {
+    // 复盘请求体：与服务端 /ai/review-async/start 约定的输入形状。
+    function reviewInputPayload() {
+      return {
+        size: state.size,
+        komi: state.komi,
+        handicap: state.handicap,
+        turn: state.initialTurn,
+        setup: (state.setup || []).map(function (s) {
+          return { color: s.color, row: s.row, col: s.col };
+        }),
+        moves: state.moves.map(function (m) {
+          return { color: m.color, row: m.row, col: m.col, pass: !!m.pass };
+        }),
+        level: 2
+      };
+    }
+
+    // 用服务端算好的结果填充 reviewReport（结构与原先逐手分析时一致，
+    // 这样胜率曲线、最大失误、棋谱评级等 UI 都不用改）。
+    function applyServerReview(data) {
+      reviewReport.status = 'done';
+      reviewReport.done = Number(data.total) || reviewReport.total;
+      reviewReport.total = Number(data.total) || reviewReport.total;
+      reviewReport.positions = data.positions || [];
+      reviewReport.results = data.results || [];
+      reviewReport.summary = data.summary || { brilliant: 0, proper: 0, vulgar: 0, mistake: 0, blunder: 0 };
+      reviewReport.error = '';
+      movesKey = '';
+      renderMoves();
+      renderInfo();
+      showToast('AI 复盘完成：' + reviewSummaryText(reviewReport));
+    }
+
+    // 终局自动入队复盘：用户可以直接离开，回来点「AI 复盘」即见结果。
+    var autoReviewStarted = {};
+    function autoStartServerReview() {
+      if (!state || state.status !== 'finished' || mode === 'review') return;
+      if (state.moves.length < 10) return;
+      if (!kataGoAvailable) return;
+      var key = reviewKey();
+      if (autoReviewStarted[key]) return;
+      autoReviewStarted[key] = true;
+      apiRequest('post', '/weiqi/ai/review-async/start', reviewInputPayload()).then(function () {
+        // 队列已受理即可；进度由复盘面板轮询。
+      }, function () {
+        // 失败就允许下次再自动尝试（比如引擎刚重启）。
+        autoReviewStarted[key] = false;
+      });
+    }
+
+    // 进入复盘页时接上后台任务：已触发过就直接显示进度/结果。
+    function ensureReviewLoaded() {
+      if (mode !== 'review' || !state || state.moves.length < 10) return;
+      var key = reviewKey();
+      if (reviewReport && reviewReport.key === key &&
+        (reviewReport.status === 'done' || reviewReport.status === 'running')) return;
+      if (!kataGoAvailable) return;
+      startReviewReport(true);
+    }
+
+    function startReviewReport(silent) {
       if (mode !== 'review' || !state || !state.moves.length) return;
       var key = reviewKey();
       if (reviewReport && reviewReport.key === key && reviewReport.status === 'done') {
@@ -3548,91 +3538,79 @@
         return;
       }
       if (!kataGoUsable()) {
-        showToast('整盘复盘需要服务器 KataGo');
+        if (!silent) showToast('整盘复盘需要服务器 KataGo');
         return;
       }
       reviewReportToken += 1;
       var token = reviewReportToken;
-      reviewReport = {
-        key: key,
-        status: 'running',
-        done: 0,
-        total: state.moves.length + 1,
-        positions: [],
-        results: [],
-        summary: { brilliant: 0, proper: 0, vulgar: 0, mistake: 0, blunder: 0, unknown: 0 },
-        error: ''
-      };
+      if (!reviewReport || reviewReport.key !== key) {
+        reviewReport = {
+          key: key,
+          status: 'running',
+          done: 0,
+          total: state.moves.length + 1,
+          positions: [],
+          results: [],
+          summary: { brilliant: 0, proper: 0, vulgar: 0, mistake: 0, blunder: 0, unknown: 0 },
+          error: ''
+        };
+      } else {
+        reviewReport.status = 'running';
+        reviewReport.error = '';
+      }
       movesKey = '';
       renderMoves();
       renderInfo();
-      showToast('开始 AI 复盘：共 ' + state.moves.length + ' 手，可随时停止');
-      step(0);
 
       function stale() {
         return disposed || token !== reviewReportToken || mode !== 'review' || !state || reviewKey() !== key;
       }
 
-      function step(i) {
+      function resync() {
+        movesKey = '';
+        renderMoves();
+        renderInfo();
+      }
+
+      // 触发（幂等）：已完成直接取结果，进行中接着轮询。
+      apiRequest('post', '/weiqi/ai/review-async/start', reviewInputPayload()).then(function (result) {
+        if (stale() || !result) return;
+        reviewReport.total = Number(result.total) || reviewReport.total;
+        reviewReport.done = Number(result.progress) || reviewReport.done;
+        resync();
+        pollStatus(result.reviewId);
+      }, function (error) {
         if (stale()) return;
-        var prefix = [];
-        for (var k = 0; k < i; k++) {
-          var m = state.moves[k];
-          prefix.push({ color: m.color, row: m.row, col: m.col, pass: !!m.pass });
-        }
-        apiRequest('post', '/weiqi/ai/review', {
-          size: state.size,
-          komi: state.komi,
-          handicap: state.handicap,
-          turn: state.initialTurn,
-          setup: (state.setup || []).map(function (s) {
-            return { color: s.color, row: s.row, col: s.col };
-          }),
-          moves: prefix,
-          level: 2
-        }).then(function (result) {
-          if (stale()) return;
-          var blackWin = Number(result && result.blackWinrate);
-          if (!isFinite(blackWin)) blackWin = 0.5;
-          reviewReport.positions[i] = {
-            blackWin: blackWin,
-            candidates: (result && result.candidates) || []
-          };
-          reviewReport.done = i + 1;
-          if (i > 0) {
-            var prev = reviewReport.positions[i - 1];
-            var curr = reviewReport.positions[i];
-            var item = classifyReviewMove(i - 1, prev, curr, state.moves[i - 1]);
-            reviewReport.results[i - 1] = item;
-            reviewReport.summary[item.grade] += 1;
-          }
-          movesKey = '';
-          renderMoves();
-          renderInfo();
-          if (i >= reviewReport.total - 1) {
-            reviewReport.status = 'done';
-            movesKey = '';
-            renderMoves();
-            renderInfo();
-            showToast('AI 复盘完成：' + reviewSummaryText(reviewReport));
+        var message = (error && error.message) || '复盘启动失败';
+        reviewReport.status = 'error';
+        reviewReport.error = message;
+        resync();
+        showToast('复盘启动失败：' + message);
+      });
+
+      // 轮询进度：复盘在服务端后台跑，前端随时可以离开。
+      function pollStatus(reviewId) {
+        if (stale() || !reviewId) return;
+        apiRequest('get', '/weiqi/ai/review-async/' + reviewId).then(function (result) {
+          if (stale() || !result) return;
+          reviewReport.done = Number(result.progress) || 0;
+          reviewReport.total = Number(result.total) || reviewReport.total;
+          if (result.status === 'done' && result.data) {
+            applyServerReview(result.data);
             return;
           }
-          // 不要再人为加延迟：引擎本身是串行队列，这里多等 60ms
-          // 只是在整盘复盘上白加几秒（50 手就是 3 秒）。
-          setTimeout(function () { step(i + 1); }, 0);
-        }, function (error) {
-          if (stale()) return;
-          var message = (error && error.message) || '复盘分析失败';
-          if (/繁忙|频繁|busy|429/i.test(message)) {
-            setTimeout(function () { step(i); }, 900);
+          if (result.status === 'error') {
+            reviewReport.status = 'error';
+            reviewReport.error = result.error || '复盘失败';
+            resync();
+            showToast('复盘中断：' + reviewReport.error);
             return;
           }
-          reviewReport.status = 'error';
-          reviewReport.error = message;
-          movesKey = '';
-          renderMoves();
-          renderInfo();
-          showToast('复盘中断：' + message);
+          resync();
+          setTimeout(function () { pollStatus(reviewId); }, 1600);
+        }, function () {
+          if (stale()) return;
+          setTimeout(function () { pollStatus(reviewId); }, 2200);
         });
       }
     }

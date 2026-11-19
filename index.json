@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-19T03:43:30.643Z",
+  "updated_at": "2026-11-19T08:16:07.687Z",
   "apps": [
     {
       "name": "chess",
@@ -401,7 +401,7 @@
         "assets/webm/骑木马.webm": "5f54a98ccac97eac000d799043411f4fc0732096dc51a2ad766552737578f313",
         "assets/webm/鲸鱼吐泡泡特效.webm": "d64d02059dc1602f7de5aa3135d381351363f021b2bceed47655db322cc71db3",
         "backend/cleanup.js": "05f9279f6ba8e6118bcefb22e8e2c5299d5d63afef6e97906c0840ba5abbedf3",
-        "backend/routes.js": "aef95c157d49435efec9a12fb94432e385ceb9af96b2b3c962454b42018bc701",
+        "backend/routes.js": "486680838c7168527acc410f69b3cd56e4708a59c9a668038aef8a75968016d1",
         "docs/battle-build-system.md": "e5b53e61cfc28f4f69448b512251d23dcb488dc3f616b5b1bd9acc40c5d1cf68",
         "docs/ui-design-spec-v2.md": "ad8d5912c082ee54fcf8327792e33c1776c7f1484d7591bdab9d9f7665d66fab",
         "frontend/assets/fonts/unifont-ex-16px-square.woff2": "7e115d606896f4d9850c7c85cf2b90c914ce88c0df3780fd36fff79120323a94",
@@ -943,7 +943,7 @@
     {
       "name": "weiqi",
       "label": "围棋",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "description": "支持 9/13/19 路、人机练习（服务器安装 KataGo 时自动启用强力 AI，未安装时回退三档本地 AI；Web Worker 后台思考不卡界面，开局手册/战术定手，AI 分析候选/胜率/形势，引擎异常自动兜底走子）、本地双人、房间联机（4 位房间码、观战、快捷聊天、双方确认数子、跨班对局）、SGF 打谱复盘与整盘 AI 复盘（逐手评级妙手/本手/俗手/失误/恶手）、断线恢复的原生 DOM 围棋；含落子二次确认、猜先、提子音效与终局结果复制；中国数子法，让子局白先，含劫争/自杀/超级劫判定。",
       "author": "ClassIntra",
       "icon": "apps/weiqi/icon.svg",
@@ -959,8 +959,10 @@
         "device.vibrate"
       ],
       "files": [
+        "apps/weiqi/backend/ai-shared.js",
         "apps/weiqi/backend/cleanup.js",
         "apps/weiqi/backend/engine.js",
+        "apps/weiqi/backend/review-runner.js",
         "apps/weiqi/backend/routes.js",
         "apps/weiqi/core/go-core.js",
         "apps/weiqi/frontend/ai-worker.js",
@@ -971,17 +973,25 @@
         "apps/weiqi/README.md"
       ],
       "hashes": {
+        "backend/ai-shared.js": "2ecf5f8746308c5eb9ad5f5ac06f5bf6f26fda4195772cd92f6201514e3df40c",
         "backend/cleanup.js": "6baf9427e784d07dae6f01602bd274867116f9b271e1a4a0e52d48375d0ac199",
-        "backend/engine.js": "8448a4080909dc3e9a4df7f9f956dd45b3bd81976b5effd73c7c39e730ec0111",
-        "backend/routes.js": "558856fd254566c21a30b8e099d0e7428f4b4e5a17ef9ad6d50eafe537698c04",
+        "backend/engine.js": "19496ee998d3224fac8b8a33d201ed6e00ea34cacef26cde6866fcccb9f1f66f",
+        "backend/review-runner.js": "300af681f2fc44a4e80339b23f384bde9d572c35421190962f1825ca127c7c39",
+        "backend/routes.js": "80a1ad4e7fa821d9aa68cce4264b64de1516ab91a9d205c8a143d6db888c9f39",
         "core/go-core.js": "d9c365e04fa7c237ee93c9be61cbcf0e5b43fa58114a9ac4dc273bb70ef48145",
         "frontend/ai-worker.js": "3c07b24d3a721fcc7671dac6565279e7b66c8d32308e4bf063201cc4bf4c955c",
-        "frontend/entry.js": "5e6a4450fc4676f6edbf5f6588294dbef926ffd68f886c3d3738d124121c871d",
+        "frontend/entry.js": "aaa35c05b1480008ea30ab5a72f42982ec491bc799967b00b0f419bab9ec5df5",
         "frontend/style.css": "0d3f2402f333f1195326f9ef4f16fd6e6fa2f585a9ce8a6a9c68cbb022c33461",
         "icon.svg": "f776a39ee1edcf73903453adfb85fba9b7c4782252666bc87707ffa8f16c4198",
-        "manifest.json": "3b85e9a2b9e4bd72d2d9224e165e424eb16c38eaf6b96b2ae303754fc921b18b",
-        "README.md": "b76f0c0336b832135d75ab635764434ccb12d21899f4a5072b1d1decd5a308bb"
-      }
+        "manifest.json": "ce00670184edee3e0a5de2e0b4ed37b153f7aeaac39d3b83c28c024ed9070521",
+        "README.md": "875c94341db336056f398c7070cd579780338fdaa8de1eb812bd762c7112d177"
+      },
+      "changelog": [
+        {
+          "version": "1.5.0",
+          "notes": "整盘 AI 复盘改为服务端后台任务：终局后自动入队逐手分析，期间可退出应用去下别的棋，回来点「AI 复盘」直接看结果；任务幂等存库（同一局不重算、重启不丢结果），正在对局时 AI 应手优先、复盘只在引擎空闲时推进。评级算法修正：妙手依据改取「最佳与次佳候选差」（原取最差候选恒为大值）、实战着法不在候选时改用宽阈值避免正常手被误判为失误/恶手，复盘预算 20→16 visits。"
+        }
+      ]
     }
   ],
   "plugins": [

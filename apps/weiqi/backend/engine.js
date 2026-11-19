@@ -333,6 +333,32 @@ Slot.prototype.warmup = function () {
   return this.ensureProcess().then(function () { return self.status(); });
 };
 
+// 等引擎完全空闲（没有正在跑的查询、也没有排队的请求）。
+// 后台复盘靠它「让路」：只有在没人用引擎时才推进下一手，
+// 学生正在对局时 AI 应手不会被复盘任务堵在后面。
+// ⚠️ 引擎未启动时必须先 ensureProcess 拉起来，否则 proc 永远是 null，
+//    这里只会空转等待、任务卡死在 progress=0（2026-11-19 生产事故）。
+Slot.prototype.idle = function () {
+  var self = this;
+  return new Promise(function (resolvePromise, rejectPromise) {
+    (function check() {
+      if (!available()) {
+        return rejectPromise(engineError('UNAVAILABLE', '服务器未安装 KataGo 引擎或模型'));
+      }
+      if (self.proc && self.ready && !self.activeId && self.queue.length === 0) {
+        return resolvePromise();
+      }
+      if (!self.proc || !self.ready) {
+        // 未启动 / 未就绪：先拉起（booting 期间返回同一个 promise，不会重复 spawn）
+        self.ensureProcess().then(check, function (err) { rejectPromise(err); });
+        return;
+      }
+      // 正在查询 / 有排队 → 继续等；不做超时，由任务层决定何时放弃。
+      setTimeout(check, 200);
+    })();
+  });
+};
+
 Slot.prototype.shutdown = function () {
   this.rejectAll(engineError('SHUTDOWN', 'KataGo 已关闭'));
   this.killProcess('');
@@ -373,6 +399,10 @@ function warmup() {
   return getSlot().warmup();
 }
 
+function idle() {
+  return getSlot().idle();
+}
+
 function analyze(payload) {
   return getSlot().analyze(payload);
 }
@@ -394,6 +424,7 @@ module.exports = {
   available: available,
   status: status,
   warmup: warmup,
+  idle: idle,
   analyze: analyze,
   shutdown: shutdown
 };

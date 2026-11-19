@@ -30,6 +30,9 @@ var config = host.config;
 // 规则核心：前端 / 后端 / AI 共用同一份实现，保证联机判定与本地一致
 var Core = require(path.join(__dirname, '..', 'core', 'go-core.js'));
 var aiEngine = require('./engine');
+// AI 请求构造 / 结果转换 / 逐手评级：与后台复盘 runner 共用（唯一实现，勿复制）
+var Shared = require('./ai-shared');
+var reviewRunner = require('./review-runner');
 
 var NAME = 'weiqi';
 var EVENT_CHANGED = 'weiqi.room.changed';
@@ -666,6 +669,7 @@ function purgeStaleRooms() {
     db.prepare('DELETE FROM weiqi_games WHERE room_code NOT IN (SELECT room_code FROM weiqi_rooms)').run();
     db.prepare('DELETE FROM weiqi_messages WHERE room_code NOT IN (SELECT room_code FROM weiqi_rooms)').run();
     db.prepare('DELETE FROM weiqi_room_directory WHERE room_code NOT IN (SELECT room_code FROM weiqi_rooms)').run();
+    reviewRunner.prune();
   } catch (e) {}
 }
 
@@ -878,6 +882,8 @@ function resignHandler(req, res) {
   db.prepare("UPDATE weiqi_games SET status = 'finished', winner = ?, result_text = ?, result_code = ?, ended_at = datetime('now') WHERE id = ?")
     .run(winner, colorLabel(winnerCode) + '中盘胜', winnerCode === 1 ? 'B+R' : 'W+R', game.id);
   db.prepare("UPDATE weiqi_rooms SET updated_at = datetime('now') WHERE room_code = ?").run(code);
+  // 终局即入队后台复盘：双方都可以立刻离开，回来时结果已经算好。
+  startRoomReviewForGame(latestGame(code));
   return sendState(res, code, roomRow(code), 200, true);
 }
 
@@ -958,6 +964,8 @@ function confirmScoreHandler(req, res) {
     var winnerName = colorName(score.winner);
     db.prepare("UPDATE weiqi_games SET status = 'finished', winner = ?, result_text = ?, result_code = ?, ended_at = datetime('now') WHERE id = ?")
       .run(winnerName, score.resultText, score.resultCode, game.id);
+    // 终局即入队后台复盘：双方都可以立刻离开，回来时结果已经算好。
+    startRoomReviewForGame(latestGame(code));
   }
   db.prepare("UPDATE weiqi_rooms SET updated_at = datetime('now') WHERE room_code = ?").run(code);
   return sendState(res, code, roomRow(code), 200, true);
@@ -1063,172 +1071,14 @@ router.get('/rooms/:roomCode/messages', roomAuth, requireRoom, listMessages);
 router.post('/rooms/:roomCode/messages', roomAuth, requireRoom, postMessage);
 router.get('/rooms/:roomCode/history', roomAuth, requireRoom, historyHandler);
 
-var GTP_LETTERS = 'ABCDEFGHJKLMNOPQRST';
 var aiLastAt = {};
 
-function aiBudget(level, purpose) {
-  var l = Number(level);
-  if (!isFinite(l) || l < 1) l = 2;
-  if (l > 3) l = 3;
-  // 复盘整盘要逐手分析，预算压低靠数量换覆盖面。
-  // 这台服务器是 Intel UHD 730 核显，b18 每 visit 约 70ms：
-  // 16 visits ≈ 1.15s/手。8 visits 只要 0.66s，但只产生 3~4 个候选，
-  // 实战着法几乎永远不在候选里，评级只能退化成「相邻局面胜率差」，
-  // 噪声大到会把好棋判成恶手——这才是「评手不准」的根因。
-  // 16 visits 候选 6~9 个，实战着法覆盖率明显提升，评级才站得住。
-  if (purpose === 'review') {
-    return { visits: 16, time: 1.2, level: 2 };
-  }
-  // 对局应手走快速预算，单项分析和整盘复盘走更深的预算，但模型一致。
-  var visits = l === 1 ? 24 : l === 2 ? 56 : 120;
-  var time = l === 1 ? 1.8 : l === 2 ? 3.3 : 7.0;
-  if (purpose === 'analyze') {
-    visits = l === 1 ? 32 : l === 2 ? 56 : 100;
-    time = l === 1 ? 2.2 : l === 2 ? 3.5 : 6.0;
-  }
-  return { visits: visits, time: time, level: l };
-}
-
-function gtpPoint(size, row, col) {
-  return GTP_LETTERS.charAt(col) + String(size - row);
-}
-
-function parseGtpPoint(size, value) {
-  if (!value || value === 'pass' || value === 'resign') return null;
-  var text = String(value).toUpperCase();
-  var col = GTP_LETTERS.indexOf(text.charAt(0));
-  var rowNum = parseInt(text.slice(1), 10);
-  if (col < 0 || !isFinite(rowNum)) return null;
-  var row = size - rowNum;
-  if (row < 0 || row >= size || col >= size) return null;
-  return { row: row, col: col };
-}
-
 function buildAiQuery(body, purpose) {
-  var input = body || {};
-  var size = Number(input.size);
-  if (ALLOWED_SIZES.indexOf(size) === -1) throw new Error('棋盘规格不支持');
-  var komi = Number(input.komi);
-  if (!isFinite(komi) || komi < 0 || komi > 100) komi = DEFAULT_KOMI;
-  var handicap = Number(input.handicap);
-  if (!isFinite(handicap) || ALLOWED_HANDICAPS.indexOf(handicap) === -1) handicap = 0;
-  var list = Array.isArray(input.moves) ? input.moves : [];
-  if (list.length > size * size * 2 + 10) throw new Error('着法数量异常');
-
-  var state = Core.createState({
-    size: size,
-    komi: komi,
-    handicap: handicap,
-    rules: 'chinese',
-    setup: Array.isArray(input.setup) ? input.setup : [],
-    turn: input.turn
-  });
-  var gtpMoves = [];
-  for (var i = 0; i < list.length; i += 1) {
-    var m = list[i] || {};
-    var color = m.color === Core.BLACK || m.color === 'B' || m.color === 'b' ? Core.BLACK
-      : m.color === Core.WHITE || m.color === 'W' || m.color === 'w' ? Core.WHITE : null;
-    if (!color) throw new Error('着法颜色异常');
-    if (m.pass) {
-      var pass = Core.applyPass(state, color, { ignoreTurn: true });
-      if (!pass.ok) throw new Error('着法不合法：' + (pass.error || '停一手'));
-      gtpMoves.push([color === Core.BLACK ? 'B' : 'W', 'pass']);
-      continue;
-    }
-    var row = Number(m.row);
-    var col = Number(m.col);
-    if (!isFinite(row) || !isFinite(col) || row < 0 || col < 0 || row >= size || col >= size) {
-      throw new Error('着法坐标异常');
-    }
-    var applied = Core.applyMove(state, color, row, col, { ignoreTurn: true });
-    if (!applied.ok) throw new Error('着法不合法：' + (applied.error || ''));
-    gtpMoves.push([color === Core.BLACK ? 'B' : 'W', gtpPoint(size, row, col)]);
-  }
-  if (state.status !== 'active') throw new Error('对局已结束');
-
-  var initialStones = [];
-  if (state.setup && state.setup.length) {
-    for (var s = 0; s < state.setup.length; s += 1) {
-      var stone = state.setup[s];
-      initialStones.push([
-        stone.color === Core.BLACK ? 'B' : 'W',
-        gtpPoint(size, stone.row, stone.col)
-      ]);
-    }
-  }
-  var budget = aiBudget(input.level, purpose);
-  var payload = {
-    moves: gtpMoves,
-    rules: 'chinese',
-    komi: komi,
-    boardXSize: size,
-    boardYSize: size,
-    maxVisits: budget.visits,
-    maxTime: budget.time,
-    includeOwnership: false
-  };
-  if (initialStones.length) {
-    payload.initialStones = initialStones;
-    payload.initialPlayer = state.initialTurn === Core.WHITE ? 'W' : 'B';
-  }
-  return { payload: payload, size: size, komi: komi, budget: budget };
+  return Shared.buildAiQuery(body, purpose);
 }
 
 function convertAiResult(raw, size, body) {
-  var root = raw && raw.rootInfo ? raw.rootInfo : {};
-  var infos = raw && Array.isArray(raw.moveInfos) ? raw.moveInfos.slice() : [];
-  infos.sort(function (a, b) { return (Number(a.order) || 0) - (Number(b.order) || 0); });
-  var avoid = {};
-  if (body && Array.isArray(body.avoid)) {
-    for (var a = 0; a < body.avoid.length && a < 20; a += 1) {
-      var av = Number(body.avoid[a]);
-      if (isFinite(av)) avoid[av] = true;
-    }
-  }
-  var picked = null;
-  for (var i = 0; i < infos.length; i += 1) {
-    var pm = parseGtpPoint(size, infos[i].move);
-    if (pm && avoid[pm.row * size + pm.col]) continue;
-    picked = infos[i];
-    break;
-  }
-  if (!picked && infos.length) picked = infos[0];
-  var move = null;
-  var pass = false;
-  if (!picked || !picked.move || picked.move === 'pass') {
-    pass = true;
-  } else {
-    var point = parseGtpPoint(size, picked.move);
-    if (point) move = point;
-    else pass = true;
-  }
-  var blackWin = isFinite(Number(root.winrate)) ? Number(root.winrate) : 0.5;
-  var blackLead = isFinite(Number(root.scoreLead)) ? Number(root.scoreLead) : 0;
-  var candidates = [];
-  for (var c = 0; c < infos.length && candidates.length < 8; c += 1) {
-    var cp = parseGtpPoint(size, infos[c].move);
-    if (!cp) continue;
-    candidates.push({
-      row: cp.row,
-      col: cp.col,
-      blackWinrate: isFinite(Number(infos[c].winrate)) ? Number(infos[c].winrate) : blackWin,
-      blackScoreLead: isFinite(Number(infos[c].scoreLead)) ? Number(infos[c].scoreLead) : blackLead,
-      visits: isFinite(Number(infos[c].visits)) ? Number(infos[c].visits) : 0,
-      gtp: infos[c].move
-    });
-  }
-  return {
-    engine: 'katago',
-    move: move,
-    pass: pass,
-    winrate: blackWin,
-    scoreLead: blackLead,
-    blackWinrate: blackWin,
-    blackScoreLead: blackLead,
-    visits: isFinite(Number(root.visits)) ? Number(root.visits) : 0,
-    candidates: candidates,
-    pv: picked && Array.isArray(picked.pv) ? picked.pv.slice(0, 10) : []
-  };
+  return Shared.convertAiResult(raw, size, body);
 }
 
 function aiRateLimit(req, res, next) {
@@ -1274,6 +1124,47 @@ router.post('/ai/warmup', requireAuth, function (req, res) {
 
 router.post('/ai/move', requireAuth, aiRateLimit, aiHandler('move'));
 router.post('/ai/analyze', requireAuth, aiRateLimit, aiHandler('analyze'));
+// 单局面分析（保留）：前端「AI 分析」面板仍用它；整盘复盘改走下面的后台任务。
 router.post('/ai/review', requireAuth, aiRateLimit, aiHandler('review'));
+
+// ============ 整盘复盘（后台任务） ============
+// 需求：对局结束后自动复盘、用户可以离开，回来直接看结果。
+// 触发 → 服务端排队逐手分析、进度落库 → 前端轮询 status 取结果。
+function startRoomReviewForGame(game) {
+  if (!game) return;
+  try {
+    var rows = gameMoves(game.id);
+    if (!rows.length) return;
+    reviewRunner.startReview({
+      size: Number(game.size),
+      komi: Number(game.komi),
+      handicap: Number(game.handicap) || 0,
+      turn: Number(game.handicap) > 1 ? Core.WHITE : Core.BLACK,
+      setup: [],
+      moves: moveListForClient(rows),
+      level: 2
+    });
+  } catch (e) {
+    // 后台自动触发失败不能让终局请求失败，静默记日志即可。
+    console.error('[weiqi] auto review start failed:', e && e.message ? e.message : e);
+  }
+}
+
+router.post('/ai/review-async/start', requireAuth, function (req, res) {
+  var out;
+  try {
+    out = reviewRunner.startReview(req.body || {});
+  } catch (e) {
+    var code = e && e.code === 'BUSY' ? 429 : (e && e.code === 'TOO_SHORT' ? 400 : (e && e.code === 'UNAVAILABLE' ? 503 : 400));
+    return res.status(code).json({ code: code, message: e && e.message ? e.message : '复盘启动失败', error: e && e.code ? e.code : 'REVIEW_ERROR' });
+  }
+  res.json({ code: 200, data: out });
+});
+
+router.get('/ai/review-async/:reviewId', requireAuth, function (req, res) {
+  var out = reviewRunner.statusOf(req.params.reviewId);
+  if (!out) return res.status(404).json({ code: 404, message: '复盘任务不存在' });
+  res.json({ code: 200, data: out });
+});
 
 module.exports = router;
