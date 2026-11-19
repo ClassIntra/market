@@ -3597,7 +3597,9 @@
             showToast('AI 复盘完成：' + reviewSummaryText(reviewReport));
             return;
           }
-          setTimeout(function () { step(i + 1); }, 60);
+          // 不要再人为加延迟：引擎本身是串行队列，这里多等 60ms
+          // 只是在整盘复盘上白加几秒（50 手就是 3 秒）。
+          setTimeout(function () { step(i + 1); }, 0);
         }, function (error) {
           if (stale()) return;
           var message = (error && error.message) || '复盘分析失败';

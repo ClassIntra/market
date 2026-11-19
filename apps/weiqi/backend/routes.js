@@ -1071,8 +1071,13 @@ function aiBudget(level, purpose) {
   if (!isFinite(l) || l < 1) l = 2;
   if (l > 3) l = 3;
   // 复盘整盘要逐手分析，预算固定压低，靠数量换覆盖面。
+  // 这台服务器是 Intel UHD 730 核显，b18 每 visit 约 80ms：
+  // 8 visits ≈ 0.65s/手（此前 20 visits ≈ 1.7s/手，整盘要 90 秒以上）。
+  // 不再往下压：4 visits 虽然只要 0.34s，但候选着法几乎是噪声，
+  // 会把「妙手/失误」判错；8 visits 的候选已可用，胜率的系统偏差
+  // 在相邻两手之间同向抵消，不影响评级差值。
   if (purpose === 'review') {
-    return { visits: 20, time: 1.3, level: 2 };
+    return { visits: 8, time: 0.7, level: 2 };
   }
   // 对局应手走快速预算，单项分析和整盘复盘走更深的预算，但模型一致。
   var visits = l === 1 ? 24 : l === 2 ? 56 : 120;
