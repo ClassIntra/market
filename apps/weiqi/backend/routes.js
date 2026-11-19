@@ -1070,14 +1070,14 @@ function aiBudget(level, purpose) {
   var l = Number(level);
   if (!isFinite(l) || l < 1) l = 2;
   if (l > 3) l = 3;
-  // 复盘整盘要逐手分析，预算固定压低，靠数量换覆盖面。
-  // 这台服务器是 Intel UHD 730 核显，b18 每 visit 约 80ms：
-  // 8 visits ≈ 0.65s/手（此前 20 visits ≈ 1.7s/手，整盘要 90 秒以上）。
-  // 不再往下压：4 visits 虽然只要 0.34s，但候选着法几乎是噪声，
-  // 会把「妙手/失误」判错；8 visits 的候选已可用，胜率的系统偏差
-  // 在相邻两手之间同向抵消，不影响评级差值。
+  // 复盘整盘要逐手分析，预算压低靠数量换覆盖面。
+  // 这台服务器是 Intel UHD 730 核显，b18 每 visit 约 70ms：
+  // 16 visits ≈ 1.15s/手。8 visits 只要 0.66s，但只产生 3~4 个候选，
+  // 实战着法几乎永远不在候选里，评级只能退化成「相邻局面胜率差」，
+  // 噪声大到会把好棋判成恶手——这才是「评手不准」的根因。
+  // 16 visits 候选 6~9 个，实战着法覆盖率明显提升，评级才站得住。
   if (purpose === 'review') {
-    return { visits: 8, time: 0.7, level: 2 };
+    return { visits: 16, time: 1.2, level: 2 };
   }
   // 对局应手走快速预算，单项分析和整盘复盘走更深的预算，但模型一致。
   var visits = l === 1 ? 24 : l === 2 ? 56 : 120;

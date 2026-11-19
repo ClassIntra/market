@@ -3448,6 +3448,16 @@
 
     // 用「着法前/后两个局面的黑胜率」估算这一手的损失；
     // 如果实战着法在候选里，直接用候选与最佳着法的胜率差，更准。
+    //
+    // ⚠️ 两套阈值，别混用（2026-11-19 修复「评手不准」）：
+    //   - 实战着法在候选里（有依据）：候选胜率是同一棵搜索树里的横向对比，
+    //     16 visits 下精度约 ±0.02，用严阈值。
+    //   - 不在候选里（只有局面差）：posLoss 是两棵不同搜索树的纵向差，
+    //     混着对手先手权与低预算噪声，实测能虚高 0.1~0.3，
+    //     必须用宽阈值，否则正常手会被成片误判成失误/恶手。
+    //   另修妙手判定：gap 原来取「最佳与最差候选的差」，几乎恒 ≥0.08，
+    //   等于「与 AI 首选一致就是妙手」；改为「最佳与次佳的差」，
+    //   只有唯一明显好手时才可能是妙手。
     function classifyReviewMove(index, prev, curr, move) {
       var mover = move.color;
       var posLoss = mover === BLACK ? prev.blackWin - curr.blackWin : curr.blackWin - prev.blackWin;
@@ -3477,22 +3487,32 @@
         if (isFinite(direct) && direct > -0.02) loss = direct;
       }
       if (!isFinite(loss) || loss < 0) loss = 0;
-      var gap = 0;
+      // 妙手依据：最佳与「次佳」的差（原实现取最差候选，恒为大值，是 bug）
+      var secondGap = 0;
       if (bestWin !== null) {
+        var secondWin = null;
         for (i = 0; i < prev.candidates.length; i++) {
           var w2 = Number(prev.candidates[i].blackWinrate);
-          if (!isFinite(w2)) continue;
-          var diff = Math.abs(w2 - bestWin);
-          if (diff > 0.005 && diff > gap) gap = diff;
+          if (!isFinite(w2) || w2 === bestWin) continue;
+          if (secondWin === null || (mover === BLACK ? w2 > secondWin : w2 < secondWin)) secondWin = w2;
         }
+        if (secondWin !== null) secondGap = Math.abs(bestWin - secondWin);
       }
       var isBest = !!(played && bestWin !== null && Math.abs(Number(played.blackWinrate) - bestWin) < 0.005);
+      var hasEvidence = !!played;
       var grade;
-      if (isBest && gap >= 0.08 && loss <= 0.01) grade = 'brilliant';
-      else if (loss <= 0.015) grade = 'proper';
-      else if (loss <= 0.06) grade = 'vulgar';
-      else if (loss <= 0.15) grade = 'mistake';
-      else grade = 'blunder';
+      if (isBest && secondGap >= 0.06 && loss <= 0.015) grade = 'brilliant';
+      else if (hasEvidence) {
+        if (loss <= 0.025) grade = 'proper';
+        else if (loss <= 0.06) grade = 'vulgar';
+        else if (loss <= 0.15) grade = 'mistake';
+        else grade = 'blunder';
+      } else {
+        if (loss <= 0.05) grade = 'proper';
+        else if (loss <= 0.12) grade = 'vulgar';
+        else if (loss <= 0.25) grade = 'mistake';
+        else grade = 'blunder';
+      }
       return {
         index: index,
         color: mover,

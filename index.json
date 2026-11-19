@@ -1,6 +1,6 @@
 {
   "version": 123,
-  "updated_at": "2026-11-19T02:49:15.160Z",
+  "updated_at": "2026-11-19T03:43:30.643Z",
   "apps": [
     {
       "name": "chess",
@@ -973,10 +973,10 @@
       "hashes": {
         "backend/cleanup.js": "6baf9427e784d07dae6f01602bd274867116f9b271e1a4a0e52d48375d0ac199",
         "backend/engine.js": "8448a4080909dc3e9a4df7f9f956dd45b3bd81976b5effd73c7c39e730ec0111",
-        "backend/routes.js": "1a674ba4b3d983e2c317f8ba98963af886ec9476e7cbfb6b8200c3a6b21743a5",
+        "backend/routes.js": "558856fd254566c21a30b8e099d0e7428f4b4e5a17ef9ad6d50eafe537698c04",
         "core/go-core.js": "d9c365e04fa7c237ee93c9be61cbcf0e5b43fa58114a9ac4dc273bb70ef48145",
         "frontend/ai-worker.js": "3c07b24d3a721fcc7671dac6565279e7b66c8d32308e4bf063201cc4bf4c955c",
-        "frontend/entry.js": "d9892e865caee758c8fa50caf2557db2aded65bdccedf95046b46fc4503b5a2d",
+        "frontend/entry.js": "5e6a4450fc4676f6edbf5f6588294dbef926ffd68f886c3d3738d124121c871d",
         "frontend/style.css": "0d3f2402f333f1195326f9ef4f16fd6e6fa2f585a9ce8a6a9c68cbb022c33461",
         "icon.svg": "f776a39ee1edcf73903453adfb85fba9b7c4782252666bc87707ffa8f16c4198",
         "manifest.json": "3b85e9a2b9e4bd72d2d9224e165e424eb16c38eaf6b96b2ae303754fc921b18b",
