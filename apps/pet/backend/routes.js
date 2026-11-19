@@ -237,6 +237,26 @@ function todayKey() {
   return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
 }
 
+// 每日计数跨天重置 —— 单一真源。
+// ⚠️ 2026-11-19 修：原来这段内联只在 /interact 里，/state 不重置。
+//    跨天后用户一开页面，/state 下发昨天的 fed_today=3 → 前端 canFeed()=false
+//    → doFeed() 开头直接 return，请求根本发不到 /interact，于是 interact 里那句
+//    重置永远执行不到 → 「今天明明没喂却喂不了」的死锁（生产库 59 存档里 24 个
+//    bond_date 停在旧日期且 fed_today>=1，实锤）。
+//    现在 /state 和 /interact 都调它：进页面即清零，死锁从根上解除。
+//    返回是否真的重置了（调用方可据此决定是否额外落库）。
+function rolloverDaily(state, today) {
+  if (!state || !today || state.bond_date === today) return false;
+  state.bond_date = today;
+  state.bond_today = 0;
+  state.poked_today = 0;
+  state.fed_today = 0;
+  state.gift_today = 0;
+  state.gift_date = today;
+  state.visited_date = '';
+  return true;
+}
+
 // 羁绊值获得规则（每日上限防刷：poke10 + feed3 + visit1 = 最高 +25/天）
 var INTERACT_RULES = {
   poke:  { gain: 1, dailyCap: 10, cooldownMs: 0 },
@@ -1116,15 +1136,7 @@ router.post('/interact', requireAuth, function(req, res) {
   }
 
   var today = todayKey();
-  if (state.bond_date !== today) {
-    state.bond_date = today;
-    state.bond_today = 0;
-    state.poked_today = 0;
-    state.fed_today = 0;
-    state.gift_today = 0;
-    state.gift_date = today;
-    state.visited_date = '';
-  }
+  rolloverDaily(state, today);
 
   var tierBefore = state.bond || 0;
   var gained = 0;
@@ -1401,6 +1413,12 @@ router.get('/state', requireAuth, function(req, res) {
   if (row) {
     try { state = JSON.parse(row.value); } catch (e) { state = null; }
   }
+  // ⚠️ 2026-11-19 修：进页面即做跨天重置（原来只在 /interact 做）。
+  //    不放在这里，前端拿到的就是昨天的 fed_today → 喂食按钮被误判为「吃饱了」。
+  //    必须在 dailyBonus（读 bond_today 并 +奖励）之前调用，否则登录奖励算进旧的一天。
+  var didRollover = rolloverDaily(state, todayKey());
+  // 中招存档（昨天的 fed_today 挂着）进页面即落库修复，不必等下一次 /interact。
+  if (didRollover && state && state.adopted) writePet(userId(req), state);
   // v0.15.0：每日登录奖励 + 连续登录天数。
   // 第一次打开宠物屋的那天给一份小礼物， streak 让「连续来」有 visibly 的进步。
   var dailyBonus = null;
